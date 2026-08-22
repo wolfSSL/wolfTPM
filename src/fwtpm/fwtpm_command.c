@@ -3823,6 +3823,11 @@ static int FwCopyHashContext(wc_HashAlg* dst, wc_HashAlg* src,
             rc = wc_Sha3_512_Copy(&src->alg.sha3, &dst->alg.sha3);
             break;
     #endif
+    #ifdef WOLFSSL_SHAKE256
+        case WC_HASH_TYPE_SHAKE256:
+            rc = wc_Shake256_Copy(&src->alg.sha3, &dst->alg.sha3);
+            break;
+    #endif
     #ifdef WOLFSSL_SM3
         case WC_HASH_TYPE_SM3:
             rc = wc_Sm3Copy(&src->alg.sm3, &dst->alg.sm3);
@@ -3900,6 +3905,10 @@ static int FwHashStateSize(enum wc_HashType hashType)
     #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
         case WC_HASH_TYPE_SHA3_512:
             return (int)sizeof(wc_Sha3);
+    #endif
+    #ifdef WOLFSSL_SHAKE256
+        case WC_HASH_TYPE_SHAKE256:
+            return (int)sizeof(wc_Shake);
     #endif
     #ifdef WOLFSSL_SM3
         case WC_HASH_TYPE_SM3:
@@ -4001,7 +4010,11 @@ static void FwSanitizeHashState(wc_HashAlg* hash,
 #ifdef WOLFSSL_SHA3
     if (hashType == WC_HASH_TYPE_SHA3_256 ||
              hashType == WC_HASH_TYPE_SHA3_384 ||
-             hashType == WC_HASH_TYPE_SHA3_512) {
+             hashType == WC_HASH_TYPE_SHA3_512
+    #ifdef WOLFSSL_SHAKE256
+             || hashType == WC_HASH_TYPE_SHAKE256
+    #endif
+             ) {
         hash->alg.sha3.devId = INVALID_DEVID;
         hash->alg.sha3.devCtx = NULL;
     }
@@ -4039,7 +4052,11 @@ static int FwHashStateHasExternalData(wc_HashAlg* hash,
     #ifdef WOLFSSL_SHA3
     if (hashType == WC_HASH_TYPE_SHA3_256 ||
             hashType == WC_HASH_TYPE_SHA3_384 ||
-            hashType == WC_HASH_TYPE_SHA3_512) {
+            hashType == WC_HASH_TYPE_SHA3_512
+        #ifdef WOLFSSL_SHAKE256
+            || hashType == WC_HASH_TYPE_SHAKE256
+        #endif
+            ) {
         return hash->alg.sha3.devId != INVALID_DEVID ||
             hash->alg.sha3.devCtx != NULL;
     }
@@ -9414,10 +9431,10 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     dataBuf, take);
                 signSeq->firstBytesSz += take;
             }
-            /* Hash-ML-DSA, RSA, ECC: stream into the hash accumulator.
-             * KEYEDHASH (HMAC): stream into hmacCtx. Pure ML-DSA retains
-             * the raw message because its signature operates on it. */
-            if (signSeq->sigScheme == TPM_ALG_HASH_MLDSA ||
+            /* Pure/Hash-ML-DSA, RSA and ECC stream into a hash accumulator.
+             * KEYEDHASH streams into hmacCtx. */
+            if (signSeq->sigScheme == TPM_ALG_MLDSA ||
+                    signSeq->sigScheme == TPM_ALG_HASH_MLDSA ||
                     signSeq->sigScheme == TPM_ALG_RSA ||
                     signSeq->sigScheme == TPM_ALG_ECC) {
                 if (!signSeq->hashCtxInit) {
@@ -9442,14 +9459,6 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         rc = TPM_RC_FAILURE;
                     }
                 }
-            }
-            else if (signSeq->msgBufSz + dataSize > sizeof(signSeq->msgBuf)) {
-                rc = TPM_RC_MEMORY;
-            }
-            else {
-                XMEMCPY(signSeq->msgBuf + signSeq->msgBufSz,
-                    dataBuf, dataSize);
-                signSeq->msgBufSz += dataSize;
             }
             /* MESSAGE_VERIFIED authenticates the raw message, not the
              * scheme's internal digest. Keep its HMAC streaming so verify
@@ -16133,6 +16142,47 @@ static TPM_RC FwSignSeqInitHashCtx(FWTPM_SignSeq* seq, TPMI_ALG_HASH hashAlg)
     return TPM_RC_SUCCESS;
 }
 
+/* Initialize the incremental Pure ML-DSA mu calculation:
+ * SHAKE256(H(pk, 64) || 0 || ctxLen || ctx || message, 64). */
+static TPM_RC FwSignSeqInitMldsaMuCtx(FWTPM_SignSeq* seq,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubKey)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    byte tr[MLDSA_TR_SZ];
+    byte prefix[2];
+    enum wc_HashType wcHash = WC_HASH_TYPE_SHAKE256;
+
+    XMEMSET(tr, 0, sizeof(tr));
+    if (seq->context.size > 255 || pubKey->size == 0 ||
+            pubKey->size > sizeof(pubKey->buffer)) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 && wc_Shake256Hash(pubKey->buffer, pubKey->size,
+            tr, sizeof(tr)) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        rc = FwSignSeqInitHashCtx(seq, TPM_ALG_SHAKE256);
+    }
+    if (rc == 0 && wc_HashUpdate(&seq->hashCtx, wcHash,
+            tr, sizeof(tr)) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    prefix[0] = 0;
+    prefix[1] = (byte)seq->context.size;
+    if (rc == 0 && wc_HashUpdate(&seq->hashCtx, wcHash,
+            prefix, sizeof(prefix)) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && seq->context.size > 0 &&
+            wc_HashUpdate(&seq->hashCtx, wcHash,
+                seq->context.buffer, seq->context.size) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    TPM2_ForceZero(tr, sizeof(tr));
+    return rc;
+}
+
 /* Start the HMAC for a MESSAGE_VERIFIED ticket. SequenceUpdate streams the
  * raw message into this context and VerifySequenceComplete appends keyName. */
 static TPM_RC FwSignSeqInitTicketHmac(FWTPM_CTX* ctx, FWTPM_SignSeq* seq,
@@ -16282,7 +16332,10 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * just like Hash-ML-DSA. The oneShot flag is left in place for
          * any future EDDSA path. */
         seq->oneShot = 0;
-        if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
+        if (obj->pub.type == TPM_ALG_MLDSA) {
+            rc = FwSignSeqInitMldsaMuCtx(seq, &obj->pub.unique.mldsa);
+        }
+        else if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
             rc = FwSignSeqInitHashCtx(seq,
                 obj->pub.parameters.hash_mldsaDetail.hashAlg);
         }
@@ -16464,10 +16517,13 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(&seq->keyName, &obj->name, sizeof(seq->keyName));
         seq->sigScheme = obj->pub.type;
         /* Verify sequences always accept SequenceUpdate. Signature checking
-         * uses hashCtx, hmacCtx, or msgBuf according to the scheme; the raw
-         * message also streams into ticketHmacCtx for the verified ticket. */
+         * uses hashCtx or hmacCtx according to the scheme; the raw message
+         * also streams into ticketHmacCtx for the verified ticket. */
         seq->oneShot = 0;
-        if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
+        if (obj->pub.type == TPM_ALG_MLDSA) {
+            rc = FwSignSeqInitMldsaMuCtx(seq, &obj->pub.unique.mldsa);
+        }
+        else if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
             rc = FwSignSeqInitHashCtx(seq,
                 obj->pub.parameters.hash_mldsaDetail.hashAlg);
         }
@@ -16637,9 +16693,8 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, msgBuf, bufSize);
 
-        /* If no SequenceUpdate filled firstBytes (one-shot Pure-MLDSA
-         * case where the entire message arrives via this trailing
-         * buffer), capture from the trailing buffer now. */
+        /* If SequenceUpdate did not fill firstBytes, capture the remaining
+         * prefix from the trailing buffer. */
         if (seq->firstBytesSz < sizeof(seq->firstBytes) && bufSize > 0) {
             UINT32 take = (UINT32)sizeof(seq->firstBytes)
                               - seq->firstBytesSz;
@@ -16653,8 +16708,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * (0xFF544347). seq->firstBytes is populated incrementally by
          * SequenceUpdate and topped-up here from the trailing buffer,
          * so the check works regardless of whether the prefix arrived
-         * via Update (Hash-ML-DSA accumulator path) or Complete (Pure-
-         * MLDSA one-shot path). */
+         * via Update or Complete. */
         if (rc == 0 &&
             (keyObj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
             static const byte gGeneratedValue[4] = {
@@ -16677,31 +16731,32 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         if (rc == 0 && keyObj->pub.type == TPM_ALG_MLDSA) {
-            /* Concatenate any SequenceUpdate-accumulated bytes (msgBuf)
-             * with the trailing Complete-time buffer, then sign the full
-             * message. If no streaming happened (msgBufSz == 0) just sign
-             * the trailing buffer. */
-            if (seq->msgBufSz == 0) {
-                rc = FwSignMldsaMessage(&ctx->rng,
-                    keyObj->pub.parameters.mldsaDetail.parameterSet,
-                    keyObj->privKey,
-                    seq->context.buffer, seq->context.size,
-                    msgBuf, bufSize, sigOut);
-            }
-            else if (seq->msgBufSz + bufSize > sizeof(seq->msgBuf)) {
-                rc = TPM_RC_MEMORY;
+            byte mu[MLDSA_MU_SZ];
+            enum wc_HashType wcHash = WC_HASH_TYPE_SHAKE256;
+
+            XMEMSET(mu, 0, sizeof(mu));
+            if (!seq->hashCtxInit) {
+                rc = TPM_RC_FAILURE;
             }
             else {
                 if (bufSize > 0) {
-                    XMEMCPY(seq->msgBuf + seq->msgBufSz, msgBuf, bufSize);
-                    seq->msgBufSz += bufSize;
+                    if (wc_HashUpdate(&seq->hashCtx, wcHash,
+                            msgBuf, bufSize) != 0) {
+                        rc = TPM_RC_FAILURE;
+                    }
                 }
-                rc = FwSignMldsaMessage(&ctx->rng,
-                    keyObj->pub.parameters.mldsaDetail.parameterSet,
-                    keyObj->privKey,
-                    seq->context.buffer, seq->context.size,
-                    seq->msgBuf, seq->msgBufSz, sigOut);
+                if (rc == 0 && wc_HashFinal(&seq->hashCtx, wcHash, mu) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                wc_HashFree(&seq->hashCtx, wcHash);
+                seq->hashCtxInit = 0;
+                if (rc == 0) {
+                    rc = FwSignMldsaMu(&ctx->rng,
+                        keyObj->pub.parameters.mldsaDetail.parameterSet,
+                        keyObj->privKey, mu, sizeof(mu), sigOut);
+                }
             }
+            TPM2_ForceZero(mu, sizeof(mu));
         }
         else if (rc == 0 && keyObj->pub.type == TPM_ALG_HASH_MLDSA) {
             /* Feed the trailing buffer bytes into the hash accumulator,
@@ -17044,14 +17099,29 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         if (sigAlg == TPM_ALG_MLDSA) {
+            byte mu[MLDSA_MU_SZ];
+            enum wc_HashType wcHash = WC_HASH_TYPE_SHAKE256;
+
+            XMEMSET(mu, 0, sizeof(mu));
             sigSz = wireSize;
             TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
-            rc = FwVerifyMldsaMessage(
-                keyObj->pub.parameters.mldsaDetail.parameterSet,
-                &keyObj->pub.unique.mldsa,
-                seq->context.buffer, seq->context.size,
-                seq->msgBuf, (int)seq->msgBufSz,
-                sigBuf, sigSz);
+            if (!seq->hashCtxInit) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                if (wc_HashFinal(&seq->hashCtx, wcHash, mu) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                wc_HashFree(&seq->hashCtx, wcHash);
+                seq->hashCtxInit = 0;
+            }
+            if (rc == 0) {
+                rc = FwVerifyMldsaMu(
+                    keyObj->pub.parameters.mldsaDetail.parameterSet,
+                    &keyObj->pub.unique.mldsa, mu, sizeof(mu),
+                    sigBuf, sigSz);
+            }
+            TPM2_ForceZero(mu, sizeof(mu));
         }
         else if (sigAlg == TPM_ALG_HASH_MLDSA) {
             /* Finalize the accumulated hash, then verify. */

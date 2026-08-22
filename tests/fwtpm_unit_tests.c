@@ -7226,25 +7226,21 @@ static void test_fwtpm_signseq_slot_exhaustion(void)
 }
 #endif /* WOLFTPM_MLDSA */
 
-/* ---- Long-message accumulation boundary for Pure-MLDSA verify seq ----
- * msgBuf is FWTPM_MAX_DATA_BUF (1024) bytes. Accumulating across
- * SequenceUpdate calls past that limit must return TPM_RC_MEMORY per
- * fwtpm_command.c FwCmd_SequenceUpdate PQC branch. One exact-fit run
- * succeeds; one overflow run fails. */
-static void test_fwtpm_signseq_longmsg_boundary(void)
+/* Pure ML-DSA sequence hashing remains streaming beyond 1024 bytes. */
+static void test_fwtpm_signseq_longmsg_streaming(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, pos, i;
     UINT32 mldsaHandle, seqHandle;
     const int chunk = 256;           /* 4 chunks = exactly 1024. */
-    const int overflow = 4;          /* one extra byte past the limit. */
+    const int extra = 4;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
     mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
 
-    /* Start a Pure-MLDSA VERIFY sequence (accepts SequenceUpdate into msgBuf). */
+    /* Start a Pure-MLDSA verify sequence. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -7277,23 +7273,23 @@ static void test_fwtpm_signseq_longmsg_boundary(void)
         AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     }
 
-    /* One more update: msgBuf is full, any additional bytes overflow. */
+    /* One more update takes the cumulative message beyond 1024 bytes. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
     PutU32BE(gCmd + pos, seqHandle); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU16BE(gCmd + pos, (UINT16)overflow); pos += 2;
-    memset(gCmd + pos, 0xFF, overflow); pos += overflow;
+    PutU16BE(gCmd + pos, (UINT16)extra); pos += 2;
+    memset(gCmd + pos, 0xFF, extra); pos += extra;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_MEMORY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("SignSeq long-msg boundary:", 1);
+    fwtpm_pass("SignSeq long-msg streaming:", 1);
 }
 
 /* ---- NV persistence round-trip for PQC primary -----------------------
@@ -12884,7 +12880,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef WOLFTPM_MLDSA
     test_fwtpm_signseq_slot_exhaustion();
 #endif /* WOLFTPM_MLDSA */
-    test_fwtpm_signseq_longmsg_boundary();
+    test_fwtpm_signseq_longmsg_streaming();
     test_fwtpm_mldsa87_maxbuf();
     test_fwtpm_response_buffer_capacity();
     test_fwtpm_mlkem1024_maxbuf();

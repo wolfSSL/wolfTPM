@@ -533,12 +533,8 @@ typedef struct FWTPM_HashSeq {
  * WOLFTPM_MLDSA on its own, and every consumer of these slots tests
  * WOLFTPM_MLDSA. */
 #ifdef WOLFTPM_MLDSA
-/* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6). Pure ML-DSA
- * is one-shot — the message arrives via the `buffer` parameter of
- * TPM2_SignSequenceComplete and TPM2_SequenceUpdate is rejected with
- * TPM_RC_ONE_SHOT_SIGNATURE (Part 3 Sec.20.6). Hash-ML-DSA digest signing is
- * handled via TPM2_SignDigest / TPM2_VerifyDigestSignature, not through
- * this slot. */
+/* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6).
+ * Pure ML-DSA streams its SHAKE256 mu calculation through hashCtx. */
 typedef struct FWTPM_SignSeq {
     int used;
     TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
@@ -554,7 +550,7 @@ typedef struct FWTPM_SignSeq {
     TPM2B_AUTH authValue;
     TPM2B_SIGNATURE_CTX context;
     int oneShot;                    /* SequenceUpdate not permitted if set */
-    /* Accumulator for Pure ML-DSA sequences (raw message bytes). */
+    /* Reserved raw-message fields retained in the sequence context layout. */
     byte   msgBuf[FWTPM_MAX_DATA_BUF];
     UINT32 msgBufSz;
     /* First 4 bytes of the assembled message (any path: SequenceUpdate or

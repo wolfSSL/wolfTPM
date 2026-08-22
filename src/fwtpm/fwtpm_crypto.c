@@ -72,7 +72,14 @@
 /* Wrapper to avoid -Werror=bad-function-cast with TPM2_GetHashType */
 enum wc_HashType FwGetWcHashType(UINT16 hashAlg)
 {
-    int ret = TPM2_GetHashType(hashAlg);
+    int ret;
+
+#ifdef WOLFSSL_SHAKE256
+    if (hashAlg == TPM_ALG_SHAKE256) {
+        return WC_HASH_TYPE_SHAKE256;
+    }
+#endif
+    ret = TPM2_GetHashType(hashAlg);
     return (enum wc_HashType)ret;
 }
 
@@ -1587,6 +1594,109 @@ TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
             context, (byte)contextSz,
             msg, (word32)msgSz,
             &verifyRes);
+        if (wcRet != 0 || verifyRes != 1) {
+            rc = TPM_RC_SIGNATURE;
+        }
+    }
+
+    if (keyInit) {
+        wc_MlDsaKey_Free(keyVar);
+    }
+    FWTPM_FREE_VAR(keyVar);
+    return rc;
+}
+
+/** \brief Sign a pre-computed Pure ML-DSA mu value. */
+TPM_RC FwSignMldsaMu(WC_RNG* rng,
+    TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi, const byte* mu, int muSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut)
+{
+    TPM_RC rc;
+    FWTPM_DECLARE_VAR(keyVar, wc_MlDsaKey);
+    byte rnd[MLDSA_RND_SZ];
+    int keyInit = 0;
+    word32 sigSz;
+    int wcRet;
+
+    if (rng == NULL || seedXi == NULL || mu == NULL ||
+            muSz != MLDSA_MU_SZ || sigOut == NULL) {
+        return TPM_RC_VALUE;
+    }
+
+    FWTPM_ALLOC_VAR(keyVar, wc_MlDsaKey);
+    XMEMSET(rnd, 0, sizeof(rnd));
+
+    rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
+    if (rc == 0 && wc_RNG_GenerateBlock(rng, rnd, sizeof(rnd)) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        sigSz = (word32)sizeof(sigOut->buffer);
+        wcRet = wc_MlDsaKey_SignMuWithSeed(keyVar, sigOut->buffer,
+            &sigSz, mu, (word32)muSz, rnd);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            sigOut->size = (UINT16)sigSz;
+        }
+    }
+
+    if (keyInit) {
+        wc_MlDsaKey_Free(keyVar);
+    }
+    TPM2_ForceZero(rnd, sizeof(rnd));
+    FWTPM_FREE_VAR(keyVar);
+    return rc;
+}
+
+/** \brief Verify a signature against a pre-computed Pure ML-DSA mu value. */
+TPM_RC FwVerifyMldsaMu(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* mu, int muSz, const byte* sig, int sigSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(keyVar, wc_MlDsaKey);
+    int level;
+    int keyInit = 0;
+    int verifyRes = 0;
+    int wcRet;
+
+    if (pubIn == NULL || mu == NULL || muSz != MLDSA_MU_SZ ||
+            sig == NULL || sigSz < 0) {
+        return TPM_RC_VALUE;
+    }
+
+    FWTPM_ALLOC_VAR(keyVar, wc_MlDsaKey);
+
+    level = FwGetWcMldsaLevel(parameterSet);
+    if (level < 0) {
+        rc = TPM_RC_PARMS;
+    }
+    if (rc == 0) {
+        wcRet = wc_MlDsaKey_Init(keyVar, NULL, INVALID_DEVID);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        keyInit = 1;
+        wcRet = wc_MlDsaKey_SetParams(keyVar, (byte)level);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_MlDsaKey_ImportPubRaw(keyVar,
+            pubIn->buffer, pubIn->size);
+        if (wcRet != 0) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_MlDsaKey_VerifyMu(keyVar, sig, (word32)sigSz,
+            mu, (word32)muSz, &verifyRes);
         if (wcRet != 0 || verifyRes != 1) {
             rc = TPM_RC_SIGNATURE;
         }
