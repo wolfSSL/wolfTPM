@@ -1815,7 +1815,8 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     /* Validate bounds before mutating session state so that an oversized
      * auth value doesn't leave the session with an invalid auth.size that
      * subsequent code paths could read past the buffer end. */
-    if (auth != NULL && auth->size > sizeof(session->auth.buffer)) {
+    if ((auth != NULL && auth->size > sizeof(session->auth.buffer)) ||
+            (name != NULL && name->size > sizeof(session->name.name))) {
         return BUFFER_E;
     }
     XMEMSET(session, 0, sizeof(TPM2_AUTH_SESSION));
@@ -1826,9 +1827,6 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
         XMEMCPY(session->auth.buffer, auth->buffer, session->auth.size);
     }
     if (name) {
-        if (name->size > sizeof(session->name.name)) {
-            return BUFFER_E;
-        }
         session->name.size = name->size;
         XMEMCPY(session->name.name, name->name, session->name.size);
     }
@@ -1877,15 +1875,18 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
              * session isn't left inconsistent on BUFFER_E. */
             if (authDigestSz <= 0 ||
                 (handle->auth.size + authDigestSz) >
-                    (int)sizeof(session->auth.buffer)) {
+                    (int)sizeof(session->auth.buffer) ||
+                handle->name.size > sizeof(session->name.name)) {
                 return BUFFER_E;
             }
             session->policyAuth = handle->policyAuth;
             session->auth.size = authDigestSz + handle->auth.size;
-            XMEMCPY(&session->auth.buffer[authDigestSz], handle->auth.buffer,
+            XMEMMOVE(&session->auth.buffer[authDigestSz], handle->auth.buffer,
                 handle->auth.size);
-            if (handle->name.size > sizeof(session->name.name)) {
-                return BUFFER_E;
+            if (session->auth.size < sizeof(session->auth.buffer)) {
+                TPM2_ForceZero(&session->auth.buffer[session->auth.size],
+                    (word32)sizeof(session->auth.buffer) -
+                        session->auth.size);
             }
             session->name.size = handle->name.size;
             XMEMCPY(session->name.name, handle->name.name, session->name.size);
@@ -1910,43 +1911,45 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     name = &handle->name;
     session = &dev->session[index];
 
-    if (handle->auth.size > 0) {
-        /* Validate bounds before mutating session.auth so a failure leaves
-         * session->auth.size unchanged rather than oversized. */
-        if (handle->auth.size > sizeof(session->auth.buffer)) {
+    /* Validate bounds before mutating persistent session state. */
+    if (handle->auth.size > sizeof(session->auth.buffer) ||
+            name->size > sizeof(session->name.name)) {
+        return BUFFER_E;
+    }
+    if (session->sessionHandle != TPM_RS_PW && handle->policyAuth) {
+        int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
+
+        if (authDigestSz <= 0 ||
+                (authDigestSz + handle->auth.size) >
+                    (int)sizeof(session->auth.buffer)) {
             return BUFFER_E;
         }
-        if (session->sessionHandle == TPM_RS_PW) {
-            /* password based authentication */
-            session->auth.size = handle->auth.size;
-            XMEMCPY(session->auth.buffer, handle->auth.buffer,
-                session->auth.size);
-        }
-        else {
-            if (handle->policyPass) {
-                /* use policy password directly */
-                session->auth.size = handle->auth.size;
-                XMEMCPY(session->auth.buffer, handle->auth.buffer,
-                    session->auth.size);
-                session->policyPass = handle->policyPass;
-            }
-            else if (handle->policyAuth) {
-                /* HMAC + policy auth value */
-                int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
-                if (authDigestSz <= 0 ||
-                    (authDigestSz + handle->auth.size) >
-                        (int)sizeof(session->auth.buffer)) {
-                    return BUFFER_E;
-                }
-                session->auth.size = (UINT16)(authDigestSz + handle->auth.size);
-                XMEMCPY(&session->auth.buffer[authDigestSz],
-                    handle->auth.buffer, handle->auth.size);
-                session->policyAuth = handle->policyAuth;
-            }
-        }
     }
-    if (name->size > sizeof(session->name.name)) {
-        return BUFFER_E;
+
+    if (session->sessionHandle == TPM_RS_PW) {
+        /* password based authentication */
+        wolfTPM2_CopyAuth(&session->auth, &handle->auth);
+    }
+    else {
+        if (handle->policyPass) {
+            /* use policy password directly */
+            wolfTPM2_CopyAuth(&session->auth, &handle->auth);
+            session->policyPass = handle->policyPass;
+        }
+        else if (handle->policyAuth) {
+            /* HMAC + policy auth value */
+            int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
+
+            session->auth.size = (UINT16)(authDigestSz + handle->auth.size);
+            XMEMMOVE(&session->auth.buffer[authDigestSz],
+                handle->auth.buffer, handle->auth.size);
+            if (session->auth.size < sizeof(session->auth.buffer)) {
+                TPM2_ForceZero(&session->auth.buffer[session->auth.size],
+                    (word32)sizeof(session->auth.buffer) -
+                        session->auth.size);
+            }
+            session->policyAuth = handle->policyAuth;
+        }
     }
     session->name.size = name->size;
     XMEMCPY(session->name.name, name->name, session->name.size);
@@ -2017,10 +2020,13 @@ int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index,
     }
 
     session = &dev->session[index];
-    session->sessionHandle = TPM_RS_PW;
 
     /* Set password handle unless TPM session is available */
-    if (tpmSession) {
+    if (tpmSession == NULL) {
+        XMEMSET(session, 0, sizeof(TPM2_AUTH_SESSION));
+        session->sessionHandle = TPM_RS_PW;
+    }
+    else {
         /* Validate bounds before mutating session state so the session
          * isn't left inconsistent on BUFFER_E. */
         if (tpmSession->handle.auth.size > sizeof(session->auth.buffer)) {
@@ -2033,9 +2039,7 @@ int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index,
         }
 
         session->sessionHandle = tpmSession->handle.hndl;
-        session->auth.size = tpmSession->handle.auth.size;
-        XMEMCPY(session->auth.buffer, tpmSession->handle.auth.buffer,
-            session->auth.size);
+        wolfTPM2_CopyAuth(&session->auth, &tpmSession->handle.auth);
 
         session->name.size = tpmSession->handle.name.size;
         if (session->name.size > sizeof(session->name.name)) {
