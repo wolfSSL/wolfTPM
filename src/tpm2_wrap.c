@@ -8475,6 +8475,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     word32 keySz, const byte* usageAuth, word32 usageAuthSz)
 {
     int rc;
+    int newKeyLoaded = 0;
     HMAC_Start_In in;
     HMAC_Start_Out out;
 
@@ -8492,14 +8493,16 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
         XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
     }
 
+    XMEMSET(&in, 0, sizeof(in));
     if (!hmac->hmacKeyLoaded) {
         if (hmac->key.handle.hndl == 0 || hmac->key.handle.hndl == TPM_RH_NULL){
             /* Load Keyed Hash Key */
             rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg,
                 keyBuf, keySz, usageAuth, usageAuthSz);
             if (rc != 0) {
-                return rc;
+                goto hmac_start_cleanup;
             }
+            newKeyLoaded = 1;
         }
         hmac->hmacKeyLoaded = 1;
     }
@@ -8508,7 +8511,6 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     wolfTPM2_SetAuthHandle(dev, 0, &hmac->hash.handle);
 
     /* Setup HMAC start command */
-    XMEMSET(&in, 0, sizeof(in));
     in.handle = hmac->key.handle.hndl;
     wolfTPM2_CopyAuth(&in.auth, &hmac->hash.handle.auth);
     in.hashAlg = hashAlg;
@@ -8518,8 +8520,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
         printf("TPM2_HMAC_Start failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
-        TPM2_ForceZero(&in.auth, sizeof(in.auth));
-        return rc;
+        goto hmac_start_cleanup;
     }
 
     /* Capture hash sequence handle */
@@ -8531,6 +8532,22 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 #endif
 
     TPM2_ForceZero(&in.auth, sizeof(in.auth));
+    return rc;
+
+hmac_start_cleanup:
+    TPM2_ForceZero(&in.auth, sizeof(in.auth));
+    TPM2_ForceZero(&hmac->hash.handle.auth,
+        sizeof(hmac->hash.handle.auth));
+    if (newKeyLoaded) {
+        (void)wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
+        if (hmac->key.handle.hndl == 0 ||
+                hmac->key.handle.hndl == TPM_RH_NULL) {
+            hmac->hmacKeyLoaded = 0;
+        }
+        /* FlushContext does not require object authorization. */
+        TPM2_ForceZero(&hmac->key.handle.auth,
+            sizeof(hmac->key.handle.auth));
+    }
     return rc;
 }
 
