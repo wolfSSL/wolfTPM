@@ -2982,6 +2982,11 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
+        if (key->handle.hndl == 0 ||
+                key->handle.hndl == TPM_RH_NULL) {
+            TPM2_ForceZero(&key->handle.auth,
+                sizeof(key->handle.auth));
+        }
         TPM2_ForceZero(&changeIn, sizeof(changeIn));
         TPM2_ForceZero(&changeOut, sizeof(changeOut));
         TPM2_ForceZero(&loadIn, sizeof(loadIn));
@@ -9735,10 +9740,16 @@ static void wolfTPM2_CopyName(TPM2B_NAME* out, const TPM2B_NAME* in)
 static void wolfTPM2_CopyAuth(TPM2B_AUTH* out, const TPM2B_AUTH* in)
 {
     if (out != NULL && in != NULL) {
-        out->size = in->size;
-        if (out->size > (UINT16)sizeof(out->buffer))
-            out->size = (UINT16)sizeof(out->buffer);
-        XMEMCPY(out->buffer, in->buffer, out->size);
+        UINT16 copySz = in->size;
+
+        if (copySz > (UINT16)sizeof(out->buffer))
+            copySz = (UINT16)sizeof(out->buffer);
+        XMEMMOVE(out->buffer, in->buffer, copySz);
+        if (copySz < (UINT16)sizeof(out->buffer)) {
+            TPM2_ForceZero(&out->buffer[copySz],
+                (word32)sizeof(out->buffer) - copySz);
+        }
+        out->size = copySz;
     }
 }
 
