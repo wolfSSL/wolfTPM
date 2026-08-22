@@ -848,9 +848,9 @@ enum TPMA_ALGORITHM_mask {
     TPMA_ALGORITHM_symmetric  = 0x00000002,
     TPMA_ALGORITHM_hash       = 0x00000004,
     TPMA_ALGORITHM_object     = 0x00000008,
-    TPMA_ALGORITHM_signing    = 0x00000010,
-    TPMA_ALGORITHM_encrypting = 0x00000020,
-    TPMA_ALGORITHM_method     = 0x00000040,
+    TPMA_ALGORITHM_signing    = 0x00000100,
+    TPMA_ALGORITHM_encrypting = 0x00000200,
+    TPMA_ALGORITHM_method     = 0x00000400,
 };
 
 typedef UINT32 TPMA_OBJECT;

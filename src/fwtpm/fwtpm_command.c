@@ -1244,48 +1244,57 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 UINT32 attrs;
             } algList[] = {
             #ifndef NO_RSA
-                { TPM_ALG_RSA,     0x0009 },
+                { TPM_ALG_RSA, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_object },
             #endif
-                { TPM_ALG_SHA256,  0x0004 },
+                { TPM_ALG_SHA256, TPMA_ALGORITHM_hash },
             #ifdef WOLFSSL_SHA384
-                { TPM_ALG_SHA384,  0x0004 },
+                { TPM_ALG_SHA384, TPMA_ALGORITHM_hash },
             #endif
-                { TPM_ALG_HMAC,    0x0044 },
+                { TPM_ALG_HMAC, TPMA_ALGORITHM_hash |
+                    TPMA_ALGORITHM_signing },
             #ifndef NO_AES
-                { TPM_ALG_AES,     0x0060 },
+                { TPM_ALG_AES, TPMA_ALGORITHM_symmetric },
             #endif
             #ifdef HAVE_ECC
-                { TPM_ALG_ECC,     0x0009 },
+                { TPM_ALG_ECC, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_object },
             #endif
             #ifndef NO_RSA
-                { TPM_ALG_RSASSA,  0x0040 },
-                { TPM_ALG_RSAPSS,  0x0040 },
+                { TPM_ALG_RSASSA, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_signing },
+                { TPM_ALG_RSAPSS, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_signing },
             #endif
             #ifdef HAVE_ECC
-                { TPM_ALG_ECDSA,   0x0040 },
-                { TPM_ALG_ECDH,    0x0080 },
+                { TPM_ALG_ECDSA, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_signing },
+                { TPM_ALG_ECDH, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_method },
             #endif
             #ifndef NO_RSA
-                { TPM_ALG_OAEP,    0x0020 },
+                { TPM_ALG_OAEP, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_encrypting },
             #endif
             #ifndef NO_AES
-                { TPM_ALG_CFB,     0x0020 },
+                { TPM_ALG_CFB, TPMA_ALGORITHM_symmetric |
+                    TPMA_ALGORITHM_encrypting },
             #endif
-                { TPM_ALG_KEYEDHASH, 0x0008 },
+                { TPM_ALG_KEYEDHASH, TPMA_ALGORITHM_hash |
+                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing |
+                    TPMA_ALGORITHM_encrypting },
             #ifndef NO_AES
-                { TPM_ALG_SYMCIPHER, 0x0060 },
+                { TPM_ALG_SYMCIPHER, TPMA_ALGORITHM_object },
             #endif
             #ifdef WOLFTPM_V185
-                /* v1.85 PQC object types per Part 2 Sec.8.2 Table 35:
-                 *   bit 0 asymmetric, bit 3 object,
-                 *   bit 8 signing, bit 9 encrypting.
-                 * MLKEM is encrypting (encap/decap); MLDSA / Hash-MLDSA are
-                 * signing. */
-                { TPM_ALG_MLKEM,      0x0209 }, /* asymmetric|object|encrypting */
-                { TPM_ALG_MLDSA,      0x0109 }, /* asymmetric|object|signing */
-                { TPM_ALG_HASH_MLDSA, 0x0109 }, /* asymmetric|object|signing */
+                { TPM_ALG_MLKEM, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_encrypting },
+                { TPM_ALG_MLDSA, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing },
+                { TPM_ALG_HASH_MLDSA, TPMA_ALGORITHM_asymmetric |
+                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing },
             #endif
-                { TPM_ALG_NULL,      0x0000 },
+                { TPM_ALG_NULL, 0 },
             };
             int numAlgs = (int)(sizeof(algList) / sizeof(algList[0]));
             int avail = 0;
