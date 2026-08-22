@@ -10792,9 +10792,14 @@ int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         if (authSz > (int)sizeof(tpmSession->handle.auth.buffer)) {
             return BUFFER_E;
         }
-        tpmSession->handle.auth.size = authSz;
+        XMEMMOVE(tpmSession->handle.auth.buffer, auth, authSz);
+        if ((word32)authSz < sizeof(tpmSession->handle.auth.buffer)) {
+            TPM2_ForceZero(&tpmSession->handle.auth.buffer[authSz],
+                (word32)sizeof(tpmSession->handle.auth.buffer) -
+                    (word32)authSz);
+        }
+        tpmSession->handle.auth.size = (UINT16)authSz;
         tpmSession->handle.policyPass = 1;
-        XMEMCPY(tpmSession->handle.auth.buffer, auth, authSz);
     }
 
     XMEMSET(&policyPasswordIn, 0, sizeof(policyPasswordIn));
@@ -10816,13 +10821,21 @@ int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     if (auth != NULL && authSz >= 0) {
         int authDigestSz = TPM2_GetHashDigestSize(tpmSession->authHash);
         if (authDigestSz <= 0 ||
-            (authSz + authDigestSz) >
-                (int)sizeof(tpmSession->handle.auth.buffer)) {
+            authDigestSz > (int)sizeof(tpmSession->handle.auth.buffer) ||
+            authSz > (int)sizeof(tpmSession->handle.auth.buffer) -
+                authDigestSz) {
             return BUFFER_E;
         }
-        tpmSession->handle.auth.size = authDigestSz + authSz;
         /* leave room for the computed HMAC key */
-        XMEMCPY(&tpmSession->handle.auth.buffer[authDigestSz], auth, authSz);
+        XMEMMOVE(&tpmSession->handle.auth.buffer[authDigestSz], auth, authSz);
+        tpmSession->handle.auth.size = (UINT16)(authDigestSz + authSz);
+        if (tpmSession->handle.auth.size <
+                sizeof(tpmSession->handle.auth.buffer)) {
+            TPM2_ForceZero(&tpmSession->handle.auth.buffer[
+                    tpmSession->handle.auth.size],
+                (word32)sizeof(tpmSession->handle.auth.buffer) -
+                    tpmSession->handle.auth.size);
+        }
         tpmSession->handle.policyAuth = 1;
     }
 
