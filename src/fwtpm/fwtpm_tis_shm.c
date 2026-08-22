@@ -72,10 +72,8 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     struct stat shmStat;
     /* Threat model: fwtpm_server is a dev/test tool and is NOT intended to
      * run setuid or as a privileged daemon. O_NOFOLLOW + mode 0600 is
-     * sufficient for non-privileged execution. We intentionally avoid
-     * O_EXCL so the server can recover from a prior unclean shutdown
-     * without manual cleanup of the shm file. */
-    int openFlags = O_CREAT | O_RDWR | O_TRUNC;
+     * sufficient for non-privileged execution. */
+    int openFlags = O_CREAT | O_EXCL | O_RDWR;
 
 #ifdef O_NOFOLLOW
     openFlags |= O_NOFOLLOW;
@@ -83,6 +81,19 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
 #ifdef O_CLOEXEC
     openFlags |= O_CLOEXEC;
 #endif
+
+    shm->regs = NULL;
+    shm->shmFd = -1;
+    shm->semCmd = NULL;
+    shm->semRsp = NULL;
+
+    /* Use a fresh inode so locks from a crashed server generation do not
+     * prevent new clients from connecting to the replacement server. */
+    if (unlink(FWTPM_TIS_SHM_PATH) != 0 && errno != ENOENT) {
+        fprintf(stderr, "fwTPM TIS: unlink(%s) failed: %d (%s)\n",
+            FWTPM_TIS_SHM_PATH, errno, strerror(errno));
+        return -1;
+    }
 
     /* Create shared memory file */
     fd = open(FWTPM_TIS_SHM_PATH, openFlags, 0600);
@@ -114,6 +125,7 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     if (shm->regs == MAP_FAILED) {
         fprintf(stderr, "fwTPM TIS: mmap failed: %d (%s)\n",
             errno, strerror(errno));
+        shm->regs = NULL;
         close(fd);
         return -1;
     }
@@ -127,8 +139,11 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     if (shm->semCmd == SEM_FAILED) {
         fprintf(stderr, "fwTPM TIS: sem_open(%s) failed: %d (%s)\n",
             FWTPM_TIS_SEM_CMD, errno, strerror(errno));
+        shm->semCmd = NULL;
         munmap(shm->regs, sizeof(FWTPM_TIS_REGS));
+        shm->regs = NULL;
         close(fd);
+        shm->shmFd = -1;
         return -1;
     }
 
@@ -138,8 +153,12 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
             FWTPM_TIS_SEM_RSP, errno, strerror(errno));
         sem_close(shm->semCmd);
         sem_unlink(FWTPM_TIS_SEM_CMD);
+        shm->semCmd = NULL;
+        shm->semRsp = NULL;
         munmap(shm->regs, sizeof(FWTPM_TIS_REGS));
+        shm->regs = NULL;
         close(fd);
+        shm->shmFd = -1;
         return -1;
     }
 
@@ -183,6 +202,14 @@ static void TisShmCleanup(void* ctx)
 {
     FWTPM_TIS_SHM_CTX* shm = (FWTPM_TIS_SHM_CTX*)ctx;
 
+    if (shm->regs != NULL) {
+        shm->regs->magic = 0;
+        TPM2_ForceZero(shm->regs->reg_data,
+            sizeof(shm->regs->reg_data));
+        if (shm->semRsp != NULL && shm->semRsp != SEM_FAILED) {
+            (void)sem_post(shm->semRsp);
+        }
+    }
     if (shm->semRsp != NULL && shm->semRsp != SEM_FAILED) {
         sem_close(shm->semRsp);
         sem_unlink(FWTPM_TIS_SEM_RSP);
