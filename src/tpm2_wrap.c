@@ -7544,21 +7544,19 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
 {
     int rc = TPM_RC_SUCCESS;
     TPMS_NV_PUBLIC nvPublic;
+    TPM2B_AUTH newAuth;
 
     if (dev == NULL || nv == NULL || authSz > sizeof(nv->handle.auth.buffer)) {
         return BAD_FUNC_ARG;
     }
 
+    XMEMSET(&newAuth, 0, sizeof(newAuth));
     /* build the "handle" */
     nv->handle.hndl = nvIndex;
     /* auth can also be set already via nv->handle */
     if (auth != NULL && authSz > 0) {
-        XMEMMOVE(nv->handle.auth.buffer, auth, authSz);
-        if (authSz < sizeof(nv->handle.auth.buffer)) {
-            TPM2_ForceZero(&nv->handle.auth.buffer[authSz],
-                (word32)sizeof(nv->handle.auth.buffer) - authSz);
-        }
-        nv->handle.auth.size = (UINT16)authSz;
+        newAuth.size = (UINT16)authSz;
+        XMEMCPY(newAuth.buffer, auth, authSz);
     }
 
     /* Read the NV Index publicArea to have up to date NV Index Name */
@@ -7567,7 +7565,7 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     #ifdef DEBUG_WOLFTPM
         printf("Failed to open (read) NV\n");
     #endif
-        return rc;
+        goto nv_open_exit;
     }
 
     /* Compute NV Index name in case of parameter encryption */
@@ -7575,14 +7573,19 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
                            &nv->handle.name.size);
     if (rc != TPM_RC_SUCCESS) {
-        return rc;
+        goto nv_open_exit;
     }
 #endif
 
+    if (auth != NULL && authSz > 0) {
+        wolfTPM2_CopyAuth(&nv->handle.auth, &newAuth);
+    }
     /* flag that the NV was "opened" and name was loaded */
     nv->handle.nameLoaded = 1;
     nv->attributes = nvPublic.attributes;
 
+nv_open_exit:
+    TPM2_ForceZero(&newAuth, sizeof(newAuth));
     return rc;
 }
 
