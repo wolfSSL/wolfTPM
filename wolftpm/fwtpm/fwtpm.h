@@ -519,6 +519,8 @@ typedef struct FWTPM_HashSeq {
     TPMI_ALG_HASH hashAlg;         /* Hash algorithm for this sequence */
     int isHmac;                     /* 1 if HMAC sequence, 0 if plain hash */
     TPM2B_AUTH authValue;           /* Sequence auth (from HashSequenceStart) */
+    UINT16 hmacKeySz;
+    byte hmacKey[MAX_SYM_DATA];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     union {
         wc_HashAlg hash;            /* wolfCrypt hash context (isHmac == 0) */
@@ -569,6 +571,8 @@ typedef struct FWTPM_SignSeq {
     /* HMAC accumulator for KEYEDHASH (HMAC) signing/verifying sequences. */
     Hmac hmacCtx;
     int hmacCtxInit;                /* 1 when hmacCtx is live */
+    UINT16 hmacKeySz;
+    byte hmacKey[MAX_SYM_DATA];
     /* Incremental MESSAGE_VERIFIED ticket HMAC for verify sequences. */
     Hmac ticketHmacCtx;
     int ticketHmacCtxInit;

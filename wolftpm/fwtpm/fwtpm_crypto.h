@@ -260,6 +260,7 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
  * verified through the session path or vice versa. */
 #define FWTPM_CTX_TYPE_SESSION 0x01
 #define FWTPM_CTX_TYPE_OBJECT  0x02
+#define FWTPM_CTX_TYPE_SEQUENCE 0x03
 
 int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     const byte* plain, int plainSz,
