@@ -1475,29 +1475,34 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_FIRMWARE_SVN,      0 }, /* PT_FIXED+47 = 0x12F */
                 { TPM_PT_FIRMWARE_MAX_SVN,  0 }, /* PT_FIXED+48 = 0x130 */
                 { TPM_PT_ML_PARAMETER_SETS,      /* PT_FIXED+49 = 0x131 */
-                  /* Gate each bit on the per-set wolfCrypt availability
-                   * macros so subset builds advertise only what is actually
-                   * supported. Mirrors the auto-shrink buffer sizing in
-                   * wolftpm/fwtpm/fwtpm.h. */
-            #if (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512)) && \
+                  /* Gate each bit on wolfTPM family support and per-set
+                   * wolfCrypt availability so subset builds advertise only
+                   * what is actually supported. */
+            #if defined(WOLFTPM_MLKEM) && \
+                (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512)) && \
                 !defined(WOLFSSL_NO_KYBER512)
                   TPMA_ML_PARAMETER_SET_mlKem_512  |
             #endif
-            #if (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER768)) && \
+            #if defined(WOLFTPM_MLKEM) && \
+                (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER768)) && \
                 !defined(WOLFSSL_NO_KYBER768)
                   TPMA_ML_PARAMETER_SET_mlKem_768  |
             #endif
-            #if (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER1024)) && \
+            #if defined(WOLFTPM_MLKEM) && \
+                (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER1024)) && \
                 !defined(WOLFSSL_NO_KYBER1024)
                   TPMA_ML_PARAMETER_SET_mlKem_1024 |
             #endif
-            #if defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_NO_ML_DSA_44)
+            #if defined(WOLFTPM_MLDSA) && defined(WOLFSSL_HAVE_MLDSA) && \
+                !defined(WOLFSSL_NO_ML_DSA_44)
                   TPMA_ML_PARAMETER_SET_mlDsa_44   |
             #endif
-            #if defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_NO_ML_DSA_65)
+            #if defined(WOLFTPM_MLDSA) && defined(WOLFSSL_HAVE_MLDSA) && \
+                !defined(WOLFSSL_NO_ML_DSA_65)
                   TPMA_ML_PARAMETER_SET_mlDsa_65   |
             #endif
-            #if defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_NO_ML_DSA_87)
+            #if defined(WOLFTPM_MLDSA) && defined(WOLFSSL_HAVE_MLDSA) && \
+                !defined(WOLFSSL_NO_ML_DSA_87)
                   TPMA_ML_PARAMETER_SET_mlDsa_87   |
             #endif
                   0 },
