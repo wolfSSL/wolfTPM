@@ -4318,6 +4318,10 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
 {
     TPM2_Packet packet;
     int rc = TPM_RC_HANDLE;
+#ifndef FWTPM_NO_HASH_CMDS
+    FWTPM_HashSeq* hashSeq;
+    enum wc_HashType hashType;
+#endif
 
     packet.buf = plain;
     packet.pos = 0;
@@ -4327,30 +4331,28 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
     (void)handle;
 
 #ifndef FWTPM_NO_HASH_CMDS
-    {
-        FWTPM_HashSeq* seq = FwFindHashSeq(ctx, handle);
-        if (seq != NULL) {
-            enum wc_HashType hashType = FwGetWcHashType(seq->hashAlg);
-            if (seq->authValue.size > sizeof(seq->authValue.buffer) ||
-                    seq->hmacKeySz > sizeof(seq->hmacKey)) {
-                return TPM_RC_FAILURE;
-            }
-            TPM2_Packet_AppendU8(&packet, FWTPM_SEQ_CTX_HASH);
-            TPM2_Packet_AppendU16(&packet, seq->hashAlg);
-            TPM2_Packet_AppendU8(&packet, (UINT8)seq->isHmac);
-            TPM2_Packet_AppendU16(&packet, seq->authValue.size);
-            TPM2_Packet_AppendBytes(&packet, seq->authValue.buffer,
-                seq->authValue.size);
-            if (seq->isHmac) {
-                rc = FwAppendHmacState(&packet, &seq->ctx.hmac, hashType,
-                    seq->hmacKey, seq->hmacKeySz);
-            }
-            else {
-                rc = FwAppendHashState(&packet, &seq->ctx.hash, hashType);
-            }
-            rc = (rc == 0 && !packet.overflow) ? TPM_RC_SUCCESS :
-                TPM_RC_FAILURE;
+    hashSeq = FwFindHashSeq(ctx, handle);
+    if (hashSeq != NULL) {
+        hashType = FwGetWcHashType(hashSeq->hashAlg);
+        if (hashSeq->authValue.size > sizeof(hashSeq->authValue.buffer) ||
+                hashSeq->hmacKeySz > sizeof(hashSeq->hmacKey)) {
+            return TPM_RC_FAILURE;
         }
+        TPM2_Packet_AppendU8(&packet, FWTPM_SEQ_CTX_HASH);
+        TPM2_Packet_AppendU16(&packet, hashSeq->hashAlg);
+        TPM2_Packet_AppendU8(&packet, (UINT8)hashSeq->isHmac);
+        TPM2_Packet_AppendU16(&packet, hashSeq->authValue.size);
+        TPM2_Packet_AppendBytes(&packet, hashSeq->authValue.buffer,
+            hashSeq->authValue.size);
+        if (hashSeq->isHmac) {
+            rc = FwAppendHmacState(&packet, &hashSeq->ctx.hmac, hashType,
+                hashSeq->hmacKey, hashSeq->hmacKeySz);
+        }
+        else {
+            rc = FwAppendHashState(&packet, &hashSeq->ctx.hash, hashType);
+        }
+        rc = (rc == 0 && !packet.overflow) ? TPM_RC_SUCCESS :
+            TPM_RC_FAILURE;
     }
 #endif
 #ifdef WOLFTPM_MLDSA

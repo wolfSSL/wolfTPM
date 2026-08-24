@@ -1030,8 +1030,9 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     if (rc == TPM_RC_SUCCESS) {
 
         if (TPM2_GetActiveCtx() == ctx) {
-            if (lockCtx)
+            if (lockCtx) {
                 TPM2_INTERNAL_CLEANUP(ctx);
+            }
             /* set non-active */
             TPM2_SetActiveCtx(NULL);
         }
