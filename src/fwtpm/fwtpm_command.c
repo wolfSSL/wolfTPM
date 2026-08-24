@@ -4044,7 +4044,9 @@ static void FwSanitizeHashState(wc_HashAlg* hash,
     #endif
              ) {
         hash->alg.sha3.devId = INVALID_DEVID;
+    #if LIBWOLFSSL_VERSION_HEX >= 0x05008004
         hash->alg.sha3.devCtx = NULL;
+    #endif
     }
 #endif
 #endif
@@ -4085,8 +4087,12 @@ static int FwHashStateHasExternalData(wc_HashAlg* hash,
             || hashType == WC_HASH_TYPE_SHAKE256
         #endif
             ) {
+    #if LIBWOLFSSL_VERSION_HEX >= 0x05008004
         return hash->alg.sha3.devId != INVALID_DEVID ||
             hash->alg.sha3.devCtx != NULL;
+    #else
+        return hash->alg.sha3.devId != INVALID_DEVID;
+    #endif
     }
     #endif
     #ifdef WOLFSSL_SM3
