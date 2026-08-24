@@ -436,6 +436,7 @@ static int RespBuildAlgorithms(WOLFSPDM_CTX* ctx,
     out[off++] = 0x00;
     out[off++] = 0x34; out[off++] = 0x00;
     out[off++] = 0x00; out[off++] = 0x02;
+    XMEMSET(out + off, 0, 4); off += 4;
     out[off++] = 0x80; out[off++] = 0x00; out[off++] = 0x00; out[off++] = 0x00;
     out[off++] = 0x02; out[off++] = 0x00; out[off++] = 0x00; out[off++] = 0x00;
     XMEMSET(out + off, 0, 12); off += 12;
