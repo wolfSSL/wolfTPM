@@ -1294,7 +1294,8 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing |
                     TPMA_ALGORITHM_encrypting },
             #ifndef NO_AES
-                { TPM_ALG_SYMCIPHER, TPMA_ALGORITHM_object },
+                { TPM_ALG_SYMCIPHER, TPMA_ALGORITHM_symmetric |
+                    TPMA_ALGORITHM_object },
             #endif
             #ifdef WOLFTPM_V185
                 { TPM_ALG_MLKEM, TPMA_ALGORITHM_asymmetric |
