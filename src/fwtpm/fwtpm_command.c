@@ -19106,12 +19106,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 (int)cmdAuths[pj].passwordSize, authVal, authValSz);
             if (authFail) {
                 TPM_RC authRc = TPM_RC_BAD_AUTH;
+            #ifndef FWTPM_NO_DA
+                TPM_HANDLE daHandle;
+            #endif
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: Password auth failed for handle "
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                TPM_HANDLE daHandle;
                 if (FwAuthSlotDAUse(ctx, entityH, 1, NULL, 0,
                         &daHandle) != 0) {
                     authRc = TPM_RC_AUTH_FAIL;
@@ -19168,12 +19170,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 if (FwCtAuthCompare(cmdAuths[hj].cmdHmac,
                         (int)cmdAuths[hj].cmdHmacSize, authVal, authValSz)) {
                     TPM_RC authRc = TPM_RC_BAD_AUTH;
+                #ifndef FWTPM_NO_DA
+                    TPM_HANDLE daHandle;
+                #endif
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: PolicyPassword auth failed for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
                 #endif
                 #ifndef FWTPM_NO_DA
-                    TPM_HANDLE daHandle;
                     if (FwAuthSlotDAUse(ctx, entityH, 0, hSess,
                             cmdAuths[hj].cmdHmacSize, &daHandle) != 0) {
                         authRc = TPM_RC_AUTH_FAIL;
@@ -19214,12 +19218,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 expectedHmac, cmpSz);
             if (sizeMismatch | hmacDiff) {
                 TPM_RC authRc = TPM_RC_BAD_AUTH;
+            #ifndef FWTPM_NO_DA
+                TPM_HANDLE daHandle;
+            #endif
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: HMAC session auth failed for handle "
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                TPM_HANDLE daHandle;
                 if (FwAuthSlotDAUse(ctx, entityH, 0, hSess,
                         cmdAuths[hj].cmdHmacSize, &daHandle) != 0) {
                     authRc = TPM_RC_AUTH_FAIL;
