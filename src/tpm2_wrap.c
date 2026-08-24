@@ -1919,7 +1919,8 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     if (handle->auth.size > 0 || session->sessionHandle == TPM_RS_PW ||
             (handle->policyPass && session->policyPass) ||
             (handle->policyAuth && session->policyAuth)) {
-        if (session->sessionHandle != TPM_RS_PW && handle->policyAuth) {
+        if (session->sessionHandle != TPM_RS_PW && handle->policyAuth &&
+                !handle->policyPass) {
             int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
 
             if (authDigestSz <= 0 ||
