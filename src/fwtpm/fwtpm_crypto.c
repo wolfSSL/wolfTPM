@@ -1498,7 +1498,7 @@ TPM_RC FwSignMldsaMessage(WC_RNG* rng,
     const byte* msg, int msgSz,
     TPM2B_MLDSA_SIGNATURE* sigOut)
 {
-    TPM_RC rc;
+    TPM_RC rc = TPM_RC_SUCCESS;
     FWTPM_DECLARE_VAR(keyVar, wc_MlDsaKey);
     int keyInit = 0;
     word32 sigSz;
@@ -1511,7 +1511,9 @@ TPM_RC FwSignMldsaMessage(WC_RNG* rng,
 
     FWTPM_ALLOC_VAR(keyVar, wc_MlDsaKey);
 
-    rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
+    if (rc == 0) {
+        rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
+    }
 
     if (rc == 0) {
         sigSz = (word32)sizeof(sigOut->buffer);
@@ -1607,7 +1609,7 @@ TPM_RC FwSignMldsaMu(WC_RNG* rng,
     const byte* seedXi, const byte* mu, int muSz,
     TPM2B_MLDSA_SIGNATURE* sigOut)
 {
-    TPM_RC rc;
+    TPM_RC rc = TPM_RC_SUCCESS;
     FWTPM_DECLARE_VAR(keyVar, wc_MlDsaKey);
     byte rnd[MLDSA_RND_SZ];
     int keyInit = 0;
@@ -1622,7 +1624,9 @@ TPM_RC FwSignMldsaMu(WC_RNG* rng,
     FWTPM_ALLOC_VAR(keyVar, wc_MlDsaKey);
     XMEMSET(rnd, 0, sizeof(rnd));
 
-    rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
+    if (rc == 0) {
+        rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
+    }
     if (rc == 0 && wc_RNG_GenerateBlock(rng, rnd, sizeof(rnd)) != 0) {
         rc = TPM_RC_FAILURE;
     }
@@ -1713,7 +1717,7 @@ TPM_RC FwSignMldsaHash(WC_RNG* rng,
     const byte* digest, int digestSz,
     TPM2B_MLDSA_SIGNATURE* sigOut)
 {
-    TPM_RC rc;
+    TPM_RC rc = TPM_RC_SUCCESS;
     FWTPM_DECLARE_VAR(keyVar, wc_MlDsaKey);
     int keyInit = 0;
     word32 sigSz;
@@ -1727,10 +1731,10 @@ TPM_RC FwSignMldsaHash(WC_RNG* rng,
     FWTPM_ALLOC_VAR(keyVar, wc_MlDsaKey);
 
     wcHash = FwGetWcHashType(hashAlg);
-    if (wcHash == WC_HASH_TYPE_NONE) {
+    if (rc == 0 && wcHash == WC_HASH_TYPE_NONE) {
         rc = TPM_RC_HASH;
     }
-    else {
+    else if (rc == 0) {
         rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
     }
 
