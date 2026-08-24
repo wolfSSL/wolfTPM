@@ -65,6 +65,11 @@ static int FWTPM_TIS_ClientLock(int fd)
     return rc;
 }
 
+static int FWTPM_TIS_ClientTryLock(int fd)
+{
+    return flock(fd, LOCK_EX | LOCK_NB);
+}
+
 static void FWTPM_TIS_ClientUnlock(int fd)
 {
     int rc;
@@ -221,7 +226,7 @@ void FWTPM_TIS_ClientDisconnect(FWTPM_TIS_CLIENT_CTX* client)
     }
     if (client->shm != NULL) {
         if (client->shmFd >= 0 &&
-                FWTPM_TIS_ClientLock(client->shmFd) == 0) {
+                FWTPM_TIS_ClientTryLock(client->shmFd) == 0) {
             TPM2_ForceZero(client->shm->reg_data,
                 sizeof(client->shm->reg_data));
             FWTPM_TIS_ClientUnlock(client->shmFd);
