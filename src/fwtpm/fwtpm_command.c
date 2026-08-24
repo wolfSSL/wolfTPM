@@ -86,6 +86,16 @@ static UINT64 FwDaNowMs(FWTPM_CTX* ctx);
 #ifdef WOLFTPM_MLDSA
 static FWTPM_SignSeq* FwAllocSignSeq(FWTPM_CTX* ctx, TPM_HANDLE* handle);
 static FWTPM_SignSeq* FwFindSignSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
+
+static enum wc_HashType FwGetSignSeqHashType(UINT16 hashAlg)
+{
+#ifdef WOLFSSL_SHAKE256
+    if (hashAlg == TPM_ALG_SHAKE256) {
+        return WC_HASH_TYPE_SHAKE256;
+    }
+#endif
+    return FwGetWcHashType(hashAlg);
+}
 #endif
 #ifndef FWTPM_NO_HASH_CMDS
 static FWTPM_HashSeq* FwAllocHashSeq(FWTPM_CTX* ctx, TPM_HANDLE* handle);
@@ -4334,7 +4344,8 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
             UINT8 flags = (seq->hashCtxInit ? FWTPM_SEQ_CTX_HASH_INIT : 0u) |
                 (seq->hmacCtxInit ? FWTPM_SEQ_CTX_HMAC_INIT : 0u) |
                 (seq->ticketHmacCtxInit ? FWTPM_SEQ_CTX_TICKET_INIT : 0u);
-            enum wc_HashType hashType = FwGetWcHashType(seq->hashAlg);
+            enum wc_HashType hashType =
+                FwGetSignSeqHashType(seq->hashAlg);
             byte ticketKey[TPM_MAX_DIGEST_SIZE];
             int ticketKeySz = 0;
 
@@ -4538,7 +4549,7 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
                 rc = TPM_RC_INTEGRITY;
             }
         }
-        hashType = FwGetWcHashType(seq->hashAlg);
+        hashType = FwGetSignSeqHashType(seq->hashAlg);
         if (rc == 0 && (flags & FWTPM_SEQ_CTX_HASH_INIT) != 0u) {
             wc_HashAlg raw;
             XMEMSET(&raw, 0, sizeof(raw));
@@ -9459,7 +9470,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 else {
                     rc = wc_HashUpdate(&signSeq->hashCtx,
-                        FwGetWcHashType(signSeq->hashAlg),
+                        FwGetSignSeqHashType(signSeq->hashAlg),
                         dataBuf, dataSize);
                     if (rc != 0) {
                         rc = TPM_RC_FAILURE;
@@ -16120,7 +16131,7 @@ static void FwFreeSignSeq(FWTPM_SignSeq* seq)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     if (seq->hashCtxInit) {
-        wc_HashFree(&seq->hashCtx, FwGetWcHashType(seq->hashAlg));
+        wc_HashFree(&seq->hashCtx, FwGetSignSeqHashType(seq->hashAlg));
     }
     if (seq->hmacCtxInit) {
         wc_HmacFree(&seq->hmacCtx);
@@ -16136,7 +16147,7 @@ static void FwFreeSignSeq(FWTPM_SignSeq* seq)
  * sign and verify sequence-start paths. */
 static TPM_RC FwSignSeqInitHashCtx(FWTPM_SignSeq* seq, TPMI_ALG_HASH hashAlg)
 {
-    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    enum wc_HashType wcHash = FwGetSignSeqHashType(hashAlg);
     int wcRet;
 
     if (wcHash == WC_HASH_TYPE_NONE) {
@@ -16147,7 +16158,7 @@ static TPM_RC FwSignSeqInitHashCtx(FWTPM_SignSeq* seq, TPMI_ALG_HASH hashAlg)
      * existing sequence would otherwise leak any heap state wolfCrypt
      * allocated under WOLFSSL_SMALL_STACK. */
     if (seq->hashCtxInit) {
-        wc_HashFree(&seq->hashCtx, FwGetWcHashType(seq->hashAlg));
+        wc_HashFree(&seq->hashCtx, FwGetSignSeqHashType(seq->hashAlg));
         seq->hashCtxInit = 0;
     }
     wcRet = wc_HashInit(&seq->hashCtx, wcHash);

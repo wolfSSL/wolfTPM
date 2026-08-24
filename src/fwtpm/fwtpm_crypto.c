@@ -74,11 +74,6 @@ enum wc_HashType FwGetWcHashType(UINT16 hashAlg)
 {
     int ret;
 
-#ifdef WOLFSSL_SHAKE256
-    if (hashAlg == TPM_ALG_SHAKE256) {
-        return WC_HASH_TYPE_SHAKE256;
-    }
-#endif
     ret = TPM2_GetHashType(hashAlg);
     return (enum wc_HashType)ret;
 }
