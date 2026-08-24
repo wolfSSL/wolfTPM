@@ -4320,7 +4320,7 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
     int rc = TPM_RC_HANDLE;
 #ifndef FWTPM_NO_HASH_CMDS
     FWTPM_HashSeq* hashSeq;
-    enum wc_HashType hashType;
+    enum wc_HashType hashSeqType;
 #endif
 
     packet.buf = plain;
@@ -4333,7 +4333,7 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
 #ifndef FWTPM_NO_HASH_CMDS
     hashSeq = FwFindHashSeq(ctx, handle);
     if (hashSeq != NULL) {
-        hashType = FwGetWcHashType(hashSeq->hashAlg);
+        hashSeqType = FwGetWcHashType(hashSeq->hashAlg);
         if (hashSeq->authValue.size > sizeof(hashSeq->authValue.buffer) ||
                 hashSeq->hmacKeySz > sizeof(hashSeq->hmacKey)) {
             return TPM_RC_FAILURE;
@@ -4345,11 +4345,11 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
         TPM2_Packet_AppendBytes(&packet, hashSeq->authValue.buffer,
             hashSeq->authValue.size);
         if (hashSeq->isHmac) {
-            rc = FwAppendHmacState(&packet, &hashSeq->ctx.hmac, hashType,
+            rc = FwAppendHmacState(&packet, &hashSeq->ctx.hmac, hashSeqType,
                 hashSeq->hmacKey, hashSeq->hmacKeySz);
         }
         else {
-            rc = FwAppendHashState(&packet, &hashSeq->ctx.hash, hashType);
+            rc = FwAppendHashState(&packet, &hashSeq->ctx.hash, hashSeqType);
         }
         rc = (rc == 0 && !packet.overflow) ? TPM_RC_SUCCESS :
             TPM_RC_FAILURE;
@@ -16238,6 +16238,8 @@ static TPM_RC FwSignSeqInitTicketHmac(FWTPM_CTX* ctx, FWTPM_SignSeq* seq,
     byte tagBytes[2];
     int proofSz = TPM2_GetHashDigestSize(CONTEXT_INTEGRITY_HASH_ALG);
     int rc = TPM_RC_SUCCESS;
+    enum wc_HashType wcHash =
+        FwGetWcHashType(CONTEXT_INTEGRITY_HASH_ALG);
 
     seq->ticketHierarchy = hierarchy;
     if (hierarchy == TPM_RH_NULL) {
@@ -16256,8 +16258,7 @@ static TPM_RC FwSignSeqInitTicketHmac(FWTPM_CTX* ctx, FWTPM_SignSeq* seq,
         }
     }
     if (rc == 0) {
-        rc = wc_HmacSetKey(&seq->ticketHmacCtx,
-            (int)FwGetWcHashType(CONTEXT_INTEGRITY_HASH_ALG),
+        rc = wc_HmacSetKey(&seq->ticketHmacCtx, (int)wcHash,
             proof, (word32)proofSz);
     }
     if (rc == 0) {
