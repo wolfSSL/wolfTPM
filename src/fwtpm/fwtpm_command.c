@@ -4249,12 +4249,15 @@ static int FwCopyHashToHmac(Hmac* dst, wc_HashAlg* src,
 }
 
 static int FwParseHmacState(TPM2_Packet* packet, Hmac* hmac,
-    enum wc_HashType hashType, byte* keyOut, UINT16* keyOutSz)
+    enum wc_HashType hashType, const byte* restoreKey, UINT16 restoreKeySz,
+    byte* keyOut, UINT16* keyOutSz)
 {
     wc_HashAlg raw;
     byte key[MAX_SYM_DATA];
+    const byte* hmacKey = key;
     UINT8 innerHashKeyed = 0;
     UINT16 keySz = 0;
+    UINT16 hmacKeySz = 0;
     int rc;
 
     XMEMSET(&raw, 0, sizeof(raw));
@@ -4269,11 +4272,23 @@ static int FwParseHmacState(TPM2_Packet* packet, Hmac* hmac,
         TPM2_Packet_ParseBytes(packet, key, keySz);
         rc = FwParseRawHashState(packet, hashType, &raw);
     }
+    if (rc == 0 && restoreKey != NULL) {
+        if (keySz != 0 || restoreKeySz > sizeof(key)) {
+            rc = BUFFER_E;
+        }
+        else {
+            hmacKey = restoreKey;
+            hmacKeySz = restoreKeySz;
+        }
+    }
+    else {
+        hmacKeySz = keySz;
+    }
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
     }
     if (rc == 0) {
-        rc = wc_HmacSetKey(hmac, (int)hashType, key, keySz);
+        rc = wc_HmacSetKey(hmac, (int)hashType, hmacKey, hmacKeySz);
     }
     if (rc == 0) {
         rc = FwCopyHashToHmac(hmac, &raw, hashType);
@@ -4281,12 +4296,12 @@ static int FwParseHmacState(TPM2_Packet* packet, Hmac* hmac,
     if (rc == 0) {
         hmac->innerHashKeyed = innerHashKeyed;
         if (keyOut != NULL && keyOutSz != NULL) {
-            XMEMCPY(keyOut, key, keySz);
-            *keyOutSz = keySz;
+            XMEMCPY(keyOut, hmacKey, hmacKeySz);
+            *keyOutSz = hmacKeySz;
         }
     #ifdef WOLF_CRYPTO_CB
         hmac->keyRaw = keyOut;
-        hmac->keyLen = keySz;
+        hmac->keyLen = (keyOut != NULL) ? hmacKeySz : 0;
     #endif
     }
     else {
@@ -4347,10 +4362,6 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
                 (seq->ticketHmacCtxInit ? FWTPM_SEQ_CTX_TICKET_INIT : 0u);
             enum wc_HashType hashType =
                 FwGetSignSeqHashType(seq->hashAlg);
-            byte ticketKey[TPM_MAX_DIGEST_SIZE];
-            int ticketKeySz = 0;
-
-            XMEMSET(ticketKey, 0, sizeof(ticketKey));
             if (seq->keyName.size > sizeof(seq->keyName.name) ||
                     seq->authValue.size > sizeof(seq->authValue.buffer) ||
                     seq->context.size > sizeof(seq->context.buffer) ||
@@ -4392,22 +4403,9 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
                     seq->hmacKey, seq->hmacKeySz);
             }
             if (rc == 0 && seq->ticketHmacCtxInit) {
-                ticketKeySz = TPM2_GetHashDigestSize(
-                    CONTEXT_INTEGRITY_HASH_ALG);
-                if (ticketKeySz <= 0 || ticketKeySz > (int)sizeof(ticketKey)) {
-                    rc = BAD_FUNC_ARG;
-                }
-                if (rc == 0) {
-                    rc = FwComputeProofValue(ctx, seq->ticketHierarchy,
-                        CONTEXT_INTEGRITY_HASH_ALG, ticketKey, ticketKeySz);
-                }
-                if (rc == 0) {
-                    rc = FwAppendHmacState(&packet, &seq->ticketHmacCtx,
-                        FwGetWcHashType(CONTEXT_INTEGRITY_HASH_ALG),
-                        ticketKey, (UINT16)ticketKeySz);
-                }
+                rc = FwAppendHmacState(&packet, &seq->ticketHmacCtx,
+                    FwGetWcHashType(CONTEXT_INTEGRITY_HASH_ALG), NULL, 0);
             }
-            TPM2_ForceZero(ticketKey, sizeof(ticketKey));
             rc = (rc == 0 && !packet.overflow) ? TPM_RC_SUCCESS :
                 TPM_RC_FAILURE;
         }
@@ -4457,7 +4455,7 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
             TPM2_Packet_ParseBytes(&packet, seq->authValue.buffer, authSz);
             if (seq->isHmac) {
                 rc = FwParseHmacState(&packet, &seq->ctx.hmac, hashType,
-                    seq->hmacKey, &seq->hmacKeySz);
+                    NULL, 0, seq->hmacKey, &seq->hmacKeySz);
             }
             else {
                 wc_HashAlg raw;
@@ -4565,14 +4563,31 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
         }
         if (rc == 0 && (flags & FWTPM_SEQ_CTX_HMAC_INIT) != 0u) {
             rc = FwParseHmacState(&packet, &seq->hmacCtx, hashType,
-                seq->hmacKey, &seq->hmacKeySz);
+                NULL, 0, seq->hmacKey, &seq->hmacKeySz);
             if (rc == 0) {
                 seq->hmacCtxInit = 1;
             }
         }
         if (rc == 0 && (flags & FWTPM_SEQ_CTX_TICKET_INIT) != 0u) {
-            rc = FwParseHmacState(&packet, &seq->ticketHmacCtx,
-                FwGetWcHashType(CONTEXT_INTEGRITY_HASH_ALG), NULL, NULL);
+            byte ticketKey[TPM_MAX_DIGEST_SIZE];
+            int ticketKeySz = TPM2_GetHashDigestSize(
+                CONTEXT_INTEGRITY_HASH_ALG);
+
+            XMEMSET(ticketKey, 0, sizeof(ticketKey));
+            if (ticketKeySz <= 0 ||
+                    ticketKeySz > (int)sizeof(ticketKey)) {
+                rc = BAD_FUNC_ARG;
+            }
+            if (rc == 0) {
+                rc = FwComputeProofValue(ctx, seq->ticketHierarchy,
+                    CONTEXT_INTEGRITY_HASH_ALG, ticketKey, ticketKeySz);
+            }
+            if (rc == 0) {
+                rc = FwParseHmacState(&packet, &seq->ticketHmacCtx,
+                    FwGetWcHashType(CONTEXT_INTEGRITY_HASH_ALG), ticketKey,
+                    (UINT16)ticketKeySz, NULL, NULL);
+            }
+            TPM2_ForceZero(ticketKey, sizeof(ticketKey));
             if (rc == 0) {
                 seq->ticketHmacCtxInit = 1;
             }
