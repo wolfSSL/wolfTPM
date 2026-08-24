@@ -386,6 +386,8 @@ int wolfSPDM_TCG_GivePubKey(
 #define WOLFSPDM_TCG_CAP_MAC                0x00000080UL
 #define WOLFSPDM_TCG_CAP_KEY_EX             0x00000200UL
 #define WOLFSPDM_TCG_CAP_PSK                0x00000400UL
+#define WOLFSPDM_TCG_CAP_PSK_WITH_CONTEXT   0x00000800UL
+#define WOLFSPDM_TCG_CAP_PSK_MASK           0x00000C00UL
 #define WOLFSPDM_TCG_CAP_PUB_KEY_ID         0x00010000UL
 
 static int wolfSPDM_TCG_CheckResponse(WOLFSPDM_CTX* ctx, const byte* rsp,
@@ -433,10 +435,7 @@ static int wolfSPDM_TCG_CheckCapabilities(WOLFSPDM_CTX* ctx,
 
     requiredFlags = WOLFSPDM_TCG_CAP_ENCRYPT | WOLFSPDM_TCG_CAP_MAC |
         WOLFSPDM_TCG_CAP_PUB_KEY_ID;
-    if ((capsFlags & WOLFSPDM_TCG_CAP_PSK) != 0) {
-        requiredFlags |= WOLFSPDM_TCG_CAP_PSK;
-    }
-    else {
+    if ((capsFlags & WOLFSPDM_TCG_CAP_PSK) == 0) {
         requiredFlags |= WOLFSPDM_TCG_CAP_KEY_EX;
     }
 
@@ -444,6 +443,10 @@ static int wolfSPDM_TCG_CheckCapabilities(WOLFSPDM_CTX* ctx,
     dataTransferSz = SPDM_Get32LE(rsp + 12);
     maxSpdmMsgSz = SPDM_Get32LE(rsp + 16);
     if ((rspFlags & requiredFlags) != requiredFlags ||
+        ((capsFlags & WOLFSPDM_TCG_CAP_PSK) != 0 &&
+         (rspFlags & WOLFSPDM_TCG_CAP_PSK_MASK) != WOLFSPDM_TCG_CAP_PSK &&
+         (rspFlags & WOLFSPDM_TCG_CAP_PSK_MASK) !=
+             WOLFSPDM_TCG_CAP_PSK_WITH_CONTEXT) ||
         dataTransferSz < WOLFSPDM_TCG_MIN_DATA_TRANSFER_SZ ||
         maxSpdmMsgSz < dataTransferSz) {
         return WOLFSPDM_E_PEER_ERROR;
