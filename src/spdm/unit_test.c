@@ -301,7 +301,7 @@ static int test_build_end_session(void)
     printf("test_build_end_session...\n");
     ASSERT_SUCCESS(wolfSPDM_BuildEndSession(ctx, buf, &bufSz));
     ASSERT_EQ(bufSz, 4, "END_SESSION should be 4 bytes");
-    ASSERT_EQ(buf[1], SPDM_END_SESSION, "Code should be 0xEA");
+    ASSERT_EQ(buf[1], SPDM_END_SESSION, "END_SESSION code mismatch");
 
     TEST_CTX_FREE();
     TEST_PASS();

@@ -51,7 +51,7 @@ extern "C" {
 #define SPDM_GET_VERSION            0x84
 #define SPDM_KEY_EXCHANGE           0xE4
 #define SPDM_FINISH                 0xE5
-#define SPDM_END_SESSION            0xEA
+#define SPDM_END_SESSION            0xEC
 #define SPDM_VENDOR_DEFINED_REQUEST 0xFE
 
 /* SPDM Response Codes (used by this implementation) */
