@@ -2103,6 +2103,7 @@ int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
 int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 {
     int rc = 0;
+    int cryptoCbRc = 0;
 
     if (dev == NULL) {
         return BAD_FUNC_ARG;
@@ -2110,12 +2111,7 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 
 #ifdef WOLFTPM_CRYPTOCB
     /* make sure crypto dev callback is unregistered */
-    rc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
-    if (rc != 0) {
-        TPM2_ForceZero(dev->session, sizeof(dev->session));
-        dev->ctx.session = NULL;
-        return rc;
-    }
+    cryptoCbRc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
 #endif
 
     if (doShutdown && TPM2_GetActiveCtx() != NULL)  {
@@ -2160,7 +2156,7 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
     TPM2_ForceZero(dev->session, sizeof(dev->session));
     dev->ctx.session = NULL;
 
-    return rc;
+    return (cryptoCbRc != 0) ? cryptoCbRc : rc;
 }
 
 int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
