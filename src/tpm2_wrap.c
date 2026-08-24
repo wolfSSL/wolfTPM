@@ -1916,39 +1916,44 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
             name->size > sizeof(session->name.name)) {
         return BUFFER_E;
     }
-    if (session->sessionHandle != TPM_RS_PW && handle->policyAuth) {
-        int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
-
-        if (authDigestSz <= 0 ||
-                (authDigestSz + handle->auth.size) >
-                    (int)sizeof(session->auth.buffer)) {
-            return BUFFER_E;
-        }
-    }
-
-    if (session->sessionHandle == TPM_RS_PW) {
-        /* password based authentication */
-        wolfTPM2_CopyAuth(&session->auth, &handle->auth);
-    }
-    else {
-        if (handle->policyPass) {
-            /* use policy password directly */
-            wolfTPM2_CopyAuth(&session->auth, &handle->auth);
-            session->policyPass = handle->policyPass;
-        }
-        else if (handle->policyAuth) {
-            /* HMAC + policy auth value */
+    if (handle->auth.size > 0 || session->sessionHandle == TPM_RS_PW ||
+            (handle->policyPass && session->policyPass) ||
+            (handle->policyAuth && session->policyAuth)) {
+        if (session->sessionHandle != TPM_RS_PW && handle->policyAuth) {
             int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
 
-            session->auth.size = (UINT16)(authDigestSz + handle->auth.size);
-            XMEMMOVE(&session->auth.buffer[authDigestSz],
-                handle->auth.buffer, handle->auth.size);
-            if (session->auth.size < sizeof(session->auth.buffer)) {
-                TPM2_ForceZero(&session->auth.buffer[session->auth.size],
-                    (word32)sizeof(session->auth.buffer) -
-                        session->auth.size);
+            if (authDigestSz <= 0 ||
+                    (authDigestSz + handle->auth.size) >
+                        (int)sizeof(session->auth.buffer)) {
+                return BUFFER_E;
             }
-            session->policyAuth = handle->policyAuth;
+        }
+
+        if (session->sessionHandle == TPM_RS_PW) {
+            /* password based authentication */
+            wolfTPM2_CopyAuth(&session->auth, &handle->auth);
+        }
+        else {
+            if (handle->policyPass) {
+                /* use policy password directly */
+                wolfTPM2_CopyAuth(&session->auth, &handle->auth);
+                session->policyPass = handle->policyPass;
+            }
+            else if (handle->policyAuth) {
+                /* HMAC + policy auth value */
+                int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
+
+                session->auth.size = (UINT16)(authDigestSz +
+                    handle->auth.size);
+                XMEMMOVE(&session->auth.buffer[authDigestSz],
+                    handle->auth.buffer, handle->auth.size);
+                if (session->auth.size < sizeof(session->auth.buffer)) {
+                    TPM2_ForceZero(&session->auth.buffer[session->auth.size],
+                        (word32)sizeof(session->auth.buffer) -
+                            session->auth.size);
+                }
+                session->policyAuth = handle->policyAuth;
+            }
         }
     }
     session->name.size = name->size;
