@@ -16229,6 +16229,7 @@ static TPM_RC FwSignSeqInitMldsaMuCtx(FWTPM_SignSeq* seq,
     return rc;
 }
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Start the HMAC for a MESSAGE_VERIFIED ticket. SequenceUpdate streams the
  * raw message into this context and VerifySequenceComplete appends keyName. */
 static TPM_RC FwSignSeqInitTicketHmac(FWTPM_CTX* ctx, FWTPM_SignSeq* seq,
@@ -16271,6 +16272,7 @@ static TPM_RC FwSignSeqInitTicketHmac(FWTPM_CTX* ctx, FWTPM_SignSeq* seq,
     TPM2_ForceZero(proof, sizeof(proof));
     return (rc == 0) ? TPM_RC_SUCCESS : TPM_RC_FAILURE;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
 static TPM_RC FwValidateSignatureContext(const FWTPM_Object* obj,
     UINT16 contextSz)
