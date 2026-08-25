@@ -163,6 +163,9 @@ void TPM2_Packet_ParseU8(TPM2_Packet* packet, UINT8* data)
             value = packet->buf[packet->pos];
         packet->pos += sizeof(UINT8);
     }
+    else if (packet != NULL) {
+        packet->overflow = 1;
+    }
     if (data)
         *data = value;
 }
@@ -185,6 +188,9 @@ void TPM2_Packet_ParseU16(TPM2_Packet* packet, UINT16* data)
         XMEMCPY(&value, &packet->buf[packet->pos], sizeof(UINT16));
         value = be16_to_cpu(value);
         packet->pos += sizeof(UINT16);
+    }
+    else if (packet != NULL) {
+        packet->overflow = 1;
     }
     if (data)
         *data = value;
@@ -211,6 +217,9 @@ void TPM2_Packet_ParseU32(TPM2_Packet* packet, UINT32* data)
         }
         packet->pos += sizeof(UINT32);
     }
+    else if (packet != NULL) {
+        packet->overflow = 1;
+    }
     if (data)
         *data = value;
 }
@@ -235,6 +244,9 @@ void TPM2_Packet_ParseU64(TPM2_Packet* packet, UINT64* data)
             value = be64_to_cpu(value);
         }
         packet->pos += sizeof(UINT64);
+    }
+    else if (packet != NULL) {
+        packet->overflow = 1;
     }
     if (data)
         *data = value;
@@ -278,6 +290,7 @@ void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
         }
         if (size > 0 && packet->pos + size > packet->size) {
             /* Clamp pos on truncated read */
+            packet->overflow = 1;
             packet->pos = packet->size;
         }
         else {
@@ -293,15 +306,17 @@ void TPM2_Packet_ParseU16Buf(TPM2_Packet* packet, UINT16* size, byte* buf,
 {
     /* Init to 0 so a NULL packet (TPM2_Packet_ParseU16 is a no-op in that
      * case) leaves wireSize well-defined for the arithmetic below. */
+    int startPos = packet != NULL ? packet->pos : 0;
     UINT16 wireSize = 0;
     UINT16 copySz;
 
     TPM2_Packet_ParseU16(packet, &wireSize);
     /* Clamp to remaining packet bytes to prevent pos from going past size */
-    if (packet && (packet->pos >= packet->size)) {
+    if (packet && packet->pos == startPos) {
         wireSize = 0;
     }
     else if (packet && wireSize > (UINT16)(packet->size - packet->pos)) {
+        packet->overflow = 1;
         wireSize = (UINT16)(packet->size - packet->pos);
     }
     copySz = wireSize;
@@ -635,6 +650,9 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
         TPM2_Packet_ParseU16(packet, &hash);
         TPM2_Packet_ParseU8(packet, &wireSizeofSelect);
         TPM2_Packet_ParseBytes(packet, NULL, wireSizeofSelect);
+    }
+    if (packet != NULL && (UINT32)i < wireCount) {
+        packet->overflow = 1;
     }
 }
 
@@ -1554,16 +1572,24 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     }
 }
 
-void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
+int TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
 {
+    if (packet == NULL || out == NULL || packet->buf == NULL ||
+        packet->pos < 0 || packet->size < 0 || packet->pos > packet->size) {
+        return BAD_FUNC_ARG;
+    }
+
     XMEMSET(out, 0, sizeof(TPMS_ATTEST));
 
     TPM2_Packet_ParseU32(packet, &out->magic);
+    if (packet->overflow) {
+        return TPM_RC_SIZE;
+    }
     if (out->magic != TPM_GENERATED_VALUE) {
     #ifdef DEBUG_WOLFTPM
         printf("Attestation magic invalid!\n");
     #endif
-        return;
+        return TPM_RC_VALUE;
     }
 
     TPM2_Packet_ParseU16(packet, &out->type);
@@ -1582,6 +1608,9 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
     TPM2_Packet_ParseU8(packet, &out->clockInfo.safe);
 
     TPM2_Packet_ParseU64(packet, &out->firmwareVersion);
+    if (packet->overflow) {
+        return TPM_RC_SIZE;
+    }
 
     switch (out->type) {
         case TPM_ST_ATTEST_CERTIFY:
@@ -1664,8 +1693,13 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
         #ifdef DEBUG_WOLFTPM
             printf("Unknown attestation type: 0x%x\n", out->type);
         #endif
-            break;
+            return TPM_RC_VALUE;
     }
+
+    if (packet->overflow || packet->pos != packet->size) {
+        return TPM_RC_SIZE;
+    }
+    return TPM_RC_SUCCESS;
 }
 
 TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)

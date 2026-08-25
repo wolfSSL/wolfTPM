@@ -210,6 +210,15 @@ TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
     const byte* msg, int msgSz,
     const byte* sig, int sigSz);
 
+TPM_RC FwSignMldsaMu(WC_RNG* rng,
+    TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi, const byte* mu, int muSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut);
+
+TPM_RC FwVerifyMldsaMu(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* mu, int muSz, const byte* sig, int sigSz);
+
 TPM_RC FwSignMldsaHash(WC_RNG* rng,
     TPMI_MLDSA_PARAMETER_SET parameterSet,
     const byte* seedXi,
@@ -260,6 +269,7 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
  * verified through the session path or vice versa. */
 #define FWTPM_CTX_TYPE_SESSION 0x01
 #define FWTPM_CTX_TYPE_OBJECT  0x02
+#define FWTPM_CTX_TYPE_SEQUENCE 0x03
 
 int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     const byte* plain, int plainSz,

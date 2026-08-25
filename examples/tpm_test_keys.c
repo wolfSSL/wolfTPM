@@ -221,6 +221,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         if (bytes_read != sizeof(key->pub.size)) {
             printf("Read %zu, expected size marker of %zu bytes\n",
                 bytes_read, sizeof(key->pub.size));
+            rc = BUFFER_E;
             goto exit;
         }
         fileSz -= bytes_read;
@@ -233,6 +234,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         if (bytes_read != (sizeof(UINT16) + key->pub.size)) {
             printf("Read %zu, expected public blob %zu bytes\n",
                 bytes_read, sizeof(UINT16) + key->pub.size);
+            rc = BUFFER_E;
             goto exit;
         }
         fileSz -= bytes_read; /* Reminder bytes for private key part */
@@ -679,6 +681,8 @@ int loadFile(const char* fname, byte** buf, size_t* bufLen)
             *buf = (byte*)XMALLOC(fileSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             if (*buf == NULL)
                 ret = MEMORY_E;
+        #else
+            ret = MEMORY_E;
         #endif
         }
         else if (*buf != NULL && fileSz > (ssize_t)*bufLen) {

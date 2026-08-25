@@ -1641,7 +1641,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_BAD_AUTH);
 
     /* Restore PCR 16 to empty auth so the NV journal doesn't contaminate
      * later tests that share FWTPM_NV_FILE. */
@@ -1664,7 +1664,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("PCR_Extend empty-pw after SetAuth (AUTH_FAIL):", 0);
+    fwtpm_pass("PCR_Extend empty-pw after SetAuth (BAD_AUTH):", 0);
 }
 
 /* ================================================================== */
@@ -6104,13 +6104,13 @@ static void test_fwtpm_getcap_pqc_algorithm_attrs(void)
     fwtpm_pass("GetCap ALGS PQC signing/encrypting bits:", 1);
 }
 
-/* Hash-ML-DSA verify ticket must bind the verified digest, not just
+/* Hash-ML-DSA verify ticket must bind the verified message, not just
  * keyName. Pre-fix the ticket data was {keyName} for Hash-ML-DSA
  * because seq->msgBuf is never populated on that path (SequenceUpdate
  * routes the bytes into seq->hashCtx). Two distinct messages signed by
  * the same key produced byte-identical tickets, breaking
  * TPM2_PolicyAuthorize's chain of trust (Part 2 Sec.10.6.5 Eq (5)). */
-static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest(void)
+static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, pos, cmdSz;
@@ -6328,7 +6328,7 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest(void)
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(sigA);
     FWTPM_FREE_BUF(sigB);
-    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds digest:", 1);
+    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket changes with message:", 1);
 }
 
 /* Per Part 3 Sec.20.3.1 + Part 2 Sec.10.6.5 Table 111: every successful
@@ -6485,8 +6485,6 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     UINT32 signSeqHandle, verifySeqHandle;
     FWTPM_Object* keyObj;
     int oi;
-    wc_HashAlg msgHash;
-    byte msgDigest[WC_SHA256_DIGEST_SIZE];
 
     FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
     memset(&ctx, 0, sizeof(ctx));
@@ -6597,10 +6595,8 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     AssertIntEQ((int)hmacSz <= (int)sizeof(hmac), 1);
     memcpy(hmac, gRsp + pos, hmacSz);
 
-    /* Recompute expected HMAC over SHA-256(msg)||keyName. Hash-then-sign
-     * sequences bind the computed digest in the ticket (matches the
-     * TPM2_VerifySignature pattern; supports arbitrary-length sequences).
-     * FwFindObject is static-local so walk ctx.objects[] directly. */
+    /* Recompute the expected HMAC over msg||keyName. FwFindObject is
+     * static-local, so walk ctx.objects[] directly. */
     keyObj = NULL;
     for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
         if (ctx.objects[oi].handle == keyHandle) {
@@ -6612,13 +6608,8 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     if (keyObj->name.size == 0) {
         FwComputeObjectName(keyObj);
     }
-    AssertIntEQ(wc_HashInit(&msgHash, WC_HASH_TYPE_SHA256), 0);
-    AssertIntEQ(wc_HashUpdate(&msgHash, WC_HASH_TYPE_SHA256,
-        msg, sizeof(msg) - 1), 0);
-    AssertIntEQ(wc_HashFinal(&msgHash, WC_HASH_TYPE_SHA256, msgDigest), 0);
-    wc_HashFree(&msgHash, WC_HASH_TYPE_SHA256);
-    memcpy(ticketData, msgDigest, sizeof(msgDigest));
-    ticketDataSz = sizeof(msgDigest);
+    memcpy(ticketData, msg, sizeof(msg) - 1);
+    ticketDataSz = sizeof(msg) - 1;
     memcpy(ticketData + ticketDataSz, keyObj->name.name, keyObj->name.size);
     ticketDataSz += keyObj->name.size;
 
@@ -6633,7 +6624,7 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
 
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(sig);
-    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds DIGEST:", 1);
+    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds MESSAGE:", 1);
 }
 
 /* Per Part 3 Sec.20.6.1 a restricted signing key MUST NOT sign a message
@@ -7235,25 +7226,21 @@ static void test_fwtpm_signseq_slot_exhaustion(void)
 }
 #endif /* WOLFTPM_MLDSA */
 
-/* ---- Long-message accumulation boundary for Pure-MLDSA verify seq ----
- * msgBuf is FWTPM_MAX_DATA_BUF (1024) bytes. Accumulating across
- * SequenceUpdate calls past that limit must return TPM_RC_MEMORY per
- * fwtpm_command.c FwCmd_SequenceUpdate PQC branch. One exact-fit run
- * succeeds; one overflow run fails. */
-static void test_fwtpm_signseq_longmsg_boundary(void)
+/* Pure ML-DSA sequence hashing remains streaming beyond 1024 bytes. */
+static void test_fwtpm_signseq_longmsg_streaming(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, pos, i;
     UINT32 mldsaHandle, seqHandle;
     const int chunk = 256;           /* 4 chunks = exactly 1024. */
-    const int overflow = 4;          /* one extra byte past the limit. */
+    const int extra = 4;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
     mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
 
-    /* Start a Pure-MLDSA VERIFY sequence (accepts SequenceUpdate into msgBuf). */
+    /* Start a Pure-MLDSA verify sequence. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -7286,23 +7273,23 @@ static void test_fwtpm_signseq_longmsg_boundary(void)
         AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     }
 
-    /* One more update: msgBuf is full, any additional bytes overflow. */
+    /* One more update takes the cumulative message beyond 1024 bytes. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
     PutU32BE(gCmd + pos, seqHandle); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU16BE(gCmd + pos, (UINT16)overflow); pos += 2;
-    memset(gCmd + pos, 0xFF, overflow); pos += overflow;
+    PutU16BE(gCmd + pos, (UINT16)extra); pos += 2;
+    memset(gCmd + pos, 0xFF, extra); pos += extra;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_MEMORY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("SignSeq long-msg boundary:", 1);
+    fwtpm_pass("SignSeq long-msg streaming:", 1);
 }
 
 /* ---- NV persistence round-trip for PQC primary -----------------------
@@ -10704,7 +10691,7 @@ static TPM_RC DaSendBadAuthTo(FWTPM_CTX* ctx, UINT32 cc, UINT32 handle)
 }
 
 /* The platform hierarchy is not DA-protected: a failed platformAuth reports
- * AUTH_FAIL (not LOCKOUT) and never feeds the counter. */
+ * BAD_AUTH (not LOCKOUT) and never feeds the counter. */
 static void test_fwtpm_da_platform_exempt(void)
 {
     FWTPM_CTX ctx;
@@ -10712,11 +10699,11 @@ static void test_fwtpm_da_platform_exempt(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
     AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
-        TPM_RC_AUTH_FAIL);
+        TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     /* Repeated failures must neither count nor lock. */
     AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
-        TPM_RC_AUTH_FAIL);
+        TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(ctx.lockoutAuthFailed, 0);
 
@@ -10824,7 +10811,7 @@ static void test_fwtpm_da_noda_object_exempt(void)
     /* noDA sign key (attr includes TPMA_OBJECT_noDA = 0x400) */
     noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
     AssertIntNE(noDaKey, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(ctx.daUsed, 0);
 
@@ -10886,7 +10873,7 @@ static void test_fwtpm_da_lockout_and_reset(void)
 }
 
 /* A noDA key stays usable during active lockout (gate exempts it): a wrong-auth
- * use yields AUTH_FAIL, not LOCKOUT. */
+ * use yields BAD_AUTH, not LOCKOUT. */
 static void test_fwtpm_da_noda_usable_during_lockout(void)
 {
     FWTPM_CTX ctx;
@@ -10905,9 +10892,9 @@ static void test_fwtpm_da_noda_usable_during_lockout(void)
     AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
     /* The DA key is now gated... */
     AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
-    /* ...but the noDA key is still processed (AUTH_FAIL, not LOCKOUT) and does
+    /* ...but the noDA key is still processed (BAD_AUTH, not LOCKOUT) and does
      * not feed the counter. */
-    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 2);
 
     FWTPM_Cleanup(&ctx);
@@ -12882,7 +12869,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing();
     test_fwtpm_verifydigestsig_no_sign_attr_returns_key();
     test_fwtpm_getcap_pqc_algorithm_attrs();
-    test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest();
+    test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_tag_digest();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message();
     test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();
@@ -12893,7 +12880,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef WOLFTPM_MLDSA
     test_fwtpm_signseq_slot_exhaustion();
 #endif /* WOLFTPM_MLDSA */
-    test_fwtpm_signseq_longmsg_boundary();
+    test_fwtpm_signseq_longmsg_streaming();
     test_fwtpm_mldsa87_maxbuf();
     test_fwtpm_response_buffer_capacity();
     test_fwtpm_mlkem1024_maxbuf();

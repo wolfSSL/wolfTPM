@@ -13,6 +13,13 @@ fi
 if [ -z "$NO_FILESYSTEM" ]; then
     NO_FILESYSTEM=0
 fi
+
+run_keyload() {
+    if [ $NO_FILESYSTEM -eq 0 ]; then
+        ./examples/keygen/keyload "$@"
+    fi
+}
+
 if [ -z "$NO_PUBASPRIV" ]; then
     NO_PUBASPRIV=0
 fi
@@ -276,14 +283,14 @@ echo -e "Key Generation Tests"
 ./examples/keygen/keygen keyblob.bin -rsa >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keygen rsa failed! $RESULT" && exit 1
-./examples/keygen/keyload keyblob.bin >> $TPMPWD/run.out 2>&1
+run_keyload keyblob.bin >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keyload rsa failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     ./examples/keygen/keygen keyblob.bin -rsa -xor >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen rsa param enc xor failed! $RESULT" && exit 1
-    ./examples/keygen/keyload keyblob.bin -xor >> $TPMPWD/run.out 2>&1
+    run_keyload keyblob.bin -xor >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload rsa param enc xor failed! $RESULT" && exit 1
 
@@ -291,7 +298,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
         ./examples/keygen/keygen keyblob.bin -rsa -aes >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keygen rsa param enc aes failed! $RESULT" && exit 1
-        ./examples/keygen/keyload keyblob.bin -aes >> $TPMPWD/run.out 2>&1
+        run_keyload keyblob.bin -aes >> $TPMPWD/run.out 2>&1
         RESULT=$?
 
         if [ $WOLFCRYPT_RSA -eq 1 ]; then
@@ -299,7 +306,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
             ./examples/keygen/keyimport rsakeyblob.bin -rsa >> $TPMPWD/run.out 2>&1
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "keyload rsa import load failed! $RESULT" && exit 1
-            ./examples/keygen/keyload rsakeyblob.bin >> $TPMPWD/run.out 2>&1
+            run_keyload rsakeyblob.bin >> $TPMPWD/run.out 2>&1
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "keyload rsa load failed! $RESULT" && exit 1
             rm -f rsakeyblob.bin
@@ -311,7 +318,7 @@ fi
 ./examples/keygen/keygen eccblob.bin -ecc >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keygen ecc failed! $RESULT" && exit 1
-./examples/keygen/keyload eccblob.bin >> $TPMPWD/run.out 2>&1
+run_keyload eccblob.bin >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keyload ecc failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
@@ -319,7 +326,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
         ./examples/keygen/keygen eccblob.bin -ecc -aes >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keygen ecc param enc failed! $RESULT" && exit 1
-        ./examples/keygen/keyload eccblob.bin -aes >> $TPMPWD/run.out 2>&1
+        run_keyload eccblob.bin -aes >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keyload ecc param enc failed! $RESULT" && exit 1
 
@@ -328,7 +335,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "keyload ecc import failed! $RESULT" && exit 1
 
-            ./examples/keygen/keyload ecckeyblob.bin >> $TPMPWD/run.out 2>&1
+            run_keyload ecckeyblob.bin >> $TPMPWD/run.out 2>&1
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "keyload ecc load failed! $RESULT" && exit 1
             rm -f ecckeyblob.bin
@@ -343,14 +350,14 @@ if [ $ENABLE_V185 -eq 1 ]; then
         ./examples/keygen/keygen pqcblob.bin -mldsa=$PS >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keygen mldsa=$PS failed! $RESULT" && exit 1
-        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        run_keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keyload mldsa=$PS failed! $RESULT" && exit 1
 
         ./examples/keygen/keygen pqcblob.bin -hash_mldsa=$PS >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keygen hash_mldsa=$PS failed! $RESULT" && exit 1
-        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        run_keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keyload hash_mldsa=$PS failed! $RESULT" && exit 1
     done
@@ -358,7 +365,7 @@ if [ $ENABLE_V185 -eq 1 ]; then
         ./examples/keygen/keygen pqcblob.bin -mlkem=$PS >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keygen mlkem=$PS failed! $RESULT" && exit 1
-        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        run_keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "keyload mlkem=$PS failed! $RESULT" && exit 1
     done
@@ -472,7 +479,7 @@ run_keygen_aes_test() { # Usage: run_keygen_aes_test [aescfb128]
     ./examples/keygen/keygen symkeyblob.bin -sym=$1 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen sym $1 failed! $RESULT" && exit 1
-    ./examples/keygen/keyload symkeyblob.bin >> $TPMPWD/run.out 2>&1
+    run_keyload symkeyblob.bin >> $TPMPWD/run.out 2>&1
     RESULT=$?
     rm -f symkeyblob.bin
     [ $RESULT -ne 0 ] && echo -e "keygen sym $1 load failed! $RESULT" && exit 1
@@ -493,7 +500,7 @@ run_keygen_aes_test "aescbc256"
 ./examples/keygen/keygen keyedhashblob.bin -keyedhash >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keygen keyed hash failed! $RESULT" && exit 1
-./examples/keygen/keyload keyedhashblob.bin >> $TPMPWD/run.out 2>&1
+run_keyload keyedhashblob.bin >> $TPMPWD/run.out 2>&1
 RESULT=$?
 rm -f keyedhashblob.bin
 [ $RESULT -ne 0 ] && echo -e "keygen keyed hash load failed! $RESULT" && exit 1
@@ -503,14 +510,14 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
-    ./examples/keygen/keyload rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
+    run_keyload rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa failed! $RESULT" && exit 1
 
     ./examples/keygen/keygen ecckeyblobeh.bin -ecc -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen endorsement ecc failed! $RESULT" && exit 1
-    ./examples/keygen/keyload ecckeyblobeh.bin -ecc -eh >> $TPMPWD/run.out 2>&1
+    run_keyload ecckeyblobeh.bin -ecc -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload endorsement ecc failed! $RESULT" && exit 1
 

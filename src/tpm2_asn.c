@@ -157,8 +157,11 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     DecodedX509* x509)
 {
     int rc = 0;
-    word32 idx = 0;
+    word32 idx = 0, sigAlgEnd = 0;
+    word32 tbsSigAlgBegin = 0, tbsSigAlgSz = 0;
+    word32 outerSigAlgBegin = 0, outerSigAlgSz = 0;
     int tot_len, cert_len = 0, len, pubkey_len = 0, sig_len = 0;
+    byte sigParamTag = 0;
 
     if (input == NULL || x509 == NULL) {
         rc = TPM_RC_VALUE;
@@ -212,11 +215,13 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
         idx += len; /* skip serial */
 
         /* Skip algorithm identifier */
+        tbsSigAlgBegin = idx;
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
                                &idx, &len, inputSz);
     }
 
     if (rc >= 0) {
+        tbsSigAlgSz = idx - tbsSigAlgBegin + (word32)len;
         idx += len; /* skip signature oid */
 
         /* Skip issuer */
@@ -268,8 +273,18 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
 
         /* Get signature algorithm */
         idx = x509->certBegin + x509->certSz;
+        outerSigAlgBegin = idx;
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
                                &idx, &len, inputSz);
+        if (rc >= 0) {
+            sigAlgEnd = idx + (word32)len;
+            outerSigAlgSz = sigAlgEnd - outerSigAlgBegin;
+            if (outerSigAlgSz != tbsSigAlgSz ||
+                    XMEMCMP(input + outerSigAlgBegin,
+                        input + tbsSigAlgBegin, outerSigAlgSz) != 0) {
+                rc = TPM_RC_VALUE;
+            }
+        }
     }
 
     if (rc >= 0) {
@@ -279,16 +294,33 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
 
     if (rc >= 0) {
         idx += len; /* skip oid */
-
-        /* Skip signature algorithm parameters */
-        rc = TPM2_ASN_GetHeader(input, TPM2_ASN_TAG_NULL, &idx, &len, inputSz);
+        if (idx < sigAlgEnd) {
+            sigParamTag = input[idx];
+            if (sigParamTag != TPM2_ASN_TAG_NULL &&
+                    sigParamTag !=
+                        (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED)) {
+                rc = TPM_RC_VALUE;
+            }
+            else {
+                rc = TPM2_ASN_GetHeader(input, sigParamTag, &idx, &len,
+                    sigAlgEnd);
+                if (rc >= 0 && sigParamTag == TPM2_ASN_TAG_NULL && len != 0) {
+                    rc = TPM_RC_VALUE;
+                }
+                if (rc >= 0) {
+                    idx += len;
+                }
+            }
+        }
+        if (rc >= 0 && idx != sigAlgEnd) {
+            rc = TPM_RC_VALUE;
+        }
     }
 
     if (rc >= 0) {
-        idx += len; /* skip tag */
-
         /* Get signature */
-        rc = TPM2_ASN_GetHeader(input, TPM2_ASN_BIT_STRING, &idx, &sig_len, inputSz);
+        rc = TPM2_ASN_GetHeader(input, TPM2_ASN_BIT_STRING, &idx, &sig_len,
+            inputSz);
     }
 
     if (rc >= 0) {

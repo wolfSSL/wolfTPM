@@ -436,6 +436,7 @@ static int RespBuildAlgorithms(WOLFSPDM_CTX* ctx,
     out[off++] = 0x00;
     out[off++] = 0x34; out[off++] = 0x00;
     out[off++] = 0x00; out[off++] = 0x02;
+    XMEMSET(out + off, 0, 4); off += 4;
     out[off++] = 0x80; out[off++] = 0x00; out[off++] = 0x00; out[off++] = 0x00;
     out[off++] = 0x02; out[off++] = 0x00; out[off++] = 0x00; out[off++] = 0x00;
     XMEMSET(out + off, 0, 12); off += 12;
@@ -893,7 +894,7 @@ static int RespBuildEndSessionAck(WOLFSPDM_CTX* ctx,
         return WOLFSPDM_E_BUFFER_SMALL;
     }
     out[0] = ctx->spdmVersion;
-    out[1] = 0x6B;  /* END_SESSION_ACK */
+    out[1] = SPDM_END_SESSION_ACK;
     out[2] = 0x00;
     out[3] = 0x00;
     *outSz = 4;

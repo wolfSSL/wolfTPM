@@ -848,9 +848,9 @@ enum TPMA_ALGORITHM_mask {
     TPMA_ALGORITHM_symmetric  = 0x00000002,
     TPMA_ALGORITHM_hash       = 0x00000004,
     TPMA_ALGORITHM_object     = 0x00000008,
-    TPMA_ALGORITHM_signing    = 0x00000010,
-    TPMA_ALGORITHM_encrypting = 0x00000020,
-    TPMA_ALGORITHM_method     = 0x00000040,
+    TPMA_ALGORITHM_signing    = 0x00000100,
+    TPMA_ALGORITHM_encrypting = 0x00000200,
+    TPMA_ALGORITHM_method     = 0x00000400,
 };
 
 typedef UINT32 TPMA_OBJECT;
@@ -3808,6 +3808,8 @@ WOLFTPM_API TPM_RC TPM2_SetCommandRetries(TPM2_CTX* ctx, int retries);
 /*!
     \ingroup TPM2_Proprietary
     \brief Returns the number of times a command is transparently resubmitted on TPM_RC_RETRY
+    \note Callers must synchronize concurrent calls to this function and
+    TPM2_SetCommandRetries.
 
     \return the configured retry count on success
     \return BAD_FUNC_ARG: the TPM2 context is a NULL pointer
@@ -4239,6 +4241,8 @@ WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
+    \return TPM_RC_VALUE: invalid attestation magic or type
+    \return TPM_RC_SIZE: malformed or truncated attestation data
 
     \param in pointer to a structure of a TPM2B_ATTEST type
     \param out pointer to a structure of a TPMS_ATTEST type

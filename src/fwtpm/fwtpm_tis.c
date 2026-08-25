@@ -524,9 +524,19 @@ int FWTPM_TIS_ServerLoop(FWTPM_CTX* ctx)
         /* Process the register access */
         TisHandleRegAccess(ctx, regs);
 
+        /* Write data is no longer needed after the server consumes it. */
+        if (regs->reg_is_write) {
+            TPM2_ForceZero(regs->reg_data, sizeof(regs->reg_data));
+        }
+
         /* Signal client that register access is complete */
         if (hal->signal_response != NULL) {
-            hal->signal_response(hal->ctx);
+            rc = hal->signal_response(hal->ctx);
+            if (rc != 0) {
+                TPM2_ForceZero(regs->reg_data, sizeof(regs->reg_data));
+                retRc = TPM_RC_FAILURE;
+                break;
+            }
         }
     }
 

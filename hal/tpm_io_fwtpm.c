@@ -43,14 +43,48 @@
 #endif
 
 #include <sys/mman.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <semaphore.h>
 
 /* Static client context (one connection per process).
  * By design, only one fwTPM server instance is connected per process.
- * Thread safety is provided by TPM2_AcquireLock in tpm2_tis.c. */
+ * This callback does not synchronize access to the client context; callers
+ * must serialize concurrent initialization and use. */
 static FWTPM_TIS_CLIENT_CTX gFwtpmClient;
 static int gFwtpmClientInit = 0;
+
+static int FWTPM_TIS_ClientLock(int fd)
+{
+    int rc;
+
+    do {
+        rc = flock(fd, LOCK_EX);
+    } while (rc != 0 && errno == EINTR);
+
+    return rc;
+}
+
+static int FWTPM_TIS_ClientTryLock(int fd)
+{
+    return flock(fd, LOCK_EX | LOCK_NB);
+}
+
+static void FWTPM_TIS_ClientUnlock(int fd)
+{
+    int rc;
+
+    do {
+        rc = flock(fd, LOCK_UN);
+    } while (rc != 0 && errno == EINTR);
+}
+
+static int FWTPM_TIS_ServerActive(const FWTPM_TIS_REGS* shm)
+{
+    const volatile UINT32* magic = &shm->magic;
+
+    return *magic == FWTPM_TIS_MAGIC;
+}
 
 int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
 {
@@ -58,6 +92,7 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     int openFlags;
     int fdFlags;
     struct stat st;
+    struct stat pathSt;
     FWTPM_TIS_REGS* shm;
     sem_t* semCmd;
     sem_t* semRsp;
@@ -152,6 +187,17 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
         return TPM_RC_FAILURE;
     }
 
+    /* Reject a mapping from an old server generation paired with newly
+     * recreated semaphore names. */
+    if (stat(FWTPM_TIS_SHM_PATH, &pathSt) != 0 ||
+            st.st_dev != pathSt.st_dev || st.st_ino != pathSt.st_ino) {
+        sem_close(semRsp);
+        sem_close(semCmd);
+        munmap(shm, sizeof(FWTPM_TIS_REGS));
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+
     client->shm = shm;
     client->shmFd = fd;
     client->semCmd = semCmd;
@@ -179,6 +225,12 @@ void FWTPM_TIS_ClientDisconnect(FWTPM_TIS_CLIENT_CTX* client)
         client->semCmd = NULL;
     }
     if (client->shm != NULL) {
+        if (client->shmFd >= 0 &&
+                FWTPM_TIS_ClientTryLock(client->shmFd) == 0) {
+            TPM2_ForceZero(client->shm->reg_data,
+                sizeof(client->shm->reg_data));
+            FWTPM_TIS_ClientUnlock(client->shmFd);
+        }
         munmap(client->shm, sizeof(FWTPM_TIS_REGS));
         client->shm = NULL;
     }
@@ -206,9 +258,7 @@ int TPM2_IoCb_FwTPM(TPM2_CTX* ctx, int isRead, word32 addr,
     (void)ctx;
     (void)userCtx;
 
-    /* Lazy connect on first call.
-     * Note: thread safety is provided by the TPM context lock in tpm2_tis.c
-     * (TPM2_AcquireLock), so no additional mutex is needed here. */
+    /* Lazy connect on first call. Callers must serialize this path. */
     if (!gFwtpmClientInit) {
         static int atexitRegistered = 0;
         int rc = FWTPM_TIS_ClientConnect(client);
@@ -232,6 +282,15 @@ int TPM2_IoCb_FwTPM(TPM2_CTX* ctx, int isRead, word32 addr,
         return BAD_FUNC_ARG;
     }
 
+    /* Serialize the complete shared request slot lifecycle across clients. */
+    if (FWTPM_TIS_ClientLock(client->shmFd) != 0) {
+        return TPM_RC_FAILURE;
+    }
+    if (!FWTPM_TIS_ServerActive(shm)) {
+        FWTPM_TIS_ClientUnlock(client->shmFd);
+        return TPM_RC_FAILURE;
+    }
+
     /* Fill register access request */
     shm->reg_addr = addr;
     shm->reg_len = size;
@@ -243,18 +302,37 @@ int TPM2_IoCb_FwTPM(TPM2_CTX* ctx, int isRead, word32 addr,
 
     /* Signal server and wait for completion */
     if (sem_post((sem_t*)client->semCmd) != 0) {
+        TPM2_ForceZero(shm->reg_data, sizeof(shm->reg_data));
+        FWTPM_TIS_ClientUnlock(client->shmFd);
         return TPM_RC_FAILURE;
     }
     while (sem_wait((sem_t*)client->semRsp) != 0) {
         if (errno != EINTR) {
+            TPM2_ForceZero(shm->reg_data, sizeof(shm->reg_data));
+            FWTPM_TIS_ClientUnlock(client->shmFd);
             return TPM_RC_FAILURE;
         }
+    }
+    if (!FWTPM_TIS_ServerActive(shm)) {
+        TPM2_ForceZero(shm->reg_data, sizeof(shm->reg_data));
+        FWTPM_TIS_ClientUnlock(client->shmFd);
+        return TPM_RC_FAILURE;
     }
 
     /* Copy result for reads */
     if (isRead) {
         XMEMCPY(buf, shm->reg_data, size);
     }
+    if (!FWTPM_TIS_ServerActive(shm)) {
+        if (isRead) {
+            TPM2_ForceZero(buf, size);
+        }
+        TPM2_ForceZero(shm->reg_data, sizeof(shm->reg_data));
+        FWTPM_TIS_ClientUnlock(client->shmFd);
+        return TPM_RC_FAILURE;
+    }
+    TPM2_ForceZero(shm->reg_data, sizeof(shm->reg_data));
+    FWTPM_TIS_ClientUnlock(client->shmFd);
 
     return TPM_RC_SUCCESS;
 }

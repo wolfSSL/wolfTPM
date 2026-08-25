@@ -519,6 +519,8 @@ typedef struct FWTPM_HashSeq {
     TPMI_ALG_HASH hashAlg;         /* Hash algorithm for this sequence */
     int isHmac;                     /* 1 if HMAC sequence, 0 if plain hash */
     TPM2B_AUTH authValue;           /* Sequence auth (from HashSequenceStart) */
+    UINT16 hmacKeySz;
+    byte hmacKey[MAX_SYM_DATA];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     union {
         wc_HashAlg hash;            /* wolfCrypt hash context (isHmac == 0) */
@@ -531,12 +533,8 @@ typedef struct FWTPM_HashSeq {
  * WOLFTPM_MLDSA on its own, and every consumer of these slots tests
  * WOLFTPM_MLDSA. */
 #ifdef WOLFTPM_MLDSA
-/* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6). Pure ML-DSA
- * is one-shot — the message arrives via the `buffer` parameter of
- * TPM2_SignSequenceComplete and TPM2_SequenceUpdate is rejected with
- * TPM_RC_ONE_SHOT_SIGNATURE (Part 3 Sec.20.6). Hash-ML-DSA digest signing is
- * handled via TPM2_SignDigest / TPM2_VerifyDigestSignature, not through
- * this slot. */
+/* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6).
+ * Pure ML-DSA streams its SHAKE256 mu calculation through hashCtx. */
 typedef struct FWTPM_SignSeq {
     int used;
     TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
@@ -552,7 +550,7 @@ typedef struct FWTPM_SignSeq {
     TPM2B_AUTH authValue;
     TPM2B_SIGNATURE_CTX context;
     int oneShot;                    /* SequenceUpdate not permitted if set */
-    /* Accumulator for Pure ML-DSA sequences (raw message bytes). */
+    /* Reserved raw-message fields retained in the sequence context layout. */
     byte   msgBuf[FWTPM_MAX_DATA_BUF];
     UINT32 msgBufSz;
     /* First 4 bytes of the assembled message (any path: SequenceUpdate or
@@ -569,6 +567,12 @@ typedef struct FWTPM_SignSeq {
     /* HMAC accumulator for KEYEDHASH (HMAC) signing/verifying sequences. */
     Hmac hmacCtx;
     int hmacCtxInit;                /* 1 when hmacCtx is live */
+    UINT16 hmacKeySz;
+    byte hmacKey[MAX_SYM_DATA];
+    /* Incremental MESSAGE_VERIFIED ticket HMAC for verify sequences. */
+    Hmac ticketHmacCtx;
+    int ticketHmacCtxInit;
+    UINT32 ticketHierarchy;
 #endif
 } FWTPM_SignSeq;
 
@@ -589,6 +593,10 @@ typedef struct FWTPM_Session {
     TPM2B_AUTH sessionKey;          /* Session HMAC key (from KDFa) */
     TPM2B_AUTH bindAuth;            /* Auth of bound entity */
     TPM_HANDLE bindHandle;          /* Bound entity handle (0 if unbound) */
+#ifndef FWTPM_NO_DA
+    int isDaBound;                  /* Bound authValue has DA protection */
+    int isLockoutBound;             /* Bound to the lockout hierarchy */
+#endif
     TPM2B_DIGEST policyDigest;      /* Running policy digest (policy sessions) */
     int isPasswordPolicy;           /* 1 if PolicyPassword was called */
     int isAuthValuePolicy;          /* 1 if PolicyAuthValue was called */
