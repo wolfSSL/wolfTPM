@@ -17950,6 +17950,7 @@ typedef struct {
                             /* Bit 1: first rsp param is TPM2B (can encrypt) */
                             /* Bit 2: first auth handle has DUP role */
                             /* Bit 3: command flushes its handle (TPMA_CC.F) */
+                            /* Bit 4: first auth handle has ADMIN role */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -17966,6 +17967,11 @@ typedef struct {
 /* Part 3 command-description modifier reported through TPMA_CC. {F}: the
  * object or sequence named by the command's handle is flushed on success. */
 #define FW_CMD_MOD_FLUSHED  0x08
+
+/* ADMIN role (TPM 2.0 Part 3): when an object has adminWithPolicy set, or
+ * an NV index is authorized in its ADMIN role, policy authorization with a
+ * matching PolicyCommandCode is required. */
+#define FW_CMD_FLAG_AUTH_ADMIN  0x10
 
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
@@ -18010,7 +18016,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_SetPrimaryPolicy,   FwCmd_SetPrimaryPolicy,     1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_EvictControl,       FwCmd_EvictControl,         2, 1, 0, 0 },
     { TPM_CC_Create,             FwCmd_Create,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_Load,               FwCmd_Load,                 1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Sign,               FwCmd_Sign,                 1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_VerifySignature,    FwCmd_VerifySignature,      1, 0, 0, 0 },
@@ -18098,7 +18104,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #ifndef FWTPM_NO_NV
     { TPM_CC_NV_DefineSpace,     FwCmd_NV_DefineSpace,       1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_NV_UndefineSpace,   FwCmd_NV_UndefineSpace,     2, 1, 0, 0 },
-    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, 0 },
+    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_NV_ReadPublic,      FwCmd_NV_ReadPublic,        1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_NV_Write,           FwCmd_NV_Write,             2, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_NV_Read,            FwCmd_NV_Read,              2, 1, 0, FW_CMD_FLAG_DEC },
@@ -18107,7 +18113,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_NV_WriteLock,       FwCmd_NV_WriteLock,         2, 1, 0, 0 },
     { TPM_CC_NV_ReadLock,        FwCmd_NV_ReadLock,          2, 1, 0, 0 },
     { TPM_CC_NV_SetBits,         FwCmd_NV_SetBits,           2, 1, 0, 0 },
-    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_NV_GlobalWriteLock, FwCmd_NV_GlobalWriteLock,   1, 1, 0, 0 },
 #endif /* !FWTPM_NO_NV */
     /* --- ECC Parameters --- */
@@ -18119,7 +18125,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Attestation --- */
 #ifndef FWTPM_NO_ATTESTATION
     { TPM_CC_Quote,              FwCmd_Quote,                1, 1, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_CertifyCreation,   FwCmd_CertifyCreation,      2, 1, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_GetTime,            FwCmd_GetTime,              2, 2, 0, FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_NV
@@ -18129,7 +18135,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Credentials --- */
 #ifndef FWTPM_NO_CREDENTIAL
     { TPM_CC_MakeCredential,     FwCmd_MakeCredential,       1, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
 #endif /* !FWTPM_NO_CREDENTIAL */
     /* --- Dictionary Attack --- */
 #ifndef FWTPM_NO_DA
@@ -19176,6 +19182,61 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
             TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
         return TPM_RC_SUCCESS;
+    }
+
+    /* ADMIN-role authorization requires a policy session when the object
+     * sets adminWithPolicy, and always for an NV index. A policy used for
+     * an ADMIN role must also be bound to this command with
+     * PolicyCommandCode. */
+    if ((entry->encDecFlags & FW_CMD_FLAG_AUTH_ADMIN) && cmdAuthCnt > 0) {
+        TPM_HANDLE entityH = cmdHandles[0];
+        FWTPM_Session* adminSess = cmdAuths[0].sess;
+        FWTPM_Object* adminObj = NULL;
+        int requirePolicy = 0;
+
+        if ((entityH & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000) ||
+            (entityH & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000)) {
+            adminObj = FwFindObject(ctx, entityH);
+            if (adminObj != NULL &&
+                (adminObj->pub.objectAttributes &
+                 TPMA_OBJECT_adminWithPolicy)) {
+                requirePolicy = 1;
+            }
+        }
+#ifndef FWTPM_NO_NV
+        else if ((entityH & 0xFF000000) ==
+                 (NV_INDEX_FIRST & 0xFF000000)) {
+            requirePolicy = 1;
+        }
+#endif
+        else if (entityH == TPM_RH_OWNER ||
+                 entityH == TPM_RH_ENDORSEMENT ||
+                 entityH == TPM_RH_PLATFORM ||
+                 entityH == TPM_RH_PLATFORM_NV ||
+                 entityH == TPM_RH_LOCKOUT) {
+            requirePolicy = 1;
+        }
+
+        if (requirePolicy &&
+            (adminSess == NULL || adminSess->sessionType != TPM_SE_POLICY)) {
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: ADMIN role requires a policy session (CC=0x%x)\n",
+                cmdCode);
+        #endif
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+            return TPM_RC_SUCCESS;
+        }
+        if (adminSess != NULL && adminSess->sessionType == TPM_SE_POLICY &&
+            adminSess->commandCode != cmdCode) {
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: ADMIN role requires PolicyCommandCode (CC=0x%x)\n",
+                cmdCode);
+        #endif
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_POLICY_CC);
+            return TPM_RC_SUCCESS;
+        }
     }
 
     /* userWithAuth enforcement: per TPM 2.0 spec Part 1, Section 19.7.1,

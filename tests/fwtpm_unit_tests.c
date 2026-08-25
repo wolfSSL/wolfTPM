@@ -9118,6 +9118,115 @@ static void test_fwtpm_policy_cphash_enforced(void)
 }
 #endif /* !FWTPM_NO_NV */
 
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+static void test_fwtpm_admin_authorization_requires_policy(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj = NULL;
+    FWTPM_Session* policySess = NULL;
+    UINT32 keyHandle;
+    UINT32 policySessHandle;
+    int pos, rspSize, oi;
+#ifndef FWTPM_NO_NV
+    UINT32 nvIdx = 0x01500073;
+    int cmdSz;
+#endif
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    keyHandle = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(keyHandle, 0);
+
+    for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
+        if (ctx.objects[oi].handle == keyHandle) {
+            obj = &ctx.objects[oi];
+            break;
+        }
+    }
+    AssertNotNull(obj);
+    obj->pub.objectAttributes |= TPMA_OBJECT_adminWithPolicy;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ObjectChangeAuth);
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
+
+#ifndef FWTPM_NO_NV
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8,
+        TPMA_NV_AUTHREAD | TPMA_NV_AUTHWRITE | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_ChangeAuth);
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
+#endif
+
+    policySessHandle = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(policySessHandle, 0);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyPassword,
+        policySessHandle), TPM_RC_SUCCESS);
+
+    for (oi = 0; oi < FWTPM_MAX_SESSIONS; oi++) {
+        if (ctx.sessions[oi].handle == policySessHandle) {
+            policySess = &ctx.sessions[oi];
+            break;
+        }
+    }
+    AssertNotNull(policySess);
+    XMEMCPY(&obj->pub.authPolicy, &policySess->policyDigest,
+        sizeof(obj->pub.authPolicy));
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ObjectChangeAuth);
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    pos = AppendAuth(gCmd, pos, policySessHandle, 0, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_CC);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_PolicyCommandCode);
+    PutU32BE(gCmd + pos, policySessHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, TPM_CC_ObjectChangeAuth); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    XMEMCPY(&obj->pub.authPolicy, &policySess->policyDigest,
+        sizeof(obj->pub.authPolicy));
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ObjectChangeAuth);
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    pos = AppendAuth(gCmd, pos, policySessHandle, 0, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, policySessHandle);
+    FlushHandle(&ctx, keyHandle);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ADMIN authorization requires policy:", 0);
+}
+#endif /* !NO_RSA && WOLFSSL_KEY_GEN */
+
 #endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -13422,6 +13531,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policyauthorizenv_owner_read_denied();
     test_fwtpm_policy_locality_enforced();
     test_fwtpm_policy_cphash_enforced();
+#endif
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    test_fwtpm_admin_authorization_requires_policy();
 #endif
 #endif
 
