@@ -40,6 +40,7 @@
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 #include <examples/wrap/wrap_test.h>
+#include <examples/firmware/st33_blob0.h>
 
 #include <stdio.h>
 #if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
@@ -286,7 +287,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
-    /* Invalid manifest size (not 177 or 2697) for testing auto-detection */
+    /* Invalid manifest size (not 321, 177 or 2697) for auto-detection */
     uint8_t dummy_manifest[10] = {0};
 #endif
 
@@ -305,7 +306,8 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     if (caps.mfg == TPM_MFG_STM) {
         printf("ST33 TPM - Firmware: %u.%u (0x%x), Format: %s\n",
             caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor,
-            (caps.fwVerMinor >= 512) ? "LMS" : "non-LMS");
+            (caps.fwVerMajor >= 9 && caps.fwVerMinor >= 512) ?
+                "LMS" : "non-LMS");
     }
 #endif
 
@@ -379,11 +381,11 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     AssertIntNE(rc, 0);
 
     /* Test ST33-specific manifest size validation if we have an ST33 TPM.
-     * Invalid manifest size (not 177 or 2697) should return BAD_FUNC_ARG. */
+     * The manifest must be exactly 321 (generation 1, RSA signed), 177
+     * (generation 9 below 512, ECDSA signed) or 2697 (LMS) bytes, and must
+     * also match the generation the TPM is running. Any other size is
+     * rejected before the size is compared against the running firmware. */
     if (caps.mfg == TPM_MFG_STM) {
-        /* wolfTPM2_FirmwareUpgradeHash - invalid manifest size (10 bytes).
-         * Should fail with BAD_FUNC_ARG because manifest_sz must be
-         * exactly 177 (non-LMS) or 2697 (LMS). */
         rc = wolfTPM2_FirmwareUpgradeHash(&dev, TPM_ALG_SHA384, NULL, 0,
             dummy_manifest, sizeof(dummy_manifest), NULL, NULL);
         AssertIntEQ(rc, BAD_FUNC_ARG);
@@ -4123,6 +4125,179 @@ static void test_TPM2_Packet_RetryRestore(void)
     printf("Test TPM Wrapper:\tRetryRestore logic:\t\tPassed\n");
 }
 #endif /* !WOLFTPM_NO_RETRY */
+
+#if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+/* Counts transport calls so the test can prove nothing was transmitted */
+static int test_ovf_ioCalls;
+#ifdef WOLFTPM_ADV_IO
+static int test_ovf_ioCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
+    BYTE* xferBuf, UINT16 xferSz, void* userCtx)
+{
+    (void)ctx; (void)isRead; (void)addr; (void)xferBuf; (void)xferSz;
+    (void)userCtx;
+    test_ovf_ioCalls++;
+    return TPM_RC_FAILURE;
+}
+#else
+static int test_ovf_ioCb(TPM2_CTX* ctx, const BYTE* txBuf, BYTE* rxBuf,
+    UINT16 xferSz, void* userCtx)
+{
+    (void)ctx; (void)txBuf; (void)rxBuf; (void)xferSz; (void)userCtx;
+    test_ovf_ioCalls++;
+    return TPM_RC_FAILURE;
+}
+#endif
+
+/* The guard that acts on the flag. TPM2_DispatchCommand and
+ * TPM2_TransmitCommand are static, so drive it through a public builder that
+ * takes a caller sized payload: TPM2_ST33_FieldUpgradeCommand does
+ * Packet_Init + AppendBytes + SendCommand. An oversized payload must return
+ * BUFFER_E without reaching the transport; a small one must reach it, which
+ * is what proves the guard is selective rather than always-on. */
+static void test_TPM2_DispatchCommand_overflow(void)
+{
+    TPM2_CTX ctx;
+    byte small[16];
+    byte* big;
+    word32 bigSz = (word32)XFER_MAX_SIZE + 64;
+    int usesIoCb;
+    int rc;
+
+    big = (byte*)XMALLOC(bigSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    AssertNotNull(big);
+    XMEMSET(big, 0xA5, bigSz);
+    XMEMSET(small, 0x5A, sizeof(small));
+    XMEMSET(&ctx, 0, sizeof(ctx));
+
+    /* timeoutTries 0, so this performs no IO but does set the active ctx */
+    AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
+    ctx.ioCb = test_ovf_ioCb;
+
+    /* Control: a payload that fits is not refused here, it goes on to the
+     * transport and fails there instead. This is what makes the guard
+     * selective rather than always-on. Builds whose transport is not the HAL
+     * callback (swtpm socket, /dev/tpm0) leave the counter at zero, so it is
+     * only load bearing when this control moved it. */
+    test_ovf_ioCalls = 0;
+    rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
+        small, (word32)sizeof(small));
+    AssertIntNE(rc, BUFFER_E);
+    usesIoCb = (test_ovf_ioCalls > 0);
+
+    /* Too large for ctx->cmdBuf: refused before anything is transmitted */
+    test_ovf_ioCalls = 0;
+    rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
+        big, bigSz);
+    AssertIntEQ(rc, BUFFER_E);
+    if (usesIoCb) {
+        AssertIntEQ(test_ovf_ioCalls, 0);
+    }
+
+    XFREE(big, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    TPM2_Cleanup(&ctx);
+
+    printf("Test TPM Wrapper:\tDispatch overflow guard:\tPassed\n");
+}
+#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_ST33 || WOLFTPM_AUTODETECT) */
+
+/* st33_detect_blob0 decides where the manifest ends and firmware data begins,
+ * including in upgrade mode where the TPM cannot be consulted at all, so a
+ * false positive splits the image at the wrong byte. */
+static void test_st33_detect_blob0(void)
+{
+    byte* buf;
+    size_t bufSz = 8192;
+    size_t cand[ST33_BLOB0_SIZE_CNT];
+    size_t candCnt, i, off, len;
+    static const size_t recSz = 500;
+
+    buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    AssertNotNull(buf);
+
+    /* Version to expected size: the rule the whole PR turns on */
+    AssertIntEQ((int)st33_expected_blob0(1, 258), ST33_BLOB0_SIZE_NON_LMS_RSA);
+    AssertIntEQ((int)st33_expected_blob0(1, 771), ST33_BLOB0_SIZE_NON_LMS_RSA);
+    AssertIntEQ((int)st33_expected_blob0(9, 257), ST33_BLOB0_SIZE_NON_LMS);
+    AssertIntEQ((int)st33_expected_blob0(9, 512), ST33_BLOB0_SIZE_LMS);
+
+    /* Preferred candidate leads, every size still present exactly once */
+    candCnt = st33_blob0_candidates(1, 771, 1, cand);
+    AssertIntEQ((int)candCnt, ST33_BLOB0_SIZE_CNT);
+    AssertIntEQ((int)cand[0], ST33_BLOB0_SIZE_NON_LMS_RSA);
+    candCnt = st33_blob0_candidates(9, 512, 1, cand);
+    AssertIntEQ((int)candCnt, ST33_BLOB0_SIZE_CNT);
+    AssertIntEQ((int)cand[0], ST33_BLOB0_SIZE_LMS);
+    /* No caps (upgrade mode): the fixed order, chain alone decides */
+    candCnt = st33_blob0_candidates(0, 0, 0, cand);
+    AssertIntEQ((int)candCnt, ST33_BLOB0_SIZE_CNT);
+
+    /* Exact-fit chain at each known manifest size */
+    for (i = 0; i < ST33_BLOB0_SIZE_CNT; i++) {
+        XMEMSET(buf, 0xAB, bufSz);
+        off = st33_blob0_sizes[i];
+        while (off + 3 + recSz <= bufSz) {
+            buf[off] = 0x01;
+            buf[off + 1] = (byte)(recSz >> 8);
+            buf[off + 2] = (byte)(recSz & 0xFF);
+            off += 3 + recSz;
+        }
+        /* final short record lands exactly on the end */
+        len = bufSz - off - 3;
+        buf[off] = 0xFF;
+        buf[off + 1] = (byte)(len >> 8);
+        buf[off + 2] = (byte)(len & 0xFF);
+        candCnt = st33_blob0_candidates(0, 0, 0, cand);
+        AssertIntEQ((int)st33_detect_blob0(buf, bufSz, cand, candCnt),
+            (int)st33_blob0_sizes[i]);
+
+        /* Same buffer one byte short: the chain overshoots, no size fits */
+        AssertIntEQ((int)st33_detect_blob0(buf, bufSz - 1, cand, candCnt), 0);
+        /* And one byte long: the chain stops short */
+        AssertIntEQ((int)st33_detect_blob0(buf, bufSz + 1, cand, candCnt), 0);
+    }
+
+    /* Zero-length record mid-chain is rejected, not walked forever */
+    XMEMSET(buf, 0xAB, bufSz);
+    off = ST33_BLOB0_SIZE_NON_LMS;
+    buf[off] = 0x01; buf[off + 1] = 0; buf[off + 2] = 0;
+    candCnt = st33_blob0_candidates(0, 0, 0, cand);
+    AssertIntEQ((int)st33_detect_blob0(buf, bufSz, cand, candCnt), 0);
+
+    /* A file no larger than the candidate is skipped, not read past the end */
+    candCnt = st33_blob0_candidates(0, 0, 0, cand);
+    AssertIntEQ((int)st33_detect_blob0(buf, ST33_BLOB0_SIZE_NON_LMS_RSA, cand,
+        candCnt), 0);
+    AssertIntEQ((int)st33_detect_blob0(buf, 0, cand, candCnt), 0);
+
+    /* Ambiguous image: the chain closes on the last byte from BOTH 177 and
+     * 321, so only the caps-preferred candidate may break the tie. */
+    bufSz = 2000;
+    XMEMSET(buf, 0xAB, bufSz);
+    len = bufSz - ST33_BLOB0_SIZE_NON_LMS - 3;
+    buf[ST33_BLOB0_SIZE_NON_LMS] = 0x01;
+    buf[ST33_BLOB0_SIZE_NON_LMS + 1] = (byte)(len >> 8);
+    buf[ST33_BLOB0_SIZE_NON_LMS + 2] = (byte)(len & 0xFF);
+    len = bufSz - ST33_BLOB0_SIZE_NON_LMS_RSA - 3;
+    buf[ST33_BLOB0_SIZE_NON_LMS_RSA] = 0x01;
+    buf[ST33_BLOB0_SIZE_NON_LMS_RSA + 1] = (byte)(len >> 8);
+    buf[ST33_BLOB0_SIZE_NON_LMS_RSA + 2] = (byte)(len & 0xFF);
+    candCnt = st33_blob0_candidates(1, 771, 1, cand); /* gen 1 -> prefers 321 */
+    AssertIntEQ((int)st33_detect_blob0(buf, bufSz, cand, candCnt),
+        ST33_BLOB0_SIZE_NON_LMS_RSA);
+    candCnt = st33_blob0_candidates(9, 257, 1, cand); /* gen 9 -> prefers 177 */
+    AssertIntEQ((int)st33_detect_blob0(buf, bufSz, cand, candCnt),
+        ST33_BLOB0_SIZE_NON_LMS);
+
+    /* NULL guards */
+    AssertIntEQ((int)st33_detect_blob0(NULL, bufSz, cand, candCnt), 0);
+    AssertIntEQ((int)st33_detect_blob0(buf, bufSz, NULL, candCnt), 0);
+    AssertIntEQ((int)st33_blob0_candidates(1, 1, 1, NULL), 0);
+
+    XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+
+    printf("Test TPM Wrapper:\tST33 blob0 detection:\t\tPassed\n");
+}
 
 /* A sessioned response whose attacker-controlled parameterSize wraps UINT32
  * when added to packet->pos must be rejected up front. Without the bounds
@@ -8499,6 +8674,11 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_CommandRetries();
     test_TPM2_Packet_RetryRestore();
 #endif
+#if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+    test_TPM2_DispatchCommand_overflow();
+#endif
+    test_st33_detect_blob0();
     test_TPM2_ResponseProcess_ParamSizeOverflow();
     test_TPM2_ResponseProcess_DecParamSizeOverflow();
     test_TPM2_ResponseProcess_HmacVerify();

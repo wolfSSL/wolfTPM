@@ -1738,6 +1738,9 @@ int TPM2_Packet_RetryRestore(TPM_RC rc, int* retries, TPM2_Packet* packet,
      * restore the clobbered header and the buffer size for an identical resend */
     XMEMCPY(packet->buf, cmdHdr, TPM2_HEADER_SIZE);
     packet->size = origSize;
+    /* The command body is intact again, so any overflow flagged while parsing
+     * the truncated retry response does not belong to the resend */
+    packet->overflow = 0;
     return 1;
 }
 #endif /* !WOLFTPM_NO_RETRY */

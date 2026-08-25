@@ -10,11 +10,14 @@ EXTRA_DIST += examples/firmware/ifx_fw_extract.c
 # Shared caller-supplied policy authorization helpers for the firmware examples
 EXTRA_DIST += examples/firmware/firmware_policy.c
 EXTRA_DIST += examples/firmware/firmware_policy.h
+EXTRA_DIST += examples/firmware/st33_blob0.c
+EXTRA_DIST += examples/firmware/st33_blob0.h
 
 if BUILD_EXAMPLES
 if BUILD_FIRMWARE
 
 noinst_HEADERS  += examples/firmware/firmware_policy.h
+noinst_HEADERS  += examples/firmware/st33_blob0.h
 
 if BUILD_INFINEON
 noinst_PROGRAMS += examples/firmware/ifx_fw_update
@@ -30,6 +33,7 @@ if BUILD_ST33
 noinst_PROGRAMS += examples/firmware/st33_fw_update
 examples_firmware_st33_fw_update_SOURCES     = examples/firmware/st33_fw_update.c \
                                                examples/firmware/firmware_policy.c \
+                                               examples/firmware/st33_blob0.c \
                                                examples/tpm_test_keys.c
 examples_firmware_st33_fw_update_LDADD       = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_firmware_st33_fw_update_DEPENDENCIES = src/libwolftpm.la
@@ -41,6 +45,8 @@ endif
 example_firmwaredir = $(exampledir)/firmware
 dist_example_firmware_DATA = examples/firmware/firmware_policy.c \
                              examples/firmware/firmware_policy.h \
+                             examples/firmware/st33_blob0.c \
+                             examples/firmware/st33_blob0.h \
                              examples/firmware/ifx_fw_update.c \
                              examples/firmware/st33_fw_update.c
 

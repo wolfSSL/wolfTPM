@@ -521,6 +521,19 @@ static TPM_RC TPM2_DispatchCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     TPM_RC rc;
 
+    /* A command that did not fit the packet buffer would otherwise go out
+     * silently truncated, since the marshalling helpers drop what does not
+     * fit and TPM2_Packet_Finalize then stamps the short length. The buffer
+     * is ctx->cmdBuf[XFER_MAX_SIZE], the larger of MAX_COMMAND_SIZE and
+     * MAX_RESPONSE_SIZE, which --enable-smallstack lowers to 1024 and 1350
+     * respectively, so this is reachable on a supported build. */
+    if (packet->overflow) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Command exceeds the %d byte packet buffer\n", packet->size);
+    #endif
+        return (TPM_RC)BUFFER_E;
+    }
+
 #ifdef WOLFTPM_SPDM
     rc = TPM2_SPDM_SendCommand(ctx, packet);
     if (rc >= 0)

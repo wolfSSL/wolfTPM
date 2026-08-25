@@ -35,6 +35,7 @@
     !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/firmware/firmware_policy.h>
+#include <examples/firmware/st33_blob0.h>
 #include <examples/tpm_test_keys.h>
 #include <hal/tpm_io.h>
 
@@ -50,10 +51,6 @@
 /* --- BEGIN ST33 TPM2.0 Firmware Update tool  -- */
 /******************************************************************************/
 
-/* Manifest sizes per ST33 firmware format */
-#define ST33_BLOB0_SIZE_NON_LMS  177   /* Non-LMS manifest size */
-#define ST33_BLOB0_SIZE_LMS      2697  /* LMS manifest size (includes embedded signature) */
-
 static void usage(void)
 {
     printf("ST33 Firmware Update Usage:\n");
@@ -66,8 +63,14 @@ static void usage(void)
     printf("\t--policy    provision+satisfy a PolicyCommandCode\n");
     printf("\t--policyor  provision+satisfy a PolicyOR (multi-branch)\n");
     printf("\t--sha256|--sha384|--sha512  policy hash (default SHA-256)\n");
-    printf("\nFirmware format is auto-detected from the TPM firmware version.\n");
-    printf("Just provide the correct .fi file for your TPM and it will be handled automatically.\n");
+    printf("\nFirmware format is auto-detected from TPM firmware version "
+        "and the file:\n");
+    printf("      - Generation 1 (e.g. 1.771): Non-LMS format "
+        "(321 byte manifest)\n");
+    printf("      - Generation 9 below 512: Non-LMS format "
+        "(177 byte manifest)\n");
+    printf("      - Generation 9 at 512 and above: LMS format "
+        "(2697 byte manifest)\n");
 }
 
 typedef struct {
@@ -174,20 +177,27 @@ static int TPM2_ST33_FwData_Cb(uint8_t* data, uint32_t data_req_sz,
     return data_req_sz;
 }
 
-static void TPM2_ST33_PrintInfo(WOLFTPM2_CAPS* caps)
+static void TPM2_ST33_PrintInfo(const WOLFTPM2_CAPS* caps)
 {
     printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x)\n",
         caps->mfgStr, caps->mfg, caps->vendorStr, caps->fwVerMajor,
         caps->fwVerMinor, caps->fwVerVendor);
     printf("Firmware version details: Major=%u, Minor=%u, Vendor=0x%x\n",
         caps->fwVerMajor, caps->fwVerMinor, caps->fwVerVendor);
-    if (caps->fwVerMinor < 512) {
-        printf("Hardware: ST33K (legacy firmware, Generation 1)\n");
-        printf("Firmware update: Non-LMS format required\n");
+    if (caps->fwVerMajor < ST33_BLOB0_GENERATION_LMS_CAPABLE) {
+        printf("Hardware: ST33K (generation 1 firmware)\n");
+        printf("Firmware update: Non-LMS format required "
+            "(%d byte manifest)\n", ST33_BLOB0_SIZE_NON_LMS_RSA);
+    }
+    else if (caps->fwVerMinor < ST33_BLOB0_VERSION_LMS_REQUIRED) {
+        printf("Hardware: ST33K (generation 9 firmware below 512)\n");
+        printf("Firmware update: Non-LMS format required "
+            "(%d byte manifest)\n", ST33_BLOB0_SIZE_NON_LMS);
     }
     else {
-        printf("Hardware: ST33K (modern firmware, Generation 2)\n");
-        printf("Firmware update: LMS format required\n");
+        printf("Hardware: ST33K (generation 9 firmware at 512 and above)\n");
+        printf("Firmware update: LMS format required "
+            "(%d byte manifest)\n", ST33_BLOB0_SIZE_LMS);
     }
 }
 
@@ -203,6 +213,8 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     fw_info_t fwinfo;
     int abandon = 0;
     size_t blob0_size;
+    size_t cand[ST33_BLOB0_SIZE_CNT];
+    size_t candCnt;
     int i;
 #ifdef WOLFTPM_HAVE_FW_POLICY
     int policytest = 0;
@@ -372,48 +384,44 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     }
 
 load_firmware:
-    /* Determine blob0 (manifest) size based on firmware version.
-     * In upgrade mode (caps not available), auto-detect from file size. */
-    if (fwinfo.in_upgrade_mode) {
-        /* In upgrade mode, we don't have caps. Load file first to detect format. */
-        rc = loadFile(fi_file, &fwinfo.fi_buf, &fwinfo.fi_bufSz);
-        if (rc != 0) {
-            printf("Failed to load firmware file: %s\n", fi_file);
-            goto exit;
-        }
-        /* Auto-detect format from file size: LMS files are larger due to
-         * 2697 byte manifest vs 177 byte manifest */
-        if (fwinfo.fi_bufSz > ST33_BLOB0_SIZE_LMS + 1000) {
-            /* File large enough to potentially be LMS format.
-             * Check if blob header at LMS offset looks valid. */
-            if (fwinfo.fi_buf[ST33_BLOB0_SIZE_LMS] != 0 &&
-                fwinfo.fi_buf[ST33_BLOB0_SIZE_LMS] != 0xFF) {
-                blob0_size = ST33_BLOB0_SIZE_LMS;
-                printf("\tFormat: LMS (auto-detected from file)\n");
-            }
-            else {
-                blob0_size = ST33_BLOB0_SIZE_NON_LMS;
-                printf("\tFormat: Non-LMS (auto-detected from file)\n");
-            }
-        }
-        else {
-            blob0_size = ST33_BLOB0_SIZE_NON_LMS;
-            printf("\tFormat: Non-LMS (auto-detected from file)\n");
-        }
+    /* Load the complete .fi file, then determine the blob0 (manifest) size.
+     * In upgrade mode caps are unavailable, so no size is preferred and the
+     * block chain alone decides. */
+    rc = loadFile(fi_file, &fwinfo.fi_buf, &fwinfo.fi_bufSz);
+    if (rc != 0) {
+        printf("Failed to load firmware file: %s\n", fi_file);
+        goto exit;
     }
-    else {
-        /* Normal mode: determine format from firmware version */
-        blob0_size = (caps.fwVerMinor >= 512) ?
-            ST33_BLOB0_SIZE_LMS : ST33_BLOB0_SIZE_NON_LMS;
-        printf("\tFormat: %s (from TPM firmware version)\n",
-            (caps.fwVerMinor >= 512) ? "LMS" : "Non-LMS");
 
-        /* Load the complete .fi file */
-        rc = loadFile(fi_file, &fwinfo.fi_buf, &fwinfo.fi_bufSz);
-        if (rc != 0) {
-            printf("Failed to load firmware file: %s\n", fi_file);
-            goto exit;
-        }
+    candCnt = st33_blob0_candidates(caps.fwVerMajor, caps.fwVerMinor,
+        !fwinfo.in_upgrade_mode, cand);
+
+    blob0_size = st33_detect_blob0(fwinfo.fi_buf, fwinfo.fi_bufSz, cand,
+        candCnt);
+    if (blob0_size == 0) {
+        printf("Error: could not determine the manifest (blob0) size of %s\n",
+            fi_file);
+        printf("  The %zu byte file does not parse as an ST33 firmware image "
+            "with a\n  %d, %d or %d byte manifest.\n", fwinfo.fi_bufSz,
+            ST33_BLOB0_SIZE_NON_LMS_RSA, ST33_BLOB0_SIZE_NON_LMS,
+            ST33_BLOB0_SIZE_LMS);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+    printf("\tFormat: %s (blob0 %zu bytes, verified against the block "
+        "chain)\n",
+        (blob0_size == ST33_BLOB0_SIZE_LMS) ? "LMS" : "Non-LMS", blob0_size);
+
+    /* The file parsed, but at a size this TPM will not accept. Say so here:
+     * the library rejects it too, but only with a DEBUG_WOLFTPM diagnostic,
+     * so on a release build the operator would see a bare error code. */
+    if (!fwinfo.in_upgrade_mode && blob0_size != cand[0]) {
+        printf("Error: %s is for a different ST33 generation.\n", fi_file);
+        printf("  Its manifest is %zu bytes, but firmware %u.%u running on "
+            "this TPM\n  expects %zu bytes. Use the .fi file for this part.\n",
+            blob0_size, caps.fwVerMajor, caps.fwVerMinor, cand[0]);
+        rc = BAD_FUNC_ARG;
+        goto exit;
     }
 
     /* Validate file size */

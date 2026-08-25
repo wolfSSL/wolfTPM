@@ -2,7 +2,7 @@
 
 Currently wolfTPM supports firmware update capability for:
 - Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infineon has open sourced their firmware update.
-- STMicroelectronics ST33KTPM TPM 2.0 modules. Support includes both Generation 1 firmware versions (< 512, without LMS signature) and Generation 2 firmware versions (>= 512, with LMS signature requirement).
+- STMicroelectronics ST33KTPM TPM 2.0 modules. Support covers generation 1 firmware (RSA signed manifest), generation 9 firmware below 512 (ECDSA signed manifest) and generation 9 firmware at 512 and above (LMS signature requirement).
 
 ## Infineon Firmware
 
@@ -117,15 +117,19 @@ KeyGroupId 0x7, FwCounter 1253 (254 same)
 
 ST33KTPM firmware update automatically detects the required format based on TPM firmware version:
 
-- **Legacy firmware (< 512, e.g., 9.257)**: Non-LMS format
-  - Manifest size: 177 bytes
-  - Generation 1 firmware (ECC-only)
+The manifest (blob0) is a 33 byte fixed header followed by the firmware digest and the signature over it, so its size follows the algorithms that generation signs with:
 
-- **Modern firmware (>= 512, e.g., 9.512)**: LMS format
+- **Generation 1 (major version 1, e.g., 1.257 or 1.771)**: Non-LMS format
+  - Manifest size: 321 bytes (SHA-256 digest, RSAPSS-2048 signature)
+  - Always non-LMS, no matter how high the minor version goes
+
+- **Generation 9 below 512 (e.g., 9.257)**: Non-LMS format
+  - Manifest size: 177 bytes (SHA-384 digest, ECDSA P-384 signature)
+
+- **Generation 9 at 512 and above (e.g., 9.512)**: LMS format
   - Manifest size: 2697 bytes (includes embedded LMS signature)
-  - Generation 2 firmware (LMS mandatory)
 
-The firmware version is automatically detected from `fwVerMinor` in TPM capabilities. The correct manifest size is determined automatically - no manual format selection is needed.
+The LMS requirement is a generation 9 rule, so both `fwVerMajor` and `fwVerMinor` from TPM capabilities are consulted. The example confirms its choice against the file itself: everything after blob0 is a chain of `[type][length]` records that ends exactly at end of file, and only the correct manifest size lands on the final byte. No manual format selection is needed.
 
 ### Updating the firmware
 
@@ -145,9 +149,10 @@ Policy options (caller-supplied authorization):
 	--policyor  provision+satisfy a PolicyOR (multi-branch)
 	--sha256|--sha384|--sha512  policy hash (default SHA-256)
 
-Firmware format is auto-detected from TPM firmware version:
-      - Firmware < 512: Non-LMS format (177 byte manifest)
-      - Firmware >= 512: LMS format (2697 byte manifest with embedded signature)
+Firmware format is auto-detected from TPM firmware version and the file:
+      - Generation 1 (e.g. 1.771): Non-LMS format (321 byte manifest)
+      - Generation 9 below 512: Non-LMS format (177 byte manifest)
+      - Generation 9 at 512 and above: LMS format (2697 byte manifest)
 
 # Run without arguments to display the current firmware information
 ./st33_fw_update
@@ -156,8 +161,8 @@ TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
-Hardware: ST33K (legacy firmware, Generation 1)
-Firmware update: Non-LMS format required
+Hardware: ST33K (generation 9 firmware below 512)
+Firmware update: Non-LMS format required (177 byte manifest)
 
 # Run with firmware file (format auto-detected from TPM version)
 ./st33_fw_update TPM_ST33KTPM2X_00090200_V1.fi
@@ -167,9 +172,9 @@ TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
-Hardware: ST33K (legacy firmware, Generation 1)
-Firmware update: Non-LMS format required
-	Format: Non-LMS (from TPM firmware version)
+Hardware: ST33K (generation 9 firmware below 512)
+Firmware update: Non-LMS format required (177 byte manifest)
+	Format: Non-LMS (blob0 177 bytes, verified against the block chain)
 Firmware Update:
 	Total file size: 364290 bytes
 	Manifest (blob0): 177 bytes
@@ -178,7 +183,7 @@ Firmware Update:
 Firmware update completed successfully.
 Please reset or power cycle the TPM.
 
-# Example with LMS firmware (Generation 2 TPM, firmware >= 512)
+# Example with LMS firmware (generation 9 TPM, firmware at 512 and above)
 ./st33_fw_update ST33KTPM2X_FAC_00090200_V2.fi
 ST33 Firmware Update Tool
 	Firmware File: ST33KTPM2X_FAC_00090200_V2.fi
@@ -186,9 +191,9 @@ TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 3
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.512 (0x0)
 Firmware version details: Major=9, Minor=512, Vendor=0x0
-Hardware: ST33K (modern firmware, Generation 2)
-Firmware update: LMS format required
-	Format: LMS (from TPM firmware version)
+Hardware: ST33K (generation 9 firmware at 512 and above)
+Firmware update: LMS format required (2697 byte manifest)
+	Format: LMS (blob0 2697 bytes, verified against the block chain)
 Firmware Update:
 	Total file size: 360092 bytes
 	Manifest (blob0): 2697 bytes
@@ -204,8 +209,8 @@ TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
-Hardware: ST33K (legacy firmware, Generation 1)
-Firmware update: Non-LMS format required
+Hardware: ST33K (generation 9 firmware below 512)
+Firmware update: Non-LMS format required (177 byte manifest)
 Firmware Update Abandon:
 Success: Please reset or power cycle TPM
 ```
