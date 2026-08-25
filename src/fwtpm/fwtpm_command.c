@@ -2123,6 +2123,19 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
     return rc;
 }
 
+#ifdef WOLFTPM_V185
+/* fwTPM does not implement the firmware/SVN-bound hierarchy seeds and
+ * proofs required by limited objects. */
+static TPM_RC FwValidateLimitedAttributes(const TPMT_PUBLIC* pub)
+{
+    if ((pub->objectAttributes &
+            (TPMA_OBJECT_firmwareLimited | TPMA_OBJECT_svnLimited)) != 0) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_V185 */
+
 static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -3295,6 +3308,11 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
     /* Parse outsideInfo (TPM2B_DATA) - skip */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -6036,6 +6054,11 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
     /* Skip outsideInfo */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -6503,6 +6526,11 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic.publicArea, 0);
     }
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic.publicArea);
+    }
+#endif /* WOLFTPM_V185 */
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
         printf("fwTPM: Load(parent=0x%x, type=%d, privSz=%d)\n",
@@ -6686,6 +6714,12 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMSET(&inPublic, 0, sizeof(inPublic));
         TPM2_Packet_ParsePublic(cmd, &inPublic);
     }
+
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic.publicArea);
+    }
+#endif /* WOLFTPM_V185 */
 
     /* authValue (present only with inPrivate) must not exceed the
      * object nameAlg digest size */
@@ -7020,6 +7054,11 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&objectPublic->publicArea, 0);
     }
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&objectPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
     /* Parse duplicate */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -8100,6 +8139,12 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParsePublic(cmd, inPublic);
     }
+
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
 
     /* userAuth must not exceed the object nameAlg digest size */
     if (rc == 0 && userAuth.size > 0) {
