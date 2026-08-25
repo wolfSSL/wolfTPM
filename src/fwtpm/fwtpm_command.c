@@ -76,7 +76,8 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
 #ifndef FWTPM_NO_NV
 static FWTPM_NvIndex* FwFindNvIndex(FWTPM_CTX* ctx, TPMI_RH_NV_INDEX nvIndex);
 static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
-    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite);
+    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite,
+    int authIsPolicy);
 #endif
 static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle);
 #ifndef FWTPM_NO_DA
@@ -11893,7 +11894,7 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify caller is authorized to read the NV index */
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvIndex,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Find policy session */
@@ -12983,7 +12984,7 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify caller is authorized to read the NV index */
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && !nv->written) {
@@ -13101,7 +13102,8 @@ static FWTPM_NvIndex* FwFindNvIndex(FWTPM_CTX* ctx, TPMI_RH_NV_INDEX nvIndex)
  * isWrite: 1 = write/extend/increment/setbits/writelock,
  *          0 = read/readlock/certify */
 static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
-    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite)
+    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite,
+    int authIsPolicy)
 {
     if (isWrite) {
         if (authHandle == TPM_RH_PLATFORM) {
@@ -13115,7 +13117,9 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
-            if (!(attributes & (TPMA_NV_AUTHWRITE | TPMA_NV_POLICYWRITE)))
+            UINT32 requiredAttr = authIsPolicy ?
+                TPMA_NV_POLICYWRITE : TPMA_NV_AUTHWRITE;
+            if (!(attributes & requiredAttr))
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else {
@@ -13134,7 +13138,9 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
-            if (!(attributes & (TPMA_NV_AUTHREAD | TPMA_NV_POLICYREAD)))
+            UINT32 requiredAttr = authIsPolicy ?
+                TPMA_NV_POLICYREAD : TPMA_NV_AUTHREAD;
+            if (!(attributes & requiredAttr))
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else {
@@ -13473,7 +13479,7 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Per TPM 2.0 Part 3 Section 31.3, NV_Write only valid for ordinary and PIN
@@ -13571,7 +13577,7 @@ static TPM_RC FwCmd_NV_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
@@ -13634,7 +13640,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
@@ -13720,7 +13726,7 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
@@ -13772,7 +13778,7 @@ static TPM_RC FwCmd_NV_WriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Per TPM 2.0 Part 3 Section 31.5.2: NV_WriteLock requires
@@ -13815,7 +13821,7 @@ static TPM_RC FwCmd_NV_ReadLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Per TPM 2.0 Part 3 Section 31.4.2: NV_ReadLock requires
@@ -13863,7 +13869,7 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
@@ -15006,7 +15012,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[1]);
     }
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
         rc = TPM_RC_NV_LOCKED;
@@ -18571,6 +18577,11 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         return BAD_FUNC_ARG;
     }
 
+#ifndef FWTPM_NO_NV
+    XMEMSET(ctx->activeCmdAuthIsPolicy, 0,
+        sizeof(ctx->activeCmdAuthIsPolicy));
+#endif
+
     /* rspSize is in/out: capacity in, bytes written out. Callers that leave
      * it unset get the historic FWTPM_MAX_COMMAND_SIZE assumption. */
     /* Handlers commit state before marshalling and some write outside the
@@ -19376,7 +19387,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* Set up response packet */
     FwRspInit(&rspPkt, rspBuf, rspCap);
 
+#ifndef FWTPM_NO_NV
+    for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
+        ctx->activeCmdAuthIsPolicy[pj] =
+            (byte)(cmdAuths[pj].sess != NULL &&
+            cmdAuths[pj].sess->sessionType == TPM_SE_POLICY);
+    }
+#endif
     rc = entry->handler(ctx, &cmdPkt, cmdSize, &rspPkt, cmdTag);
+#ifndef FWTPM_NO_NV
+    XMEMSET(ctx->activeCmdAuthIsPolicy, 0,
+        sizeof(ctx->activeCmdAuthIsPolicy));
+#endif
     /* A sessions-tagged FlushContext leaves its target session alive so the
      * dispatcher can use it to generate the response authorization area. */
     if (rc == TPM_RC_SUCCESS && cmdCode == TPM_CC_FlushContext &&

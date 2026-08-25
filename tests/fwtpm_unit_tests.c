@@ -7948,22 +7948,29 @@ static void test_fwtpm_null_args(void)
 /* Additional helpers for advanced tests                               */
 /* ================================================================== */
 
-/* Append a password auth area to buf at offset pos.
+/* Append one authorization entry to buf at offset pos.
  * Returns new pos after auth area. */
-static int AppendPwAuth(byte* buf, int pos, const byte* pw, int pwSz)
+static int AppendAuth(byte* buf, int pos, UINT32 sessionHandle,
+    UINT8 attributes, const byte* auth, int authSz)
 {
     int authStart = pos;
     PutU32BE(buf + pos, 0); pos += 4; /* authAreaSize placeholder */
-    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU32BE(buf + pos, sessionHandle); pos += 4;
     PutU16BE(buf + pos, 0); pos += 2; /* nonce = 0 */
-    buf[pos++] = 0; /* attributes */
-    PutU16BE(buf + pos, (UINT16)pwSz); pos += 2;
-    if (pwSz > 0 && pw != NULL) {
-        memcpy(buf + pos, pw, pwSz);
-        pos += pwSz;
+    buf[pos++] = attributes;
+    PutU16BE(buf + pos, (UINT16)authSz); pos += 2;
+    if (authSz > 0 && auth != NULL) {
+        memcpy(buf + pos, auth, authSz);
+        pos += authSz;
     }
     PutU32BE(buf + authStart, (UINT32)(pos - authStart - 4));
     return pos;
+}
+
+/* Append a password auth area to buf at offset pos. */
+static int AppendPwAuth(byte* buf, int pos, const byte* pw, int pwSz)
+{
+    return AppendAuth(buf, pos, TPM_RS_PW, 0, pw, pwSz);
 }
 
 /* Send a simple no-param session command (e.g. Clear, ChangeEPS, etc.) */
@@ -8198,8 +8205,9 @@ static TPM_RC SendPolicyCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 sessHandle)
 
 #ifndef FWTPM_NO_NV
 /* Helper: build NV_DefineSpace command */
-static int BuildNvDefineCmd(byte* buf, UINT32 nvIndex, UINT16 dataSize,
-    UINT32 attributes)
+static int BuildNvDefineCmdEx(byte* buf, UINT32 nvIndex, UINT16 dataSize,
+    UINT32 attributes, const byte* auth, UINT16 authSz,
+    const byte* authPolicy, UINT16 authPolicySz)
 {
     int pos = 0;
     int nvPubStart;
@@ -8208,19 +8216,61 @@ static int BuildNvDefineCmd(byte* buf, UINT32 nvIndex, UINT16 dataSize,
     PutU32BE(buf + pos, TPM_CC_NV_DefineSpace); pos += 4;
     PutU32BE(buf + pos, TPM_RH_OWNER); pos += 4; /* authHandle */
     pos = AppendPwAuth(buf, pos, NULL, 0);
-    PutU16BE(buf + pos, 0); pos += 2; /* auth size = 0 */
+    PutU16BE(buf + pos, authSz); pos += 2;
+    if (authSz > 0 && auth != NULL) {
+        memcpy(buf + pos, auth, authSz);
+        pos += authSz;
+    }
     /* TPM2B_NV_PUBLIC */
     nvPubStart = pos;
     PutU16BE(buf + pos, 0); pos += 2; /* size placeholder */
     PutU32BE(buf + pos, nvIndex); pos += 4;
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2; /* nameAlg */
     PutU32BE(buf + pos, attributes); pos += 4;
-    PutU16BE(buf + pos, 0); pos += 2; /* authPolicy = 0 */
+    PutU16BE(buf + pos, authPolicySz); pos += 2;
+    if (authPolicySz > 0 && authPolicy != NULL) {
+        memcpy(buf + pos, authPolicy, authPolicySz);
+        pos += authPolicySz;
+    }
     PutU16BE(buf + pos, dataSize); pos += 2;
     PutU16BE(buf + nvPubStart, (UINT16)(pos - nvPubStart - 2));
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
 }
+
+static int BuildNvDefineCmd(byte* buf, UINT32 nvIndex, UINT16 dataSize,
+    UINT32 attributes)
+{
+    return BuildNvDefineCmdEx(buf, nvIndex, dataSize, attributes,
+        NULL, 0, NULL, 0);
+}
+
+#ifndef FWTPM_NO_POLICY
+static TPM_RC SendNvAccessCmd(FWTPM_CTX* ctx, UINT32 nvIndex,
+    UINT32 sessionHandle, const byte* auth, int authSz, int isWrite)
+{
+    UINT32 commandCode = isWrite ? TPM_CC_NV_Write : TPM_CC_NV_Read;
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, commandCode);
+    int rspSize = 0;
+    int rc;
+
+    PutU32BE(gCmd + pos, nvIndex); pos += 4; /* authHandle */
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    pos = AppendAuth(gCmd, pos, sessionHandle,
+        TPMA_SESSION_continueSession, auth, authSz);
+    PutU16BE(gCmd + pos, 1); pos += 2;
+    if (isWrite) {
+        gCmd[pos++] = 0x5A;
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS || rspSize < TPM2_HEADER_SIZE) {
+        return TPM_RC_FAILURE;
+    }
+    return GetRspRC(gRsp);
+}
+#endif /* !FWTPM_NO_POLICY */
 #endif /* !FWTPM_NO_NV */
 
 /* ================================================================== */
@@ -9139,6 +9189,62 @@ static void test_fwtpm_nv_define_write_read(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("NV Define/Write/Read/Undef:", 0);
 }
+
+#ifndef FWTPM_NO_POLICY
+static void test_fwtpm_nv_access_matches_auth_method(void)
+{
+    FWTPM_CTX ctx;
+    const byte authValue[] = {0xA5, 0x5A, 0xC3, 0x3C};
+    byte policyDigest[WC_SHA256_DIGEST_SIZE];
+    UINT32 policyIdx = 0x01500071;
+    UINT32 authIdx = 0x01500072;
+    UINT32 policySess;
+    int cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(policyDigest, 0, sizeof(policyDigest));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    policySess = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(policySess, 0);
+
+    cmdSz = BuildNvDefineCmdEx(gCmd, policyIdx, 8,
+        TPMA_NV_POLICYWRITE | TPMA_NV_POLICYREAD | TPMA_NV_NO_DA,
+        authValue, sizeof(authValue), policyDigest, sizeof(policyDigest));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvAccessCmd(&ctx, policyIdx, TPM_RS_PW,
+        authValue, sizeof(authValue), 1), TPM_RC_NV_AUTHORIZATION);
+    AssertIntEQ(SendNvAccessCmd(&ctx, policyIdx, policySess,
+        NULL, 0, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvAccessCmd(&ctx, policyIdx, TPM_RS_PW,
+        authValue, sizeof(authValue), 0), TPM_RC_NV_AUTHORIZATION);
+    AssertIntEQ(SendNvAccessCmd(&ctx, policyIdx, policySess,
+        NULL, 0, 0), TPM_RC_SUCCESS);
+
+    cmdSz = BuildNvDefineCmdEx(gCmd, authIdx, 8,
+        TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA,
+        authValue, sizeof(authValue), policyDigest, sizeof(policyDigest));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvAccessCmd(&ctx, authIdx, policySess,
+        NULL, 0, 1), TPM_RC_NV_AUTHORIZATION);
+    AssertIntEQ(SendNvAccessCmd(&ctx, authIdx, TPM_RS_PW,
+        authValue, sizeof(authValue), 1), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvAccessCmd(&ctx, authIdx, policySess,
+        NULL, 0, 0), TPM_RC_NV_AUTHORIZATION);
+    AssertIntEQ(SendNvAccessCmd(&ctx, authIdx, TPM_RS_PW,
+        authValue, sizeof(authValue), 0), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, policySess);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV access method matches attributes:", 0);
+}
+#endif /* !FWTPM_NO_POLICY */
 
 #ifdef WOLFTPM_V185
 /* TPM2_CreateLoaded must validate ML templates (parameter set, allowExternalMu,
@@ -13322,6 +13428,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* NV operations */
 #ifndef FWTPM_NO_NV
     test_fwtpm_nv_define_write_read();
+#ifndef FWTPM_NO_POLICY
+    test_fwtpm_nv_access_matches_auth_method();
+#endif
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();
     test_fwtpm_nv_counter();
