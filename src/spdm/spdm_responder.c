@@ -1096,6 +1096,14 @@ static int RespDispatchSecured(WOLFSPDM_RESP_CTX* rctx,
     int sessionEnded = 0;
     int derivedAppKeys = 0;
 
+    /* KEY_EX has handshake traffic keys; CONNECTED has application traffic
+     * keys. In every other state, decryption would use unestablished key
+     * material (zeroed by initialization and reset). */
+    if ((ctx->state != WOLFSPDM_STATE_KEY_EX &&
+         ctx->state != WOLFSPDM_STATE_CONNECTED) || ctx->sessionId == 0) {
+        return WOLFSPDM_E_BAD_STATE;
+    }
+
     plainSz = WOLFSPDM_MAX_MSG_SIZE;
     rc = RespDecrypt(ctx, securedIn, securedInSz, plain, &plainSz);
     if (rc != WOLFSPDM_SUCCESS) {

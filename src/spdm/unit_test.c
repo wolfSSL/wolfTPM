@@ -2290,6 +2290,51 @@ static int test_responder_no_clear_tpm2_cmd(void)
     TEST_PASS();
 }
 
+/* Secured records are valid only after key exchange establishes session
+ * traffic state. Initialization and reset must both reject them before
+ * attempting to parse the record. */
+static int test_responder_secured_requires_session(void)
+{
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+    byte frame[WOLFSPDM_TCG_HEADER_SIZE + 1];
+    byte outBuf[64];
+    word32 outSz;
+    int rc;
+
+    printf("test_responder_secured_requires_session...\n");
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+    ASSERT_SUCCESS(wolfSPDM_RespSetMode(rctx, 1, 0));
+    g_tpmCbInvocations = 0;
+    ASSERT_SUCCESS(wolfSPDM_RespSetTpmCallback(rctx, responder_tpm_stub,
+        NULL));
+
+    XMEMSET(frame, 0, sizeof(frame));
+    wolfSPDM_WriteTcgHeader(frame, WOLFSPDM_TCG_TAG_SECURED,
+        sizeof(frame), 0, 0);
+
+    outSz = sizeof(outBuf);
+    rc = wolfSPDM_RespHandleMessage(rctx, frame, sizeof(frame), outBuf,
+        &outSz);
+    ASSERT_EQ(rc, WOLFSPDM_E_BAD_STATE,
+        "secured record without a session must return BAD_STATE");
+    ASSERT_EQ(g_tpmCbInvocations, 0,
+        "record without a session must not reach the TPM callback");
+
+    /* Reset must leave the responder in a sessionless state. */
+    wolfSPDM_RespReset(rctx);
+    outSz = sizeof(outBuf);
+    rc = wolfSPDM_RespHandleMessage(rctx, frame, sizeof(frame), outBuf,
+        &outSz);
+    ASSERT_EQ(rc, WOLFSPDM_E_BAD_STATE,
+        "secured record after reset must return BAD_STATE");
+    ASSERT_EQ(g_tpmCbInvocations, 0,
+        "reset record must not reach the TPM callback");
+
+    wolfSPDM_RespFree(rctx);
+    TEST_PASS();
+}
+
 #ifdef WOLFSPDM_NATIONS
 /* Send one vendor-defined command in a TCG clear frame. */
 static int resp_send_clear_vd(WOLFSPDM_RESP_CTX* rctx, const char* vdCode,
@@ -2408,6 +2453,9 @@ static int test_responder_psk_roundtrip(void)
     byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
     WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
     byte cmd[10];
+    byte frame[WOLFSPDM_TCG_HEADER_SIZE + 1];
+    byte outBuf[64];
+    word32 outSz;
     int rc;
 
     printf("test_responder_psk_roundtrip...\n");
@@ -2444,6 +2492,19 @@ static int test_responder_psk_roundtrip(void)
     ASSERT_EQ(g_tpmCbInvocations, 1, "TPM stub must have run once");
 
     ASSERT_SUCCESS(wolfSPDM_Disconnect(&req));
+
+    /* Session teardown must reject any later secured record until a new
+     * handshake establishes fresh traffic keys. */
+    XMEMSET(frame, 0, sizeof(frame));
+    wolfSPDM_WriteTcgHeader(frame, WOLFSPDM_TCG_TAG_SECURED,
+        sizeof(frame), 0, 0);
+    outSz = sizeof(outBuf);
+    rc = wolfSPDM_RespHandleMessage(rctx, frame, sizeof(frame), outBuf,
+        &outSz);
+    ASSERT_EQ(rc, WOLFSPDM_E_BAD_STATE,
+        "secured record after session teardown must return BAD_STATE");
+    ASSERT_EQ(g_tpmCbInvocations, 1,
+        "sessionless record must not reach the TPM callback");
 
     wolfSPDM_RespFree(rctx);
     wolfSPDM_Free(&req);
@@ -2592,6 +2653,7 @@ int main(void)
     test_responder_no_plaintext_bypass();
 #ifdef WOLFTPM_SPDM_TCG
     test_responder_no_clear_tpm2_cmd();
+    test_responder_secured_requires_session();
 #ifdef WOLFSPDM_NATIONS
     test_responder_psk_replace_guard();
 #endif
