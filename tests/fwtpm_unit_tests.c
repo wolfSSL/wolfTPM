@@ -599,16 +599,24 @@ static void test_fwtpm_getcap_algorithms(void)
     byte moreData;
     UINT32 cap, count;
     UINT16 firstAlg;
+#if defined(WOLFTPM_V185) && defined(WOLFTPM_PQC)
+    int i;
+    UINT16 alg;
+    int foundMlkem = 0;
+    int foundMldsa = 0;
+    int foundHashMldsa = 0;
+    int algListValid;
+#endif
 
     memset(&ctx, 0, sizeof(ctx));
     rc = fwtpm_test_startup(&ctx);
     AssertIntEQ(rc, 0);
 
-    /* GetCapability(TPM_CAP_ALGS, first=0, count=64) */
+    /* GetCapability(TPM_CAP_ALGS, first=0, count=maximum) */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
     PutU32BE(gCmd + cmdSz, TPM_CAP_ALGS); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;  /* property = 0 */
-    PutU32BE(gCmd + cmdSz, 64); cmdSz += 4; /* propertyCount */
+    PutU32BE(gCmd + cmdSz, MAX_CAP_ALGS); cmdSz += 4; /* propertyCount */
     PutU32BE(gCmd + 2, (UINT32)cmdSz);
 
     rspSize = 0;
@@ -619,6 +627,43 @@ static void test_fwtpm_getcap_algorithms(void)
     /* Full list fits: moreData must be NO. Response body:
      * [0]=moreData, [1..4]=capability, [5..8]=count, [9..]=entries. */
     AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 0);
+
+#if defined(WOLFTPM_V185) && defined(WOLFTPM_PQC)
+    count = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    algListValid = count <= MAX_CAP_ALGS &&
+        TPM2_HEADER_SIZE + 9 + (count * 6) <= (UINT32)rspSize;
+    AssertTrue(algListValid);
+    if (!algListValid) {
+        count = 0;
+    }
+    for (i = 0; i < (int)count; i++) {
+        alg = GetU16BE(gRsp + TPM2_HEADER_SIZE + 9 + (i * 6));
+        if (alg == TPM_ALG_MLKEM) {
+            foundMlkem = 1;
+        }
+        else if (alg == TPM_ALG_MLDSA) {
+            foundMldsa = 1;
+        }
+        else if (alg == TPM_ALG_HASH_MLDSA) {
+            foundHashMldsa = 1;
+        }
+    }
+#ifdef WOLFTPM_MLKEM
+    AssertIntEQ(foundMlkem, 1);
+#else
+    AssertIntEQ(foundMlkem, 0);
+#endif
+#ifdef WOLFTPM_MLDSA
+    AssertIntEQ(foundMldsa, 1);
+#else
+    AssertIntEQ(foundMldsa, 0);
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
+    AssertIntEQ(foundHashMldsa, 1);
+#else
+    AssertIntEQ(foundHashMldsa, 0);
+#endif
+#endif /* WOLFTPM_V185 && WOLFTPM_PQC */
 
     /* Paging: ask for one algorithm from the start (property=0). moreData
      * must be YES and count exactly 1 (regression: emitting from index 0 with
@@ -1956,6 +2001,28 @@ static void test_fwtpm_create_primary_mldsa(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("CreatePrimary(MLDSA-65):", 1);
 }
+
+#ifndef WOLFTPM_HASH_MLDSA
+static void test_fwtpm_hash_mldsa_disabled(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
+    AssertIntGT(cmdSz, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Hash-MLDSA disabled:", 1);
+}
+#endif /* !WOLFTPM_HASH_MLDSA */
 
 #ifdef WOLFTPM_V185
 /* Build a TPM2_CreateLoaded command reusing the TPMT_PUBLIC portion of
@@ -3535,6 +3602,7 @@ static void test_fwtpm_verifysequence_long_message(void)
 
 /* Layer D: Hash-MLDSA-65 SignDigest → VerifyDigestSignature round-trip.
  * Verifies the signature-ticket validation path (Bug M-4 metadata field). */
+#ifdef WOLFTPM_HASH_MLDSA
 static void test_fwtpm_mldsa_digest_roundtrip(void)
 {
     FWTPM_CTX ctx;
@@ -3642,10 +3710,12 @@ static void test_fwtpm_mldsa_digest_roundtrip(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("MLDSA SignDigest/Verify Roundtrip:", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* Layer D: Pure MLDSA-65 sign/verify sequence round-trip.
  * SignSequenceComplete is one-shot via buffer; VerifySequenceComplete
  * consumes a message accumulated via SequenceUpdate. */
+#ifdef WOLFTPM_MLDSA
 static void test_fwtpm_mldsa_sequence_roundtrip(void)
 {
     FWTPM_CTX ctx;
@@ -3791,6 +3861,7 @@ static void test_fwtpm_mldsa_sequence_roundtrip(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("MLDSA Sign/Verify Sequence:", 1);
 }
+#endif /* WOLFTPM_MLDSA */
 
 /* ------------------------------------------------------------------ */
 /* Known-Answer Tests (Layer A/C) against NIST ACVP + wolfSSL vectors */
@@ -4072,11 +4143,13 @@ static void test_fwtpm_loadexternal_ml_validation(void)
     printf("  MLDSA short pub rc=0x%x\n", rc);
     AssertIntEQ(rc, TPM_RC_KEY_SIZE);
 
+#ifdef WOLFTPM_HASH_MLDSA
     /* Hash-ML-DSA with an invalid pre-hash algorithm. */
     rc = tmp_load_mldsa(&ctx, TPM_ALG_HASH_MLDSA, TPM_MLDSA_44, 0,
         TPM_ALG_NULL, gNistMldsa44Pk, n);
     printf("  HASH_MLDSA bad hash rc=0x%x\n", rc);
     AssertIntEQ(rc, TPM_RC_HASH);
+#endif /* WOLFTPM_HASH_MLDSA */
 
     /* ML-KEM unsupported parameter set. */
     rc = tmp_load_mlkem(&ctx, 0x0099, TPM_ALG_NULL, 0, 8);
@@ -4482,6 +4555,7 @@ static void test_fwtpm_signdigest_neg(void)
  * (validation.tag != TPM_ST_HASHCHECK) for any key, not just restricted
  * ones. Negative test: build SignDigest with validation.tag = 0 to a
  * Hash-MLDSA (unrestricted) key and assert TPM_RC_TAG. */
+#ifdef WOLFTPM_HASH_MLDSA
 static void test_fwtpm_signdigest_malformed_hashcheck_tag(void)
 {
     FWTPM_CTX ctx;
@@ -4530,6 +4604,7 @@ static void test_fwtpm_signdigest_malformed_hashcheck_tag(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest malformed HASHCHECK tag rejected:", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* NULL Verified Tickets must omit any metadata bytes. Per Part 2 Sec.10.6.5
  * every NULL Verified Ticket is encoded as the 3-tuple
@@ -4695,6 +4770,7 @@ static void test_fwtpm_sequenceupdate_neg(void)
 
 /* ---- TCG compliance: v1.85 spec-RC fixtures -------------------------- */
 
+#ifdef WOLFTPM_HASH_MLDSA
 /* Build a CreatePrimary(TPM_ALG_HASH_MLDSA, MLDSA-65, SHA-256) command with
  * caller-supplied objectAttributes. Used by the attribute-driven negative
  * fixtures below where the default 0x00040072 (sign-only) mask does not
@@ -4996,6 +5072,7 @@ static void test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigest hashAlg-mismatch (SCHEME):", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* F-6a: CreatePrimary(MLDSA, allowExternalMu=YES) returns TPM_RC_EXT_MU per
  * Part 2 Sec.12.2.3.6 on TPMs that do not implement μ-direct sign. */
@@ -5077,6 +5154,7 @@ static void test_fwtpm_testparms_mldsa_extmu_returns_ext_mu(void)
 /* F-7: SignDigest on Hash-ML-DSA with digest size != key's hashAlg digest
  * size returns TPM_RC_SIZE per Part 3 Sec.20.7.1. Key is SHA-256 (32-byte
  * digest); send 33 bytes. */
+#ifdef WOLFTPM_HASH_MLDSA
 static void test_fwtpm_signdigest_wrong_digest_size_returns_size(void)
 {
     FWTPM_CTX ctx;
@@ -5117,11 +5195,13 @@ static void test_fwtpm_signdigest_wrong_digest_size_returns_size(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest wrong digest size (SIZE):", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* F-8: SignSequenceComplete with a key whose TPMA_OBJECT_x509sign is SET
  * returns TPM_RC_ATTRIBUTES per Part 3 Sec.20.6.1. x509sign restricts the
  * key to X.509 certificate signing only; SignSequenceComplete is not that
  * channel. */
+#ifdef WOLFTPM_HASH_MLDSA
 static void test_fwtpm_signseqcomplete_x509sign_returns_attributes(void)
 {
     FWTPM_CTX ctx;
@@ -5385,6 +5465,7 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
 /* Requires SHA-384 as a working object name algorithm distinct from the
  * (SHA-256) context integrity hash. */
 #if defined(HAVE_ECC) && defined(WOLFSSL_SHA384) && \
+    defined(WOLFTPM_HASH_MLDSA) && \
     defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* Build an ECC P-256 ECDSA-SHA256 signing primary in TPM_RH_OWNER with a
  * caller-chosen nameAlg, to exercise verified-ticket HMAC algorithm selection
@@ -5830,6 +5911,7 @@ static void test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("VerifySeqComplete ticket hierarchy=key:", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* MEDIUM-5: TPM2_Decapsulate has Auth Role: USER per Part 3 Sec.14.11.2
  * Table 62, so cmdTag MUST be TPM_ST_SESSIONS. A NO_SESSIONS request
@@ -5995,6 +6077,7 @@ static void test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing(void)
  * vs obj type; a key whose TPMA_OBJECT_sign is CLEAR would slip through.
  * To exercise the path without LoadExternal plumbing, mutate the object's
  * attributes via the public objects[] table after CreatePrimary. */
+#ifdef WOLFTPM_HASH_MLDSA
 static void test_fwtpm_verifydigestsig_no_sign_attr_returns_key(void)
 {
     FWTPM_CTX ctx;
@@ -6045,6 +6128,7 @@ static void test_fwtpm_verifydigestsig_no_sign_attr_returns_key(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigestSig non-signing key (KEY):", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* Per Part 2 Sec.8.2 Table 35, TPMA_ALGORITHM bits include signing (8)
  * and encrypting (9). The PQC algorithms must report these in TPM_CAP_ALGS
@@ -6096,9 +6180,21 @@ static void test_fwtpm_getcap_pqc_algorithm_attrs(void)
             sawHashMldsa = 1;
         }
     }
+#ifdef WOLFTPM_MLKEM
     AssertIntEQ(sawMlkem, 1);
+#else
+    AssertIntEQ(sawMlkem, 0);
+#endif
+#ifdef WOLFTPM_MLDSA
     AssertIntEQ(sawMldsa, 1);
+#else
+    AssertIntEQ(sawMldsa, 0);
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
     AssertIntEQ(sawHashMldsa, 1);
+#else
+    AssertIntEQ(sawHashMldsa, 0);
+#endif
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GetCap ALGS PQC signing/encrypting bits:", 1);
@@ -6110,6 +6206,7 @@ static void test_fwtpm_getcap_pqc_algorithm_attrs(void)
  * routes the bytes into seq->hashCtx). Two distinct messages signed by
  * the same key produced byte-identical tickets, breaking
  * TPM2_PolicyAuthorize's chain of trust (Part 2 Sec.10.6.5 Eq (5)). */
+#ifdef WOLFTPM_HASH_MLDSA
 static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes(void)
 {
     FWTPM_CTX ctx;
@@ -6710,13 +6807,14 @@ test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete Hash-MLDSA Update+GEN_VAL (VALUE):", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* SignSequenceComplete with the wrong keyHandle returns
  * TPM_RC_SIGN_CONTEXT_KEY but MUST also free the sequence slot — leaving
  * the slot allocated lets a buggy or hostile client exhaust
  * FWTPM_MAX_SIGN_SEQ slots by repeatedly issuing Start + wrong-key
  * Complete, denying service to legitimate Sign sequences (CWE-772). */
-#ifdef WOLFTPM_MLDSA
+#if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_HASH_MLDSA)
 static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
 {
     FWTPM_CTX ctx;
@@ -6802,7 +6900,7 @@ static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete wrong key frees slot:", 1);
 }
-#endif /* WOLFTPM_MLDSA */
+#endif /* WOLFTPM_MLDSA && WOLFTPM_HASH_MLDSA */
 
 #ifdef WOLFTPM_V185
 /* Extended CreatePrimary builder that overrides the default MLDSA/MLKEM
@@ -7036,6 +7134,7 @@ static void test_fwtpm_response_buffer_capacity(void)
  * exercises the hash accumulator path (wc_HashUpdate) through all three
  * parameter sets. Mirrors test_wc_dilithium_sign_vfy in wolfCrypt, but
  * through the TPM sequence-handler surface rather than direct crypto. */
+#ifdef WOLFTPM_HASH_MLDSA
 static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
 {
     FWTPM_CTX ctx;
@@ -7132,6 +7231,7 @@ static void test_fwtpm_hash_mldsa_seq_all_params(void)
     hash_mldsa_seq_roundtrip_one(TPM_MLDSA_87, 4627);
     fwtpm_pass("HashMLDSA-87 seq roundtrip:", 1);
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 static void test_fwtpm_mlkem1024_maxbuf(void)
 {
@@ -7443,8 +7543,8 @@ static void test_fwtpm_getcap_pqc(void)
     AssertIntEQ(prop, TPM_PT_ML_PARAMETER_SETS);
     AssertIntEQ(got, expected);
 
-    /* Query TPM_CAP_ALGS starting at 0 for 256 entries; expect the three PQC
-     * algs somewhere in the list. */
+    /* Query TPM_CAP_ALGS starting at 0 for 256 entries; each PQC algorithm
+     * must be listed exactly when its implementation is enabled. */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
     PutU32BE(gCmd + cmdSz, TPM_CAP_ALGS); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
@@ -7467,9 +7567,21 @@ static void test_fwtpm_getcap_pqc(void)
         if (alg == TPM_ALG_MLDSA)      foundMldsa++;
         if (alg == TPM_ALG_HASH_MLDSA) foundHashMldsa++;
     }
+#ifdef WOLFTPM_MLKEM
     AssertIntEQ(foundMlkem, 1);
+#else
+    AssertIntEQ(foundMlkem, 0);
+#endif
+#ifdef WOLFTPM_MLDSA
     AssertIntEQ(foundMldsa, 1);
+#else
+    AssertIntEQ(foundMldsa, 0);
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
     AssertIntEQ(foundHashMldsa, 1);
+#else
+    AssertIntEQ(foundHashMldsa, 0);
+#endif
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GetCapability PQC (ML params + algs):", 1);
@@ -8916,11 +9028,13 @@ static void test_fwtpm_createloaded_ml_validation(void)
     printf("  MLDSA bad ext-mu CL rc=0x%x\n", rc);
     AssertIntEQ(rc, TPM_RC_VALUE);
 
+#ifdef WOLFTPM_HASH_MLDSA
     /* Hash-ML-DSA with an invalid pre-hash algorithm. */
     rc = tmp_cl_ml(&ctx, srk, TPM_ALG_HASH_MLDSA, TPM_MLDSA_65, 0,
         TPM_ALG_NULL, TPM_ALG_NULL, 0);
     printf("  HASH_MLDSA bad hash CL rc=0x%x\n", rc);
     AssertIntEQ(rc, TPM_RC_HASH);
+#endif /* WOLFTPM_HASH_MLDSA */
 
     /* ML-KEM invalid symmetric (AES bogus keyBits). */
     rc = tmp_cl_ml(&ctx, srk, TPM_ALG_MLKEM, TPM_MLKEM_512, 0, 0,
@@ -12794,6 +12908,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef WOLFTPM_V185
     test_fwtpm_create_primary_mlkem();
     test_fwtpm_create_primary_mldsa();
+#ifndef WOLFTPM_HASH_MLDSA
+    test_fwtpm_hash_mldsa_disabled();
+#endif /* !WOLFTPM_HASH_MLDSA */
     test_fwtpm_create_loaded_mldsa();
     test_fwtpm_create_loaded_mlkem();
     test_fwtpm_mlkem_roundtrip();
@@ -12815,8 +12932,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef HAVE_ECC521
     test_fwtpm_ecc_dhkem_p521_roundtrip();
 #endif
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_mldsa_digest_roundtrip();
+#endif /* WOLFTPM_HASH_MLDSA */
+#ifdef WOLFTPM_MLDSA
     test_fwtpm_mldsa_sequence_roundtrip();
+#endif /* WOLFTPM_MLDSA */
     /* NIST / wolfSSL KAT validation */
     test_fwtpm_mldsa_nist_kat_verify();
     test_fwtpm_mldsa_wolfssl_keygen_kat();
@@ -12835,47 +12956,58 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signseqcomplete_neg();
     test_fwtpm_verifyseqcomplete_neg();
     test_fwtpm_signdigest_neg();
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_signdigest_malformed_hashcheck_tag();
-    test_fwtpm_appendticket_null_digest_verified_no_metadata();
-    test_fwtpm_verifydigestsig_neg();
-    test_fwtpm_sequenceupdate_neg();
     test_fwtpm_signdigest_restricted_null_ticket_returns_ticket();
     test_fwtpm_signdigest_x509sign_returns_attributes();
 #ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_signdigest_restricted_valid_ticket_succeeds();
 #endif /* !FWTPM_NO_HASH_CMDS */
     test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme();
+#endif /* WOLFTPM_HASH_MLDSA */
+    test_fwtpm_appendticket_null_digest_verified_no_metadata();
+    test_fwtpm_verifydigestsig_neg();
+    test_fwtpm_sequenceupdate_neg();
     test_fwtpm_create_primary_mldsa_extmu_returns_ext_mu();
     test_fwtpm_testparms_mldsa_extmu_returns_ext_mu();
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_signdigest_wrong_digest_size_returns_size();
+#endif /* WOLFTPM_HASH_MLDSA */
 #endif /* WOLFTPM_V185 */
 #ifdef WOLFTPM_MLDSA
     test_fwtpm_testparms_mldsa_supported_returns_success();
 #endif
 #ifdef WOLFTPM_V185
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_signseqcomplete_x509sign_returns_attributes();
     test_fwtpm_sign_x509sign_returns_attributes();
     test_fwtpm_signseqcomplete_restricted_generated_value_returns_value();
     test_fwtpm_verifydigest_ticket_hmac_eq5_compliance();
+#endif /* WOLFTPM_HASH_MLDSA */
 #if defined(HAVE_ECC) && defined(WOLFSSL_SHA384) && \
+    defined(WOLFTPM_HASH_MLDSA) && \
     defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifydigest_ticket_uses_context_hash();
 #endif
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_verifydigest_ticket_hierarchy_tracks_key();
     test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key();
+#endif /* WOLFTPM_HASH_MLDSA */
     test_fwtpm_decapsulate_no_sessions_returns_auth_missing();
     test_fwtpm_signdigest_no_sessions_returns_auth_missing();
     test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing();
     test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing();
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_verifydigestsig_no_sign_attr_returns_key();
+#endif /* WOLFTPM_HASH_MLDSA */
     test_fwtpm_getcap_pqc_algorithm_attrs();
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_tag_digest();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message();
     test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();
-#ifdef WOLFTPM_MLDSA
     test_fwtpm_signseqcomplete_wrong_key_frees_slot();
-#endif /* WOLFTPM_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA */
     test_fwtpm_pqc_nv_persistence();
 #ifdef WOLFTPM_MLDSA
     test_fwtpm_signseq_slot_exhaustion();
@@ -12884,7 +13016,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mldsa87_maxbuf();
     test_fwtpm_response_buffer_capacity();
     test_fwtpm_mlkem1024_maxbuf();
+#ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_hash_mldsa_seq_all_params();
+#endif /* WOLFTPM_HASH_MLDSA */
 #endif
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();

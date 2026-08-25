@@ -1298,12 +1298,20 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     TPMA_ALGORITHM_object },
             #endif
             #ifdef WOLFTPM_V185
-                { TPM_ALG_MLKEM, TPMA_ALGORITHM_asymmetric |
-                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_encrypting },
-                { TPM_ALG_MLDSA, TPMA_ALGORITHM_asymmetric |
-                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing },
-                { TPM_ALG_HASH_MLDSA, TPMA_ALGORITHM_asymmetric |
-                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing },
+                /* v1.85 PQC object types per Part 2 Sec.8.2 Table 35:
+                 *   bit 0 asymmetric, bit 3 object,
+                 *   bit 8 signing, bit 9 encrypting.
+                 * MLKEM is encrypting (encap/decap); MLDSA / Hash-MLDSA are
+                 * signing. */
+            #ifdef WOLFTPM_MLKEM
+                { TPM_ALG_MLKEM,      0x0209 }, /* asymmetric|object|encrypting */
+            #endif
+            #ifdef WOLFTPM_MLDSA
+                { TPM_ALG_MLDSA,      0x0109 }, /* asymmetric|object|signing */
+            #endif
+            #ifdef WOLFTPM_HASH_MLDSA
+                { TPM_ALG_HASH_MLDSA, 0x0109 }, /* asymmetric|object|signing */
+            #endif
             #endif
                 { TPM_ALG_NULL, 0 },
             };
@@ -2054,6 +2062,7 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
             }
             break;
         }
+#ifdef WOLFTPM_HASH_MLDSA
         case TPM_ALG_HASH_MLDSA: {
             int sz = FwMldsaPubKeySize(
                 pub->parameters.hash_mldsaDetail.parameterSet);
@@ -2070,7 +2079,13 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
             }
             break;
         }
+#endif /* WOLFTPM_HASH_MLDSA */
 #endif /* WOLFTPM_MLDSA */
+#if defined(WOLFTPM_PQC) && !defined(WOLFTPM_HASH_MLDSA)
+        case TPM_ALG_HASH_MLDSA:
+            rc = TPM_RC_TYPE;
+            break;
+#endif /* WOLFTPM_PQC && !WOLFTPM_HASH_MLDSA */
 #ifdef WOLFTPM_MLKEM
         case TPM_ALG_MLKEM: {
             int sz = FwMlkemPubKeySize(
@@ -2176,6 +2191,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
                 break;
             }
+#ifdef WOLFTPM_HASH_MLDSA
             case TPM_ALG_HASH_MLDSA: {
                 UINT16 ps, hashAlg;
                 int psSupported = 0;
@@ -2202,6 +2218,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
                 break;
             }
+#endif /* WOLFTPM_HASH_MLDSA */
         #endif /* WOLFTPM_MLDSA */
         #ifdef WOLFTPM_MLKEM
             case TPM_ALG_MLKEM: {
@@ -3278,7 +3295,6 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
-
     /* Parse outsideInfo (TPM2B_DATA) - skip */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -3363,8 +3379,12 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* MLDSA / HASH_MLDSA / MLKEM: only feed user-supplied unique
              * bytes into hashUnique, not the raw buffer. A size==0 arm
              * must not read the uninitialized buffer pointer. */
+#ifdef WOLFTPM_MLDSA
             case TPM_ALG_MLDSA:
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
             case TPM_ALG_HASH_MLDSA:
+#endif
                 if (inPublic->publicArea.unique.mldsa.size > 0) {
                     uBuf = inPublic->publicArea.unique.mldsa.buffer;
                     uSz = (int)inPublic->publicArea.unique.mldsa.size;
@@ -3482,7 +3502,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
              * FIPS 204 deterministic keygen. Private material on the wire
              * is the seed itself per TCG Part 2 Table 210. */
             case TPM_ALG_MLDSA:
-            case TPM_ALG_HASH_MLDSA: {
+#ifdef WOLFTPM_HASH_MLDSA
+            case TPM_ALG_HASH_MLDSA:
+#endif
+            {
                 const char* label = (inPublic->publicArea.type == TPM_ALG_MLDSA)
                     ? "MLDSA" : "HASH_MLDSA";
                 TPMI_MLDSA_PARAMETER_SET ps =
@@ -6013,7 +6036,6 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
-
     /* Skip outsideInfo */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -6090,7 +6112,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
-            case TPM_ALG_HASH_MLDSA: {
+#ifdef WOLFTPM_HASH_MLDSA
+            case TPM_ALG_HASH_MLDSA:
+#endif
+            {
                 TPMI_MLDSA_PARAMETER_SET ps =
                     (inPublic->publicArea.type == TPM_ALG_MLDSA)
                         ? inPublic->publicArea.parameters.mldsaDetail.parameterSet
@@ -6475,6 +6500,9 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParsePublic(cmd, &inPublic);
     }
 
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&inPublic.publicArea, 0);
+    }
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
         printf("fwTPM: Load(parent=0x%x, type=%d, privSz=%d)\n",
@@ -6989,6 +7017,9 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParsePublic(cmd, objectPublic);
     }
 
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&objectPublic->publicArea, 0);
+    }
     /* Parse duplicate */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -8125,7 +8156,10 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
-            case TPM_ALG_HASH_MLDSA: {
+#ifdef WOLFTPM_HASH_MLDSA
+            case TPM_ALG_HASH_MLDSA:
+#endif
+            {
                 TPMI_MLDSA_PARAMETER_SET ps =
                     (inPublic->publicArea.type == TPM_ALG_MLDSA)
                         ? inPublic->publicArea.parameters.mldsaDetail.parameterSet
