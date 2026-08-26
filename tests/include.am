@@ -11,7 +11,8 @@ check_PROGRAMS += tests/unit.test
 endif
 noinst_PROGRAMS += tests/unit.test
 tests_unit_test_SOURCES      = tests/unit_tests.c \
-                               examples/tpm_test_keys.c
+                               examples/tpm_test_keys.c \
+                               examples/firmware/st33_blob0.c
 tests_unit_test_CFLAGS       = $(AM_CFLAGS)
 tests_unit_test_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 tests_unit_test_DEPENDENCIES = src/libwolftpm.la
