@@ -4215,11 +4215,30 @@ static void test_st33_detect_blob0(void)
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     AssertNotNull(buf);
 
-    /* Version to expected size: the rule the whole PR turns on */
+    /* Version to expected size, grouped by silicon family. ST33TPHF2X spans
+     * majors 1, 2 and the older 74 line and always signs with RSA-PSS, so a
+     * 74.9 part upgrading to 2.512 must expect the same 321 bytes at both
+     * ends. Getting this wrong refuses a legitimate image client side. */
     AssertIntEQ((int)st33_expected_blob0(1, 258), ST33_BLOB0_SIZE_NON_LMS_RSA);
     AssertIntEQ((int)st33_expected_blob0(1, 771), ST33_BLOB0_SIZE_NON_LMS_RSA);
+    AssertIntEQ((int)st33_expected_blob0(2, 512), ST33_BLOB0_SIZE_NON_LMS_RSA);
+    AssertIntEQ((int)st33_expected_blob0(74, 8), ST33_BLOB0_SIZE_NON_LMS_RSA);
+    AssertIntEQ((int)st33_expected_blob0(74, 9), ST33_BLOB0_SIZE_NON_LMS_RSA);
     AssertIntEQ((int)st33_expected_blob0(9, 257), ST33_BLOB0_SIZE_NON_LMS);
     AssertIntEQ((int)st33_expected_blob0(9, 512), ST33_BLOB0_SIZE_LMS);
+    AssertIntEQ((int)st33_expected_blob0(10, 512), ST33_BLOB0_SIZE_LMS);
+
+    /* An unknown family asserts no size rather than guessing one that would
+     * reject a valid image (an ST33KTPMQ reports major 11) */
+    AssertIntEQ((int)st33_expected_blob0(11, 1), 0);
+    AssertIntEQ(st33_blob0_family(11), ST33_BLOB0_FAMILY_UNKNOWN);
+    AssertIntEQ(st33_blob0_family(2), ST33_BLOB0_FAMILY_TPHF2X);
+    AssertIntEQ(st33_blob0_family(74), ST33_BLOB0_FAMILY_TPHF2X);
+    AssertIntEQ(st33_blob0_family(9), ST33_BLOB0_FAMILY_KTPM);
+
+    /* With no size to prefer, every candidate is still offered exactly once */
+    candCnt = st33_blob0_candidates(11, 1, 1, cand);
+    AssertIntEQ((int)candCnt, ST33_BLOB0_SIZE_CNT);
 
     /* Preferred candidate leads, every size still present exactly once */
     candCnt = st33_blob0_candidates(1, 771, 1, cand);
@@ -4298,6 +4317,100 @@ static void test_st33_detect_blob0(void)
 
     printf("Test TPM Wrapper:\tST33 blob0 detection:\t\tPassed\n");
 }
+
+/* The manifest header carries the firmware line the image upgrades, and that
+ * plus the running minor version picks the field upgrade command codes when
+ * the TPM's command list cannot settle it. The wrong pair is answered with
+ * TPM_RC_COMMAND_CODE and no upgrade happens, so every combination that
+ * reaches real parts is pinned here. These are the library's own helpers, so
+ * this covers the code that actually drives hardware. */
+#if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+static void test_st33_fu_ordinals(void)
+{
+    byte blob0[16];
+    word16 major, minor;
+    TPM_CC ccStart, ccData;
+
+    /* Header: 00 | major:2 | minor:2, big endian. 2.512 is ST33TPHF2XI2C */
+    XMEMSET(blob0, 0, sizeof(blob0));
+    blob0[1] = 0x00; blob0[2] = 0x02; blob0[3] = 0x02; blob0[4] = 0x00;
+    major = minor = 0xFFFF;
+    AssertIntEQ(wolfTPM2_ST33_ManifestVersion(blob0, sizeof(blob0), &major,
+        &minor), TPM_RC_SUCCESS);
+    AssertIntEQ((int)major, 2);
+    AssertIntEQ((int)minor, 512);
+
+    /* 9.512 is ST33KTPM2X */
+    blob0[2] = 0x09;
+    AssertIntEQ(wolfTPM2_ST33_ManifestVersion(blob0, sizeof(blob0), &major,
+        &minor), TPM_RC_SUCCESS);
+    AssertIntEQ((int)major, 9);
+    AssertIntEQ((int)minor, 512);
+
+    /* Either output may be dropped, and a short buffer is refused rather
+     * than read past. The version needs offset 1 through 4. */
+    AssertIntEQ(wolfTPM2_ST33_ManifestVersion(blob0, sizeof(blob0), NULL,
+        NULL), TPM_RC_SUCCESS);
+    AssertIntEQ(wolfTPM2_ST33_ManifestVersion(blob0, 5, &major, &minor),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(wolfTPM2_ST33_ManifestVersion(blob0, 4, &major, &minor),
+        BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_ST33_ManifestVersion(NULL, sizeof(blob0), &major,
+        &minor), BAD_FUNC_ARG);
+
+    /* Generation 2 images use the standard codes whatever the TPM reports */
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(512, 1, 2, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStart);
+    AssertIntEQ((int)ccData, (int)TPM_CC_FieldUpgradeData);
+
+    /* A running minor version below 256 also uses the standard codes */
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(8, 1, 74, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStart);
+    AssertIntEQ((int)ccData, (int)TPM_CC_FieldUpgradeData);
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(255, 1, 9, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStart);
+
+    /* Everything else is the ST33KTPM vendor pair */
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(258, 1, 1, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStartVendor_ST33);
+    AssertIntEQ((int)ccData, (int)TPM_CC_FieldUpgradeDataVendor_ST33);
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(256, 1, 9, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStartVendor_ST33);
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(512, 1, 10, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStartVendor_ST33);
+
+    /* An ST33KTPMQ at 11.1 is why the version rule is only a fallback: the
+     * rule says standard, the part implements only the vendor pair, and the
+     * TPM_CAP_COMMANDS probe is what gets it right on hardware. */
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(1, 1, 11, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStart);
+
+    /* In upgrade mode the running version is unknown, so the manifest alone
+     * decides and the stale minor version must not be consulted */
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(8, 0, 9, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStartVendor_ST33);
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(8, 0, 2, &ccStart, &ccData),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStart);
+
+    /* NULL outputs are refused rather than dereferenced */
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(512, 1, 2, NULL, &ccData),
+        BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(512, 1, 2, &ccStart, NULL),
+        BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper:\tST33 field upgrade ordinals:\tPassed\n");
+}
+#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_ST33 || WOLFTPM_AUTODETECT) */
 
 /* A sessioned response whose attacker-controlled parameterSize wraps UINT32
  * when added to packet->pos must be rejected up front. Without the bounds
@@ -8679,6 +8792,10 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_DispatchCommand_overflow();
 #endif
     test_st33_detect_blob0();
+#if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+    test_st33_fu_ordinals();
+#endif
     test_TPM2_ResponseProcess_ParamSizeOverflow();
     test_TPM2_ResponseProcess_DecParamSizeOverflow();
     test_TPM2_ResponseProcess_HmacVerify();

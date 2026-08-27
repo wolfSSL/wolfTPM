@@ -71,6 +71,88 @@ static void usage(void)
         "(177 byte manifest)\n");
     printf("      - Generation 9 at 512 and above: LMS format "
         "(2697 byte manifest)\n");
+    printf("\nThe field upgrade command codes come from the TPM: its "
+        "TPM_CAP_COMMANDS list\nsays whether it implements the standard TPM "
+        "codes or the ST33KTPM vendor\ncodes. Only when that does not settle "
+        "it, as in firmware upgrade mode, is\nST's version rule used - the "
+        "standard codes when the running firmware minor\nversion is below 256 "
+        "or the image targets generation 2.\n");
+}
+
+/* Field upgrade command codes come from the library, so the codes this tool
+ * reports, and binds a PolicyCommandCode to, are the ones that will be sent.
+ * In firmware upgrade mode the capabilities cannot be read, so caps is passed
+ * as NULL and the image's own target version decides. Returns 1 when the TPM
+ * decided, 0 when the codes came from the firmware version rule. */
+static int TPM2_ST33_PickOrdinals(const WOLFTPM2_CAPS* caps, int haveCaps,
+    word16 manifestMajor, TPM_CC* ccStart, TPM_CC* ccData)
+{
+    int fromTpm = 0;
+
+    (void)wolfTPM2_ST33_GetFwUpgradeCommands(haveCaps ? caps : NULL,
+        manifestMajor, ccStart, ccData, &fromTpm);
+    return fromTpm;
+}
+
+/* ST33 vendor product information. Two parts of the same model and firmware
+ * revision are otherwise indistinguishable over the standard capabilities, so
+ * this is what tells one physical unit from another. Read-only.
+ * Layout per TPM2_GetProductInfo: serial 7B, pad 1B, Product ID (PIN) 2B,
+ * Master Product ID (MPIN) 2B, internal revision 1B, pad 3B, kernel ver 4B. */
+static void TPM2_ST33_PrintProductInfo(void)
+{
+    uint8_t info[20];
+    int rc, i;
+
+    XMEMSET(info, 0, sizeof(info));
+    rc = TPM2_GetProductInfo(info, (uint16_t)sizeof(info));
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Product info: unavailable (0x%x: %s)\n", rc,
+            TPM2_GetRCString(rc));
+        return;
+    }
+    printf("Serial:");
+    for (i = 0; i < 7; i++) {
+        printf(" %02x", info[i]);
+    }
+    printf("\n");
+    printf("Product ID (PIN) 0x%02x%02x, Master (MPIN) 0x%02x%02x, "
+        "internal rev 0x%02x\n", info[8], info[9], info[10], info[11],
+        info[12]);
+    printf("Firmware kernel version: %02x %02x %02x %02x\n",
+        info[16], info[17], info[18], info[19]);
+}
+
+/* Print which of the four field upgrade command codes this part implements.
+ * Purely diagnostic - it changes no TPM state and drives no upgrade. */
+static void TPM2_ST33_PrintCommandSet(void)
+{
+    static const TPM_CC fuCmds[4] = {
+        TPM_CC_FieldUpgradeStart,
+        TPM_CC_FieldUpgradeData,
+        TPM_CC_FieldUpgradeStartVendor_ST33,
+        TPM_CC_FieldUpgradeDataVendor_ST33
+    };
+    static const char* fuNames[4] = {
+        "FieldUpgradeStart       (standard)",
+        "FieldUpgradeData        (standard)",
+        "FieldUpgradeStartVendor (ST33KTPM)",
+        "FieldUpgradeDataVendor  (ST33KTPM)"
+    };
+    int i, isImpl, rc;
+
+    printf("Field upgrade command set:\n");
+    for (i = 0; i < 4; i++) {
+        rc = wolfTPM2_ST33_CmdImplemented(fuCmds[i], &isImpl);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("\t0x%08x %s: query failed 0x%x: %s\n",
+                (unsigned int)fuCmds[i], fuNames[i], rc, TPM2_GetRCString(rc));
+        }
+        else {
+            printf("\t0x%08x %s: %s\n", (unsigned int)fuCmds[i], fuNames[i],
+                isImpl ? "implemented" : "not implemented");
+        }
+    }
 }
 
 typedef struct {
@@ -84,7 +166,16 @@ typedef struct {
 } fw_info_t;
 
 /* Send firmware data blobs directly - used when continuing from upgrade mode */
-static int TPM2_ST33_SendFirmwareData(fw_info_t* fwinfo)
+/* The other half of the pair, for the resume-path retry below */
+static TPM_CC TPM2_ST33_AltDataCmd(TPM_CC ccData)
+{
+    return (ccData == TPM_CC_FieldUpgradeDataVendor_ST33) ?
+        (TPM_CC)TPM_CC_FieldUpgradeData :
+        (TPM_CC)TPM_CC_FieldUpgradeDataVendor_ST33;
+}
+
+static int TPM2_ST33_SendFirmwareData(fw_info_t* fwinfo, TPM_CC ccData,
+    int ccFromTpm)
 {
     int rc;
     uint32_t offset = 0;
@@ -135,8 +226,18 @@ static int TPM2_ST33_SendFirmwareData(fw_info_t* fwinfo)
         XMEMCPY(blob_buf, &fwinfo->firmware_buf[offset], blob_total);
 
         /* Send blob to TPM */
-        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
-            blob_buf, blob_total);
+        rc = TPM2_ST33_FieldUpgradeCommand(ccData, blob_buf, blob_total);
+        /* Resuming into a TPM already in upgrade mode, the running firmware
+         * version cannot be read, so the code may have been inferred from the
+         * image alone. The TPM ignores a command code it does not implement,
+         * so the first blob can safely be re-sent with the other pair rather
+         * than forcing an --abandon and a full restart. */
+        if (rc == TPM_RC_COMMAND_CODE && blob_count == 0 && !ccFromTpm) {
+            ccData = TPM2_ST33_AltDataCmd(ccData);
+            printf("FieldUpgradeData rejected, retrying with 0x%08x\n",
+                (unsigned int)ccData);
+            rc = TPM2_ST33_FieldUpgradeCommand(ccData, blob_buf, blob_total);
+        }
         if (rc != TPM_RC_SUCCESS) {
             printf("FieldUpgradeData failed at blob %d, offset %u: 0x%x\n",
                 blob_count, offset, rc);
@@ -177,27 +278,48 @@ static int TPM2_ST33_FwData_Cb(uint8_t* data, uint32_t data_req_sz,
     return data_req_sz;
 }
 
+/* The firmware major version tracks the part and interface line. ST33TPHF2X
+ * parts report a binary vendor string, so the name never comes from
+ * TPM_PT_VENDOR_STRING_1..4 the way it does on an ST33KTPM. */
+static const char* TPM2_ST33_PartLine(word16 fwVerMajor)
+{
+    switch (fwVerMajor) {
+        case 1:  return "ST33TPHF2X (SPI firmware line)";
+        case 2:  return "ST33TPHF2X (I2C firmware line)";
+        case 74: return "ST33TPHF2X (older firmware line)";
+        case 9:  return "ST33KTPM2X";
+        case 10: return "ST33KTPM2A";
+        case 11: return "ST33KTPMQ";
+        default: return "unrecognized ST33 firmware line";
+    }
+}
+
 static void TPM2_ST33_PrintInfo(const WOLFTPM2_CAPS* caps)
 {
+    size_t i;
+    size_t expected;
+
     printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x)\n",
         caps->mfgStr, caps->mfg, caps->vendorStr, caps->fwVerMajor,
         caps->fwVerMinor, caps->fwVerVendor);
+    /* The vendor string is binary on ST33TPHF2X, so %s above shows nothing.
+     * Print the raw bytes too, they are part of the device identity. */
+    printf("Vendor string bytes:");
+    for (i = 0; i < sizeof(caps->vendorStr) - 1; i++) {
+        printf(" %02x", (unsigned char)caps->vendorStr[i]);
+    }
+    printf("\n");
     printf("Firmware version details: Major=%u, Minor=%u, Vendor=0x%x\n",
         caps->fwVerMajor, caps->fwVerMinor, caps->fwVerVendor);
-    if (caps->fwVerMajor < ST33_BLOB0_GENERATION_LMS_CAPABLE) {
-        printf("Hardware: ST33K (generation 1 firmware)\n");
-        printf("Firmware update: Non-LMS format required "
-            "(%d byte manifest)\n", ST33_BLOB0_SIZE_NON_LMS_RSA);
-    }
-    else if (caps->fwVerMinor < ST33_BLOB0_VERSION_LMS_REQUIRED) {
-        printf("Hardware: ST33K (generation 9 firmware below 512)\n");
-        printf("Firmware update: Non-LMS format required "
-            "(%d byte manifest)\n", ST33_BLOB0_SIZE_NON_LMS);
+    printf("Part line: %s\n", TPM2_ST33_PartLine(caps->fwVerMajor));
+    expected = st33_expected_blob0(caps->fwVerMajor, caps->fwVerMinor);
+    if (expected == 0) {
+        printf("Firmware update: manifest size unknown for this firmware "
+            "line, taken from the image\n");
     }
     else {
-        printf("Hardware: ST33K (generation 9 firmware at 512 and above)\n");
-        printf("Firmware update: LMS format required "
-            "(%d byte manifest)\n", ST33_BLOB0_SIZE_LMS);
+        printf("Firmware update: %s format required (%zu byte manifest)\n",
+            (expected == ST33_BLOB0_SIZE_LMS) ? "LMS" : "Non-LMS", expected);
     }
 }
 
@@ -215,6 +337,10 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     size_t blob0_size;
     size_t cand[ST33_BLOB0_SIZE_CNT];
     size_t candCnt;
+    word16 manifestMajor = 0, manifestMinor = 0;
+    TPM_CC ccStart = TPM_CC_FieldUpgradeStartVendor_ST33;
+    TPM_CC ccData = TPM_CC_FieldUpgradeDataVendor_ST33;
+    int ccFromTpm = 0;
     int i;
 #ifdef WOLFTPM_HAVE_FW_POLICY
     int policytest = 0;
@@ -364,6 +490,10 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+    /* ST33 specific, so only meaningful once the manufacturer is confirmed */
+    TPM2_ST33_PrintProductInfo();
+    TPM2_ST33_PrintCommandSet();
+
     if (abandon) {
         printf("Firmware Update Abandon:\n");
         rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
@@ -415,7 +545,9 @@ load_firmware:
     /* The file parsed, but at a size this TPM will not accept. Say so here:
      * the library rejects it too, but only with a DEBUG_WOLFTPM diagnostic,
      * so on a release build the operator would see a bare error code. */
-    if (!fwinfo.in_upgrade_mode && blob0_size != cand[0]) {
+    if (!fwinfo.in_upgrade_mode &&
+            st33_expected_blob0(caps.fwVerMajor, caps.fwVerMinor) != 0 &&
+            blob0_size != cand[0]) {
         printf("Error: %s is for a different ST33 generation.\n", fi_file);
         printf("  Its manifest is %zu bytes, but firmware %u.%u running on "
             "this TPM\n  expects %zu bytes. Use the .fi file for this part.\n",
@@ -438,15 +570,33 @@ load_firmware:
     fwinfo.firmware_buf = fwinfo.fi_buf + blob0_size;
     fwinfo.firmware_bufSz = fwinfo.fi_bufSz - blob0_size;
 
+    /* The manifest carries the firmware line it upgrades, which together with
+     * the running version selects the field upgrade command codes. */
+    if (wolfTPM2_ST33_ManifestVersion(fwinfo.manifest_buf,
+            (uint32_t)fwinfo.manifest_bufSz, &manifestMajor,
+            &manifestMinor) != TPM_RC_SUCCESS) {
+        printf("Error: manifest too small to hold a version header\n");
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+    ccFromTpm = TPM2_ST33_PickOrdinals(&caps, !fwinfo.in_upgrade_mode,
+        manifestMajor, &ccStart, &ccData);
+
     printf("Firmware Update:\n");
     printf("\tTotal file size: %zu bytes\n", fwinfo.fi_bufSz);
     printf("\tManifest (blob0): %zu bytes\n", fwinfo.manifest_bufSz);
     printf("\tFirmware data: %zu bytes\n", fwinfo.firmware_bufSz);
+    printf("\tImage targets firmware: %u.%u (%s)\n", manifestMajor,
+        manifestMinor, TPM2_ST33_PartLine(manifestMajor));
+    printf("\tCommand codes: start 0x%08x, data 0x%08x (%s)\n",
+        (unsigned int)ccStart, (unsigned int)ccData,
+        ccFromTpm ? "from TPM_CAP_COMMANDS" :
+            "inferred from the firmware version");
 
     if (fwinfo.in_upgrade_mode) {
         /* Continuing from upgrade mode - just send firmware data */
         printf("Sending firmware data (TPM already in upgrade mode)...\n");
-        rc = TPM2_ST33_SendFirmwareData(&fwinfo);
+        rc = TPM2_ST33_SendFirmwareData(&fwinfo, ccData, ccFromTpm);
     }
     else {
         WOLFTPM2_SESSION* startSess = NULL;
@@ -456,8 +606,7 @@ load_firmware:
          * that caller-supplied session instead of the default password auth. */
         if (policyMode != ST33_POLICY_NONE) {
             rc = firmware_policy_session_setup(&dev, &policyCtx, policyHash,
-                (policyMode == ST33_POLICY_OR),
-                TPM_CC_FieldUpgradeStartVendor_ST33, &policySession);
+                (policyMode == ST33_POLICY_OR), ccStart, &policySession);
             if (rc == 0) {
                 printf("Using caller-supplied policy session\n");
                 startSess = &policySession;

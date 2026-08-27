@@ -5420,6 +5420,100 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeRecover_ex(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev);
 
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Read the firmware version an ST33 firmware image upgrades to
+    \note The manifest (blob0) header opens with a zero byte followed by the
+        target version in the TPM_PT_FIRMWARE_VERSION_1 layout: UINT16 major
+        then UINT16 minor, big endian (00 | 00 02 02 00 is 2.512)
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: manifest is NULL or too small to hold the version
+
+    \param manifest pointer to the manifest (blob0) bytes
+    \param manifest_sz size of the manifest in bytes
+    \param major pointer to store the target major version (optional, may be NULL)
+    \param minor pointer to store the target minor version (optional, may be NULL)
+
+    \sa wolfTPM2_ST33_FwUpgradeCommands
+    \sa wolfTPM2_FirmwareUpgrade
+*/
+WOLFTPM_API int wolfTPM2_ST33_ManifestVersion(const uint8_t* manifest,
+    uint32_t manifest_sz, word16* major, word16* minor);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Report whether the TPM implements a command code
+    \note Queries TPM_CAP_COMMANDS, which returns commands at or above the
+        requested code, so a match at index 0 of a single-property query means
+        it is implemented. Used to tell which field upgrade command pair an
+        ST33 part supports
+
+    \return TPM_RC_SUCCESS: query succeeded, isImpl set to 1 or 0
+    \return BAD_FUNC_ARG: isImpl is NULL
+    \return TPM_RC_VALUE: the TPM answered with a different capability
+
+    \param cc command code to look for
+    \param isImpl pointer to store 1 when implemented, 0 when not
+
+    \sa wolfTPM2_ST33_GetFwUpgradeCommands
+*/
+WOLFTPM_API int wolfTPM2_ST33_CmdImplemented(TPM_CC cc, int* isImpl);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Choose the ST33 field upgrade command codes for the attached TPM
+    \note Asks the TPM which pair it implements, since the firmware version
+        rule does not hold on every ST33 firmware line, and falls back to
+        wolfTPM2_ST33_FwUpgradeCommands when the TPM does not settle it. This
+        is what the library sends, so a caller binding a PolicyCommandCode for
+        the upgrade should bind the start code this returns
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: ccStart or ccData is NULL
+
+    \param caps capabilities of the attached TPM, or NULL when the running
+        firmware version is unknown, as it is in firmware upgrade mode
+    \param manifestMajor target major version from wolfTPM2_ST33_ManifestVersion
+    \param ccStart pointer to store the field upgrade start command code
+    \param ccData pointer to store the field upgrade data command code
+    \param fromTpm pointer to store 1 when the TPM decided and 0 when the
+        version rule did (optional, may be NULL)
+
+    \sa wolfTPM2_ST33_CmdImplemented
+    \sa wolfTPM2_ST33_ManifestVersion
+*/
+WOLFTPM_API int wolfTPM2_ST33_GetFwUpgradeCommands(const WOLFTPM2_CAPS* caps,
+    word16 manifestMajor, TPM_CC* ccStart, TPM_CC* ccData, int* fromTpm);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Choose the ST33 field upgrade command codes from the version fields
+    \note ST33 implements the field upgrade with either the standard
+        TPM_CC_FieldUpgradeStart/Data or the ST33KTPM vendor codes, and the
+        wrong pair is answered with TPM_RC_COMMAND_CODE. This applies the rule
+        ST's reference tool uses. Callers want
+        wolfTPM2_ST33_GetFwUpgradeCommands instead, which asks the TPM first
+        and only falls back to this. Pass haveFwVer = 0 when the running
+        version is unknown, as it is once the TPM has entered upgrade mode
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: ccStart or ccData is NULL
+
+    \param fwVerMinor running firmware minor version from WOLFTPM2_CAPS
+    \param haveFwVer set to 1 when fwVerMinor is known, 0 when it is not
+    \param manifestMajor target major version from wolfTPM2_ST33_ManifestVersion
+    \param ccStart pointer to store the field upgrade start command code
+    \param ccData pointer to store the field upgrade data command code
+
+    \sa wolfTPM2_ST33_ManifestVersion
+    \sa wolfTPM2_FirmwareUpgrade
+*/
+WOLFTPM_TEST_API int wolfTPM2_ST33_FwUpgradeCommands(word16 fwVerMinor,
+    int haveFwVer, word16 manifestMajor, TPM_CC* ccStart, TPM_CC* ccData);
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
 

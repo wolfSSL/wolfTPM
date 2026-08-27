@@ -131,6 +131,49 @@ The manifest (blob0) is a 33 byte fixed header followed by the firmware digest a
 
 The LMS requirement is a generation 9 rule, so both `fwVerMajor` and `fwVerMinor` from TPM capabilities are consulted. The example confirms its choice against the file itself: everything after blob0 is a chain of `[type][length]` records that ends exactly at end of file, and only the correct manifest size lands on the final byte. No manual format selection is needed.
 
+### Identifying the part
+
+ST33TPHF2X parts report `TPM_PT_VENDOR_STRING_1..4` as zero or as non-printable bytes, so unlike an ST33KTPM they print an empty `Vendor` field. `st33_fw_update` dumps the raw bytes so they can still be compared. What identifies them is the firmware major version, which tracks the part and interface line:
+
+| `fwVerMajor` | Part line | Example firmware image |
+| --- | --- | --- |
+| 1 | ST33TPHF2X, SPI firmware line | `TPM_ST33TPHF2XSPI_00010301.fi` |
+| 2 | ST33TPHF2X, I2C firmware line | `TPM_ST33TPHF2XI2C_00020200.fi` |
+| 9 | ST33KTPM2X | `TPM_ST33KTPM2X_00090200_V1.fi` |
+| 10 (`0x000a`) | ST33KTPM2A | `TPM_ST33KTPM2A_000a0200.fi` |
+| 11 (`0x000b`) | ST33KTPMQ | (none on hand) |
+
+The manifest header carries the same version: a zero byte followed by the firmware version the image upgrades to, in the `TPM_PT_FIRMWARE_VERSION_1` layout (`00 | 00 02 02 00` is 2.512). `st33_fw_update` prints both and refuses an image whose major version does not match the running part.
+
+### Field upgrade command codes
+
+ST33 implements the field upgrade with one of two command code pairs, and the wrong one is answered with `TPM_RC_COMMAND_CODE` (`0x143`) before the manifest is even parsed:
+
+| Pair | Start | Data |
+| --- | --- | --- |
+| Standard TCG | `TPM_CC_FieldUpgradeStart` (`0x0000012F`) | `TPM_CC_FieldUpgradeData` (`0x00000141`) |
+| ST33KTPM vendor | `0x2000030C` | `0x2000030D` |
+
+wolfTPM asks the TPM which pair it implements, by querying `TPM_CAP_COMMANDS` for the two start codes. That is authoritative and needs no table of parts. ST's own reference tool instead infers the pair from version numbers (standard codes when the running firmware minor version is below 256, or when the image targets firmware generation 2), and wolfTPM falls back to that same rule -- `wolfTPM2_ST33_FwUpgradeCommands()` -- only when the TPM will not answer, which is the case once it has entered firmware upgrade mode, or when it lists both pairs.
+
+The probe matters: an ST33KTPMQ at firmware 11.1 implements **only** the vendor pair even though its minor version is below 256, so the version rule alone would pick the wrong codes for it.
+
+Nothing needs to be selected by hand. When a caller-supplied policy is used, the `PolicyCommandCode` is bound to whichever start code will actually be sent, and `st33_fw_update` reports whether the codes came from the TPM or were inferred.
+
+Running `st33_fw_update` with no firmware file also reports which of the four codes the attached part implements, read from `TPM_CAP_COMMANDS`. This is read-only and is the quickest way to diagnose a `TPM_RC_COMMAND_CODE` on a new part:
+
+```sh
+./st33_fw_update
+...
+Field upgrade command set:
+	0x0000012f FieldUpgradeStart       (standard): implemented
+	0x00000141 FieldUpgradeData        (standard): implemented
+	0x2000030c FieldUpgradeStartVendor (ST33KTPM): not implemented
+	0x2000030d FieldUpgradeDataVendor  (ST33KTPM): not implemented
+```
+
+A firmware major version outside the known families is treated as unknown rather than guessed at: no manifest size is asserted for it, the tool reports that the size is taken from the image, and the block-chain check in `st33_detect_blob0` establishes the real size from the file itself. That way a part from a newer line, such as an ST33KTPMQ, is not refused an image on the strength of a rule that does not apply to it.
+
 ### Updating the firmware
 
 The `st33_fw_update` tool automatically detects the firmware format.
@@ -154,15 +197,23 @@ Firmware format is auto-detected from TPM firmware version and the file:
       - Generation 9 below 512: Non-LMS format (177 byte manifest)
       - Generation 9 at 512 and above: LMS format (2697 byte manifest)
 
-# Run without arguments to display the current firmware information
+# Run without arguments to display the current firmware information.
+# This capture is an ST33TPHF2XSPI, which implements only the vendor codes.
 ./st33_fw_update
 ST33 Firmware Update Tool
-TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
+TPM2: Caps 0x30000415, Did 0x0000, Vid 0x104a, Rid 0x4e
 TPM2_Startup pass
-Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
-Firmware version details: Major=9, Minor=257, Vendor=0x0
-Hardware: ST33K (generation 9 firmware below 512)
-Firmware update: Non-LMS format required (177 byte manifest)
+Mfg STM  (2), Vendor , Fw 1.258 (0x0)
+Vendor string bytes: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Firmware version details: Major=1, Minor=258, Vendor=0x0
+Part line: ST33TPHF2X (SPI firmware line)
+Firmware generation: 1
+Firmware update: Non-LMS format required (321 byte manifest)
+Field upgrade command set:
+	0x0000012f FieldUpgradeStart       (standard): not implemented
+	0x00000141 FieldUpgradeData        (standard): not implemented
+	0x2000030c FieldUpgradeStartVendor (ST33KTPM): implemented
+	0x2000030d FieldUpgradeDataVendor  (ST33KTPM): implemented
 
 # Run with firmware file (format auto-detected from TPM version)
 ./st33_fw_update TPM_ST33KTPM2X_00090200_V1.fi
@@ -172,13 +223,16 @@ TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
-Hardware: ST33K (generation 9 firmware below 512)
+Part line: ST33KTPM2X
+Firmware generation: 9 below 512
 Firmware update: Non-LMS format required (177 byte manifest)
 	Format: Non-LMS (blob0 177 bytes, verified against the block chain)
 Firmware Update:
 	Total file size: 364290 bytes
 	Manifest (blob0): 177 bytes
 	Firmware data: 364113 bytes
+	Image targets firmware: 9.512 (ST33KTPM2X)
+	Command codes: start 0x2000030c, data 0x2000030d
 ...
 Firmware update completed successfully.
 Please reset or power cycle the TPM.
@@ -191,7 +245,7 @@ TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 3
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.512 (0x0)
 Firmware version details: Major=9, Minor=512, Vendor=0x0
-Hardware: ST33K (generation 9 firmware at 512 and above)
+Firmware generation: 9 at 512 and above
 Firmware update: LMS format required (2697 byte manifest)
 	Format: LMS (blob0 2697 bytes, verified against the block chain)
 Firmware Update:
@@ -209,7 +263,7 @@ TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
-Hardware: ST33K (generation 9 firmware below 512)
+Firmware generation: 9 below 512
 Firmware update: Non-LMS format required (177 byte manifest)
 Firmware Update Abandon:
 Success: Please reset or power cycle TPM

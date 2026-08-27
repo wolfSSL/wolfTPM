@@ -43,18 +43,27 @@ extern "C" {
 /* gen 9 at 512 and above: embedded LMS signature */
 #define ST33_BLOB0_SIZE_LMS         2697
 
-/* LMS is a generation 9 rule. Generation 1 parts are always non-LMS no matter
- * how high the minor version goes (e.g. 1.771). Mirrors
- * ST33_FW_GENERATION_LMS_CAPABLE / ST33_FW_VERSION_LMS_REQUIRED in
- * src/tpm2_wrap.c, which is the authority the library validates against. */
-#define ST33_BLOB0_GENERATION_LMS_CAPABLE 9
-#define ST33_BLOB0_VERSION_LMS_REQUIRED   512
+/* The manifest format follows the silicon family, which the firmware major
+ * version identifies. ST33TPHF2X (majors 1, 2 and the older 74 line) signs
+ * with SHA-256 + RSA-PSS; ST33KTPM (majors 9 and 10) signs with ECDSA P-384,
+ * and from minor 512 with LMS. A major outside both lists is unknown, and no
+ * size is asserted for it. Mirrors src/tpm2_wrap.c, which is the authority
+ * the library validates against. */
+#define ST33_BLOB0_FAMILY_UNKNOWN 0
+#define ST33_BLOB0_FAMILY_TPHF2X  1
+#define ST33_BLOB0_FAMILY_KTPM    2
+#define ST33_BLOB0_VERSION_LMS_REQUIRED 512
+
+/* Silicon family for a firmware major version, ST33_BLOB0_FAMILY_UNKNOWN when
+ * the major is not one this release knows about. */
+int st33_blob0_family(word32 fwVerMajor);
 
 #define ST33_BLOB0_SIZE_CNT 3
 extern const size_t st33_blob0_sizes[ST33_BLOB0_SIZE_CNT];
 
 /* Manifest size the running firmware expects for its next update. Takes the
- * version fields rather than WOLFTPM2_CAPS so it stays free of the wrapper. */
+ * version fields rather than WOLFTPM2_CAPS so it stays free of the wrapper.
+ * Returns 0 when the family is unknown, meaning no size can be asserted. */
 size_t st33_expected_blob0(word32 fwVerMajor, word32 fwVerMinor);
 
 /* Fill cand (at least ST33_BLOB0_SIZE_CNT entries) with every known manifest

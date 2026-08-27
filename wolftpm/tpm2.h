@@ -320,7 +320,14 @@ typedef enum {
     /* ST33 Firmware Update Vendor Command Codes
      * Verified from ST reference implementation (TPM_FU_STM_KTPM_LMS.c):
      * - Start: 0x2000030C, Data: 0x2000030D
-     * Note: Abandon still uses placeholder - may need verification */
+     * Note: Abandon still uses placeholder - may need verification
+     * These are only used by the ST33KTPM class of firmware. Other ST33
+     * firmware performs the field upgrade with the standard
+     * TPM_CC_FieldUpgradeStart/Data codes instead; the library queries
+     * TPM_CAP_COMMANDS to find out which pair a part implements.
+     * Note the abandon/finalize codes alias TPM_CC_GetRandom2 (0x2000030E)
+     * and TPM_CC_GPIO_Config (0x2000030F); only the firmware upgrade mode the
+     * TPM is in tells the two meanings apart. */
     TPM_CC_FieldUpgradeStartVendor_ST33    = CC_VEND + 0x030C,
     TPM_CC_FieldUpgradeAbandonVendor_ST33  = CC_VEND + 0x030E, /* Abandon/cancel */
     TPM_CC_FieldUpgradeDataVendor_ST33     = CC_VEND + 0x030D,
@@ -3441,6 +3448,11 @@ WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 WOLFTPM_API int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
     uint8_t* data, uint32_t size);
+/* Same as TPM2_ST33_FieldUpgradeStart, but with the field upgrade start
+ * command code supplied by the caller. ST33 firmware differs on whether the
+ * vendor code or the standard TPM_CC_FieldUpgradeStart is implemented. */
+WOLFTPM_API int TPM2_ST33_FieldUpgradeStart_ex(TPM_HANDLE sessionHandle,
+    TPM_CC cc, uint8_t* data, uint32_t size);
 WOLFTPM_API int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size);
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */

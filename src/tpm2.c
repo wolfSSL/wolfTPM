@@ -6664,7 +6664,7 @@ int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
 
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 /* ST33 Firmware Update Vendor Command Functions */
-int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
+int TPM2_ST33_FieldUpgradeStart_ex(TPM_HANDLE sessionHandle, TPM_CC cc,
     uint8_t* data, uint32_t size)
 {
     int rc;
@@ -6687,14 +6687,20 @@ int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
 
         TPM2_Packet_AppendBytes(&packet, data, size);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
-            TPM_CC_FieldUpgradeStartVendor_ST33);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, cc);
 
         rc = TPM2_SendCommand(ctx, &packet);
 
         TPM2_ReleaseLock(ctx);
     }
     return rc;
+}
+
+int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
+    uint8_t* data, uint32_t size)
+{
+    return TPM2_ST33_FieldUpgradeStart_ex(sessionHandle,
+        TPM_CC_FieldUpgradeStartVendor_ST33, data, size);
 }
 
 int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
@@ -6946,6 +6952,16 @@ const char* TPM2_GetRCString(int rc)
         return "Success";
     }
 
+    /* Format-zero codes carry the vendor bit (T, bit 10). This has to be
+     * checked before the format-zero decode below, which masks with
+     * RC_MAX_FM0 and would otherwise report a vendor code as whichever
+     * standard code shares its low bits - an ST33 field upgrade rejection of
+     * 0x501 reads as TPM_RC_FAILURE. Format-one codes have no vendor bit, and
+     * negative values are wolfCrypt errors, not TPM response codes. */
+    if (rc > 0 && (rc & RC_FMT1) == 0 && (rc & 0x400)) { /* bit 10 */
+        return "Vendor defined response code";
+    }
+
     if ((rc & RC_WARN) == RC_WARN && (rc & RC_FMT1) == 0) {
         int rc_warn = rc & RC_MAX_WARN;
 
@@ -7092,10 +7108,6 @@ const char* TPM2_GetRCString(int rc)
         default:
             break;
         }
-    }
-
-    else if (rc & 0x400) { /* bit 10 */
-        return "Vendor defined response code";
     }
 
     return "Unknown";

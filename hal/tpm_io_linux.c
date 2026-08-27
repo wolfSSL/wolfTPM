@@ -72,9 +72,19 @@
 
     #ifdef WOLFTPM_I2C
         /* I2C - (Only tested with SLB9673 and ST33 I2C) */
+        /* Overridable at build time: the bus number is board specific. A
+         * Raspberry Pi 5 using a bit-banged i2c-gpio overlay for the clock
+         * stretching these TPMs need, for example, enumerates it well above
+         * i2c-1. */
+        #ifndef TPM2_I2C_ADDR
         #define TPM2_I2C_ADDR 0x2e
+        #endif
+        #ifndef TPM2_I2C_DEV
         #define TPM2_I2C_DEV  "/dev/i2c-1"
+        #endif
+        #ifndef TPM2_I2C_HZ
         #define TPM2_I2C_HZ   400000 /* 400kHz */
+        #endif
         static int i2cOpenFailed = 0;
         static int i2cDevFd = -1;
     #else

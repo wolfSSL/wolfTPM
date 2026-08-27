@@ -31,15 +31,34 @@ const size_t st33_blob0_sizes[ST33_BLOB0_SIZE_CNT] = {
     ST33_BLOB0_SIZE_LMS
 };
 
+int st33_blob0_family(word32 fwVerMajor)
+{
+    switch (fwVerMajor) {
+        case 1:  /* ST33TPHF2X, SPI firmware line */
+        case 2:  /* ST33TPHF2X, I2C firmware line */
+        case 74: /* ST33TPHF2X, older line both buses (74.8 SPI, 74.9 I2C) */
+            return ST33_BLOB0_FAMILY_TPHF2X;
+        case 9:  /* ST33KTPM2X */
+        case 10: /* ST33KTPM2A */
+            return ST33_BLOB0_FAMILY_KTPM;
+        default:
+            return ST33_BLOB0_FAMILY_UNKNOWN;
+    }
+}
+
 size_t st33_expected_blob0(word32 fwVerMajor, word32 fwVerMinor)
 {
-    if (fwVerMajor < ST33_BLOB0_GENERATION_LMS_CAPABLE) {
-        return ST33_BLOB0_SIZE_NON_LMS_RSA;
+    switch (st33_blob0_family(fwVerMajor)) {
+        case ST33_BLOB0_FAMILY_TPHF2X:
+            return ST33_BLOB0_SIZE_NON_LMS_RSA;
+        case ST33_BLOB0_FAMILY_KTPM:
+            if (fwVerMinor < ST33_BLOB0_VERSION_LMS_REQUIRED) {
+                return ST33_BLOB0_SIZE_NON_LMS;
+            }
+            return ST33_BLOB0_SIZE_LMS;
+        default:
+            return 0; /* unknown family, assert nothing */
     }
-    if (fwVerMinor < ST33_BLOB0_VERSION_LMS_REQUIRED) {
-        return ST33_BLOB0_SIZE_NON_LMS;
-    }
-    return ST33_BLOB0_SIZE_LMS;
 }
 
 size_t st33_blob0_candidates(word32 fwVerMajor, word32 fwVerMinor,
@@ -47,12 +66,16 @@ size_t st33_blob0_candidates(word32 fwVerMajor, word32 fwVerMinor,
 {
     size_t idx;
     size_t candCnt = 0;
+    size_t expected;
 
     if (cand == NULL) {
         return 0;
     }
     if (haveCaps) {
-        cand[candCnt++] = st33_expected_blob0(fwVerMajor, fwVerMinor);
+        expected = st33_expected_blob0(fwVerMajor, fwVerMinor);
+        if (expected != 0) {
+            cand[candCnt++] = expected;
+        }
     }
     for (idx = 0; idx < ST33_BLOB0_SIZE_CNT; idx++) {
         if (candCnt == 0 || cand[0] != st33_blob0_sizes[idx]) {
