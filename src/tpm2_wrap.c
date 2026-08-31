@@ -11974,6 +11974,8 @@ static int tpm2_st33_family(word16 fwVerMajor)
         case 9:  /* ST33KTPM2X */
         case 10: /* ST33KTPM2A */
             return ST33_FW_FAMILY_KTPM;
+        /* Uncharacterized majors stay unknown so no size or family rule is
+         * asserted against them, even ones the tool can name */
         default:
             return ST33_FW_FAMILY_UNKNOWN;
     }

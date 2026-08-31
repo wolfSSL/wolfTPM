@@ -289,6 +289,7 @@ static const char* TPM2_ST33_PartLine(word16 fwVerMajor)
         case 74: return "ST33TPHF2X (older firmware line)";
         case 9:  return "ST33KTPM2X";
         case 10: return "ST33KTPM2A";
+        /* Named for display only, and left out of the family classifiers */
         case 11: return "ST33KTPMQ";
         default: return "unrecognized ST33 firmware line";
     }

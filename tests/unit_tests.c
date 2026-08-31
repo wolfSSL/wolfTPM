@@ -284,6 +284,9 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 {
     int rc;
     int rcEx;
+    int isImpl;
+    int fromTpm = 0;
+    TPM_CC ccStart, ccData, ccStartRule, ccDataRule;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
@@ -391,6 +394,38 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
         AssertIntEQ(rc, BAD_FUNC_ARG);
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
+
+    /* The probe rebuilds a command code from TPMA_CC. Every TPM implements
+     * GetCapability and none a top of range vendor code, so no ST33 needed */
+    isImpl = -1;
+    AssertIntEQ(wolfTPM2_ST33_CmdImplemented(TPM_CC_GetCapability, &isImpl),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(isImpl, 1);
+    isImpl = -1;
+    AssertIntEQ(wolfTPM2_ST33_CmdImplemented((TPM_CC)(CC_VEND + 0x7FFE),
+        &isImpl), TPM_RC_SUCCESS);
+    AssertIntEQ(isImpl, 0);
+    AssertIntEQ(wolfTPM2_ST33_CmdImplemented(TPM_CC_GetCapability, NULL),
+        BAD_FUNC_ARG);
+
+    /* Selection stays self consistent on any TPM: a settled command list
+     * gives a real pair, an unsettled one gives exactly the version rule */
+    AssertIntEQ(wolfTPM2_ST33_GetFwUpgradeCommands(&caps, 9, &ccStart, &ccData,
+        &fromTpm), TPM_RC_SUCCESS);
+    if (fromTpm) {
+        AssertIntEQ(ccStart == TPM_CC_FieldUpgradeStartVendor_ST33 ||
+            ccStart == TPM_CC_FieldUpgradeStart, 1);
+        AssertIntEQ(ccData == TPM_CC_FieldUpgradeDataVendor_ST33 ||
+            ccData == TPM_CC_FieldUpgradeData, 1);
+    }
+    else {
+        AssertIntEQ(wolfTPM2_ST33_FwUpgradeCommands(caps.fwVerMinor, 1, 9,
+            &ccStartRule, &ccDataRule), TPM_RC_SUCCESS);
+        AssertIntEQ((int)ccStart, (int)ccStartRule);
+        AssertIntEQ((int)ccData, (int)ccDataRule);
+    }
+    AssertIntEQ(wolfTPM2_ST33_GetFwUpgradeCommands(&caps, 9, NULL, &ccData,
+        NULL), BAD_FUNC_ARG);
 
     wolfTPM2_Cleanup(&dev);
 

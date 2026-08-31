@@ -41,6 +41,8 @@ int st33_blob0_family(word32 fwVerMajor)
         case 9:  /* ST33KTPM2X */
         case 10: /* ST33KTPM2A */
             return ST33_BLOB0_FAMILY_KTPM;
+        /* Uncharacterized majors stay unknown so no size or family rule is
+         * asserted against them, even ones the tool can name */
         default:
             return ST33_BLOB0_FAMILY_UNKNOWN;
     }
