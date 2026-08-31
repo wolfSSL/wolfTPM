@@ -197,7 +197,10 @@ Build with `--enable-fwtpm --enable-spdm` plus at least one of
 The responder generates a fresh P-384 identity keypair at startup (used
 for `GET_PUBK`/`KEY_EXCHANGE` signing); the private key never leaves
 `fwtpm_server` memory and the stack copy is zeroed with `wc_ForceZero`
-after handoff to the responder context.
+after handoff to the responder context. In TCG mode, the server prints the
+public half during startup so the local test harness can pass it to the
+requester through the responder-key pinning API. This process-owned log is a
+test bootstrap channel, not a substitute for authenticated device provisioning.
 
 End-to-end coverage runs via the same script that drives real silicon:
 

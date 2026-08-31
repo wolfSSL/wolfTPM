@@ -300,6 +300,35 @@ int wolfSPDM_ParseVendorDefined(
 
 /* ----- Shared TCG SPDM Functions ----- */
 
+static int wolfSPDM_TCG_CheckPubKey(WOLFSPDM_CTX* ctx,
+    const byte* pubKey, word32 pubKeySz)
+{
+    const byte* pubKeyX;
+    const byte* pubKeyY;
+    int rc;
+
+    if (!ctx->flags.hasRspPubKey) {
+        return WOLFSPDM_SUCCESS;
+    }
+    if (ctx->rspPubKeyLen != WOLFSPDM_ECC_POINT_SIZE) {
+        return WOLFSPDM_E_BAD_STATE;
+    }
+
+    rc = wolfSPDM_ExtractEccPoint(pubKey, pubKeySz, &pubKeyX, &pubKeyY);
+    if (rc != WOLFSPDM_SUCCESS) {
+        return WOLFSPDM_E_PEER_ERROR;
+    }
+
+    if (XMEMCMP(pubKeyX, ctx->rspPubKey, WOLFSPDM_ECC_KEY_SIZE) != 0 ||
+        XMEMCMP(pubKeyY, ctx->rspPubKey + WOLFSPDM_ECC_KEY_SIZE,
+            WOLFSPDM_ECC_KEY_SIZE) != 0) {
+        wolfSPDM_DebugPrint(ctx, "GET_PUBK: Responder key mismatch\n");
+        return WOLFSPDM_E_PEER_ERROR;
+    }
+
+    return WOLFSPDM_SUCCESS;
+}
+
 int wolfSPDM_TCG_GetPubKey(
     WOLFSPDM_CTX* ctx,
     byte* pubKey, word32* pubKeySz)
@@ -329,20 +358,16 @@ int wolfSPDM_TCG_GetPubKey(
     wolfSPDM_DebugPrint(ctx, "GET_PUBK: Got TPMT_PUBLIC (%u bytes)\n",
         rsp.payloadSz);
 
+    rc = wolfSPDM_TCG_CheckPubKey(ctx, rsp.payload, rsp.payloadSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        return rc;
+    }
+
     if (*pubKeySz < rsp.payloadSz) {
         return WOLFSPDM_E_BUFFER_SMALL;
     }
     XMEMCPY(pubKey, rsp.payload, rsp.payloadSz);
     *pubKeySz = rsp.payloadSz;
-
-    /* Store for cert_chain_buffer_hash computation. Skipping it silently
-     * surfaces later as a misleading handshake state error. */
-    if (rsp.payloadSz > sizeof(ctx->rspPubKey)) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-    XMEMCPY(ctx->rspPubKey, rsp.payload, rsp.payloadSz);
-    ctx->rspPubKeyLen = rsp.payloadSz;
-    ctx->flags.hasRspPubKey = 1;
 
     return WOLFSPDM_SUCCESS;
 }
@@ -603,6 +628,13 @@ int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx)
         return WOLFSPDM_E_BAD_STATE;
     }
 
+    if (!ctx->flags.hasRspPubKey ||
+        ctx->rspPubKeyLen != WOLFSPDM_ECC_POINT_SIZE) {
+        wolfSPDM_DebugPrint(ctx,
+            "TCG: Trusted responder public key is not configured\n");
+        return WOLFSPDM_E_BAD_STATE;
+    }
+
     if (ctx->ioCb == NULL) {
         return WOLFSPDM_E_IO_FAIL;
     }
@@ -637,25 +669,21 @@ int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx)
     }
     ctx->state = WOLFSPDM_STATE_CERT;
 
-    /* Compute Ct = SHA-384(TPMT_PUBLIC) and add to transcript */
-    if (ctx->flags.hasRspPubKey && ctx->rspPubKeyLen > 0) {
-        wolfSPDM_DebugPrint(ctx, "TCG: Computing Ct = SHA-384(TPMT_PUBLIC[%u])\n",
-            ctx->rspPubKeyLen);
-        rc = wolfSPDM_Sha384Hash(ctx->certChainHash,
-            ctx->rspPubKey, ctx->rspPubKeyLen, NULL, 0, NULL, 0);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_TranscriptAdd(ctx, ctx->certChainHash,
-            WOLFSPDM_HASH_SIZE);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-    } else {
-        wolfSPDM_DebugPrint(ctx,
-            "TCG: Warning - no responder public key for Ct\n");
+    /* Compute Ct from the fetched wire object after its public point has
+     * matched the separately configured responder key. */
+    wolfSPDM_DebugPrint(ctx, "TCG: Computing Ct = SHA-384(GET_PUBK[%u])\n",
+        pubKeySz);
+    rc = wolfSPDM_Sha384Hash(ctx->certChainHash,
+        pubKey, pubKeySz, NULL, 0, NULL, 0);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_TranscriptAdd(ctx, ctx->certChainHash,
+        WOLFSPDM_HASH_SIZE);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
     }
 
     /* Step 5: KEY_EXCHANGE */

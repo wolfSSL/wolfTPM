@@ -177,6 +177,10 @@ wolfTPM fwTPM Server v0.1.0
   Model:         fwTPM
 ```
 
+In `--spdm-tcg` test mode the server also prints its generated responder
+public key. This is a local test-harness convenience, not a provisioning or
+trust-anchor channel for hardware responders.
+
 ### Connecting wolfTPM Clients
 
 Any wolfTPM application built with `--enable-swtpm` connects to the fwTPM

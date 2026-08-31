@@ -6,8 +6,13 @@ and Nations NS350 TPMs with wolfTPM.
 ## Overview
 
 The `spdm_ctrl` tool establishes SPDM secure sessions between the host and a
-TPM over SPI, enabling AES-256-GCM encrypted bus communication. Once active,
-all TPM commands are automatically encrypted with no application changes.
+TPM over SPI, enabling AES-256-GCM encrypted bus communication. Identity mode
+requires the responder key from a trusted provisioning source.
+
+`spdm_ctrl` is the only example that accepts SPDM credentials. Other wolfTPM
+examples use uncredentialed `wolfTPM2_Init()` and intentionally return
+`WOLFSPDM_E_BAD_STATE` while a TPM is locked in SPDM-only mode; unlock it with
+`spdm_ctrl` before running those examples.
 
 Supported hardware:
 - **Nuvoton NPCT75x** — Identity key mode (ECDHE P-384)
@@ -51,13 +56,20 @@ make
 
 | Option | Description |
 |--------|-------------|
+| `--vendor=nuvoton\|nations` | Select the identity/vendor adapter explicitly |
 | `--enable` | Enable SPDM on TPM via NTC2_PreConfig (one-time, requires reset) |
 | `--disable` | Disable SPDM on TPM via NTC2_PreConfig (requires reset) |
 | `--status` | Query SPDM status from TPM |
 | `--get-pubkey` | Get TPM's SPDM-Identity P-384 public key |
+| `--responder-pubkey <hex>` | Pin a trusted raw P-384 X\|\|Y key (192 hex characters) |
 | `--connect` | Establish SPDM session (ECDH P-384 handshake) |
+| `--caps` | Read TPM capabilities over the current transport |
+| `--psk <hex>` | Start a PSK session |
+| `--psk-set <psk> <clearauth>` | Provision a 64-byte PSK and 32-byte ClearAuth |
+| `--psk-clear <clearauth>` | Clear a provisioned PSK |
 | `--lock` | Lock SPDM-only mode (use with `--connect`) |
 | `--unlock` | Unlock SPDM-only mode (use with `--connect`) |
+| `--tpm-clear` | Send `TPM2_Clear` over the current transport |
 
 ## Usage Examples
 
@@ -69,23 +81,22 @@ make
 # Query SPDM status
 ./examples/spdm/spdm_ctrl --status
 
-# Get TPM identity key
+# Discover TPM identity key (unauthenticated; do not use as its own trust source)
 ./examples/spdm/spdm_ctrl --get-pubkey
 
-# Establish SPDM session
-./examples/spdm/spdm_ctrl --connect
+# Establish SPDM session with a key from trusted provisioning records
+./examples/spdm/spdm_ctrl \
+    --vendor=nuvoton --responder-pubkey <trusted_p384_x_y_hex> --connect
 
 # Lock SPDM-only mode (connect + lock in one session)
-./examples/spdm/spdm_ctrl --connect --lock
+./examples/spdm/spdm_ctrl \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect --lock
 # Reset the TPM
-
-# All commands now auto-encrypt:
-./examples/wrap/caps          # auto-SPDM, AES-256-GCM encrypted
-./tests/unit.test             # full test suite over encrypted bus
 
 # Unlock SPDM-only mode
 # Reset the TPM
-./examples/spdm/spdm_ctrl --connect --unlock
+./examples/spdm/spdm_ctrl \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect --unlock
 # Reset the TPM
 ```
 
@@ -115,10 +126,16 @@ wolfTPM can also drive this from code: build with `--enable-hal-reset` and call
 Runs the full SPDM setup lifecycle on hardware:
 
 ```bash
+export SPDM_RESPONDER_PUBKEY=<trusted_p384_x_y_hex>
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nuvoton
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations-psk
 ```
+
+The identity-mode hardware runs require `SPDM_RESPONDER_PUBKEY` from a trusted
+provisioning source. The PSK run does not use it. The `fwtpm-tcg` test obtains
+the freshly generated public key from the local server's protected startup log
+and passes it through the same pinning interface.
 
 ## Support
 

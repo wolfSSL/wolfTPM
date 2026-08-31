@@ -273,7 +273,30 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
     return rc;
 }
 
-int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
+/* Initialization has not exposed a device to the caller yet, so do not use
+ * wolfTPM2_Cleanup_ex() here: it unregisters the did_vid crypto callback even
+ * though this initialization path never registered one. */
+static void wolfTPM2_InitFailureCleanup(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL) {
+        return;
+    }
+
+#ifdef WOLFTPM_SPDM
+    if (dev->spdmCtx != NULL && dev->spdmCtx->spdmCtx != NULL &&
+        wolfSPDM_IsConnected(dev->spdmCtx->spdmCtx)) {
+        (void)wolfTPM2_SpdmDisconnect(dev);
+    }
+    (void)wolfTPM2_SpdmCleanup(dev);
+#endif
+
+    (void)TPM2_Cleanup(&dev->ctx);
+    TPM2_ForceZero(dev->session, sizeof(dev->session));
+    dev->ctx.session = NULL;
+}
+
+static int wolfTPM2_InitDevice(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
+    void* userCtx)
 {
     int rc;
 
@@ -284,6 +307,11 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
 
     rc = wolfTPM2_Init_ex(&dev->ctx, ioCb, userCtx, TPM_TIMEOUT_TRIES);
     if (rc != TPM_RC_SUCCESS) {
+        /* TPM_RC_UPGRADE leaves a usable active context so callers can
+         * continue the vendor firmware-recovery flow. */
+        if (rc != TPM_RC_UPGRADE) {
+            wolfTPM2_InitFailureCleanup(dev);
+        }
         return rc;
     }
 
@@ -291,60 +319,228 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     XMEMSET(dev->session, 0, sizeof(dev->session));
     wolfTPM2_SetAuthPassword(dev, 0, NULL);
 
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
-    /* If TPM is in SPDM-only mode, transparently establish an SPDM session
-     * so all subsequent TPM commands are encrypted over the bus.
-     * This allows existing binaries (caps, wrap_test, unit.test) to work
-     * without any SPDM-specific code. */
-    if (dev->ctx.spdmOnlyDetected) {
-        Startup_In startupIn;
+    return TPM_RC_SUCCESS;
+}
 
-        rc = wolfTPM2_SpdmInit(dev);
-        if (rc != 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("SPDM auto-init failed: %d\n", rc);
-        #endif
-            return rc;
-        }
+#if defined(WOLFTPM_SPDM) && (defined(WOLFTPM_SPDM_PSK) || \
+    (defined(WOLFTPM_SPDM_TCG) && (defined(WOLFSPDM_NUVOTON) || \
+        defined(WOLFSPDM_NATIONS))))
+static int wolfTPM2_RetryStartupOverSpdm(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    Startup_In startupIn;
 
-        /* Vendor-specific connect handles SetTisIO, SetMode, and auto-generates
-         * a host ephemeral key pair for mutual authentication (MutAuth=1).
-         * Plain wolfTPM2_SpdmConnect() skips that setup and FINISH fails. */
-    #if defined(WOLFSPDM_NUVOTON)
-        rc = wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
-    #elif defined(WOLFSPDM_NATIONS)
-        rc = wolfTPM2_SpdmConnectNations(dev, NULL, 0, NULL, 0);
-    #else
-        rc = wolfTPM2_SpdmConnect(dev);
-    #endif
-        if (rc != 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("SPDM auto-connect failed: %d\n", rc);
-        #endif
-            return rc;
-        }
+    if (!dev->ctx.spdmOnlyDetected) {
+        return TPM_RC_SUCCESS;
+    }
 
-    #ifdef DEBUG_WOLFTPM
-        printf("SPDM session established (auto), SessionID=0x%08x\n",
-            wolfTPM2_SpdmGetSessionId(dev));
-    #endif
-
-        /* Retry TPM2_Startup over the SPDM encrypted channel */
-        XMEMSET(&startupIn, 0, sizeof(startupIn));
-        startupIn.startupType = TPM_SU_CLEAR;
-        rc = TPM2_Startup(&startupIn);
-        if (rc != TPM_RC_SUCCESS && rc != TPM_RC_INITIALIZE) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Startup over SPDM failed: 0x%x\n", rc);
-        #endif
-            return rc;
-        }
+    /* Retry TPM2_Startup over the SPDM encrypted channel. */
+    XMEMSET(&startupIn, 0, sizeof(startupIn));
+    startupIn.startupType = TPM_SU_CLEAR;
+    rc = TPM2_Startup(&startupIn);
+    if (rc == TPM_RC_INITIALIZE) {
         rc = TPM_RC_SUCCESS;
     }
-#endif /* WOLFTPM_SPDM && WOLFTPM_SPDM_TCG */
-
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Startup over SPDM failed: 0x%x\n", rc);
+    }
+#endif
     return rc;
 }
+#endif /* WOLFTPM_SPDM and a credentialed transport */
+
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+static int wolfTPM2_IdentityModeSupported(WOLFSPDM_MODE mode)
+{
+    if (mode == WOLFSPDM_MODE_AUTO) {
+        return 1;
+    }
+#ifdef WOLFSPDM_NUVOTON
+    if (mode == WOLFSPDM_MODE_NUVOTON) {
+        return 1;
+    }
+#endif
+#ifdef WOLFSPDM_NATIONS
+    if (mode == WOLFSPDM_MODE_NATIONS) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+WOLFTPM_TEST_API int wolfTPM2_SpdmModeFromDidVid(UINT32 didVid,
+    WOLFSPDM_MODE* mode)
+{
+    UINT16 vendorId;
+
+    if (mode == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    *mode = WOLFSPDM_MODE_AUTO;
+    vendorId = (UINT16)(didVid & 0xFFFFU);
+    if (vendorId == TPM_VENDOR_NATIONTECH) {
+        *mode = WOLFSPDM_MODE_NATIONS;
+    }
+    else if (vendorId == TPM_VENDOR_NUVOTON) {
+        *mode = WOLFSPDM_MODE_NUVOTON;
+    }
+    else {
+        return WOLFSPDM_E_BAD_STATE;
+    }
+    return TPM_RC_SUCCESS;
+}
+#endif
+
+static int wolfTPM2_SpdmConnectIdentity(WOLFTPM2_DEV* dev,
+    WOLFSPDM_MODE mode)
+{
+    /* Vendor-specific connect handles SetTisIO, SetMode, and auto-generates
+     * a host ephemeral key pair for mutual authentication (MutAuth=1).
+     * Plain wolfTPM2_SpdmConnect() skips that setup and FINISH fails. */
+#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+    if (mode == WOLFSPDM_MODE_AUTO) {
+        int rc;
+
+        /* did_vid is populated by direct TIS transports only. Refuse to guess
+         * on kernel/socket transports; callers can select with the _ex API. */
+        rc = wolfTPM2_SpdmModeFromDidVid(dev->ctx.did_vid, &mode);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
+    }
+    if (mode == WOLFSPDM_MODE_NATIONS) {
+        return wolfTPM2_SpdmConnectNations(dev, NULL, 0, NULL, 0);
+    }
+    return wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
+#elif defined(WOLFSPDM_NUVOTON)
+    (void)mode;
+    return wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
+#elif defined(WOLFSPDM_NATIONS)
+    (void)mode;
+    return wolfTPM2_SpdmConnectNations(dev, NULL, 0, NULL, 0);
+#endif
+}
+#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+
+int wolfTPM2_InitWithSpdmKey_ex(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
+    void* userCtx, const byte* rspPubKey, word32 rspPubKeySz,
+    WOLFSPDM_MODE mode)
+{
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+    int rc;
+#endif
+
+    if (dev == NULL || rspPubKey == NULL ||
+        rspPubKeySz != WOLFSPDM_ECC_POINT_SIZE ||
+        !wolfTPM2_IdentityModeSupported(mode)) {
+        return BAD_FUNC_ARG;
+    }
+
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+    rc = wolfTPM2_InitDevice(dev, ioCb, userCtx);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    /* A supplied key opts into authenticated transport regardless of the
+     * cleartext startup result. */
+    rc = wolfTPM2_SpdmInit(dev);
+    if (rc == 0) {
+        rc = wolfTPM2_SpdmSetResponderPubKey(dev, rspPubKey, rspPubKeySz);
+    }
+    if (rc == 0) {
+        rc = wolfTPM2_SpdmConnectIdentity(dev, mode);
+    }
+    if (rc != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("SPDM auto-connect failed: %d\n", rc);
+    #endif
+        wolfTPM2_InitFailureCleanup(dev);
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("SPDM session established (auto), SessionID=0x%08x\n",
+        wolfTPM2_SpdmGetSessionId(dev));
+#endif
+
+    rc = wolfTPM2_RetryStartupOverSpdm(dev);
+    if (rc != TPM_RC_SUCCESS) {
+        wolfTPM2_InitFailureCleanup(dev);
+    }
+    return rc;
+#else
+    /* TCG framing alone does not select an identity-mode wire adapter. Fail
+     * before probing the TPM so unsupported builds have no side effects. */
+    (void)ioCb;
+    (void)userCtx;
+    return WOLFSPDM_E_NOT_AVAILABLE;
+#endif
+}
+#endif /* WOLFTPM_SPDM && WOLFTPM_SPDM_TCG */
+
+int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
+{
+    int rc;
+
+    rc = wolfTPM2_InitDevice(dev, ioCb, userCtx);
+#ifdef WOLFTPM_SPDM
+    if (rc == TPM_RC_SUCCESS && dev->ctx.spdmOnlyDetected) {
+    #ifdef DEBUG_WOLFTPM
+        printf("SPDM-only mode requires a trusted responder key or PSK\n");
+    #endif
+        wolfTPM2_InitFailureCleanup(dev);
+        rc = WOLFSPDM_E_BAD_STATE;
+    }
+#endif
+    return rc;
+}
+
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+int wolfTPM2_InitWithSpdmKey(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
+    void* userCtx, const byte* rspPubKey, word32 rspPubKeySz)
+{
+    if (rspPubKey == NULL || rspPubKeySz != WOLFSPDM_ECC_POINT_SIZE) {
+        return BAD_FUNC_ARG;
+    }
+
+    return wolfTPM2_InitWithSpdmKey_ex(dev, ioCb, userCtx, rspPubKey,
+        rspPubKeySz, WOLFSPDM_MODE_AUTO);
+}
+#endif
+
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK)
+int wolfTPM2_InitWithSpdmPsk(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
+    void* userCtx, const byte* psk, word32 pskSz, const byte* hint,
+    word32 hintSz)
+{
+    int rc;
+
+    if (dev == NULL || psk == NULL || pskSz == 0U ||
+        (hint == NULL && hintSz != 0U)) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_InitDevice(dev, ioCb, userCtx);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+    rc = wolfTPM2_SpdmInit(dev);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_SpdmConnectPsk(dev, psk, pskSz, hint, hintSz);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_RetryStartupOverSpdm(dev);
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        wolfTPM2_InitFailureCleanup(dev);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_SPDM && WOLFTPM_SPDM_PSK */
 
 #ifndef WOLFTPM2_NO_HEAP
 WOLFTPM2_DEV* wolfTPM2_New(void)
@@ -1217,6 +1413,14 @@ int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev)
 
 #ifdef WOLFTPM_SPDM_TCG
 /* Shared TCG SPDM functions */
+
+int wolfTPM2_SpdmSetResponderPubKey(WOLFTPM2_DEV* dev,
+    const byte* pubKey, word32 pubKeySz)
+{
+    WOLFTPM2_SPDM_CHECK_CTX(dev);
+    return wolfSPDM_SetResponderPubKey(dev->spdmCtx->spdmCtx,
+        pubKey, pubKeySz);
+}
 
 int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev, byte* pubKey, word32* pubKeySz)
 {

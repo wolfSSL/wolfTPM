@@ -203,6 +203,37 @@ int wolfSPDM_ComputeSharedSecret(WOLFSPDM_CTX* ctx,
 
 /* ----- ECDSA Signature Verification (P-384) ----- */
 
+int wolfSPDM_ExtractEccPoint(const byte* pubKey, word32 pubKeySz,
+    const byte** pubKeyX, const byte** pubKeyY)
+{
+    word32 pointOffset;
+
+    if (pubKey == NULL || pubKeyX == NULL || pubKeyY == NULL) {
+        return WOLFSPDM_E_INVALID_ARG;
+    }
+
+    if (pubKeySz == WOLFSPDM_ECC_POINT_SIZE) {
+        *pubKeyX = pubKey;
+        *pubKeyY = pubKey + WOLFSPDM_ECC_KEY_SIZE;
+    }
+    else if (pubKeySz >= WOLFSPDM_ECC_POINT_SIZE + 4) {
+        pointOffset = pubKeySz - (WOLFSPDM_ECC_POINT_SIZE + 4);
+        if (SPDM_Get16BE(pubKey + pointOffset) !=
+                WOLFSPDM_ECC_KEY_SIZE ||
+            SPDM_Get16BE(pubKey + pointOffset + 2 +
+                WOLFSPDM_ECC_KEY_SIZE) != WOLFSPDM_ECC_KEY_SIZE) {
+            return WOLFSPDM_E_INVALID_ARG;
+        }
+        *pubKeyX = pubKey + pointOffset + 2;
+        *pubKeyY = pubKey + pointOffset + 4 + WOLFSPDM_ECC_KEY_SIZE;
+    }
+    else {
+        return WOLFSPDM_E_INVALID_ARG;
+    }
+
+    return WOLFSPDM_SUCCESS;
+}
+
 int wolfSPDM_VerifySignature(WOLFSPDM_CTX* ctx, const byte* hash, word32 hashSz,
     const byte* sig, word32 sigSz)
 {
@@ -228,19 +259,10 @@ int wolfSPDM_VerifySignature(WOLFSPDM_CTX* ctx, const byte* hash, word32 hashSz,
         return WOLFSPDM_E_INVALID_ARG;
     }
 
-    /* Extract X/Y coordinates from rspPubKey.
-     * If len == 96: raw X||Y format.
-     * If len > 96: TPMT_PUBLIC format — X/Y are at the tail:
-     *   [len-100]: X size(2 BE) + X(48) + Y size(2 BE) + Y(48) */
-    if (ctx->rspPubKeyLen == WOLFSPDM_ECC_POINT_SIZE) {
-        pubKeyX = ctx->rspPubKey;
-        pubKeyY = ctx->rspPubKey + WOLFSPDM_ECC_KEY_SIZE;
-    } else if (ctx->rspPubKeyLen >= WOLFSPDM_ECC_POINT_SIZE + 4) {
-        /* TPMT_PUBLIC: skip 2-byte size prefixes on each coordinate */
-        pubKeyX = ctx->rspPubKey + (ctx->rspPubKeyLen - 100 + 2);
-        pubKeyY = ctx->rspPubKey + (ctx->rspPubKeyLen - 48);
-    } else {
-        return WOLFSPDM_E_INVALID_ARG;
+    rc = wolfSPDM_ExtractEccPoint(ctx->rspPubKey, ctx->rspPubKeyLen,
+        &pubKeyX, &pubKeyY);
+    if (rc != WOLFSPDM_SUCCESS) {
+        return rc;
     }
 
     rc = wc_ecc_init(&verifyKey);

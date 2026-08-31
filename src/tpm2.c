@@ -918,6 +918,10 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     /* set before any early return so cleanup cannot act on fd 0 */
     ctx->tcpCtx.fd = -1;
 #endif
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
+    /* set before any early return so cleanup cannot act on fd 0 */
+    ctx->fd = -1;
+#endif
 
 #ifndef WOLFTPM_NO_RETRY
     ctx->retries = WOLFTPM_MAX_RETRIES;
@@ -951,10 +955,6 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS)
         goto exit;
-#endif
-
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
-    ctx->fd = -1;
 #endif
 
 #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
@@ -6707,6 +6707,10 @@ int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
 {
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {

@@ -87,6 +87,75 @@ pick_available_port() {
     return 1
 }
 
+# Return TPM_RC_UPGRADE from Startup using the simulator socket framing, then
+# accept the cleanup Shutdown. This drives the real initialization path without
+# putting a hardware TPM into firmware-recovery mode.
+run_init_upgrade_test() {
+    local port server_pid rc
+
+    command -v python3 >/dev/null 2>&1 || return 77
+    port=$(pick_available_port) || return 1
+
+    python3 - "$port" <<'PY' &
+import socket
+import struct
+import sys
+
+def recv_exact(conn, size):
+    data = b""
+    while len(data) < size:
+        chunk = conn.recv(size - len(data))
+        if not chunk:
+            raise RuntimeError("unexpected EOF")
+        data += chunk
+    return data
+
+def recv_command(conn):
+    command = struct.unpack(">I", recv_exact(conn, 4))[0]
+    if command != 8:  # TPM_SEND_COMMAND
+        raise RuntimeError("unexpected simulator command")
+    recv_exact(conn, 1)  # locality
+    command_size = struct.unpack(">I", recv_exact(conn, 4))[0]
+    recv_exact(conn, command_size)
+
+def send_response(conn, response_code):
+    response = struct.pack(">HII", 0x8001, 10, response_code)
+    conn.sendall(struct.pack(">I", len(response)) + response + b"\0" * 4)
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", int(sys.argv[1])))
+    listener.listen(1)
+    conn, _ = listener.accept()
+    with conn:
+        recv_command(conn)
+        send_response(conn, 0x12D)  # TPM_RC_UPGRADE from Startup
+        recv_command(conn)
+        send_response(conn, 0)      # TPM_RC_SUCCESS from Shutdown
+        session_end = struct.unpack(">I", recv_exact(conn, 4))[0]
+        if session_end != 20:       # TPM_SESSION_END
+            raise RuntimeError("unexpected simulator session command")
+PY
+    server_pid=$!
+
+    if ! wait_for_port "$port" 500; then
+        kill "$server_pid" 2>/dev/null
+        wait "$server_pid" 2>/dev/null
+        return 1
+    fi
+
+    TPM2_SWTPM_HOST=127.0.0.1 TPM2_SWTPM_PORT="$port" \
+        "$UNIT_TEST" --init-upgrade
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        kill "$server_pid" 2>/dev/null
+    fi
+    if ! wait "$server_pid"; then
+        rc=1
+    fi
+    return $rc
+}
+
 # --- wolfSSL dependency resolution ---
 
 find_wolfssl_options() {
@@ -365,6 +434,24 @@ else
 fi
 
 # --- Run unit tests ---
+
+if [ $IS_SWTPM_MODE -eq 1 ] && [ $HAS_GETENV -eq 1 ] && \
+        [ -x "$UNIT_TEST" ]; then
+    echo ""
+    echo "=== Running init upgrade context regression ==="
+    run_init_upgrade_test
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        PASS=$((PASS + 1))
+        echo "PASS: init upgrade context"
+    elif [ $rc -eq 77 ]; then
+        SKIP=$((SKIP + 1))
+        echo "SKIP: init upgrade context (python3 unavailable)"
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: init upgrade context"
+    fi
+fi
 
 if [ -x "$UNIT_TEST" ]; then
     echo ""

@@ -216,10 +216,17 @@ WOLFTPM_API int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* ca
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Complete initialization of a TPM
+    On failure after argument validation, the device is fully torn down,
+    except for TPM_RC_UPGRADE, which leaves an active context for the vendor
+    firmware-recovery flow.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO communication)
+    \return TPM_RC_UPGRADE: TPM firmware recovery is active; call cleanup
+    when the recovery flow is complete
     \return BAD_FUNC_ARG: check the provided arguments
+    \return WOLFSPDM_E_BAD_STATE: TPM is in SPDM-only mode and no trusted
+    identity key or PSK was supplied; use the matching SPDM init API
 
     \param dev pointer to an empty structure of WOLFTPM2_DEV type
     \param ioCb function pointer to a IO callback (see hal/tpm_io.h)
@@ -238,10 +245,122 @@ WOLFTPM_API int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* ca
     \endcode
 
     \sa wolfTPM2_OpenExisting
+    \sa wolfTPM2_InitWithSpdmKey
+    \sa wolfTPM2_InitWithSpdmPsk
     \sa wolfTPM2_Test
     \sa TPM2_Init
 */
 WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx);
+
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Initialize a TPM and pin a trusted SPDM responder public key.
+    A successful call establishes an authenticated SPDM session even when the
+    TPM accepted the initial cleartext startup probe. When the TPM is already
+    in SPDM-only identity mode, startup is retried over that secure session.
+    Identity initialization requires a Nuvoton or Nations vendor adapter;
+    builds without either adapter return WOLFSPDM_E_NOT_AVAILABLE.
+    In dual-vendor builds, automatic selection requires TPM DID/VID; use
+    wolfTPM2_InitWithSpdmKey_ex for transports that do not expose it.
+    On failure after argument validation, the device is fully torn down,
+    except for TPM_RC_UPGRADE, which leaves an active context for the vendor
+    firmware-recovery flow. WOLFSPDM_E_NOT_AVAILABLE is returned before the
+    device is modified.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_UPGRADE: TPM firmware recovery is active; call cleanup
+    when the recovery flow is complete
+    \return BAD_FUNC_ARG: invalid parameters or responder key size
+    \return WOLFSPDM_E_BAD_STATE: SPDM identity mode cannot be initialized
+    \return WOLFSPDM_E_NOT_AVAILABLE: no identity vendor adapter was built
+    \return a WOLFSPDM_E_* error if the authenticated handshake fails
+
+    \param dev pointer to an empty WOLFTPM2_DEV structure
+    \param ioCb function pointer to an I/O callback
+    \param userCtx pointer to a user context (can be NULL)
+    \param rspPubKey trusted raw P-384 responder key in X||Y format
+    \param rspPubKeySz size of rspPubKey; must be 96 bytes
+
+    \sa wolfTPM2_Init
+    \sa wolfTPM2_SpdmSetResponderPubKey
+    \sa wolfTPM2_SpdmConnect
+    \sa wolfTPM2_SpdmIsConnected
+*/
+WOLFTPM_API int wolfTPM2_InitWithSpdmKey(WOLFTPM2_DEV* dev,
+    TPM2HalIoCb ioCb, void* userCtx, const byte* rspPubKey,
+    word32 rspPubKeySz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Initialize with a trusted responder key and explicit identity mode.
+    This API requires a Nuvoton or Nations vendor adapter.
+    Use this form when both vendor adapters are compiled and the transport does
+    not expose TPM DID/VID. WOLFSPDM_MODE_AUTO selects from DID/VID and fails
+    closed when it is unavailable instead of guessing a vendor handshake.
+    TPM_RC_UPGRADE leaves an active context for the vendor firmware-recovery
+    flow; call cleanup when that flow is complete. WOLFSPDM_E_NOT_AVAILABLE
+    is returned before the device is modified.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_UPGRADE: TPM firmware recovery is active
+    \return BAD_FUNC_ARG: invalid parameters or unsupported identity mode
+    \return WOLFSPDM_E_BAD_STATE: automatic vendor selection is unavailable
+    \return WOLFSPDM_E_NOT_AVAILABLE: no identity vendor adapter was built
+    \return a WOLFSPDM_E_* error if the authenticated handshake fails
+
+    \param dev pointer to an empty WOLFTPM2_DEV structure
+    \param ioCb function pointer to an I/O callback
+    \param userCtx pointer to a user context (can be NULL)
+    \param rspPubKey trusted raw P-384 responder key in X||Y format
+    \param rspPubKeySz size of rspPubKey; must be 96 bytes
+    \param mode WOLFSPDM_MODE_AUTO, WOLFSPDM_MODE_NUVOTON, or
+    WOLFSPDM_MODE_NATIONS
+
+    \sa wolfTPM2_InitWithSpdmKey
+*/
+WOLFTPM_API int wolfTPM2_InitWithSpdmKey_ex(WOLFTPM2_DEV* dev,
+    TPM2HalIoCb ioCb, void* userCtx, const byte* rspPubKey,
+    word32 rspPubKeySz, WOLFSPDM_MODE mode);
+
+#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+/* Test-visible helper used by automatic dual-vendor selection. */
+WOLFTPM_TEST_API int wolfTPM2_SpdmModeFromDidVid(UINT32 didVid,
+    WOLFSPDM_MODE* mode);
+#endif
+#endif
+
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK)
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Initialize a TPM and authenticate an SPDM session with a PSK.
+    This entry point also recovers a PSK-configured TPM that is already locked
+    in SPDM-only mode by retrying TPM2_Startup over the secure session.
+    On failure after argument validation, the device is fully torn down,
+    except for TPM_RC_UPGRADE, which leaves an active context for the vendor
+    firmware-recovery flow.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_UPGRADE: TPM firmware recovery is active; call cleanup
+    when the recovery flow is complete
+    \return BAD_FUNC_ARG: invalid parameters
+    \return a WOLFSPDM_E_* error if the authenticated handshake fails
+
+    \param dev pointer to an empty WOLFTPM2_DEV structure
+    \param ioCb function pointer to an I/O callback
+    \param userCtx pointer to a user context (can be NULL)
+    \param psk pre-shared key bytes
+    \param pskSz size of psk; must be nonzero
+    \param hint optional PSK hint
+    \param hintSz size of hint
+
+    \sa wolfTPM2_Init
+    \sa wolfTPM2_SpdmConnectPsk
+*/
+WOLFTPM_API int wolfTPM2_InitWithSpdmPsk(WOLFTPM2_DEV* dev,
+    TPM2HalIoCb ioCb, void* userCtx, const byte* psk, word32 pskSz,
+    const byte* hint, word32 hintSz);
+#endif
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -498,11 +617,16 @@ WOLFTPM_API int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev);
     \brief Establish an SPDM secure session (full handshake).
     Uses standard SPDM flow: GET_VERSION -> GET_CAPABILITIES ->
     NEGOTIATE_ALGORITHMS -> KEY_EXCHANGE -> FINISH.
+    Identity-key modes require a responder key pinned with
+    wolfTPM2_SpdmSetResponderPubKey before this call.
 
     \return TPM_RC_SUCCESS: session established
     \return TPM_RC_FAILURE: handshake failed
+    \return WOLFSPDM_E_BAD_STATE: trusted responder key is not pinned
 
     \param dev pointer to a WOLFTPM2_DEV structure
+
+    \sa wolfTPM2_SpdmSetResponderPubKey
 */
 WOLFTPM_API int wolfTPM2_SpdmConnect(WOLFTPM2_DEV* dev);
 
@@ -550,7 +674,29 @@ WOLFTPM_API int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev);
 #ifdef WOLFTPM_SPDM_TCG
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Pin the trusted responder key before an identity-key connection.
+
+    \return WOLFSPDM_SUCCESS: successful
+    \return BAD_FUNC_ARG: invalid device context
+    \return WOLFSPDM_E_INVALID_ARG: invalid key pointer or size
+
+    \param dev pointer to an initialized WOLFTPM2_DEV structure
+    \param pubKey trusted raw P-384 responder key in X||Y format
+    \param pubKeySz size of pubKey; must be 96 bytes
+
+    \sa wolfTPM2_InitWithSpdmKey
+    \sa wolfTPM2_SpdmConnect
+*/
+WOLFTPM_API int wolfTPM2_SpdmSetResponderPubKey(WOLFTPM2_DEV* dev,
+    const byte* pubKey, word32 pubKeySz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Get the TPM's SPDM-Identity public key (shared TCG function).
+    \note This command runs in cleartext and its result is not a trust source.
+          Use it only for diagnostics or compare it with a key obtained from a
+          trusted provisioning channel. Do not install the returned key as its
+          own trust anchor.
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: invalid parameters
@@ -558,6 +704,8 @@ WOLFTPM_API int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev);
     \param dev pointer to a WOLFTPM2_DEV structure
     \param pubKey output buffer for the public key
     \param pubKeySz in/out: buffer size / actual key size
+
+    \sa wolfTPM2_SpdmSetResponderPubKey
 */
 WOLFTPM_API int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev,
     byte* pubKey, word32* pubKeySz);
@@ -602,15 +750,19 @@ WOLFTPM_API int wolfTPM2_SpdmDisable(WOLFTPM2_DEV* dev);
     \brief Establish Nuvoton SPDM secure session with mutual authentication.
     Uses Nuvoton flow: GET_VERSION -> GET_PUB_KEY -> KEY_EXCHANGE ->
     GIVE_PUB_KEY -> FINISH.
+    Requires a responder key pinned with wolfTPM2_SpdmSetResponderPubKey.
 
     \return TPM_RC_SUCCESS: session established
     \return TPM_RC_FAILURE: handshake failed
+    \return WOLFSPDM_E_BAD_STATE: trusted responder key is not pinned
 
     \param dev pointer to a WOLFTPM2_DEV structure
     \param reqPubKey host's ECDSA P-384 public key (TPMT_PUBLIC format)
     \param reqPubKeySz size of reqPubKey in bytes
     \param reqPrivKey host's ECDSA P-384 private key (raw 48 bytes)
     \param reqPrivKeySz size of reqPrivKey in bytes
+
+    \sa wolfTPM2_SpdmSetResponderPubKey
 */
 WOLFTPM_API int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
     const byte* reqPubKey, word32 reqPubKeySz,
@@ -662,15 +814,19 @@ WOLFTPM_API int wolfTPM2_SpdmSetNationsMode(WOLFTPM2_DEV* dev);
     \brief Establish Nations SPDM secure session (identity key mode).
     Uses TCG flow: GET_VERSION -> GET_PUB_KEY -> KEY_EXCHANGE ->
     GIVE_PUB_KEY -> FINISH.
+    Requires a responder key pinned with wolfTPM2_SpdmSetResponderPubKey.
 
     \return TPM_RC_SUCCESS: session established
     \return TPM_RC_FAILURE: handshake failed
+    \return WOLFSPDM_E_BAD_STATE: trusted responder key is not pinned
 
     \param dev pointer to a WOLFTPM2_DEV structure
     \param reqPubKey host's ECDSA P-384 public key (TPMT_PUBLIC format, or NULL for auto-gen)
     \param reqPubKeySz size of reqPubKey in bytes
     \param reqPrivKey host's ECDSA P-384 private key (raw 48 bytes, or NULL for auto-gen)
     \param reqPrivKeySz size of reqPrivKey in bytes
+
+    \sa wolfTPM2_SpdmSetResponderPubKey
 */
 WOLFTPM_API int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
     const byte* reqPubKey, word32 reqPubKeySz,
@@ -4512,10 +4668,17 @@ WOLFTPM_API int wolfTPM_PK_SetCbCtx(WOLFSSL* ssl, void* userCtx);
     \ingroup wolfTPM2_Wrappers
     \brief Allocate and initialize a WOLFTPM2_DEV
 
+    \note This convenience constructor uses uncredentialed wolfTPM2_Init.
+    An SPDM-only TPM requires a caller-allocated WOLFTPM2_DEV initialized with
+    wolfTPM2_InitWithSpdmKey, wolfTPM2_InitWithSpdmKey_ex, or
+    wolfTPM2_InitWithSpdmPsk instead.
+
     \return pointer to new device struct
     \return NULL: on any error
 
     \sa wolfTPM2_Free
+    \sa wolfTPM2_InitWithSpdmKey
+    \sa wolfTPM2_InitWithSpdmPsk
 */
 WOLFTPM_API WOLFTPM2_DEV* wolfTPM2_New(void);
 

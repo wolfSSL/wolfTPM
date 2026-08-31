@@ -747,7 +747,199 @@ static int test_invalid_curve_point(void)
     TEST_PASS();
 }
 
+static int test_extract_ecc_point(void)
+{
+    byte point[WOLFSPDM_ECC_POINT_SIZE];
+    const byte* pointX = NULL;
+    const byte* pointY = NULL;
+
+    printf("test_extract_ecc_point...\n");
+
+    XMEMSET(point, 0xA5, sizeof(point));
+    ASSERT_EQ(wolfSPDM_ExtractEccPoint(NULL, sizeof(point), &pointX,
+        &pointY), WOLFSPDM_E_INVALID_ARG, "NULL public key must fail");
+    ASSERT_EQ(wolfSPDM_ExtractEccPoint(point, sizeof(point), NULL,
+        &pointY), WOLFSPDM_E_INVALID_ARG, "NULL X output must fail");
+    ASSERT_EQ(wolfSPDM_ExtractEccPoint(point, sizeof(point), &pointX,
+        NULL), WOLFSPDM_E_INVALID_ARG, "NULL Y output must fail");
+    ASSERT_EQ(wolfSPDM_ExtractEccPoint(point, sizeof(point) - 1, &pointX,
+        &pointY), WOLFSPDM_E_INVALID_ARG, "short point must fail");
+    ASSERT_SUCCESS(wolfSPDM_ExtractEccPoint(point, sizeof(point), &pointX,
+        &pointY));
+    TEST_ASSERT(pointX == point, "raw point X offset mismatch");
+    TEST_ASSERT(pointY == point + WOLFSPDM_ECC_KEY_SIZE,
+        "raw point Y offset mismatch");
+
+    TEST_PASS();
+}
+
 #ifdef WOLFTPM_SPDM_TCG
+#define SPDM_TEST_VENDOR_DEFINED_RSP 0x7E
+
+typedef struct TCG_GET_PUB_KEY_IO_CTX {
+    const byte* pubKey;
+    word32 pubKeySz;
+} TCG_GET_PUB_KEY_IO_CTX;
+
+static int tcg_get_pub_key_io_cb(WOLFSPDM_CTX* ctx, const byte* txBuf,
+    word32 txSz, byte* rxBuf, word32* rxSz, void* userCtx)
+{
+    TCG_GET_PUB_KEY_IO_CTX* ioCtx = (TCG_GET_PUB_KEY_IO_CTX*)userCtx;
+    byte spdmRsp[WOLFSPDM_VENDOR_BUF_SZ];
+    word32 totalSz;
+    int spdmRspSz;
+
+    (void)txBuf;
+    (void)txSz;
+
+    if (ctx == NULL || rxBuf == NULL || rxSz == NULL || ioCtx == NULL) {
+        return -1;
+    }
+
+    spdmRspSz = wolfSPDM_BuildVendorDefined(SPDM_VERSION_13,
+        WOLFSPDM_VDCODE_GET_PUBK, ioCtx->pubKey, ioCtx->pubKeySz,
+        spdmRsp, sizeof(spdmRsp));
+    if (spdmRspSz < 0) {
+        return -1;
+    }
+    spdmRsp[1] = SPDM_TEST_VENDOR_DEFINED_RSP;
+
+    totalSz = WOLFSPDM_TCG_HEADER_SIZE + (word32)spdmRspSz;
+    if (*rxSz < totalSz) {
+        return -1;
+    }
+    wolfSPDM_WriteTcgHeader(rxBuf, WOLFSPDM_TCG_TAG_CLEAR, totalSz,
+        ctx->connectionHandle, ctx->fipsIndicator);
+    XMEMCPY(rxBuf + WOLFSPDM_TCG_HEADER_SIZE, spdmRsp,
+        (word32)spdmRspSz);
+    *rxSz = totalSz;
+
+    return 0;
+}
+
+static int test_tcg_get_pub_key_preserves_pin(void)
+{
+    byte trustedKey[WOLFSPDM_ECC_POINT_SIZE];
+    byte differentKey[WOLFSPDM_ECC_POINT_SIZE];
+    byte tpmtPublic[120];
+    byte pubKey[sizeof(tpmtPublic)];
+    word32 pubKeySz;
+    int rc;
+    TCG_GET_PUB_KEY_IO_CTX ioCtx;
+    TEST_CTX_SETUP();
+
+    printf("test_tcg_get_pub_key_preserves_pin...\n");
+
+    XMEMSET(trustedKey, 0xA5, sizeof(trustedKey));
+    XMEMSET(differentKey, 0x5A, sizeof(differentKey));
+    ctx->mode = WOLFSPDM_MODE_NUVOTON;
+    ASSERT_SUCCESS(wolfSPDM_SetIO(ctx, tcg_get_pub_key_io_cb, &ioCtx));
+    ASSERT_SUCCESS(wolfSPDM_SetResponderPubKey(ctx, trustedKey,
+        sizeof(trustedKey)));
+
+    ioCtx.pubKey = differentKey;
+    ioCtx.pubKeySz = sizeof(differentKey);
+    XMEMSET(pubKey, 0xCC, sizeof(pubKey));
+    pubKeySz = sizeof(pubKey);
+    rc = wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz);
+    ASSERT_EQ(rc, WOLFSPDM_E_PEER_ERROR,
+        "mismatched responder key must be rejected");
+    ASSERT_EQ(ctx->rspPubKeyLen, sizeof(trustedKey),
+        "configured key length changed");
+    TEST_ASSERT(XMEMCMP(ctx->rspPubKey, trustedKey, sizeof(trustedKey)) == 0,
+        "configured responder key changed");
+
+    ioCtx.pubKey = trustedKey;
+    ioCtx.pubKeySz = sizeof(trustedKey);
+    pubKeySz = sizeof(pubKey);
+    ASSERT_SUCCESS(wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz));
+    ASSERT_EQ(pubKeySz, sizeof(trustedKey), "raw key size mismatch");
+    TEST_ASSERT(XMEMCMP(pubKey, trustedKey, sizeof(trustedKey)) == 0,
+        "raw key output mismatch");
+
+    XMEMSET(tpmtPublic, 0, sizeof(tpmtPublic));
+    SPDM_Set16BE(tpmtPublic + 20, WOLFSPDM_ECC_KEY_SIZE);
+    XMEMCPY(tpmtPublic + 22, trustedKey, WOLFSPDM_ECC_KEY_SIZE);
+    SPDM_Set16BE(tpmtPublic + 70, WOLFSPDM_ECC_KEY_SIZE);
+    XMEMCPY(tpmtPublic + 72, trustedKey + WOLFSPDM_ECC_KEY_SIZE,
+        WOLFSPDM_ECC_KEY_SIZE);
+    ioCtx.pubKey = tpmtPublic;
+    ioCtx.pubKeySz = sizeof(tpmtPublic);
+    pubKeySz = sizeof(pubKey);
+    ASSERT_SUCCESS(wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz));
+    ASSERT_EQ(pubKeySz, sizeof(tpmtPublic), "TPMT_PUBLIC size mismatch");
+    TEST_ASSERT(XMEMCMP(pubKey, tpmtPublic, sizeof(tpmtPublic)) == 0,
+        "TPMT_PUBLIC output mismatch");
+    TEST_ASSERT(XMEMCMP(ctx->rspPubKey, trustedKey, sizeof(trustedKey)) == 0,
+        "TPMT_PUBLIC response replaced configured key");
+
+    SPDM_Set16BE(tpmtPublic + 20, WOLFSPDM_ECC_KEY_SIZE - 1);
+    pubKeySz = sizeof(pubKey);
+    rc = wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz);
+    ASSERT_EQ(rc, WOLFSPDM_E_PEER_ERROR,
+        "malformed TPMT_PUBLIC X size must be rejected");
+
+    SPDM_Set16BE(tpmtPublic + 20, WOLFSPDM_ECC_KEY_SIZE);
+    SPDM_Set16BE(tpmtPublic + 70, WOLFSPDM_ECC_KEY_SIZE - 1);
+    pubKeySz = sizeof(pubKey);
+    rc = wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz);
+    ASSERT_EQ(rc, WOLFSPDM_E_PEER_ERROR,
+        "malformed TPMT_PUBLIC Y size must be rejected");
+
+    ioCtx.pubKeySz = WOLFSPDM_ECC_POINT_SIZE + 1;
+    pubKeySz = sizeof(pubKey);
+    rc = wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz);
+    ASSERT_EQ(rc, WOLFSPDM_E_PEER_ERROR,
+        "truncated TPMT_PUBLIC point must be rejected");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_tcg_get_pub_key_discovery_is_not_trusted(void)
+{
+    byte discoveredKey[WOLFSPDM_ECC_POINT_SIZE];
+    byte pubKey[WOLFSPDM_ECC_POINT_SIZE];
+    word32 pubKeySz = sizeof(pubKey);
+    TCG_GET_PUB_KEY_IO_CTX ioCtx;
+    TEST_CTX_SETUP();
+
+    printf("test_tcg_get_pub_key_discovery_is_not_trusted...\n");
+
+    XMEMSET(discoveredKey, 0x3C, sizeof(discoveredKey));
+    ioCtx.pubKey = discoveredKey;
+    ioCtx.pubKeySz = sizeof(discoveredKey);
+    ctx->mode = WOLFSPDM_MODE_NUVOTON;
+    ASSERT_SUCCESS(wolfSPDM_SetIO(ctx, tcg_get_pub_key_io_cb, &ioCtx));
+    ASSERT_SUCCESS(wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz));
+    TEST_ASSERT(XMEMCMP(pubKey, discoveredKey, sizeof(discoveredKey)) == 0,
+        "discovered key output mismatch");
+    ASSERT_EQ(ctx->flags.hasRspPubKey, 0,
+        "cleartext discovery must not configure trust");
+    ASSERT_EQ(ctx->rspPubKeyLen, 0,
+        "cleartext discovery must not store responder key");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_tcg_connect_requires_responder_key(void)
+{
+    int rc;
+    TEST_CTX_SETUP();
+
+    printf("test_tcg_connect_requires_responder_key...\n");
+
+    ctx->mode = WOLFSPDM_MODE_NUVOTON;
+    ASSERT_SUCCESS(wolfSPDM_SetIO(ctx, dummy_io_cb, NULL));
+    rc = wolfSPDM_ConnectTCG(ctx);
+    ASSERT_EQ(rc, WOLFSPDM_E_BAD_STATE,
+        "identity connection must require a responder key");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
 /* I/O callback that returns a TCG response with msgSize < TCG_HEADER_SIZE */
 static int tcg_underflow_io_cb(WOLFSPDM_CTX* ctx, const byte* txBuf, word32 txSz,
     byte* rxBuf, word32* rxSz, void* userCtx)
@@ -2422,7 +2614,7 @@ static int test_responder_psk_replace_guard(void)
 #endif /* WOLFSPDM_NATIONS */
 #endif /* WOLFTPM_SPDM_TCG */
 
-#if defined(WOLFTPM_SPDM_PSK) && defined(WOLFTPM_SPDM_TCG)
+#ifdef WOLFTPM_SPDM_TCG
 
 /* In-process I/O glue: route the requester's outbound TCG frame to the
  * responder's HandleMessage and copy the response back. */
@@ -2436,6 +2628,78 @@ static int requester_to_responder_iocb(WOLFSPDM_CTX* spdmCtx,
     return wolfSPDM_RespHandleMessage(rctx, txBuf, txSz, rxBuf, rxSz);
 }
 
+/* Pinned identity handshake + tunneled TPM2_CMD + END_SESSION, end-to-end. */
+static int test_responder_identity_roundtrip(void)
+{
+    WOLFSPDM_CTX req;
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+    ecc_key idKey;
+    byte idPriv[WOLFSPDM_ECC_KEY_SIZE];
+    byte idPubX[WOLFSPDM_ECC_KEY_SIZE];
+    byte idPubY[WOLFSPDM_ECC_KEY_SIZE];
+    byte idPub[WOLFSPDM_ECC_POINT_SIZE];
+    byte cmd[10];
+    word32 idPrivSz = sizeof(idPriv);
+    word32 idPubXSz = sizeof(idPubX);
+    word32 idPubYSz = sizeof(idPubY);
+    int rc;
+
+    printf("test_responder_identity_roundtrip...\n");
+
+    ASSERT_SUCCESS(wolfSPDM_Init(&req));
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+    ASSERT_SUCCESS(wc_ecc_init(&idKey));
+    ASSERT_SUCCESS(wc_ecc_make_key(&req.rng, WOLFSPDM_ECC_KEY_SIZE,
+        &idKey));
+    ASSERT_SUCCESS(wc_ecc_export_private_only(&idKey, idPriv, &idPrivSz));
+    ASSERT_SUCCESS(wc_ecc_export_public_raw(&idKey, idPubX, &idPubXSz,
+        idPubY, &idPubYSz));
+    wc_ecc_free(&idKey);
+    ASSERT_EQ(idPrivSz, WOLFSPDM_ECC_KEY_SIZE,
+        "identity private-key size mismatch");
+    ASSERT_EQ(idPubXSz, WOLFSPDM_ECC_KEY_SIZE,
+        "identity public X size mismatch");
+    ASSERT_EQ(idPubYSz, WOLFSPDM_ECC_KEY_SIZE,
+        "identity public Y size mismatch");
+    XMEMCPY(idPub, idPubX, sizeof(idPubX));
+    XMEMCPY(idPub + sizeof(idPubX), idPubY, sizeof(idPubY));
+
+    /* Use the simplified Nuvoton TCG flow without requiring a vendor adapter
+     * in this loopback-only unit build. */
+    req.mode = WOLFSPDM_MODE_NUVOTON;
+    ASSERT_SUCCESS(wolfSPDM_SetResponderPubKey(&req, idPub,
+        sizeof(idPub)));
+    ASSERT_SUCCESS(wolfSPDM_RespSetMode(rctx, 1, 0));
+    ASSERT_SUCCESS(wolfSPDM_RespSetIdentityKey(rctx, idPriv,
+        sizeof(idPriv), idPub, sizeof(idPub)));
+    g_tpmCbInvocations = 0;
+    ASSERT_SUCCESS(wolfSPDM_RespSetTpmCallback(rctx, responder_tpm_stub,
+        NULL));
+    ASSERT_SUCCESS(wolfSPDM_SetIO(&req, requester_to_responder_iocb, rctx));
+
+    rc = wolfSPDM_ConnectTCG(&req);
+    TEST_ASSERT(rc == WOLFSPDM_SUCCESS, "identity ConnectTCG failed");
+    ASSERT_EQ(wolfSPDM_IsConnected(&req), 1, "Requester not connected");
+
+    XMEMSET(cmd, 0, sizeof(cmd));
+    cmd[0] = 0x80; cmd[1] = 0x01;
+    cmd[5] = 0x0A;
+    cmd[8] = 0x01; cmd[9] = 0x44;
+    rc = wolfSPDM_TCG_VendorCmdSecured(&req, WOLFSPDM_VDCODE_TPM2_CMD,
+        cmd, sizeof(cmd));
+    TEST_ASSERT(rc == WOLFSPDM_SUCCESS, "TPM2_CMD passthrough failed");
+    ASSERT_EQ(g_tpmCbInvocations, 1, "TPM stub must have run once");
+
+    ASSERT_SUCCESS(wolfSPDM_Disconnect(&req));
+
+    wc_ForceZero(idPriv, sizeof(idPriv));
+    wolfSPDM_RespFree(rctx);
+    wolfSPDM_Free(&req);
+    TEST_PASS();
+}
+
+#ifdef WOLFTPM_SPDM_PSK
 /* PSK handshake + tunneled TPM2_CMD round-trip + END_SESSION, end-to-end. */
 static int test_responder_psk_roundtrip(void)
 {
@@ -2510,8 +2774,9 @@ static int test_responder_psk_roundtrip(void)
     wolfSPDM_Free(&req);
     TEST_PASS();
 }
+#endif /* WOLFTPM_SPDM_PSK */
 
-#endif /* WOLFTPM_SPDM_PSK && WOLFTPM_SPDM_TCG */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #endif /* WOLFTPM_SPDM_RESPONDER */
 
@@ -2564,7 +2829,11 @@ int main(void)
     test_mitm_signature_rejected();
     test_key_exchange_rsp_hmac_check();
     test_invalid_curve_point();
+    test_extract_ecc_point();
 #ifdef WOLFTPM_SPDM_TCG
+    test_tcg_get_pub_key_preserves_pin();
+    test_tcg_get_pub_key_discovery_is_not_trusted();
+    test_tcg_connect_requires_responder_key();
     test_tcg_underflow();
 #endif
 #ifdef WOLFSPDM_NATIONS
@@ -2657,6 +2926,7 @@ int main(void)
 #ifdef WOLFSPDM_NATIONS
     test_responder_psk_replace_guard();
 #endif
+    test_responder_identity_roundtrip();
 #endif
 #if defined(WOLFTPM_SPDM_PSK) && defined(WOLFTPM_SPDM_TCG)
     test_responder_psk_roundtrip();

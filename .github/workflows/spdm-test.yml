@@ -25,9 +25,9 @@ on:
 permissions: read-all
 
 jobs:
-  # Build-only matrix: every supported SPDM configure permutation compiles
-  # cleanly. Catches missing `#ifdef WOLFTPM_SPDM_*` guards in headers/sources
-  # and per-mode include.am gating regressions.
+  # Build matrix: every supported SPDM configure permutation compiles cleanly;
+  # the single-vendor entries also smoke-test unavailable-adapter rejection.
+  # Catches missing `#ifdef WOLFTPM_SPDM_*` guards and include.am gating.
   build-only:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -36,6 +36,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: spdm-base-only
+            wolftpm_config: "--enable-spdm --disable-fwtpm --disable-tcg --disable-psk"
           - name: spdm-tcg-only
             wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --disable-psk"
           - name: spdm-both
@@ -50,6 +52,8 @@ jobs:
             wolftpm_config: "--enable-spdm --enable-nuvoton --enable-nations"
           - name: spdm-debug-on
             wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-psk --enable-debug"
+          - name: spdm-no-getenv
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-psk CFLAGS=-DNO_GETENV"
 
     steps:
       - name: Harden Runner
@@ -76,10 +80,28 @@ jobs:
                       --with-wolfcrypt=$HOME/wolfssl-install
           make -j"$(nproc)"
 
+      - name: Test unavailable vendor rejection (${{ matrix.name }})
+        if: matrix.name == 'spdm-nuvoton' || matrix.name == 'spdm-nations'
+        run: |
+          set -eo pipefail
+          if [ "${{ matrix.name }}" = "spdm-nuvoton" ]; then
+            vendor=nations
+            expected="Nations adapter is not available in this build"
+          else
+            vendor=nuvoton
+            expected="Nuvoton adapter is not available in this build"
+          fi
+          if output=$(./examples/spdm/spdm_ctrl \
+              "--vendor=$vendor" --status 2>&1); then
+            echo "Expected unavailable vendor rejection"
+            exit 1
+          fi
+          grep -F "$expected" <<< "$output"
+
   # End-to-end matrix: same protocol coverage as the old hw-spdm-test, but
-  # against fwtpm_server instead of real silicon. fwtpm-tcg mirrors the
-  # Nuvoton 6-step sequence (status, connect, lock, unit.test, unlock,
-  # cleartext caps). fwtpm-psk mirrors the Nations-PSK 10-step sequence.
+  # against fwtpm_server instead of real silicon. fwtpm-tcg covers pinned and
+  # rejected initialization, the full unit suite over SPDM, lock/status/caps,
+  # unlock, and cleartext recovery. fwtpm-psk mirrors the Nations-PSK flow.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -150,5 +172,5 @@ jobs:
             config.log
             test-suite.log
             tests/*.log
-            /tmp/fwtpm_spdm_test.log
+            /tmp/fwtpm_spdm_test.*
           retention-days: 14

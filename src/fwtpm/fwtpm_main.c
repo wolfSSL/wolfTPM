@@ -393,6 +393,13 @@ int main(int argc, char* argv[])
                 rc = wolfSPDM_RespSetIdentityKey(ctx.spdmRespCtx,
                     idPriv, sizeof(idPriv), idPub, sizeof(idPub));
             }
+            if (rc == 0 && useTcg) {
+                printf("  SPDM responder public key: ");
+                for (i = 0; i < (int)sizeof(idPub); i++) {
+                    printf("%02x", idPub[i]);
+                }
+                printf("\n");
+            }
             wc_ForceZero(idPriv, sizeof(idPriv));
         }
         if (rc != 0) {
@@ -410,6 +417,7 @@ int main(int argc, char* argv[])
             (useTcg && usePsk) ? "+" : "",
             usePsk ? "PSK" : "");
         printf("  Bus-snooping defence: armed (plaintext rejected after SPDMONLY lock)\n");
+        fflush(stdout);
     }
 #endif
 
@@ -432,6 +440,7 @@ int main(int argc, char* argv[])
         FWTPM_Cleanup(&ctx);
         return 1;
     }
+    fflush(stdout);
 
     /* Run server loop (blocks until stopped) */
     rc = FWTPM_IO_ServerLoop(&ctx);

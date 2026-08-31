@@ -253,7 +253,7 @@ int wolfSPDM_SetMode(WOLFSPDM_CTX* ctx, WOLFSPDM_MODE mode)
 WOLFSPDM_MODE wolfSPDM_GetMode(WOLFSPDM_CTX* ctx)
 {
     if (ctx == NULL) {
-        return (WOLFSPDM_MODE)0;
+        return WOLFSPDM_MODE_AUTO;
     }
     return ctx->mode;
 }
