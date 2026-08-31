@@ -44,6 +44,15 @@
 #include <wolftpm/fwtpm/fwtpm_tis.h>
 #endif
 
+/* P-521 needs both wolfCrypt curve support and 66-byte TPM ECC fields. */
+#if defined(HAVE_ECC) && \
+    (defined(HAVE_ECC521) || defined(HAVE_ALL_CURVES)) && \
+    MAX_ECC_KEY_BYTES >= 66
+    #if !defined(ECC_MIN_KEY_SZ) || ECC_MIN_KEY_SZ <= 521
+        #define FWTPM_HAVE_ECC521
+    #endif
+#endif
+
 /* Endian byte-array helpers - use shared TPM2_Packet helpers.
  * Note: argument order differs (Fw: buf,val; TPM2_Packet: val,buf) */
 #define FwStoreU16BE(buf, val) TPM2_Packet_U16ToByteArray((val), (buf))

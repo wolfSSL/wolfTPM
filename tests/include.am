@@ -32,7 +32,8 @@ tests_fwtpm_unit_test_SOURCES = \
     src/tpm2_crypto.c \
     src/tpm2_param_enc.c
 tests_fwtpm_unit_test_CFLAGS   = -DWOLFTPM_FWTPM -DFWTPM_NV_FILE=\"fwtpm_test_nv.bin\" $(AM_CFLAGS)
-tests_fwtpm_unit_test_CPPFLAGS = -DWOLFTPM_FWTPM $(AM_CPPFLAGS)
+tests_fwtpm_unit_test_CPPFLAGS = \
+    -DWOLFTPM_FWTPM -DWOLFTPM_FWTPM_UNIT_TEST $(AM_CPPFLAGS)
 tests_fwtpm_unit_test_LDADD    = $(LIB_STATIC_ADD)
 endif
 

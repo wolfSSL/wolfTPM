@@ -417,36 +417,63 @@ int FwAppendCreationHashAndTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
 /* Map TPM ECC curve to wolfCrypt curve ID */
 int FwGetWcCurveId(UINT16 tpmCurve)
 {
+    int curveIdx;
+    int keyBits;
+    int wcCurve;
+
     switch (tpmCurve) {
         case TPM_ECC_NIST_P256:
-            return ECC_SECP256R1;
+            keyBits = 256;
+            wcCurve = ECC_SECP256R1;
+            break;
         case TPM_ECC_NIST_P384:
-            return ECC_SECP384R1;
-    #ifdef HAVE_ECC521
+            keyBits = 384;
+            wcCurve = ECC_SECP384R1;
+            break;
+    #ifdef FWTPM_HAVE_ECC521
         case TPM_ECC_NIST_P521:
-            return ECC_SECP521R1;
+            keyBits = 521;
+            wcCurve = ECC_SECP521R1;
+            break;
     #endif
         default:
             return -1;
     }
+
+    if (keyBits < ECC_MIN_KEY_SZ) {
+        return -1;
+    }
+    curveIdx = wc_ecc_get_curve_idx(wcCurve);
+    if (curveIdx < 0 || wc_ecc_get_curve_params(curveIdx) == NULL) {
+        return -1;
+    }
+    return wcCurve;
 }
 #endif /* HAVE_ECC */
 
 /* Get ECC key size in bytes from TPM curve */
 int FwGetEccKeySize(UINT16 tpmCurve)
 {
+#ifdef HAVE_ECC
+    if (FwGetWcCurveId(tpmCurve) < 0) {
+        return 0;
+    }
     switch (tpmCurve) {
         case TPM_ECC_NIST_P256:
             return 32;
         case TPM_ECC_NIST_P384:
             return 48;
-    #ifdef HAVE_ECC521
+    #ifdef FWTPM_HAVE_ECC521
         case TPM_ECC_NIST_P521:
             return 66;
     #endif
         default:
             return 0;
     }
+#else
+    (void)tpmCurve;
+    return 0;
+#endif
 }
 
 /* ================================================================== */
@@ -532,7 +559,7 @@ TPM_RC FwGenerateEccKey(WC_RNG* rng,
 
     FWTPM_ALLOC_VAR(eccKey, ecc_key);
 
-    if (wcCurve < 0 || keySz == 0) {
+    if (wcCurve < 0 || keySz == 0 || keySz > MAX_ECC_KEY_BYTES) {
         FWTPM_FREE_VAR(eccKey);
         return TPM_RC_CURVE;
     }
@@ -1147,7 +1174,7 @@ static int FwDhkemParamsLookup(int wcCurve, TPMI_ALG_HASH kdfHash,
         *hkdfHashOut = WC_HASH_TYPE_SHA384;
         return 0;
     }
-#ifdef HAVE_ECC521
+#ifdef FWTPM_HAVE_ECC521
     if (wcCurve == ECC_SECP521R1 && kdfHash == TPM_ALG_SHA512) {
         *kemIdOut = 0x0012; *nSecretOut = 64; *nPkOut = 133;
         *hkdfHashOut = WC_HASH_TYPE_SHA512;

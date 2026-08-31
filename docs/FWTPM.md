@@ -643,7 +643,8 @@ disabled, the corresponding TPM commands are excluded from the build.
 | `NO_RSA` | not defined | Excludes RSA keygen, sign, verify, `RSA_Encrypt`, `RSA_Decrypt` |
 | `HAVE_ECC` | defined | Enables ECC keygen, sign, verify, `ECDH_KeyGen`, `ECDH_ZGen`, `ECC_Parameters` |
 | `HAVE_ECC384` | defined | Enables P-384 curve support |
-| `HAVE_ECC521` | defined | Enables P-521 curve support |
+| `HAVE_ECC521` or `HAVE_ALL_CURVES` | build-dependent | Enables P-521 when `MAX_ECC_KEY_BITS >= 521` provides 66-byte TPM ECC fields |
+| `ECC_MIN_KEY_SZ` | wolfCrypt-defined | Excludes smaller curves from `ECC_Parameters` and `TPM_CAP_ECC_CURVES` |
 | `NO_AES` | not defined | Excludes `EncryptDecrypt`, `EncryptDecrypt2`, AES parameter encryption |
 | `WOLFSSL_SHA384` | defined | Enables SHA-384 PCR bank |
 

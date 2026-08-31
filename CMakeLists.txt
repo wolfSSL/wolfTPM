@@ -556,6 +556,7 @@ if(WOLFTPM_FWTPM)
     )
     target_compile_definitions(fwtpm_unit_test PRIVATE
         "WOLFTPM_FWTPM"
+        "WOLFTPM_FWTPM_UNIT_TEST"
         "FWTPM_NV_FILE=\"fwtpm_test_nv.bin\""
     )
     if(WOLFTPM_FWTPM_NV_APPEND_ONLY)

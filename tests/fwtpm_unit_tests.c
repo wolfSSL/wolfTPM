@@ -1161,6 +1161,213 @@ static void test_fwtpm_getcap_paging(void)
     fwtpm_pass("GetCapability paging convergence:", 0);
 }
 
+static int getcap_ecc_curves(FWTPM_CTX* ctx, UINT32 property,
+    UINT32 propertyCount, UINT16* curves, int curveCapacity, byte* moreData)
+{
+    UINT32 count;
+    int rc, rspSize, cmdSz, i;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_ECC_CURVES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, property); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, propertyCount); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertTrue(rspSize >= TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 1),
+        (int)TPM_CAP_ECC_CURVES);
+
+    *moreData = gRsp[TPM2_HEADER_SIZE];
+    count = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    AssertTrue((int)count <= curveCapacity);
+    AssertTrue(rspSize >= TPM2_HEADER_SIZE + 9 + ((int)count * 2));
+    for (i = 0; i < (int)count; i++) {
+        curves[i] = GetU16BE(gRsp + TPM2_HEADER_SIZE + 9 + (i * 2));
+    }
+    return (int)count;
+}
+
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+static UINT16 test_ecc_curve_bits(UINT16 curve)
+{
+    switch (curve) {
+        case TPM_ECC_NIST_P256:
+            return 256;
+        case TPM_ECC_NIST_P384:
+            return 384;
+        case TPM_ECC_NIST_P521:
+            return 521;
+        default:
+            return 0;
+    }
+}
+
+static void check_ecc_parameters(FWTPM_CTX* ctx, UINT16 curve)
+{
+    UINT16 fieldSz;
+    UINT16 keyBits;
+    int rc, rspSize, cmdSz, pos, field;
+    int keyBytes;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_ECC_Parameters);
+    PutU16BE(gCmd + cmdSz, curve); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE;
+    AssertIntEQ(GetU16BE(gRsp + pos), curve);
+    pos += 2;
+
+    keyBits = test_ecc_curve_bits(curve);
+    AssertIntNE(keyBits, 0);
+    AssertIntEQ(GetU16BE(gRsp + pos), keyBits);
+    pos += 2;
+    keyBytes = (keyBits + 7) / 8;
+
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_NULL); /* kdf */
+    pos += 2;
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_NULL); /* sign */
+    pos += 2;
+
+    /* Curve parameters use a consistent fixed-width big-endian encoding. */
+    for (field = 0; field < 6; field++) {
+        AssertTrue(pos + 2 <= rspSize);
+        fieldSz = GetU16BE(gRsp + pos);
+        pos += 2;
+        AssertIntEQ(fieldSz, keyBytes);
+        AssertTrue(pos + fieldSz <= rspSize);
+        if (curve == TPM_ECC_NIST_P521 && field == 0) {
+            /* p = 0x01 followed by 65 0xff bytes. */
+            AssertIntEQ(gRsp[pos], 0x01);
+            AssertIntEQ(gRsp[pos + fieldSz - 1], 0xff);
+        }
+        else if (curve == TPM_ECC_NIST_P521 && field == 3) {
+            /* Gx is 65 bytes and must be left-padded to the 66-byte field. */
+            AssertIntEQ(gRsp[pos], 0x00);
+            AssertIntEQ(gRsp[pos + 1], 0xc6);
+        }
+        pos += fieldSz;
+    }
+
+    AssertTrue(pos + 2 <= rspSize);
+    fieldSz = GetU16BE(gRsp + pos); /* cofactor h */
+    pos += 2;
+    AssertIntEQ(fieldSz, 1);
+    AssertTrue(pos + fieldSz <= rspSize);
+    pos += fieldSz;
+    AssertIntEQ(pos, rspSize);
+}
+
+#endif /* HAVE_ECC && !FWTPM_NO_ECDH */
+
+/* Curve capability pages expose every compiled curve in ascending order and
+ * each advertised curve is accepted by ECC_Parameters when that command is
+ * enabled. */
+static void test_fwtpm_getcap_ecc_curves(void)
+{
+    FWTPM_CTX ctx;
+    UINT16 expected[3];
+    UINT16 actual[3];
+    UINT32 property;
+    byte moreData;
+    int expectedCount = 0;
+    int count, i;
+
+#ifdef HAVE_ECC
+    int curveIdx;
+    static const struct {
+        UINT16 tpmCurve;
+        UINT16 keyBits;
+        int wcCurve;
+    } candidates[] = {
+        { TPM_ECC_NIST_P256, 256, ECC_SECP256R1 },
+        { TPM_ECC_NIST_P384, 384, ECC_SECP384R1 },
+    #ifdef FWTPM_HAVE_ECC521
+        { TPM_ECC_NIST_P521, 521, ECC_SECP521R1 },
+    #endif
+    };
+
+    for (i = 0; i < (int)(sizeof(candidates) /
+            sizeof(candidates[0])); i++) {
+        curveIdx = wc_ecc_get_curve_idx(candidates[i].wcCurve);
+        if (candidates[i].keyBits >= ECC_MIN_KEY_SZ && curveIdx >= 0 &&
+                wc_ecc_get_curve_params(curveIdx) != NULL) {
+            AssertIntEQ(FwGetWcCurveId(candidates[i].tpmCurve),
+                candidates[i].wcCurve);
+            AssertIntEQ(FwGetEccKeySize(candidates[i].tpmCurve),
+                (candidates[i].keyBits + 7) / 8);
+            expected[expectedCount++] = candidates[i].tpmCurve;
+        }
+        else {
+            AssertIntEQ(FwGetWcCurveId(candidates[i].tpmCurve), -1);
+            AssertIntEQ(FwGetEccKeySize(candidates[i].tpmCurve), 0);
+        }
+    }
+#endif
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    count = getcap_ecc_curves(&ctx, 0, 0, actual, 3, &moreData);
+    AssertIntEQ(count, 0);
+    AssertIntEQ(moreData, expectedCount > 0);
+
+    count = getcap_ecc_curves(&ctx, 0, 3, actual, 3, &moreData);
+    AssertIntEQ(count, expectedCount);
+    AssertIntEQ(moreData, 0);
+    for (i = 0; i < expectedCount; i++) {
+        AssertIntEQ(actual[i], expected[i]);
+    #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+        check_ecc_parameters(&ctx, actual[i]);
+    #endif
+    }
+
+    property = 0;
+    for (i = 0; i < expectedCount; i++) {
+        count = getcap_ecc_curves(&ctx, property, 1, actual, 3,
+            &moreData);
+        AssertIntEQ(count, 1);
+        AssertIntEQ(actual[0], expected[i]);
+        AssertIntEQ(moreData, i + 1 < expectedCount);
+        property = (UINT32)actual[0] + 1u;
+    }
+    count = getcap_ecc_curves(&ctx, property, 1, actual, 3, &moreData);
+    AssertIntEQ(count, 0);
+    AssertIntEQ(moreData, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability(ECC_CURVES):", 0);
+}
+
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH) && \
+    defined(WOLFTPM_FWTPM_UNIT_TEST)
+int FWTPM_TestHexToBin(const char* hex, byte* out, int outSz);
+
+static void test_fwtpm_hex_to_bin(void)
+{
+    byte out[2];
+
+    XMEMSET(out, 0, sizeof(out));
+    AssertIntEQ(FWTPM_TestHexToBin("abc", out, sizeof(out)), 2);
+    AssertIntEQ(out[0], 0x0a);
+    AssertIntEQ(out[1], 0xbc);
+    AssertIntEQ(FWTPM_TestHexToBin("f", out, sizeof(out)), 1);
+    AssertIntEQ(out[0], 0x0f);
+    AssertIntEQ(FWTPM_TestHexToBin("0g", out, sizeof(out)), -1);
+    AssertIntEQ(FWTPM_TestHexToBin("1234", out, 1), -1);
+    AssertIntEQ(FWTPM_TestHexToBin(NULL, out, sizeof(out)), -1);
+
+    fwtpm_pass("ECC parameter hex decoding:", 0);
+}
+#endif
+
 #if FWTPM_MAX_OBJECTS >= 2 || FWTPM_MAX_PERSISTENT >= 2 || \
     FWTPM_MAX_SESSIONS >= 2 || \
     (!defined(FWTPM_NO_NV) && FWTPM_MAX_NV_INDICES >= 2)
@@ -2681,7 +2888,7 @@ static void test_fwtpm_ecc_dhkem_p384_roundtrip(void)
         "Encap/Decap ECC DHKEM (P-384/HKDF-SHA384) Roundtrip:");
 }
 
-#ifdef HAVE_ECC521
+#ifdef FWTPM_HAVE_ECC521
 static void test_fwtpm_ecc_dhkem_p521_roundtrip(void)
 {
     RunEccDhkemRoundtrip(TPM_ECC_NIST_P521, TPM_ALG_SHA512,
@@ -13487,6 +13694,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
     test_fwtpm_getcap_paging();
+    test_fwtpm_getcap_ecc_curves();
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH) && \
+    defined(WOLFTPM_FWTPM_UNIT_TEST)
+    test_fwtpm_hex_to_bin();
+#endif
 #if FWTPM_MAX_OBJECTS >= 2 || FWTPM_MAX_PERSISTENT >= 2 || \
     FWTPM_MAX_SESSIONS >= 2 || \
     (!defined(FWTPM_NO_NV) && FWTPM_MAX_NV_INDICES >= 2)
@@ -13567,7 +13779,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signsequence_handle_auth_required();
     test_fwtpm_verifysequence_long_message();
     test_fwtpm_ecc_dhkem_p384_roundtrip();
-#ifdef HAVE_ECC521
+#ifdef FWTPM_HAVE_ECC521
     test_fwtpm_ecc_dhkem_p521_roundtrip();
 #endif
 #ifdef WOLFTPM_HASH_MLDSA
