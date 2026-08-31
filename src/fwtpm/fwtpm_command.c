@@ -1207,6 +1207,76 @@ static void FwPatchMoreData(TPM2_Packet* rsp, int pos, byte v)
     rsp->buf[pos] = v;
 }
 
+/* Select the numerically lowest handle in handleClass that is at or above
+ * property and, after the first selection, greater than previous. The slot
+ * tables are intentionally rescanned per result: their configured defaults
+ * are small, and this avoids scratch storage proportional to the table sizes. */
+static int FwSelectCapabilityHandle(const FWTPM_CTX* ctx, UINT32 handleClass,
+    UINT32 property, UINT32 previous, int havePrevious, UINT32* selected)
+{
+    int idx;
+    int slotCount = 0;
+    int found = 0;
+    int used;
+    UINT32 candidate;
+
+    if (handleClass == HR_TRANSIENT) {
+        slotCount = FWTPM_MAX_OBJECTS;
+    }
+    else if (handleClass == HR_PERSISTENT) {
+        slotCount = FWTPM_MAX_PERSISTENT;
+    }
+    #ifndef FWTPM_NO_NV
+    else if (handleClass == HR_NV_INDEX) {
+        slotCount = FWTPM_MAX_NV_INDICES;
+    }
+    #endif
+    else if (handleClass == HR_HMAC_SESSION ||
+             handleClass == HR_POLICY_SESSION) {
+        slotCount = FWTPM_MAX_SESSIONS;
+    }
+
+    for (idx = 0; idx < slotCount; idx++) {
+        used = 0;
+        candidate = 0;
+        if (handleClass == HR_TRANSIENT) {
+            used = ctx->objects[idx].used;
+            candidate = ctx->objects[idx].handle;
+        }
+        else if (handleClass == HR_PERSISTENT) {
+            used = ctx->persistent[idx].used;
+            candidate = ctx->persistent[idx].handle;
+        }
+    #ifndef FWTPM_NO_NV
+        else if (handleClass == HR_NV_INDEX) {
+            used = ctx->nvIndices[idx].inUse;
+            candidate = ctx->nvIndices[idx].nvPublic.nvIndex;
+        }
+    #endif
+        else if (handleClass == HR_HMAC_SESSION ||
+                handleClass == HR_POLICY_SESSION) {
+            used = ctx->sessions[idx].used;
+            candidate = ctx->sessions[idx].handle;
+        }
+
+        /* TPM_HT_LOADED_SESSION (0x02) covers both HMAC and policy sessions.
+         * Preserve each real 0x02/0x03 handle prefix so the reported handle
+         * remains directly usable instead of normalizing it to 0x02. A 0x03
+         * query is deliberately limited to loaded policy sessions because
+         * fwTPM has no saved-session list. */
+        if (used && (handleClass == HR_HMAC_SESSION ||
+                (candidate & HR_RANGE_MASK) == handleClass) &&
+            candidate >= property &&
+            (!havePrevious || candidate > previous) &&
+            (!found || candidate < *selected)) {
+            *selected = candidate;
+            found = 1;
+        }
+    }
+
+    return found;
+}
+
 /* --- TPM2_GetCapability (CC 0x017A) --- */
 static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -1218,8 +1288,6 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 i;
     int paramSzPos, paramStart;
     int moreDataPos;
-
-    (void)ctx;
 
     if (cmdSize < TPM2_HEADER_SIZE + 12) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -1694,107 +1762,30 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         case TPM_CAP_HANDLES: {
-            int count = 0;
-            int idx;
-            UINT32 handleClass = property & 0xFF000000;
+            UINT32 handleClass = property & HR_RANGE_MASK;
+            UINT32 selected = 0;
+            UINT32 previous = 0;
+            int countPos = rsp->pos;
+            int emitted = 0;
+            int havePrevious = 0;
 
-            /* Filter by handle class per TPM 2.0 spec Part 2 Section 8.4:
-             * only return handles whose upper byte matches property */
-            if (handleClass == 0x80000000) {
-                /* Transient objects */
-                for (idx = 0; idx < FWTPM_MAX_OBJECTS; idx++) {
-                    if (ctx->objects[idx].used &&
-                        ctx->objects[idx].handle >= property) {
-                        count++;
-                    }
-                }
+            TPM2_Packet_AppendU32(rsp, 0); /* back-patched below */
+            while ((UINT32)emitted < propertyCount &&
+                   FwSelectCapabilityHandle(ctx, handleClass, property,
+                       previous, havePrevious, &selected)) {
+                TPM2_Packet_AppendU32(rsp, selected);
+                previous = selected;
+                havePrevious = 1;
+                emitted++;
             }
-            else if (handleClass == 0x81000000) {
-                /* Persistent objects */
-                for (idx = 0; idx < FWTPM_MAX_PERSISTENT; idx++) {
-                    if (ctx->persistent[idx].used &&
-                        ctx->persistent[idx].handle >= property) {
-                        count++;
-                    }
-                }
-            }
-        #ifndef FWTPM_NO_NV
-            else if (handleClass == 0x01000000) {
-                /* NV indices */
-                for (idx = 0; idx < FWTPM_MAX_NV_INDICES; idx++) {
-                    if (ctx->nvIndices[idx].inUse &&
-                        ctx->nvIndices[idx].nvPublic.nvIndex >= property) {
-                        count++;
-                    }
-                }
-            }
-        #endif
-            else if (handleClass == 0x02000000 ||
-                     handleClass == 0x03000000) {
-                /* HMAC / policy sessions */
-                for (idx = 0; idx < FWTPM_MAX_SESSIONS; idx++) {
-                    if (ctx->sessions[idx].used &&
-                        ctx->sessions[idx].handle >= property) {
-                        count++;
-                    }
-                }
-            }
-            /* Other classes (PCR, permanent): report 0 */
+            FwPatchU32BE(rsp, countPos, (UINT32)emitted);
 
-            if ((UINT32)count > propertyCount) {
-                count = (int)propertyCount;
-                FwPatchMoreData(rsp, moreDataPos, 1); /* more handles available */
-            }
-            TPM2_Packet_AppendU32(rsp, (UINT32)count);
-            if (count > 0) {
-                int emitted = 0;
-                if (handleClass == 0x81000000) {
-                    for (idx = 0; idx < FWTPM_MAX_PERSISTENT &&
-                         emitted < count; idx++) {
-                        if (ctx->persistent[idx].used &&
-                            ctx->persistent[idx].handle >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->persistent[idx].handle);
-                            emitted++;
-                        }
-                    }
-                }
-                else if (handleClass == 0x80000000) {
-                    for (idx = 0; idx < FWTPM_MAX_OBJECTS &&
-                         emitted < count; idx++) {
-                        if (ctx->objects[idx].used &&
-                            ctx->objects[idx].handle >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->objects[idx].handle);
-                            emitted++;
-                        }
-                    }
-                }
-            #ifndef FWTPM_NO_NV
-                else if (handleClass == 0x01000000) {
-                    for (idx = 0; idx < FWTPM_MAX_NV_INDICES &&
-                         emitted < count; idx++) {
-                        if (ctx->nvIndices[idx].inUse &&
-                            ctx->nvIndices[idx].nvPublic.nvIndex >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->nvIndices[idx].nvPublic.nvIndex);
-                            emitted++;
-                        }
-                    }
-                }
-            #endif
-                else if (handleClass == 0x02000000 ||
-                         handleClass == 0x03000000) {
-                    for (idx = 0; idx < FWTPM_MAX_SESSIONS &&
-                         emitted < count; idx++) {
-                        if (ctx->sessions[idx].used &&
-                            ctx->sessions[idx].handle >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->sessions[idx].handle);
-                            emitted++;
-                        }
-                    }
-                }
+            /* If selection exhausted the table before reaching the requested
+             * count, it already proved there is no next page. */
+            if ((UINT32)emitted == propertyCount &&
+                    FwSelectCapabilityHandle(ctx, handleClass, property,
+                        previous, havePrevious, &selected)) {
+                FwPatchMoreData(rsp, moreDataPos, 1);
             }
             break;
         }

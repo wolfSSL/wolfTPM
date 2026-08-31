@@ -1161,6 +1161,165 @@ static void test_fwtpm_getcap_paging(void)
     fwtpm_pass("GetCapability paging convergence:", 0);
 }
 
+#if FWTPM_MAX_OBJECTS >= 2 || FWTPM_MAX_PERSISTENT >= 2 || \
+    FWTPM_MAX_SESSIONS >= 2 || \
+    (!defined(FWTPM_NO_NV) && FWTPM_MAX_NV_INDICES >= 2)
+static UINT32 getcap_handle_page_ex(FWTPM_CTX* ctx, UINT32 property,
+    UINT32 propertyCount, byte* moreData, UINT32* handleCount)
+{
+    int rc, rspSize, cmdSz;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_HANDLES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, property); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, propertyCount); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertTrue(rspSize >= TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 1),
+        (int)TPM_CAP_HANDLES);
+    *moreData = gRsp[TPM2_HEADER_SIZE];
+    *handleCount = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    AssertTrue(*handleCount <= propertyCount);
+    if (*handleCount > 0U) {
+        AssertTrue(rspSize >= TPM2_HEADER_SIZE + 13);
+        return GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    }
+    return 0;
+}
+
+static UINT32 getcap_handle_page(FWTPM_CTX* ctx, UINT32 property,
+    byte* moreData)
+{
+    UINT32 handleCount;
+    UINT32 handle;
+
+    handle = getcap_handle_page_ex(ctx, property, 1, moreData,
+        &handleCount);
+    AssertIntEQ(handleCount, 1);
+    return handle;
+}
+
+static void check_handle_zero_count(FWTPM_CTX* ctx, UINT32 property)
+{
+    UINT32 handleCount;
+    byte moreData;
+
+    (void)getcap_handle_page_ex(ctx, property, 0, &moreData, &handleCount);
+    AssertIntEQ(handleCount, 0);
+    AssertIntEQ(moreData, 1);
+}
+
+static void check_empty_handle_class(FWTPM_CTX* ctx, UINT32 property)
+{
+    UINT32 handleCount;
+    byte moreData;
+
+    (void)getcap_handle_page_ex(ctx, property, 1, &moreData, &handleCount);
+    AssertIntEQ(handleCount, 0);
+    AssertIntEQ(moreData, 0);
+}
+
+static void check_handle_paging(FWTPM_CTX* ctx, UINT32 firstProperty,
+    UINT32 lowHandle, UINT32 highHandle)
+{
+    UINT32 handle;
+    byte moreData;
+
+    handle = getcap_handle_page(ctx, firstProperty, &moreData);
+    AssertIntEQ(handle, lowHandle);
+    AssertIntEQ(moreData, 1);
+
+    handle = getcap_handle_page(ctx, handle + 1, &moreData);
+    AssertIntEQ(handle, highHandle);
+    AssertIntEQ(moreData, 0);
+}
+
+/* Handle capability pages are numerically ordered independently of their
+ * backing-slot order, so cursor-based enumeration cannot omit an entry. */
+static void test_fwtpm_getcap_handles_ordered(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 lowHandle;
+    UINT32 highHandle;
+#if FWTPM_MAX_SESSIONS >= 2
+    byte moreData;
+#endif
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* PCR and permanent handles have no backing capability table. */
+    check_empty_handle_class(&ctx, PCR_FIRST);
+    check_empty_handle_class(&ctx, PERMANENT_FIRST);
+
+#if FWTPM_MAX_OBJECTS >= 2
+    lowHandle = TRANSIENT_FIRST + 0x10u;
+    highHandle = TRANSIENT_FIRST + 0x20u;
+    ctx.objects[0].used = 1;
+    ctx.objects[0].handle = highHandle;
+    ctx.objects[1].used = 1;
+    ctx.objects[1].handle = lowHandle;
+    check_handle_zero_count(&ctx, TRANSIENT_FIRST);
+    check_handle_paging(&ctx, TRANSIENT_FIRST, lowHandle, highHandle);
+    XMEMSET(ctx.objects, 0, sizeof(ctx.objects));
+#endif /* FWTPM_MAX_OBJECTS >= 2 */
+
+#if FWTPM_MAX_PERSISTENT >= 2
+    lowHandle = PERSISTENT_FIRST + 0x10u;
+    highHandle = PERSISTENT_FIRST + 0x20u;
+    ctx.persistent[0].used = 1;
+    ctx.persistent[0].handle = highHandle;
+    ctx.persistent[1].used = 1;
+    ctx.persistent[1].handle = lowHandle;
+    check_handle_zero_count(&ctx, PERSISTENT_FIRST);
+    check_handle_paging(&ctx, PERSISTENT_FIRST, lowHandle, highHandle);
+    XMEMSET(ctx.persistent, 0, sizeof(ctx.persistent));
+#endif /* FWTPM_MAX_PERSISTENT >= 2 */
+
+#if !defined(FWTPM_NO_NV) && FWTPM_MAX_NV_INDICES >= 2
+    lowHandle = NV_INDEX_FIRST + 0x10u;
+    highHandle = NV_INDEX_FIRST + 0x20u;
+    ctx.nvIndices[0].inUse = 1;
+    ctx.nvIndices[0].nvPublic.nvIndex = highHandle;
+    ctx.nvIndices[1].inUse = 1;
+    ctx.nvIndices[1].nvPublic.nvIndex = lowHandle;
+    check_handle_zero_count(&ctx, NV_INDEX_FIRST);
+    check_handle_paging(&ctx, NV_INDEX_FIRST, lowHandle, highHandle);
+    XMEMSET(ctx.nvIndices, 0, sizeof(ctx.nvIndices));
+#endif /* !FWTPM_NO_NV && FWTPM_MAX_NV_INDICES >= 2 */
+
+#if FWTPM_MAX_SESSIONS >= 2
+    /* A loaded-session query intentionally spans HMAC and policy sessions;
+     * fwTPM reports each session's real, directly usable handle prefix. */
+    lowHandle = HMAC_SESSION_FIRST + 0x10u;
+    highHandle = POLICY_SESSION_FIRST + 0x20u;
+    ctx.sessions[0].used = 1;
+    ctx.sessions[0].handle = highHandle;
+    ctx.sessions[1].used = 1;
+    ctx.sessions[1].handle = lowHandle;
+    check_handle_zero_count(&ctx, HMAC_SESSION_FIRST);
+    check_handle_paging(&ctx, HMAC_SESSION_FIRST, lowHandle, highHandle);
+
+    /* A policy-session query must exclude the lower HMAC session and return
+     * the policy handle without claiming another page. */
+    highHandle = getcap_handle_page(&ctx, POLICY_SESSION_FIRST, &moreData);
+    AssertIntEQ(highHandle, POLICY_SESSION_FIRST + 0x20u);
+    AssertIntEQ(moreData, 0);
+    XMEMSET(ctx.sessions, 0, sizeof(ctx.sessions));
+#endif /* FWTPM_MAX_SESSIONS >= 2 */
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("GetCapability(HANDLES) ordered paging:", 0);
+}
+#endif /* handle capability test has at least two slots */
+
 /* ================================================================== */
 /* Command-group gates (FWTPM_NO_* macros)                             */
 /* ================================================================== */
@@ -13328,6 +13487,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
     test_fwtpm_getcap_paging();
+#if FWTPM_MAX_OBJECTS >= 2 || FWTPM_MAX_PERSISTENT >= 2 || \
+    FWTPM_MAX_SESSIONS >= 2 || \
+    (!defined(FWTPM_NO_NV) && FWTPM_MAX_NV_INDICES >= 2)
+    test_fwtpm_getcap_handles_ordered();
+#endif /* handle capability test has at least two slots */
     test_fwtpm_total_commands();
 
     /* Command-group gates (FWTPM_NO_* macros) */
