@@ -4447,9 +4447,15 @@ static void test_TPM2_DispatchCommand_overflow(void)
     XMEMSET(small, 0x5A, sizeof(small));
     XMEMSET(&ctx, 0, sizeof(ctx));
 
-    /* timeoutTries 0, so this performs no IO but does set the active ctx */
+    /* timeoutTries 0, so this performs no IO but does set the active ctx. */
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
     AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
     ctx.ioCb = test_ovf_ioCb;
+#else
+    AssertIntEQ(TPM2_Init_ex(&ctx, test_ovf_ioCb, NULL, 0),
+        TPM_RC_SUCCESS);
+#endif
 
     /* Control: a payload that fits is not refused here, it goes on to the
      * transport and fails there instead. This is what makes the guard

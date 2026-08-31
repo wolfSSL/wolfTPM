@@ -36,7 +36,8 @@
     extern "C" {
 #endif
 
-/* Shared memory and semaphore paths (POSIX transport defaults) */
+/* Shared-memory path and semaphore-name prefixes (POSIX transport defaults).
+ * Every semaphore prefix receives a per-UID suffix. */
 #ifndef FWTPM_TIS_SHM_PATH
 #define FWTPM_TIS_SHM_PATH     "/tmp/fwtpm.shm"
 #endif
@@ -47,9 +48,13 @@
 #define FWTPM_TIS_SEM_RSP      "/fwtpm_rsp"
 #endif
 
+/* Holds a leading slash, the 251 characters Linux permits after it, and NUL.
+ * Shorter platform limits are enforced by sem_open(). */
+#define FWTPM_TIS_SEM_NAME_SIZE 253
+
 /* Magic and version for shared memory validation */
 #define FWTPM_TIS_MAGIC         0x57544953UL  /* "WTIS" */
-#define FWTPM_TIS_VERSION       1
+#define FWTPM_TIS_VERSION       2
 
 /* Default burst count (bytes per FIFO transfer) */
 #ifndef FWTPM_TIS_BURST_COUNT
@@ -150,6 +155,12 @@ typedef struct FWTPM_TIS_REGS {
 
 /* Backward compatibility alias */
 typedef FWTPM_TIS_REGS FWTPM_TIS_SHM;
+
+#if defined(WOLFTPM_FWTPM_TIS) || defined(WOLFTPM_FWTPM_HAL)
+/* Build the effective POSIX semaphore names for an authenticated owner UID. */
+WOLFTPM_LOCAL int FWTPM_TIS_MakeSemNames(UINT64 ownerUid, char* semCmd,
+    size_t semCmdSz, char* semRsp, size_t semRspSz);
+#endif
 
 
 /* --- TIS Transport HAL (server-side) ---

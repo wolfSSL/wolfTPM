@@ -45,6 +45,7 @@ fwTPM can replace a hardware TPM for:
 | `fwtpm_io.c` | Transport layer -- SWTPM TCP socket protocol (default) |
 | `fwtpm_nv.c` | NV storage -- file-based (default); HAL-abstracted, with a built-in append-only mode for write-once flash |
 | `fwtpm_tis.c` | TIS register state machine (transport-agnostic) |
+| `fwtpm_tis_sem.c` | POSIX semaphore-name derivation shared by server and client HAL |
 | `fwtpm_tis_shm.c` | POSIX shared memory + semaphore TIS transport |
 | `fwtpm_main.c` | Server entry point, CLI argument parsing |
 | `tpm2_util.c` | Shared utilities (hash helpers, ForceZero, PrintBin) |
@@ -754,7 +755,7 @@ register-level access. This mode simulates an SPI-attached TPM.
 
 | Field | Description |
 |-------|-------------|
-| `magic` / `version` | Validation header (`0x57544953` / `"WTIS"`) |
+| `magic` / `version` | Validation header (`0x57544953` / `"WTIS"`, protocol version 2) |
 | `reg_addr`, `reg_len`, `reg_is_write`, `reg_data` | Register access request |
 | TIS register shadow: `access`, `sts`, `int_enable`, `int_status`, `intf_caps`, `did_vid`, `rid` | Emulated TIS registers |
 | `cmd_buf[4096]`, `cmd_len`, `fifo_write_pos` | Command FIFO |
@@ -764,9 +765,19 @@ register-level access. This mode simulates an SPI-attached TPM.
 
 | Define | Default | Description |
 |--------|---------|-------------|
-| `FWTPM_TIS_SHM_PATH` | `/tmp/fwtpm.shm` | Shared memory file |
-| `FWTPM_TIS_SEM_CMD` | `/fwtpm_cmd` | Command semaphore name |
-| `FWTPM_TIS_SEM_RSP` | `/fwtpm_rsp` | Response semaphore name |
+| `FWTPM_TIS_SHM_PATH` | `/tmp/fwtpm.shm` | Shared memory file; clients require a regular, single-link, same-UID, exact-size `0600` endpoint |
+| `FWTPM_TIS_SEM_CMD` | `/fwtpm_cmd` | Command semaphore prefix; a per-UID suffix is always appended |
+| `FWTPM_TIS_SEM_RSP` | `/fwtpm_rsp` | Response semaphore prefix; a per-UID suffix is always appended |
+
+Protocol version 2 requires an exact version and shared-region-size match.
+Rebuild the client library and `fwtpm_server` together when upgrading or when
+changing options that affect `FWTPM_TIS_FIFO_SIZE`; version 1 and version 2
+peers do not interoperate.
+
+The default shared-memory path is global, so it supports one server per host.
+The per-UID semaphore suffix enables safe stale-object cleanup; it does not
+enable concurrent per-user servers unless each build also uses a distinct
+`FWTPM_TIS_SHM_PATH`.
 
 **Server-side API:**
 

@@ -68,6 +68,15 @@ static UINT32 TisBuildSts(BYTE stsFlags, UINT16 burstCount)
     return ((UINT32)burstCount << 8) | (UINT32)stsFlags;
 }
 
+static void TisPublishMagic(FWTPM_TIS_REGS* regs)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    __atomic_store_n(&regs->magic, FWTPM_TIS_MAGIC, __ATOMIC_RELEASE);
+#else
+    regs->magic = FWTPM_TIS_MAGIC;
+#endif
+}
+
 /* Handle a single TIS register access */
 static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 {
@@ -436,7 +445,6 @@ int FWTPM_TIS_Init(FWTPM_CTX* ctx)
 
     /* Initialize register state */
     XMEMSET(regs, 0, sizeof(FWTPM_TIS_REGS));
-    regs->magic = FWTPM_TIS_MAGIC;
     regs->version = FWTPM_TIS_VERSION;
 
     /* Power-on register defaults. ACCESS is not stored here: it is served
@@ -450,6 +458,9 @@ int FWTPM_TIS_Init(FWTPM_CTX* ctx)
                      FWTPM_INTF_INT_LEVEL_LOW;
     regs->did_vid = FWTPM_TIS_DID_VID_VAL;
     regs->rid = FWTPM_VERSION_PATCH;
+
+    /* Release-publish the validity sentinel after all client-visible state. */
+    TisPublishMagic(regs);
 
     /* Auto power-on in TIS mode (no platform port to signal power) */
     ctx->powerOn = 1;

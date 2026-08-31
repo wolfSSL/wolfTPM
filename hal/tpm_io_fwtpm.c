@@ -79,23 +79,48 @@ static void FWTPM_TIS_ClientUnlock(int fd)
     } while (rc != 0 && errno == EINTR);
 }
 
-static int FWTPM_TIS_ServerActive(const FWTPM_TIS_REGS* shm)
+static UINT32 FWTPM_TIS_LoadMagic(const FWTPM_TIS_REGS* shm)
 {
+#if defined(__GNUC__) || defined(__clang__)
+    return __atomic_load_n(&shm->magic, __ATOMIC_ACQUIRE);
+#else
     const volatile UINT32* magic = &shm->magic;
 
-    return *magic == FWTPM_TIS_MAGIC;
+    return *magic;
+#endif
+}
+
+static int FWTPM_TIS_ServerActive(const FWTPM_TIS_REGS* shm)
+{
+    return FWTPM_TIS_LoadMagic(shm) == FWTPM_TIS_MAGIC;
+}
+
+static int FWTPM_TIS_ClientValidateShm(const struct stat* st)
+{
+    mode_t expectedMode = S_IRUSR | S_IWUSR;
+
+    if (!S_ISREG(st->st_mode) || st->st_uid != geteuid() ||
+            st->st_nlink != 1 ||
+            (st->st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)) != expectedMode ||
+            st->st_size != (off_t)sizeof(FWTPM_TIS_REGS)) {
+        return TPM_RC_FAILURE;
+    }
+    return TPM_RC_SUCCESS;
 }
 
 int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
 {
     int fd;
     int openFlags;
-    int fdFlags;
+    int fdFlags = 0;
+    UINT32 magic;
     struct stat st;
     struct stat pathSt;
     FWTPM_TIS_REGS* shm;
     sem_t* semCmd;
     sem_t* semRsp;
+    char semCmdName[FWTPM_TIS_SEM_NAME_SIZE];
+    char semRspName[FWTPM_TIS_SEM_NAME_SIZE];
 
     if (client == NULL) {
         return BAD_FUNC_ARG;
@@ -106,7 +131,8 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
 
     /* Open existing shared memory file. O_NOFOLLOW and O_CLOEXEC are not
      * universally available across POSIX targets — guard at compile time
-     * and fall back to fcntl(FD_CLOEXEC) for the close-on-exec semantics. */
+     * and fall back to lstat/inode checks and fcntl(FD_CLOEXEC). O_NONBLOCK
+     * prevents a substituted FIFO from blocking before fstat rejects it. */
     openFlags = O_RDWR;
 #ifdef O_NOFOLLOW
     openFlags |= O_NOFOLLOW;
@@ -114,6 +140,23 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
 #ifdef O_CLOEXEC
     openFlags |= O_CLOEXEC;
 #endif
+#ifdef O_NONBLOCK
+    openFlags |= O_NONBLOCK;
+#endif
+    if (lstat(FWTPM_TIS_SHM_PATH, &pathSt) != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM HAL: lstat(%s) failed: %d (%s)\n",
+            FWTPM_TIS_SHM_PATH, errno, strerror(errno));
+    #endif
+        return TPM_RC_FAILURE;
+    }
+    if (!S_ISREG(pathSt.st_mode)) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM HAL: %s is not a regular file\n",
+            FWTPM_TIS_SHM_PATH);
+    #endif
+        return TPM_RC_FAILURE;
+    }
     fd = open(FWTPM_TIS_SHM_PATH, openFlags);
     if (fd < 0) {
     #ifdef DEBUG_WOLFTPM
@@ -127,16 +170,60 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     if (fdFlags >= 0) {
         (void)fcntl(fd, F_SETFD, fdFlags | FD_CLOEXEC);
     }
-#else
+#elif !defined(O_NONBLOCK)
     (void)fdFlags;
 #endif
 
-    /* Verify file is large enough before mapping */
-    if (fstat(fd, &st) != 0 ||
-            st.st_size < (off_t)sizeof(FWTPM_TIS_REGS)) {
+    /* Authenticate the data-bearing endpoint before mapping it. Named
+     * semaphores carry wakeups only and are derived from this validated file
+     * owner below. */
+    if (fstat(fd, &st) != 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("fwTPM HAL: shm file too small (expected %lu)\n",
-            (unsigned long)sizeof(FWTPM_TIS_REGS));
+        printf("fwTPM HAL: fstat(%s) failed: %d (%s)\n",
+            FWTPM_TIS_SHM_PATH, errno, strerror(errno));
+    #endif
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    /* Check this ahead of the shared validator so a size mismatch gets the
+     * specific client/server rebuild diagnostic. */
+    if (st.st_size != (off_t)sizeof(FWTPM_TIS_REGS)) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM HAL: endpoint is %llu bytes; this build expects %llu "
+               "(rebuild client and server with matching options)\n",
+            (unsigned long long)st.st_size,
+            (unsigned long long)sizeof(FWTPM_TIS_REGS));
+    #endif
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    if (FWTPM_TIS_ClientValidateShm(&st) != TPM_RC_SUCCESS ||
+            st.st_dev != pathSt.st_dev || st.st_ino != pathSt.st_ino) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM HAL: untrusted shm metadata (expected %lu bytes, "
+               "mode 0600, uid %lu)\n",
+            (unsigned long)sizeof(FWTPM_TIS_REGS),
+            (unsigned long)geteuid());
+    #endif
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+#ifdef O_NONBLOCK
+    fdFlags = fcntl(fd, F_GETFL);
+    if (fdFlags < 0 ||
+            fcntl(fd, F_SETFL, fdFlags & ~O_NONBLOCK) != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM HAL: failed to clear O_NONBLOCK\n");
+    #endif
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+#endif
+    if (FWTPM_TIS_MakeSemNames((UINT64)st.st_uid, semCmdName,
+            sizeof(semCmdName), semRspName, sizeof(semRspName)) != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM HAL: failed to derive semaphore names for uid %lu\n",
+            (unsigned long)st.st_uid);
     #endif
         close(fd);
         return TPM_RC_FAILURE;
@@ -152,11 +239,13 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
         return TPM_RC_FAILURE;
     }
 
-    /* Validate magic */
-    if (shm->magic != FWTPM_TIS_MAGIC) {
+    /* Acquire the validity sentinel before reading the published header. */
+    magic = FWTPM_TIS_LoadMagic(shm);
+    if (magic != FWTPM_TIS_MAGIC ||
+            shm->version != FWTPM_TIS_VERSION) {
     #ifdef DEBUG_WOLFTPM
-        printf("fwTPM HAL: bad magic 0x%08x (expected 0x%08x)\n",
-            (unsigned int)shm->magic, (unsigned int)FWTPM_TIS_MAGIC);
+        printf("fwTPM HAL: bad header magic=0x%08x version=%u\n",
+            (unsigned int)magic, (unsigned int)shm->version);
     #endif
         munmap(shm, sizeof(FWTPM_TIS_REGS));
         close(fd);
@@ -164,22 +253,22 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     }
 
     /* Open existing semaphores (server creates them) */
-    semCmd = sem_open(FWTPM_TIS_SEM_CMD, 0);
+    semCmd = sem_open(semCmdName, 0);
     if (semCmd == SEM_FAILED) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM HAL: sem_open(%s) failed: %d (%s)\n",
-            FWTPM_TIS_SEM_CMD, errno, strerror(errno));
+            semCmdName, errno, strerror(errno));
     #endif
         munmap(shm, sizeof(FWTPM_TIS_REGS));
         close(fd);
         return TPM_RC_FAILURE;
     }
 
-    semRsp = sem_open(FWTPM_TIS_SEM_RSP, 0);
+    semRsp = sem_open(semRspName, 0);
     if (semRsp == SEM_FAILED) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM HAL: sem_open(%s) failed: %d (%s)\n",
-            FWTPM_TIS_SEM_RSP, errno, strerror(errno));
+            semRspName, errno, strerror(errno));
     #endif
         sem_close(semCmd);
         munmap(shm, sizeof(FWTPM_TIS_REGS));
@@ -187,10 +276,13 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
         return TPM_RC_FAILURE;
     }
 
-    /* Reject a mapping from an old server generation paired with newly
-     * recreated semaphore names. */
-    if (stat(FWTPM_TIS_SHM_PATH, &pathSt) != 0 ||
-            st.st_dev != pathSt.st_dev || st.st_ino != pathSt.st_ino) {
+    /* Reject a replaced pathname or metadata change after opening the
+     * per-owner semaphore pair. */
+    if (fstat(fd, &st) != 0 ||
+            FWTPM_TIS_ClientValidateShm(&st) != TPM_RC_SUCCESS ||
+            lstat(FWTPM_TIS_SHM_PATH, &pathSt) != 0 ||
+            !S_ISREG(pathSt.st_mode) || st.st_dev != pathSt.st_dev ||
+            st.st_ino != pathSt.st_ino) {
         sem_close(semRsp);
         sem_close(semCmd);
         munmap(shm, sizeof(FWTPM_TIS_REGS));

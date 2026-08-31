@@ -58,10 +58,19 @@ typedef struct {
     int shmFd;                  /* shm file descriptor */
     sem_t* semCmd;              /* command semaphore */
     sem_t* semRsp;              /* response semaphore */
+    char semCmdName[FWTPM_TIS_SEM_NAME_SIZE];
+    char semRspName[FWTPM_TIS_SEM_NAME_SIZE];
 } FWTPM_TIS_SHM_CTX;
 
 /* Single server per process */
 static FWTPM_TIS_SHM_CTX gTisShmCtx;
+
+static void TisShmUnlinkOldEndpoint(const char* semCmdName,
+    const char* semRspName)
+{
+    (void)sem_unlink(semCmdName);
+    (void)sem_unlink(semRspName);
+}
 
 /* --- HAL Callbacks --- */
 
@@ -86,6 +95,8 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     shm->shmFd = -1;
     shm->semCmd = NULL;
     shm->semRsp = NULL;
+    shm->semCmdName[0] = '\0';
+    shm->semRspName[0] = '\0';
 
     /* Use a fresh inode so locks from a crashed server generation do not
      * prevent new clients from connecting to the replacement server. */
@@ -94,7 +105,6 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
             FWTPM_TIS_SHM_PATH, errno, strerror(errno));
         return -1;
     }
-
     /* Create shared memory file */
     fd = open(FWTPM_TIS_SHM_PATH, openFlags, 0600);
     if (fd < 0) {
@@ -103,13 +113,13 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
         return -1;
     }
 
-    /* A pre-existing file may carry attacker-controlled ownership or
-     * permissions; require our own UID and force 0600 (O_CREAT without
-     * O_EXCL cannot prevent the pre-creation race on its own). */
-    if (fstat(fd, &shmStat) != 0 || shmStat.st_uid != getuid() ||
+    /* Require our own UID and force 0600 on the newly created endpoint. */
+    if (fstat(fd, &shmStat) != 0 || !S_ISREG(shmStat.st_mode) ||
+            shmStat.st_uid != geteuid() || shmStat.st_nlink != 1 ||
             fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
         fprintf(stderr, "fwTPM TIS: shm ownership/permission check failed\n");
         close(fd);
+        (void)unlink(FWTPM_TIS_SHM_PATH);
         return -1;
     }
 
@@ -117,6 +127,25 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
         fprintf(stderr, "fwTPM TIS: ftruncate failed: %d (%s)\n",
             errno, strerror(errno));
         close(fd);
+        (void)unlink(FWTPM_TIS_SHM_PATH);
+        return -1;
+    }
+
+    if (fstat(fd, &shmStat) != 0 ||
+            shmStat.st_size != (off_t)sizeof(FWTPM_TIS_REGS) ||
+            (shmStat.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)) !=
+                (S_IRUSR | S_IWUSR)) {
+        fprintf(stderr, "fwTPM TIS: invalid shm endpoint metadata\n");
+        close(fd);
+        (void)unlink(FWTPM_TIS_SHM_PATH);
+        return -1;
+    }
+    if (FWTPM_TIS_MakeSemNames((UINT64)shmStat.st_uid,
+            shm->semCmdName, sizeof(shm->semCmdName),
+            shm->semRspName, sizeof(shm->semRspName)) != 0) {
+        fprintf(stderr, "fwTPM TIS: failed to derive semaphore names\n");
+        close(fd);
+        (void)unlink(FWTPM_TIS_SHM_PATH);
         return -1;
     }
 
@@ -127,38 +156,41 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
             errno, strerror(errno));
         shm->regs = NULL;
         close(fd);
+        (void)unlink(FWTPM_TIS_SHM_PATH);
         return -1;
     }
     shm->shmFd = fd;
 
-    /* Create semaphores (remove stale ones first) */
-    sem_unlink(FWTPM_TIS_SEM_CMD);
-    sem_unlink(FWTPM_TIS_SEM_RSP);
-
-    shm->semCmd = sem_open(FWTPM_TIS_SEM_CMD, O_CREAT | O_EXCL, 0600, 0);
+    /* Remove stale names only after the data endpoint is ready, immediately
+     * before O_EXCL recreates them. Early startup failures therefore leave a
+     * still-running server generation's semaphore names intact. */
+    TisShmUnlinkOldEndpoint(shm->semCmdName, shm->semRspName);
+    shm->semCmd = sem_open(shm->semCmdName, O_CREAT | O_EXCL, 0600, 0);
     if (shm->semCmd == SEM_FAILED) {
         fprintf(stderr, "fwTPM TIS: sem_open(%s) failed: %d (%s)\n",
-            FWTPM_TIS_SEM_CMD, errno, strerror(errno));
+            shm->semCmdName, errno, strerror(errno));
         shm->semCmd = NULL;
         munmap(shm->regs, sizeof(FWTPM_TIS_REGS));
         shm->regs = NULL;
         close(fd);
         shm->shmFd = -1;
+        (void)unlink(FWTPM_TIS_SHM_PATH);
         return -1;
     }
 
-    shm->semRsp = sem_open(FWTPM_TIS_SEM_RSP, O_CREAT | O_EXCL, 0600, 0);
+    shm->semRsp = sem_open(shm->semRspName, O_CREAT | O_EXCL, 0600, 0);
     if (shm->semRsp == SEM_FAILED) {
         fprintf(stderr, "fwTPM TIS: sem_open(%s) failed: %d (%s)\n",
-            FWTPM_TIS_SEM_RSP, errno, strerror(errno));
+            shm->semRspName, errno, strerror(errno));
         sem_close(shm->semCmd);
-        sem_unlink(FWTPM_TIS_SEM_CMD);
+        sem_unlink(shm->semCmdName);
         shm->semCmd = NULL;
         shm->semRsp = NULL;
         munmap(shm->regs, sizeof(FWTPM_TIS_REGS));
         shm->regs = NULL;
         close(fd);
         shm->shmFd = -1;
+        (void)unlink(FWTPM_TIS_SHM_PATH);
         return -1;
     }
 
@@ -167,7 +199,7 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     printf("fwTPM TIS: Shared memory at %s (%zu bytes)\n",
         FWTPM_TIS_SHM_PATH, sizeof(FWTPM_TIS_REGS));
     printf("fwTPM TIS: Semaphores: cmd=%s, rsp=%s\n",
-        FWTPM_TIS_SEM_CMD, FWTPM_TIS_SEM_RSP);
+        shm->semCmdName, shm->semRspName);
 
     return 0;
 }
@@ -203,7 +235,11 @@ static void TisShmCleanup(void* ctx)
     FWTPM_TIS_SHM_CTX* shm = (FWTPM_TIS_SHM_CTX*)ctx;
 
     if (shm->regs != NULL) {
+    #if defined(__GNUC__) || defined(__clang__)
+        __atomic_store_n(&shm->regs->magic, 0U, __ATOMIC_RELEASE);
+    #else
         shm->regs->magic = 0;
+    #endif
         TPM2_ForceZero(shm->regs->reg_data,
             sizeof(shm->regs->reg_data));
         if (shm->semRsp != NULL && shm->semRsp != SEM_FAILED) {
@@ -212,12 +248,16 @@ static void TisShmCleanup(void* ctx)
     }
     if (shm->semRsp != NULL && shm->semRsp != SEM_FAILED) {
         sem_close(shm->semRsp);
-        sem_unlink(FWTPM_TIS_SEM_RSP);
+        if (shm->semRspName[0] != '\0') {
+            sem_unlink(shm->semRspName);
+        }
         shm->semRsp = NULL;
     }
     if (shm->semCmd != NULL && shm->semCmd != SEM_FAILED) {
         sem_close(shm->semCmd);
-        sem_unlink(FWTPM_TIS_SEM_CMD);
+        if (shm->semCmdName[0] != '\0') {
+            sem_unlink(shm->semCmdName);
+        }
         shm->semCmd = NULL;
     }
     if (shm->regs != NULL) {

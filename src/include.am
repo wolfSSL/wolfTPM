@@ -4,6 +4,7 @@
 
 if !BUILD_FWTPM_ONLY
 lib_LTLIBRARIES+=  src/libwolftpm.la
+src_libwolftpm_la_LIBADD       = $(FWTPM_TIS_LIBS)
 src_libwolftpm_la_SOURCES      = \
                                 src/tpm2.c \
                                 src/tpm2_util.c \
@@ -20,7 +21,7 @@ src_libwolftpm_la_SOURCES      += src/tpm2_swtpm.c
 endif
 if BUILD_WINAPI
 src_libwolftpm_la_SOURCES      += src/tpm2_winapi.c
-src_libwolftpm_la_LIBADD       = -ltbs
+src_libwolftpm_la_LIBADD       += -ltbs
 endif
 if BUILD_SPDM
 # SPDM support using wolfSPDM library

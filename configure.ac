@@ -424,6 +424,25 @@ then
     fi
 fi
 
+# POSIX TIS/shared-memory consumers need the platform's semaphore link flags.
+# Keep these target-scoped instead of adding them to LIBS.
+FWTPM_TIS_LIBS=""
+if test "x$ENABLED_FWTPM_TIS" = "xyes"
+then
+    fwtpm_tis_saved_LIBS="$LIBS"
+    LIBS="$PTHREAD_LIBS $LIBS"
+    AC_SEARCH_LIBS([sem_open], [rt pthread], [
+        AS_IF([test "x$ac_cv_search_sem_open" != "xnone required"], [
+            FWTPM_TIS_LIBS="$FWTPM_TIS_LIBS $ac_cv_search_sem_open"
+        ])
+    ], [
+        AC_MSG_ERROR([fwTPM TIS transport requires POSIX sem_open])
+    ])
+    LIBS="$fwtpm_tis_saved_LIBS"
+    FWTPM_TIS_LIBS="$PTHREAD_LIBS $FWTPM_TIS_LIBS"
+fi
+AC_SUBST([FWTPM_TIS_LIBS])
+
 # Append-only NV journal for write-once flash fwTPM ports (opt-in)
 AC_ARG_ENABLE([fwtpm-nv-appendonly],
     [AS_HELP_STRING([--enable-fwtpm-nv-appendonly],[Enable the append-only NV journal mode for write-once flash fwTPM ports (default: disabled)])],

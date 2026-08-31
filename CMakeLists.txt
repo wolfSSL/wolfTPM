@@ -404,6 +404,30 @@ if(WOLFTPM_FWTPM_ONLY)
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WRAPPER")
 endif()
 
+set(WOLFTPM_FWTPM_THREAD_LIBS)
+set(WOLFTPM_FWTPM_TIS_LIBS)
+if(WOLFTPM_FWTPM AND UNIX)
+    find_package(Threads REQUIRED)
+    list(APPEND WOLFTPM_FWTPM_THREAD_LIBS Threads::Threads)
+    if(WOLFTPM_FWTPM_TIS)
+        set(WOLFTPM_FWTPM_TIS_LIBS ${WOLFTPM_FWTPM_THREAD_LIBS})
+        if(NOT APPLE)
+            include(CheckLibraryExists)
+            check_library_exists(rt sem_open "" WOLFTPM_FWTPM_HAVE_LIBRT)
+            if(WOLFTPM_FWTPM_HAVE_LIBRT)
+                list(APPEND WOLFTPM_FWTPM_TIS_LIBS rt)
+            endif()
+        endif()
+    endif()
+endif()
+
+if(WOLFTPM_FWTPM_TIS AND BUILD_WOLFTPM_LIB)
+    target_sources(wolftpm PRIVATE src/fwtpm/fwtpm_tis_sem.c)
+    if(UNIX)
+        target_link_libraries(wolftpm PRIVATE ${WOLFTPM_FWTPM_TIS_LIBS})
+    endif()
+endif()
+
 # Examples
 set(WOLFTPM_EXAMPLES "yes" CACHE BOOL
     "Build examples")
@@ -522,6 +546,7 @@ if(WOLFTPM_FWTPM)
     if(WOLFTPM_FWTPM_TIS)
         list(APPEND FWTPM_SERVER_SOURCES
             src/fwtpm/fwtpm_tis.c
+            src/fwtpm/fwtpm_tis_sem.c
             src/fwtpm/fwtpm_tis_shm.c
         )
     endif()
@@ -541,9 +566,12 @@ if(WOLFTPM_FWTPM)
         ${CMAKE_CURRENT_BINARY_DIR}
     )
     if(UNIX)
-        target_link_libraries(fwtpm_server PRIVATE pthread)
-        if(NOT APPLE)
-            target_link_libraries(fwtpm_server PRIVATE rt)
+        if(WOLFTPM_FWTPM_TIS)
+            target_link_libraries(fwtpm_server PRIVATE
+                ${WOLFTPM_FWTPM_TIS_LIBS})
+        else()
+            target_link_libraries(fwtpm_server PRIVATE
+                ${WOLFTPM_FWTPM_THREAD_LIBS})
         endif()
     elseif(WIN32)
         target_link_libraries(fwtpm_server PRIVATE ws2_32)
@@ -568,7 +596,43 @@ if(WOLFTPM_FWTPM)
         ${CMAKE_CURRENT_BINARY_DIR}
     )
     if(UNIX)
-        target_link_libraries(fwtpm_unit_test PRIVATE pthread)
+        target_link_libraries(fwtpm_unit_test PRIVATE
+            ${WOLFTPM_FWTPM_THREAD_LIBS})
+    endif()
+
+    if(WOLFTPM_FWTPM_TIS)
+        add_executable(fwtpm_hal_unit_test
+            tests/fwtpm_hal_unit_tests.c
+        )
+        target_compile_definitions(fwtpm_hal_unit_test PRIVATE
+            "WOLFTPM_FWTPM_HAL"
+            "WOLFTPM_ADV_IO"
+            "WOLFTPM_EXAMPLE_HAL"
+        )
+        target_link_libraries(fwtpm_hal_unit_test PRIVATE wolftpm_wolfssl_dep)
+        target_include_directories(fwtpm_hal_unit_test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_BINARY_DIR}
+        )
+        if(UNIX)
+            target_link_libraries(fwtpm_hal_unit_test PRIVATE
+                ${WOLFTPM_FWTPM_TIS_LIBS})
+        endif()
+
+        add_executable(fwtpm_tis_sem_unit_test
+            tests/fwtpm_tis_sem_unit_tests.c
+            src/fwtpm/fwtpm_tis_sem.c
+        )
+        target_compile_definitions(fwtpm_tis_sem_unit_test PRIVATE
+            "WOLFTPM_FWTPM_TIS"
+        )
+        target_link_libraries(fwtpm_tis_sem_unit_test PRIVATE
+            wolftpm_wolfssl_dep
+        )
+        target_include_directories(fwtpm_tis_sem_unit_test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_BINARY_DIR}
+        )
     endif()
 
     # fwTPM fuzz target (libFuzzer)
@@ -596,6 +660,16 @@ if(WOLFTPM_FWTPM)
         COMMAND fwtpm_unit_test
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
+    if(WOLFTPM_FWTPM_TIS)
+        add_test(NAME fwtpm_hal_unit_test
+            COMMAND fwtpm_hal_unit_test
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+        add_test(NAME fwtpm_tis_sem_unit_test
+            COMMAND fwtpm_tis_sem_unit_test
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+    endif()
 
     message(STATUS "fwTPM server: enabled")
     if(WOLFTPM_FWTPM_TIS)
@@ -765,6 +839,17 @@ endif()
 include(GNUInstallDirs)
 
 if(BUILD_WOLFTPM_LIB)
+    include(CMakePackageConfigHelpers)
+    set(WOLFTPM_CONFIG_NEEDS_THREADS OFF)
+    if(WOLFTPM_FWTPM_TIS AND UNIX)
+        set(WOLFTPM_CONFIG_NEEDS_THREADS ON)
+    endif()
+    configure_package_config_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/wolftpm-config.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/wolftpm-config.cmake"
+        INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/wolftpm"
+    )
+
     # Note: wolftpm_wolfssl_dep is an INTERFACE helper used only at build
     # time to share wolfSSL include/link settings. It is intentionally NOT
     # installed/exported — downstream `find_package(wolftpm)` should only
@@ -779,8 +864,10 @@ if(BUILD_WOLFTPM_LIB)
     # Install the export set
     install(EXPORT wolftpm-targets
             DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/wolftpm
-            FILE wolftpm-config.cmake
+            FILE wolftpm-targets.cmake
             NAMESPACE wolfssl::)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/wolftpm-config.cmake"
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/wolftpm)
 endif()
 
 # Install fwTPM server

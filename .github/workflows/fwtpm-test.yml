@@ -34,7 +34,7 @@ jobs:
           # fwTPM with TIS/shared-memory transport
           - name: fwtpm-tis
             os: ubuntu-latest
-            wolftpm_config: --enable-fwtpm --enable-debug
+            wolftpm_config: --enable-fwtpm --disable-swtpm --enable-debug
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: false
 
@@ -252,6 +252,15 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
             cc: clang
+            make_cflags: "-Wall -Wextra -Wpedantic -Werror -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2"
+
+          # Build-only: pedantic warnings on the POSIX TIS transport and its
+          # dedicated HAL/semaphore tests.
+          - name: fwtpm-pedantic-tis
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --disable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
             make_cflags: "-Wall -Wextra -Wpedantic -Werror -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2"
 
           # Build-only: pedantic fwTPM-only (no client library)
