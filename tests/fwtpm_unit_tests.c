@@ -1739,6 +1739,55 @@ static void test_fwtpm_readclock(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ReadClock:", 0);
 }
+
+static void AssertReadClockCounters(FWTPM_CTX* ctx)
+{
+    int rc, rspSize, cmdSz;
+    int clockInfoPos = TPM2_HEADER_SIZE + 8;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 10,
+        TPM_CC_ReadClock);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(rspSize, clockInfoPos + 17);
+    AssertIntEQ((int)GetU32BE(gRsp + clockInfoPos + 8),
+        (int)ctx->resetCount);
+    AssertIntEQ((int)GetU32BE(gRsp + clockInfoPos + 12),
+        (int)ctx->restartCount);
+}
+
+static void test_fwtpm_readclock_counters(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntGT((int)ctx.resetCount, 0);
+    AssertReadClockCounters(&ctx);
+    FWTPM_Cleanup(&ctx);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12,
+        TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_STATE);
+    cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntGT((int)ctx.restartCount, 0);
+    AssertReadClockCounters(&ctx);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("ReadClock state counters:", 0);
+}
 #endif /* !FWTPM_NO_CLOCK */
 
 /* ================================================================== */
@@ -13304,6 +13353,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Clock */
 #ifndef FWTPM_NO_CLOCK
     test_fwtpm_readclock();
+    test_fwtpm_readclock_counters();
     test_fwtpm_clock_set();
 #endif /* !FWTPM_NO_CLOCK */
 

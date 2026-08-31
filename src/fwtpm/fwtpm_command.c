@@ -2991,7 +2991,6 @@ static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     (void)cmd;
     (void)cmdSize;
-    (void)ctx;
     (void)cmdTag;
 
 #ifdef DEBUG_WOLFTPM
@@ -3005,8 +3004,8 @@ static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     clockMs = FWTPM_Clock_GetMs(ctx);
     TPM2_Packet_AppendU64(rsp, clockMs); /* time */
     TPM2_Packet_AppendU64(rsp, clockMs); /* clock */
-    TPM2_Packet_AppendU32(rsp, 0); /* resetCount */
-    TPM2_Packet_AppendU32(rsp, 0); /* restartCount */
+    TPM2_Packet_AppendU32(rsp, ctx->resetCount);
+    TPM2_Packet_AppendU32(rsp, ctx->restartCount);
     TPM2_Packet_AppendU8(rsp, 1);  /* safe = YES */
 
     FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
