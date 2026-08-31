@@ -4991,6 +4991,60 @@ static void test_fwtpm_signseqcomplete_neg(void)
     fwtpm_pass("SignSeqComplete negatives (HANDLE):", 1);
 }
 
+/* Reject a TPM2B_MAX_BUFFER whose declared size extends past the command
+ * before any prefix capture, hash finalization, or signing occurs. */
+static void test_fwtpm_signseqcomplete_truncated_buffer(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+    UINT32 keyHandle, seqHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    keyHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
+
+    /* Start a valid Pure-ML-DSA signing sequence. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Declare four trailing bytes but provide only one. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 4); pos += 2;
+    gCmd[pos++] = 0xA5;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_INSUFFICIENT);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignSeqComplete truncated buffer rejected:", 1);
+}
+
 /* Handler 6: TPM2_VerifySequenceComplete. Part 3 Sec.20.3. */
 static void test_fwtpm_verifyseqcomplete_neg(void)
 {
@@ -13804,6 +13858,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signseqstart_neg();
     test_fwtpm_verifyseqstart_neg();
     test_fwtpm_signseqcomplete_neg();
+    test_fwtpm_signseqcomplete_truncated_buffer();
     test_fwtpm_verifyseqcomplete_neg();
     test_fwtpm_signdigest_neg();
 #ifdef WOLFTPM_HASH_MLDSA

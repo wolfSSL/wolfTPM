@@ -16960,9 +16960,18 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Parse buffer (TPM2B_MAX_BUFFER) */
     if (rc == 0) {
-        TPM2_Packet_ParseU16(cmd, &bufSize);
-        if (bufSize > (UINT16)FWTPM_MAX_DATA_BUF) {
-            rc = TPM_RC_SIZE;
+        if (cmd->pos > cmdSize ||
+                (int)sizeof(UINT16) > cmdSize - cmd->pos) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+        else {
+            TPM2_Packet_ParseU16(cmd, &bufSize);
+            if (bufSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+                rc = TPM_RC_SIZE;
+            }
+            else if ((int)bufSize > cmdSize - cmd->pos) {
+                rc = TPM_RC_INSUFFICIENT;
+            }
         }
     }
     if (rc == 0) {
