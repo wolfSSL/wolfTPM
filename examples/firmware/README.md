@@ -133,7 +133,7 @@ The LMS requirement is a generation 9 rule, so both `fwVerMajor` and `fwVerMinor
 
 ### Identifying the part
 
-ST33TPHF2X parts report `TPM_PT_VENDOR_STRING_1..4` as zero or as non-printable bytes, so unlike an ST33KTPM they print an empty `Vendor` field. `st33_fw_update` dumps the raw bytes so they can still be compared. What identifies them is the firmware major version, which tracks the part and interface line:
+What `TPM_PT_VENDOR_STRING_1..4` reports on an ST33TPHF2X depends on the firmware. Early 1.x firmware reports binary rather than text, so the `Vendor` field prints empty; later 1.x firmware reports ASCII, for example `ST33TPHF2XSPI`. The change is present by firmware 1.771 and absent at 1.258; which firmware introduced it is not known. The firmware major version is the reliable identifier either way, and it tracks the part and interface line:
 
 | `fwVerMajor` | Part line | Example firmware image |
 | --- | --- | --- |
@@ -204,7 +204,6 @@ ST33 Firmware Update Tool
 TPM2: Caps 0x30000415, Did 0x0000, Vid 0x104a, Rid 0x4e
 TPM2_Startup pass
 Mfg STM  (2), Vendor , Fw 1.258 (0x0)
-Vendor string bytes: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 Firmware version details: Major=1, Minor=258, Vendor=0x0
 Part line: ST33TPHF2X (SPI firmware line)
 Firmware generation: 1

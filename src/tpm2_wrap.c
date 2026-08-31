@@ -886,7 +886,10 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
             case TPM_PT_VENDOR_STRING_3:
             case TPM_PT_VENDOR_STRING_4:
                 val = TPM2_Packet_SwapU32(val); /* swap for little endian */
-                len = (word32)XSTRLEN(caps->vendorStr); /* add to existing string */
+                /* Offset by property, not string length: a chunk starting
+                 * with a zero byte would let the next one overwrite it */
+                len = (word32)(props->tpmProperty[i].property -
+                    TPM_PT_VENDOR_STRING_1) * (word32)sizeof(UINT32);
                 if (len + sizeof(UINT32) < sizeof(caps->vendorStr)) {
                     XMEMCPY(&caps->vendorStr[len], &val, sizeof(UINT32));
                 }

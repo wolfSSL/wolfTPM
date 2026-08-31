@@ -279,8 +279,9 @@ Microchip ATTPM20
 TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1
 Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 
-Note: ST33TPHF2X parts report `TPM_PT_VENDOR_STRING_1..4` as zero or as
-non-printable bytes, so the `Vendor` field prints empty. The firmware major version identifies the line
+Note: early ST33TPHF2X 1.x firmware reports `TPM_PT_VENDOR_STRING_1..4` as
+binary rather than text, so the `Vendor` field prints empty; later 1.x firmware
+reports ASCII such as `ST33TPHF2XSPI`. The firmware major version identifies the line
 instead: 1.x and 2.x are ST33TPHF2X (SPI and I2C firmware respectively), 9.x is
 ST33KTPM2X and 10.x is ST33KTPM2A. See
 [examples/firmware/README.md](examples/firmware/README.md) for how this selects
