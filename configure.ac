@@ -667,7 +667,7 @@ fi
 
 # wolfHAL hardware abstraction layer
 # Selects hal/tpm_io_wolfhal.c for SPI/I2C. Requires wolfHAL headers and a
-# board.h supplying the BOARD_* peripheral definitions.
+# wolfHAL_board.h supplying the BOARD_* peripheral definitions.
 AC_ARG_ENABLE([wolfhal],
     [AS_HELP_STRING([--enable-wolfhal],[Enable wolfHAL IO callbacks (default: disabled)])],
     [ ENABLED_WOLFHAL=$enableval ],

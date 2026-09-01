@@ -346,7 +346,7 @@ make install
 --enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
 --enable-mmio           Enable built-in MMIO callbacks (default: disabled) - WOLFTPM_MMIO
 --enable-wolfhal        Enable wolfHAL IO callbacks (default: disabled) - WOLFTPM_WOLFHAL
-                        Requires the wolfHAL headers and an application provided board.h.
+                        Requires the wolfHAL headers and an application provided wolfHAL_board.h.
                         See hal/README.md for the required BOARD_* definitions.
 --enable-checkwaitstate Enable TIS / SPI Check Wait State support (default: depends on chip) - WOLFTPM_CHECK_WAIT_STATE
 --enable-smallstack     Enable options to reduce stack usage
