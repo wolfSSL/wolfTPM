@@ -37,7 +37,7 @@ HAL IO コールバックを使用する場合は、ライブラリの初期化�
 
 ### ボード定義
 
-wolfTPM はボード定義を同梱していません。`tpm_io_wolfhal.c` は `"board.h"` をインクルードするため、アプリケーション側でインクルードパス上に用意する必要があります。wolfHAL のプロジェクトにはすでに存在するため、ほとんどの場合は、以下の TPM 固有のエントリを追加するだけで済みます。
+wolfTPM はボード定義を同梱していません。`tpm_io_wolfhal.c` は `"wolfHAL_board.h"` をインクルードするため、アプリケーション側でインクルードパス上に用意する必要があります。wolfHAL のプロジェクトにはすでに存在するため、ほとんどの場合は、以下の TPM 固有のエントリを追加するだけで済みます。
 
 SPI の場合:
 
@@ -61,7 +61,7 @@ TPM 2.0 の I2C デバイスは、ウェイクアップに約 80 us かかり、
 
 エントリが不足している場合は、必要なマクロ名を示すメッセージとともにコンパイル時に報告されます。選択したバスで必要なマクロのみがチェックされます。
 
-既存の wolfHAL `board.h` への追加例:
+既存の `wolfHAL_board.h` への追加例:
 
 ```c
 /* TPM on SPI1, chip select on PA15 */
@@ -80,7 +80,7 @@ whal_I2c_ComCfg g_tpmI2cComCfg = {
     .addrSz = 7,      /* bits */
 };
 
-/* board.h */
+/* wolfHAL_board.h */
 extern whal_I2c_ComCfg g_tpmI2cComCfg;
 #define BOARD_I2C_COM_CFG  (&g_tpmI2cComCfg)
 ```

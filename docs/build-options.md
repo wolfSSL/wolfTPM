@@ -36,7 +36,7 @@ This page is the reference for the Autotools (`./configure`) options and the pre
 | `--enable-i2c` | disabled | I2C TPM support. Defines `WOLFTPM_I2C` and automatically defines `WOLFTPM_ADV_IO`. |
 | `--enable-mmio` | disabled | Built-in memory-mapped I/O callbacks. Defines `WOLFTPM_MMIO` and automatically defines `WOLFTPM_ADV_IO`. |
 | `--enable-advio` | disabled | Advanced I/O callback signature. Defines `WOLFTPM_ADV_IO`. You do not need to pass it separately with I2C or MMIO. |
-| `--enable-wolfhal` | disabled | wolfHAL I/O callbacks. Defines `WOLFTPM_WOLFHAL`. Requires the wolfHAL headers and an application-provided `board.h`. See `hal/README.md` for the required `BOARD_*` definitions. |
+| `--enable-wolfhal` | disabled | wolfHAL I/O callbacks. Defines `WOLFTPM_WOLFHAL`. Requires the wolfHAL headers and an application-provided `wolfHAL_board.h`. See `hal/README.md` for the required `BOARD_*` definitions. |
 | `--enable-hal` | enabled | Build the example HAL interfaces. Defines `WOLFTPM_EXAMPLE_HAL`. |
 | `--enable-hal-reset[=LINE]` | disabled | TPM nRST reset HAL through the Linux GPIO character device. Always defines `WOLFTPM_HAL_RESET`. A numeric `LINE` also defines `WOLFTPM_RESET_LINE`. Without a line the default is GPIO24 for ST33 and GPIO4 for Nuvoton. Drive it with `TPM2_IoCb_Reset()`. |
 | `--enable-checkwaitstate` | depends on chip | TIS and SPI check-wait-state support. Defines `WOLFTPM_CHECK_WAIT_STATE`. Configure turns it on for autodetect and for every build that is not Infineon-only. |

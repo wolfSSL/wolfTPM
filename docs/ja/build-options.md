@@ -36,7 +36,7 @@
 | `--enable-i2c` | disabled | I2C TPM をサポートします。`WOLFTPM_I2C` を定義し、`WOLFTPM_ADV_IO` を自動的に定義します。 |
 | `--enable-mmio` | disabled | 組み込みのメモリマップド I/O コールバックを使用します。`WOLFTPM_MMIO` を定義し、`WOLFTPM_ADV_IO` を自動的に定義します。 |
 | `--enable-advio` | disabled | 拡張 I/O コールバックのシグネチャを使用します。`WOLFTPM_ADV_IO` を定義します。I2C または MMIO と併用する場合は、別途指定する必要はありません。 |
-| `--enable-wolfhal` | disabled | wolfHAL の I/O コールバックを使用します。`WOLFTPM_WOLFHAL` を定義します。wolfHAL のヘッダーと、アプリケーションが提供する `board.h` が必要です。必要な `BOARD_*` 定義については `hal/README.md` を参照してください。 |
+| `--enable-wolfhal` | disabled | wolfHAL の I/O コールバックを使用します。`WOLFTPM_WOLFHAL` を定義します。wolfHAL のヘッダーと、アプリケーションが提供する `wolfHAL_board.h` が必要です。必要な `BOARD_*` 定義については `hal/README.md` を参照してください。 |
 | `--enable-hal` | enabled | サンプルの HAL インターフェースをビルドします。`WOLFTPM_EXAMPLE_HAL` を定義します。 |
 | `--enable-hal-reset[=LINE]` | disabled | Linux GPIO キャラクタデバイス経由の TPM nRST リセット HAL です。常に `WOLFTPM_HAL_RESET` を定義します。数値の `LINE` を指定すると `WOLFTPM_RESET_LINE` も定義します。ライン未指定の場合のデフォルトは、ST33 では GPIO24、Nuvoton では GPIO4 です。`TPM2_IoCb_Reset()` で駆動します。 |
 | `--enable-checkwaitstate` | depends on chip | TIS および SPI のウェイトステート確認をサポートします。`WOLFTPM_CHECK_WAIT_STATE` を定義します。configure は、autodetect の場合と、Infineon 専用ではないすべてのビルドで有効にします。 |
