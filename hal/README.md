@@ -41,9 +41,9 @@ CubeMX headers present, for example, selects `tpm_io_st.c` instead.
 ### Board definitions
 
 wolfTPM does not ship board definitions. `tpm_io_wolfhal.c` includes
-`"board.h"`, which the application provides on its include path. A wolfHAL
-project already has one, so in most cases only the TPM specific entries below
-need adding to it.
+`"wolfHAL_board.h"`, which the application provides on its include path. A
+wolfHAL project already has one, so in most cases only the TPM specific entries
+below need adding to it.
 
 For SPI:
 
@@ -72,7 +72,7 @@ each transfer is retried up to `TPM_I2C_TRIES` times (default 10). Define
 A missing entry is reported at compile time, naming the macro required. Only
 the macros needed by the selected bus are checked.
 
-Example additions to an existing wolfHAL `board.h`:
+Example additions to an existing `wolfHAL_board.h`:
 
 ```c
 /* TPM on SPI1, chip select on PA15 */
@@ -84,14 +84,14 @@ extern whal_Spi_ComCfg g_tpmSpiComCfg;
 For I2C, where the session config carries the TPM address:
 
 ```c
-/* board.c */
+/* wolfHAL_board.c */
 whal_I2c_ComCfg g_tpmI2cComCfg = {
     .freq   = 400000, /* Hz */
     .addr   = 0x2e,   /* TPM target address */
     .addrSz = 7,      /* bits */
 };
 
-/* board.h */
+/* wolfHAL_board.h */
 extern whal_I2c_ComCfg g_tpmI2cComCfg;
 #define BOARD_I2C_COM_CFG  (&g_tpmI2cComCfg)
 ```
