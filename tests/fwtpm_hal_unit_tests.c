@@ -41,8 +41,8 @@
 
 static char gTestShmPath[96];
 static char gTestAuxPath[96];
-static char gTestSemCmdBase[16];
-static char gTestSemRspBase[16];
+static char gTestSemCmd[16];
+static char gTestSemRsp[16];
 static int gSwapAfterSemOpen;
 static int gSemOpenCount;
 static int gSwapFailed;
@@ -52,15 +52,12 @@ static int CreateEndpointFile(const char* path, mode_t mode,
 static int ReplaceEndpoint(void);
 
 #define FWTPM_TIS_SHM_PATH gTestShmPath
-#define FWTPM_TIS_SEM_CMD  gTestSemCmdBase
-#define FWTPM_TIS_SEM_RSP  gTestSemRspBase
+#define FWTPM_TIS_SEM_CMD  gTestSemCmd
+#define FWTPM_TIS_SEM_RSP  gTestSemRsp
 #define WOLFTPM_INCLUDE_IO_FILE
 
 #include "../hal/tpm_io.h"
 #include <wolftpm/fwtpm/fwtpm_tis.h>
-
-static char gTestSemCmd[FWTPM_TIS_SEM_NAME_SIZE];
-static char gTestSemRsp[FWTPM_TIS_SEM_NAME_SIZE];
 
 /* tpm_io_fwtpm.c normally gets this helper from libwolftpm. */
 static void TestForceZero(void* mem, word32 len)
@@ -165,9 +162,7 @@ static int CreateEndpoint(mode_t mode, off_t sizeAdjust, UINT32 magic,
     int rc = -1;
 
     CleanupEndpoint();
-    if (FWTPM_TIS_ClientMakeSemNames(geteuid(), gTestSemCmd,
-            sizeof(gTestSemCmd), gTestSemRsp, sizeof(gTestSemRsp)) != 0 ||
-            CreateEndpointFile(gTestShmPath, mode, sizeAdjust, magic,
+    if (CreateEndpointFile(gTestShmPath, mode, sizeAdjust, magic,
             version) != 0) {
         goto exit;
     }
@@ -426,40 +421,6 @@ static int TestMetadataValidation(void)
     return 0;
 }
 
-static int TestCustomSemPrefixes(void)
-{
-    char semCmd[FWTPM_TIS_SEM_NAME_SIZE];
-    char semRsp[FWTPM_TIS_SEM_NAME_SIZE];
-    char otherCmd[FWTPM_TIS_SEM_NAME_SIZE];
-    char otherRsp[FWTPM_TIS_SEM_NAME_SIZE];
-    char expectedCmd[FWTPM_TIS_SEM_NAME_SIZE];
-    char expectedRsp[FWTPM_TIS_SEM_NAME_SIZE];
-    uid_t ownerUid = geteuid();
-
-    (void)snprintf(expectedCmd, sizeof(expectedCmd), "%s-%lu",
-        gTestSemCmdBase, (unsigned long)ownerUid);
-    (void)snprintf(expectedRsp, sizeof(expectedRsp), "%s-%lu",
-        gTestSemRspBase, (unsigned long)ownerUid);
-    if (FWTPM_TIS_ClientMakeSemNames(ownerUid, semCmd, sizeof(semCmd),
-            semRsp, sizeof(semRsp)) != 0 ||
-            FWTPM_TIS_ClientMakeSemNames(ownerUid + 1U, otherCmd,
-                sizeof(otherCmd), otherRsp, sizeof(otherRsp)) != 0 ||
-            XSTRCMP(semCmd, expectedCmd) != 0 ||
-            XSTRCMP(semRsp, expectedRsp) != 0 ||
-            XSTRCMP(semCmd, otherCmd) == 0 ||
-            XSTRCMP(semRsp, otherRsp) == 0) {
-        printf("FAIL: caller semaphore prefixes lost UID namespacing\n");
-        return 1;
-    }
-    if (FWTPM_TIS_ClientMakeSemNames(ownerUid, semCmd, 2U, semRsp,
-            sizeof(semRsp)) == 0) {
-        printf("FAIL: accepted a truncated semaphore name\n");
-        return 1;
-    }
-    printf("PASS: namespaced caller-defined semaphore prefixes\n");
-    return 0;
-}
-
 int main(void)
 {
     int failures = 0;
@@ -470,9 +431,9 @@ int main(void)
         "/tmp/wolftpm-fwtpm-hal-%ld.shm", pid);
     (void)snprintf(gTestAuxPath, sizeof(gTestAuxPath),
         "/tmp/wolftpm-fwtpm-hal-%ld.aux", pid);
-    (void)snprintf(gTestSemCmdBase, sizeof(gTestSemCmdBase),
+    (void)snprintf(gTestSemCmd, sizeof(gTestSemCmd),
         "/c%x", semId);
-    (void)snprintf(gTestSemRspBase, sizeof(gTestSemRspBase),
+    (void)snprintf(gTestSemRsp, sizeof(gTestSemRsp),
         "/r%x", semId);
 
     failures += ExpectRejected("group-readable", 0640, 0,
@@ -494,7 +455,6 @@ int main(void)
     failures += ExpectAccepted();
     failures += ExpectDisconnectZeroized();
     failures += TestMetadataValidation();
-    failures += TestCustomSemPrefixes();
 
     CleanupEndpoint();
     printf("fwTPM HAL endpoint tests: %s\n",

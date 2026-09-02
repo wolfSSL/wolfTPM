@@ -84,24 +84,6 @@ static int FWTPM_TIS_ServerActive(const FWTPM_TIS_REGS* shm)
     return FWTPM_TIS_ATOMIC_LOAD(shm->magic) == FWTPM_TIS_MAGIC;
 }
 
-/* Must match the server's naming in fwtpm_tis_shm.c. */
-static int FWTPM_TIS_ClientMakeSemNames(uid_t ownerUid, char* semCmd,
-    size_t semCmdSz, char* semRsp, size_t semRspSz)
-{
-    int cmdLen;
-    int rspLen;
-
-    cmdLen = XSNPRINTF(semCmd, semCmdSz, "%s-%lu", FWTPM_TIS_SEM_CMD,
-        (unsigned long)ownerUid);
-    rspLen = XSNPRINTF(semRsp, semRspSz, "%s-%lu", FWTPM_TIS_SEM_RSP,
-        (unsigned long)ownerUid);
-    if (cmdLen <= 0 || (size_t)cmdLen >= semCmdSz ||
-            rspLen <= 0 || (size_t)rspLen >= semRspSz) {
-        return -1;
-    }
-    return 0;
-}
-
 static int FWTPM_TIS_ClientValidateShm(const struct stat* st)
 {
     mode_t expectedMode = S_IRUSR | S_IWUSR;
@@ -126,8 +108,6 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     FWTPM_TIS_REGS* shm;
     sem_t* semCmd;
     sem_t* semRsp;
-    char semCmdName[FWTPM_TIS_SEM_NAME_SIZE];
-    char semRspName[FWTPM_TIS_SEM_NAME_SIZE];
 
     if (client == NULL) {
         return BAD_FUNC_ARG;
@@ -226,15 +206,6 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
         return TPM_RC_FAILURE;
     }
 #endif
-    if (FWTPM_TIS_ClientMakeSemNames(st.st_uid, semCmdName,
-            sizeof(semCmdName), semRspName, sizeof(semRspName)) != 0) {
-    #ifdef DEBUG_WOLFTPM
-        printf("fwTPM HAL: failed to derive semaphore names for uid %lu\n",
-            (unsigned long)st.st_uid);
-    #endif
-        close(fd);
-        return TPM_RC_FAILURE;
-    }
 
     shm = (FWTPM_TIS_REGS*)mmap(NULL, sizeof(FWTPM_TIS_REGS),
         PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -260,22 +231,22 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     }
 
     /* Open existing semaphores (server creates them) */
-    semCmd = sem_open(semCmdName, 0);
+    semCmd = sem_open(FWTPM_TIS_SEM_CMD, 0);
     if (semCmd == SEM_FAILED) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM HAL: sem_open(%s) failed: %d (%s)\n",
-            semCmdName, errno, strerror(errno));
+            FWTPM_TIS_SEM_CMD, errno, strerror(errno));
     #endif
         munmap(shm, sizeof(FWTPM_TIS_REGS));
         close(fd);
         return TPM_RC_FAILURE;
     }
 
-    semRsp = sem_open(semRspName, 0);
+    semRsp = sem_open(FWTPM_TIS_SEM_RSP, 0);
     if (semRsp == SEM_FAILED) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM HAL: sem_open(%s) failed: %d (%s)\n",
-            semRspName, errno, strerror(errno));
+            FWTPM_TIS_SEM_RSP, errno, strerror(errno));
     #endif
         sem_close(semCmd);
         munmap(shm, sizeof(FWTPM_TIS_REGS));

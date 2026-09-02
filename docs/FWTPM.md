@@ -765,18 +765,13 @@ register-level access. This mode simulates an SPI-attached TPM.
 | Define | Default | Description |
 |--------|---------|-------------|
 | `FWTPM_TIS_SHM_PATH` | `/tmp/fwtpm.shm` | Shared memory file; clients require a regular, single-link, same-UID, exact-size `0600` endpoint |
-| `FWTPM_TIS_SEM_CMD` | `/fwtpm_cmd` | Command semaphore prefix; a per-UID suffix is always appended |
-| `FWTPM_TIS_SEM_RSP` | `/fwtpm_rsp` | Response semaphore prefix; a per-UID suffix is always appended |
+| `FWTPM_TIS_SEM_CMD` | `/fwtpm_cmd` | Command semaphore name |
+| `FWTPM_TIS_SEM_RSP` | `/fwtpm_rsp` | Response semaphore name |
 
-Protocol version 2 requires an exact version and shared-region-size match.
-Rebuild the client library and `fwtpm_server` together when upgrading or when
-changing options that affect `FWTPM_TIS_FIFO_SIZE`; version 1 and version 2
-peers do not interoperate.
-
-The default shared-memory path is global, so it supports one server per host.
-The per-UID semaphore suffix enables safe stale-object cleanup; it does not
-enable concurrent per-user servers unless each build also uses a distinct
-`FWTPM_TIS_SHM_PATH`.
+Clients require an exact protocol version and shared-region-size match, so
+rebuild the client library and `fwtpm_server` together when changing options
+that affect `FWTPM_TIS_FIFO_SIZE`. The default paths are global, so one server
+per host.
 
 **Server-side API:**
 

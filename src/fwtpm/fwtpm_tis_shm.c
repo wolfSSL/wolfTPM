@@ -58,37 +58,10 @@ typedef struct {
     int shmFd;                  /* shm file descriptor */
     sem_t* semCmd;              /* command semaphore */
     sem_t* semRsp;              /* response semaphore */
-    char semCmdName[FWTPM_TIS_SEM_NAME_SIZE];
-    char semRspName[FWTPM_TIS_SEM_NAME_SIZE];
 } FWTPM_TIS_SHM_CTX;
 
 /* Single server per process */
 static FWTPM_TIS_SHM_CTX gTisShmCtx;
-
-static void TisShmUnlinkOldEndpoint(const char* semCmdName,
-    const char* semRspName)
-{
-    (void)sem_unlink(semCmdName);
-    (void)sem_unlink(semRspName);
-}
-
-/* Per-UID names keep concurrent users' wakeup semaphores apart. */
-static int TisShmMakeSemNames(uid_t ownerUid, char* semCmd, size_t semCmdSz,
-    char* semRsp, size_t semRspSz)
-{
-    int cmdLen;
-    int rspLen;
-
-    cmdLen = XSNPRINTF(semCmd, semCmdSz, "%s-%lu", FWTPM_TIS_SEM_CMD,
-        (unsigned long)ownerUid);
-    rspLen = XSNPRINTF(semRsp, semRspSz, "%s-%lu", FWTPM_TIS_SEM_RSP,
-        (unsigned long)ownerUid);
-    if (cmdLen <= 0 || (size_t)cmdLen >= semCmdSz ||
-            rspLen <= 0 || (size_t)rspLen >= semRspSz) {
-        return -1;
-    }
-    return 0;
-}
 
 /* --- HAL Callbacks --- */
 
@@ -113,8 +86,6 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     shm->shmFd = -1;
     shm->semCmd = NULL;
     shm->semRsp = NULL;
-    shm->semCmdName[0] = '\0';
-    shm->semRspName[0] = '\0';
 
     /* Use a fresh inode so locks from a crashed server generation do not
      * prevent new clients from connecting to the replacement server. */
@@ -149,24 +120,6 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
         return -1;
     }
 
-    if (fstat(fd, &shmStat) != 0 ||
-            shmStat.st_size != (off_t)sizeof(FWTPM_TIS_REGS) ||
-            (shmStat.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)) !=
-                (S_IRUSR | S_IWUSR)) {
-        fprintf(stderr, "fwTPM TIS: invalid shm endpoint metadata\n");
-        close(fd);
-        (void)unlink(FWTPM_TIS_SHM_PATH);
-        return -1;
-    }
-    if (TisShmMakeSemNames(shmStat.st_uid,
-            shm->semCmdName, sizeof(shm->semCmdName),
-            shm->semRspName, sizeof(shm->semRspName)) != 0) {
-        fprintf(stderr, "fwTPM TIS: failed to derive semaphore names\n");
-        close(fd);
-        (void)unlink(FWTPM_TIS_SHM_PATH);
-        return -1;
-    }
-
     shm->regs = (FWTPM_TIS_REGS*)mmap(NULL, sizeof(FWTPM_TIS_REGS),
         PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (shm->regs == MAP_FAILED) {
@@ -182,11 +135,12 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     /* Remove stale names only after the data endpoint is ready, immediately
      * before O_EXCL recreates them. Early startup failures therefore leave a
      * still-running server generation's semaphore names intact. */
-    TisShmUnlinkOldEndpoint(shm->semCmdName, shm->semRspName);
-    shm->semCmd = sem_open(shm->semCmdName, O_CREAT | O_EXCL, 0600, 0);
+    (void)sem_unlink(FWTPM_TIS_SEM_CMD);
+    (void)sem_unlink(FWTPM_TIS_SEM_RSP);
+    shm->semCmd = sem_open(FWTPM_TIS_SEM_CMD, O_CREAT | O_EXCL, 0600, 0);
     if (shm->semCmd == SEM_FAILED) {
         fprintf(stderr, "fwTPM TIS: sem_open(%s) failed: %d (%s)\n",
-            shm->semCmdName, errno, strerror(errno));
+            FWTPM_TIS_SEM_CMD, errno, strerror(errno));
         shm->semCmd = NULL;
         munmap(shm->regs, sizeof(FWTPM_TIS_REGS));
         shm->regs = NULL;
@@ -196,12 +150,12 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
         return -1;
     }
 
-    shm->semRsp = sem_open(shm->semRspName, O_CREAT | O_EXCL, 0600, 0);
+    shm->semRsp = sem_open(FWTPM_TIS_SEM_RSP, O_CREAT | O_EXCL, 0600, 0);
     if (shm->semRsp == SEM_FAILED) {
         fprintf(stderr, "fwTPM TIS: sem_open(%s) failed: %d (%s)\n",
-            shm->semRspName, errno, strerror(errno));
+            FWTPM_TIS_SEM_RSP, errno, strerror(errno));
         sem_close(shm->semCmd);
-        sem_unlink(shm->semCmdName);
+        sem_unlink(FWTPM_TIS_SEM_CMD);
         shm->semCmd = NULL;
         shm->semRsp = NULL;
         munmap(shm->regs, sizeof(FWTPM_TIS_REGS));
@@ -217,7 +171,7 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     printf("fwTPM TIS: Shared memory at %s (%zu bytes)\n",
         FWTPM_TIS_SHM_PATH, sizeof(FWTPM_TIS_REGS));
     printf("fwTPM TIS: Semaphores: cmd=%s, rsp=%s\n",
-        shm->semCmdName, shm->semRspName);
+        FWTPM_TIS_SEM_CMD, FWTPM_TIS_SEM_RSP);
 
     return 0;
 }
@@ -262,16 +216,12 @@ static void TisShmCleanup(void* ctx)
     }
     if (shm->semRsp != NULL && shm->semRsp != SEM_FAILED) {
         sem_close(shm->semRsp);
-        if (shm->semRspName[0] != '\0') {
-            sem_unlink(shm->semRspName);
-        }
+        sem_unlink(FWTPM_TIS_SEM_RSP);
         shm->semRsp = NULL;
     }
     if (shm->semCmd != NULL && shm->semCmd != SEM_FAILED) {
         sem_close(shm->semCmd);
-        if (shm->semCmdName[0] != '\0') {
-            sem_unlink(shm->semCmdName);
-        }
+        sem_unlink(FWTPM_TIS_SEM_CMD);
         shm->semCmd = NULL;
     }
     if (shm->regs != NULL) {

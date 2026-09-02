@@ -36,8 +36,7 @@
     extern "C" {
 #endif
 
-/* Shared-memory path and semaphore-name prefixes (POSIX transport defaults).
- * Every semaphore prefix receives a per-UID suffix. */
+/* Shared memory and semaphore paths (POSIX transport defaults) */
 #ifndef FWTPM_TIS_SHM_PATH
 #define FWTPM_TIS_SHM_PATH     "/tmp/fwtpm.shm"
 #endif
@@ -48,13 +47,9 @@
 #define FWTPM_TIS_SEM_RSP      "/fwtpm_rsp"
 #endif
 
-/* Holds a leading slash, the 251 characters Linux permits after it, and NUL.
- * Shorter platform limits are enforced by sem_open(). */
-#define FWTPM_TIS_SEM_NAME_SIZE 253
-
 /* Magic and version for shared memory validation */
 #define FWTPM_TIS_MAGIC         0x57544953UL  /* "WTIS" */
-#define FWTPM_TIS_VERSION       2
+#define FWTPM_TIS_VERSION       1
 
 /* Publish/observe the magic sentinel with release/acquire ordering so a client
  * never sees FWTPM_TIS_MAGIC before the header it guards (wc_port.h ladder). */
