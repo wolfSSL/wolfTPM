@@ -421,11 +421,8 @@ if(WOLFTPM_FWTPM AND UNIX)
     endif()
 endif()
 
-if(WOLFTPM_FWTPM_TIS AND BUILD_WOLFTPM_LIB)
-    target_sources(wolftpm PRIVATE src/fwtpm/fwtpm_tis_sem.c)
-    if(UNIX)
-        target_link_libraries(wolftpm PRIVATE ${WOLFTPM_FWTPM_TIS_LIBS})
-    endif()
+if(WOLFTPM_FWTPM_TIS AND BUILD_WOLFTPM_LIB AND UNIX)
+    target_link_libraries(wolftpm PRIVATE ${WOLFTPM_FWTPM_TIS_LIBS})
 endif()
 
 # Examples
@@ -546,7 +543,6 @@ if(WOLFTPM_FWTPM)
     if(WOLFTPM_FWTPM_TIS)
         list(APPEND FWTPM_SERVER_SOURCES
             src/fwtpm/fwtpm_tis.c
-            src/fwtpm/fwtpm_tis_sem.c
             src/fwtpm/fwtpm_tis_shm.c
         )
     endif()
@@ -618,21 +614,6 @@ if(WOLFTPM_FWTPM)
             target_link_libraries(fwtpm_hal_unit_test PRIVATE
                 ${WOLFTPM_FWTPM_TIS_LIBS})
         endif()
-
-        add_executable(fwtpm_tis_sem_unit_test
-            tests/fwtpm_tis_sem_unit_tests.c
-            src/fwtpm/fwtpm_tis_sem.c
-        )
-        target_compile_definitions(fwtpm_tis_sem_unit_test PRIVATE
-            "WOLFTPM_FWTPM_TIS"
-        )
-        target_link_libraries(fwtpm_tis_sem_unit_test PRIVATE
-            wolftpm_wolfssl_dep
-        )
-        target_include_directories(fwtpm_tis_sem_unit_test PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}
-            ${CMAKE_CURRENT_BINARY_DIR}
-        )
     endif()
 
     # fwTPM fuzz target (libFuzzer)
@@ -663,10 +644,6 @@ if(WOLFTPM_FWTPM)
     if(WOLFTPM_FWTPM_TIS)
         add_test(NAME fwtpm_hal_unit_test
             COMMAND fwtpm_hal_unit_test
-            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        )
-        add_test(NAME fwtpm_tis_sem_unit_test
-            COMMAND fwtpm_tis_sem_unit_test
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         )
     endif()

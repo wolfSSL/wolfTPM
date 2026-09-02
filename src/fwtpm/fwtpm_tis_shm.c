@@ -72,6 +72,24 @@ static void TisShmUnlinkOldEndpoint(const char* semCmdName,
     (void)sem_unlink(semRspName);
 }
 
+/* Per-UID names keep concurrent users' wakeup semaphores apart. */
+static int TisShmMakeSemNames(uid_t ownerUid, char* semCmd, size_t semCmdSz,
+    char* semRsp, size_t semRspSz)
+{
+    int cmdLen;
+    int rspLen;
+
+    cmdLen = XSNPRINTF(semCmd, semCmdSz, "%s-%lu", FWTPM_TIS_SEM_CMD,
+        (unsigned long)ownerUid);
+    rspLen = XSNPRINTF(semRsp, semRspSz, "%s-%lu", FWTPM_TIS_SEM_RSP,
+        (unsigned long)ownerUid);
+    if (cmdLen <= 0 || (size_t)cmdLen >= semCmdSz ||
+            rspLen <= 0 || (size_t)rspLen >= semRspSz) {
+        return -1;
+    }
+    return 0;
+}
+
 /* --- HAL Callbacks --- */
 
 static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
@@ -140,7 +158,7 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
         (void)unlink(FWTPM_TIS_SHM_PATH);
         return -1;
     }
-    if (FWTPM_TIS_MakeSemNames((UINT64)shmStat.st_uid,
+    if (TisShmMakeSemNames(shmStat.st_uid,
             shm->semCmdName, sizeof(shm->semCmdName),
             shm->semRspName, sizeof(shm->semRspName)) != 0) {
         fprintf(stderr, "fwTPM TIS: failed to derive semaphore names\n");
@@ -235,11 +253,7 @@ static void TisShmCleanup(void* ctx)
     FWTPM_TIS_SHM_CTX* shm = (FWTPM_TIS_SHM_CTX*)ctx;
 
     if (shm->regs != NULL) {
-    #if defined(__GNUC__) || defined(__clang__)
-        __atomic_store_n(&shm->regs->magic, 0U, __ATOMIC_RELEASE);
-    #else
-        shm->regs->magic = 0;
-    #endif
+        FWTPM_TIS_ATOMIC_STORE(shm->regs->magic, 0U);
         TPM2_ForceZero(shm->regs->reg_data,
             sizeof(shm->regs->reg_data));
         if (shm->semRsp != NULL && shm->semRsp != SEM_FAILED) {

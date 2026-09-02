@@ -79,20 +79,27 @@ static void FWTPM_TIS_ClientUnlock(int fd)
     } while (rc != 0 && errno == EINTR);
 }
 
-static UINT32 FWTPM_TIS_LoadMagic(const FWTPM_TIS_REGS* shm)
-{
-#if defined(__GNUC__) || defined(__clang__)
-    return __atomic_load_n(&shm->magic, __ATOMIC_ACQUIRE);
-#else
-    const volatile UINT32* magic = &shm->magic;
-
-    return *magic;
-#endif
-}
-
 static int FWTPM_TIS_ServerActive(const FWTPM_TIS_REGS* shm)
 {
-    return FWTPM_TIS_LoadMagic(shm) == FWTPM_TIS_MAGIC;
+    return FWTPM_TIS_ATOMIC_LOAD(shm->magic) == FWTPM_TIS_MAGIC;
+}
+
+/* Must match the server's naming in fwtpm_tis_shm.c. */
+static int FWTPM_TIS_ClientMakeSemNames(uid_t ownerUid, char* semCmd,
+    size_t semCmdSz, char* semRsp, size_t semRspSz)
+{
+    int cmdLen;
+    int rspLen;
+
+    cmdLen = XSNPRINTF(semCmd, semCmdSz, "%s-%lu", FWTPM_TIS_SEM_CMD,
+        (unsigned long)ownerUid);
+    rspLen = XSNPRINTF(semRsp, semRspSz, "%s-%lu", FWTPM_TIS_SEM_RSP,
+        (unsigned long)ownerUid);
+    if (cmdLen <= 0 || (size_t)cmdLen >= semCmdSz ||
+            rspLen <= 0 || (size_t)rspLen >= semRspSz) {
+        return -1;
+    }
+    return 0;
 }
 
 static int FWTPM_TIS_ClientValidateShm(const struct stat* st)
@@ -219,7 +226,7 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
         return TPM_RC_FAILURE;
     }
 #endif
-    if (FWTPM_TIS_MakeSemNames((UINT64)st.st_uid, semCmdName,
+    if (FWTPM_TIS_ClientMakeSemNames(st.st_uid, semCmdName,
             sizeof(semCmdName), semRspName, sizeof(semRspName)) != 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM HAL: failed to derive semaphore names for uid %lu\n",
@@ -240,7 +247,7 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     }
 
     /* Acquire the validity sentinel before reading the published header. */
-    magic = FWTPM_TIS_LoadMagic(shm);
+    magic = FWTPM_TIS_ATOMIC_LOAD(shm->magic);
     if (magic != FWTPM_TIS_MAGIC ||
             shm->version != FWTPM_TIS_VERSION) {
     #ifdef DEBUG_WOLFTPM

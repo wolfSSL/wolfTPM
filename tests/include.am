@@ -38,20 +38,14 @@ tests_fwtpm_unit_test_LDADD    = $(LIB_STATIC_ADD)
 endif
 
 if BUILD_FWTPM_TIS
-check_PROGRAMS += tests/fwtpm_hal_unit.test tests/fwtpm_tis_sem_unit.test
-noinst_PROGRAMS += tests/fwtpm_hal_unit.test tests/fwtpm_tis_sem_unit.test
+check_PROGRAMS += tests/fwtpm_hal_unit.test
+noinst_PROGRAMS += tests/fwtpm_hal_unit.test
 tests_fwtpm_hal_unit_test_SOURCES = tests/fwtpm_hal_unit_tests.c
 tests_fwtpm_hal_unit_test_CFLAGS = \
     -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO -DWOLFTPM_EXAMPLE_HAL $(AM_CFLAGS)
 tests_fwtpm_hal_unit_test_CPPFLAGS = \
     -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO -DWOLFTPM_EXAMPLE_HAL $(AM_CPPFLAGS)
 tests_fwtpm_hal_unit_test_LDADD = $(FWTPM_TIS_LIBS)
-tests_fwtpm_tis_sem_unit_test_SOURCES = \
-    tests/fwtpm_tis_sem_unit_tests.c \
-    src/fwtpm/fwtpm_tis_sem.c
-tests_fwtpm_tis_sem_unit_test_CFLAGS = -DWOLFTPM_FWTPM_TIS $(AM_CFLAGS)
-tests_fwtpm_tis_sem_unit_test_CPPFLAGS = -DWOLFTPM_FWTPM_TIS $(AM_CPPFLAGS)
-tests_fwtpm_tis_sem_unit_test_LDADD = $(FWTPM_TIS_LIBS)
 endif
 
 # TPM make check: manages server, runs unit.test + run_examples.sh

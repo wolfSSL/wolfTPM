@@ -21,14 +21,10 @@ src_fwtpm_fwtpm_server_CPPFLAGS = -DWOLFTPM_FWTPM $(AM_CPPFLAGS)
 src_fwtpm_fwtpm_server_LDADD   = $(LIB_STATIC_ADD)
 if BUILD_FWTPM_TIS
 src_fwtpm_fwtpm_server_SOURCES += src/fwtpm/fwtpm_tis.c \
-    src/fwtpm/fwtpm_tis_sem.c \
     src/fwtpm/fwtpm_tis_shm.c
 src_fwtpm_fwtpm_server_CFLAGS  += -DWOLFTPM_FWTPM_TIS
 src_fwtpm_fwtpm_server_CPPFLAGS += -DWOLFTPM_FWTPM_TIS
 src_fwtpm_fwtpm_server_LDADD   += $(FWTPM_TIS_LIBS)
-if !BUILD_FWTPM_ONLY
-src_libwolftpm_la_SOURCES += src/fwtpm/fwtpm_tis_sem.c
-endif
 endif
 
 # fwtpm_server doesn't link libwolftpm.la (it compiles its own copies with

@@ -45,7 +45,6 @@ fwTPM can replace a hardware TPM for:
 | `fwtpm_io.c` | Transport layer -- SWTPM TCP socket protocol (default) |
 | `fwtpm_nv.c` | NV storage -- file-based (default); HAL-abstracted, with a built-in append-only mode for write-once flash |
 | `fwtpm_tis.c` | TIS register state machine (transport-agnostic) |
-| `fwtpm_tis_sem.c` | POSIX semaphore-name derivation shared by server and client HAL |
 | `fwtpm_tis_shm.c` | POSIX shared memory + semaphore TIS transport |
 | `fwtpm_main.c` | Server entry point, CLI argument parsing |
 | `tpm2_util.c` | Shared utilities (hash helpers, ForceZero, PrintBin) |

@@ -56,6 +56,18 @@
 #define FWTPM_TIS_MAGIC         0x57544953UL  /* "WTIS" */
 #define FWTPM_TIS_VERSION       2
 
+/* Publish/observe the magic sentinel with release/acquire ordering so a client
+ * never sees FWTPM_TIS_MAGIC before the header it guards (wc_port.h ladder). */
+#if !defined(WOLFSSL_NO_ATOMICS) && defined(__GNUC__) && \
+    defined(__ATOMIC_RELEASE)
+    #define FWTPM_TIS_ATOMIC_STORE(x, val) \
+        __atomic_store_n(&(x), (val), __ATOMIC_RELEASE)
+    #define FWTPM_TIS_ATOMIC_LOAD(x) __atomic_load_n(&(x), __ATOMIC_ACQUIRE)
+#else
+    #define FWTPM_TIS_ATOMIC_STORE(x, val) ((x) = (val))
+    #define FWTPM_TIS_ATOMIC_LOAD(x) (x)
+#endif
+
 /* Default burst count (bytes per FIFO transfer) */
 #ifndef FWTPM_TIS_BURST_COUNT
 #define FWTPM_TIS_BURST_COUNT   64
@@ -155,12 +167,6 @@ typedef struct FWTPM_TIS_REGS {
 
 /* Backward compatibility alias */
 typedef FWTPM_TIS_REGS FWTPM_TIS_SHM;
-
-#if defined(WOLFTPM_FWTPM_TIS) || defined(WOLFTPM_FWTPM_HAL)
-/* Build the effective POSIX semaphore names for an authenticated owner UID. */
-WOLFTPM_LOCAL int FWTPM_TIS_MakeSemNames(UINT64 ownerUid, char* semCmd,
-    size_t semCmdSz, char* semRsp, size_t semRspSz);
-#endif
 
 
 /* --- TIS Transport HAL (server-side) ---

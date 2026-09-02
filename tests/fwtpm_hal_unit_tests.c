@@ -72,8 +72,6 @@ static void TestForceZero(void* mem, word32 len)
     }
 }
 
-#include "../src/fwtpm/fwtpm_tis_sem.c"
-
 static sem_t* TestSemOpen(const char* name, int oflag, ...)
 {
     sem_t* sem = sem_open(name, oflag);
@@ -167,7 +165,7 @@ static int CreateEndpoint(mode_t mode, off_t sizeAdjust, UINT32 magic,
     int rc = -1;
 
     CleanupEndpoint();
-    if (FWTPM_TIS_MakeSemNames((UINT64)geteuid(), gTestSemCmd,
+    if (FWTPM_TIS_ClientMakeSemNames(geteuid(), gTestSemCmd,
             sizeof(gTestSemCmd), gTestSemRsp, sizeof(gTestSemRsp)) != 0 ||
             CreateEndpointFile(gTestShmPath, mode, sizeAdjust, magic,
             version) != 0) {
@@ -223,7 +221,6 @@ static int ExpectAccepted(void)
     FWTPM_TIS_CLIENT_CTX client;
     int rc;
 
-    /* Default UID-derived names are covered by fwtpm_tis_sem_unit.test. */
     if (CreateEndpoint(0600, 0, FWTPM_TIS_MAGIC,
             FWTPM_TIS_VERSION) != 0) {
         printf("FAIL: trusted endpoint setup\n");
@@ -435,20 +432,28 @@ static int TestCustomSemPrefixes(void)
     char semRsp[FWTPM_TIS_SEM_NAME_SIZE];
     char otherCmd[FWTPM_TIS_SEM_NAME_SIZE];
     char otherRsp[FWTPM_TIS_SEM_NAME_SIZE];
-    UINT64 ownerUid = (UINT64)geteuid();
-    size_t cmdPrefixSz = XSTRLEN(gTestSemCmdBase);
-    size_t rspPrefixSz = XSTRLEN(gTestSemRspBase);
+    char expectedCmd[FWTPM_TIS_SEM_NAME_SIZE];
+    char expectedRsp[FWTPM_TIS_SEM_NAME_SIZE];
+    uid_t ownerUid = geteuid();
 
-    if (FWTPM_TIS_MakeSemNames(ownerUid, semCmd, sizeof(semCmd), semRsp,
-            sizeof(semRsp)) != 0 ||
-            FWTPM_TIS_MakeSemNames(ownerUid + 1U, otherCmd,
+    (void)snprintf(expectedCmd, sizeof(expectedCmd), "%s-%lu",
+        gTestSemCmdBase, (unsigned long)ownerUid);
+    (void)snprintf(expectedRsp, sizeof(expectedRsp), "%s-%lu",
+        gTestSemRspBase, (unsigned long)ownerUid);
+    if (FWTPM_TIS_ClientMakeSemNames(ownerUid, semCmd, sizeof(semCmd),
+            semRsp, sizeof(semRsp)) != 0 ||
+            FWTPM_TIS_ClientMakeSemNames(ownerUid + 1U, otherCmd,
                 sizeof(otherCmd), otherRsp, sizeof(otherRsp)) != 0 ||
-            XSTRNCMP(semCmd, gTestSemCmdBase, cmdPrefixSz) != 0 ||
-            XSTRNCMP(semRsp, gTestSemRspBase, rspPrefixSz) != 0 ||
-            semCmd[cmdPrefixSz] != '-' || semRsp[rspPrefixSz] != '-' ||
+            XSTRCMP(semCmd, expectedCmd) != 0 ||
+            XSTRCMP(semRsp, expectedRsp) != 0 ||
             XSTRCMP(semCmd, otherCmd) == 0 ||
             XSTRCMP(semRsp, otherRsp) == 0) {
         printf("FAIL: caller semaphore prefixes lost UID namespacing\n");
+        return 1;
+    }
+    if (FWTPM_TIS_ClientMakeSemNames(ownerUid, semCmd, 2U, semRsp,
+            sizeof(semRsp)) == 0) {
+        printf("FAIL: accepted a truncated semaphore name\n");
         return 1;
     }
     printf("PASS: namespaced caller-defined semaphore prefixes\n");
