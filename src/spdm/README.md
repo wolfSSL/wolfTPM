@@ -4,8 +4,9 @@ wolfTPM includes built-in SPDM support for Nuvoton NPCT75x and Nations NS350
 TPMs using wolfSSL/wolfCrypt. Both vendors support identity key mode (ECDHE
 P-384) for session establishment. The Nations NS350 additionally supports PSK
 (pre-shared key) mode. Once a session is established, all TPM commands and
-responses are encrypted with AES-256-GCM over the existing SPI/I2C bus — no
-application code changes needed.
+responses are encrypted with AES-256-GCM over the existing SPI/I2C bus. Identity
+key mode requires the responder's P-384 public key from a trusted provisioning
+source.
 
 For standard SPDM protocol testing with the DMTF spdm-emu emulator, see the
 [wolfSPDM](https://github.com/aidangarske/wolfSPDM) standalone library.
@@ -26,7 +27,7 @@ make && sudo make install && sudo ldconfig && popd
 # Enable SPDM (one-time), reset, connect
 ./examples/spdm/spdm_ctrl --enable
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
-./examples/spdm/spdm_ctrl --connect
+./examples/spdm/spdm_ctrl --responder-pubkey <trusted_p384_x_y_hex> --connect
 ```
 
 See [Building](#building) and [Nuvoton NPCT75x Details](#nuvoton-npct75x) for
@@ -44,7 +45,7 @@ make && sudo make install && sudo ldconfig && popd
 ./autogen.sh && ./configure --enable-spdm --enable-nations && make
 
 # Connect (identity key is factory default)
-./examples/spdm/spdm_ctrl --connect
+./examples/spdm/spdm_ctrl --responder-pubkey <trusted_p384_x_y_hex> --connect
 ```
 
 See [Building](#building) and [Nations NS350 Details](#nations-ns350) for full
@@ -135,16 +136,15 @@ Both vendors support this. The typical lifecycle:
 2. Connect            (handshake, derives session keys)
 3. Lock SPDM-only     (TPM rejects all cleartext commands)
 4. Reset              (TPM enters SPDM-only enforcement)
-5. Run any commands   (each auto-establishes SPDM, all AES-256-GCM encrypted)
+5. Initialize with the trusted key or PSK and run commands (all encrypted)
 6. Unlock             (connect + unlock in one session)
 7. Reset              (TPM back to normal cleartext mode)
 ```
 
-Step 5 is fully automatic. When wolfTPM detects SPDM-only mode (TPM2_Startup
-returns `TPM_RC_DISABLED`), it transparently establishes an SPDM session.
-Existing applications like `caps`, `wrap_test`, and `unit.test` work without
-modification — all commands are encrypted over the bus. See
-[How Auto-SPDM Works](#how-auto-spdm-works) for details.
+After an application supplies the responder key through
+`wolfTPM2_InitWithSpdmKey()`, wolfTPM authenticates the responder and
+establishes the encrypted session regardless of the cleartext startup result.
+See [How Auto-SPDM Works](#how-auto-spdm-works) for details.
 
 **Reset method differs by vendor:**
 - **Nuvoton:** GPIO reset — `gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2`
@@ -219,11 +219,14 @@ When both `--enable-nuvoton` and `--enable-nations` are compiled in, the
 runtime flag:
 
 ```bash
-./examples/spdm/spdm_ctrl --vendor=nuvoton --connect      # default
-./examples/spdm/spdm_ctrl --vendor=nations --connect
+./examples/spdm/spdm_ctrl --vendor=nuvoton \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect
+./examples/spdm/spdm_ctrl --vendor=nations \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect
 ```
 
-Single-vendor builds ignore `--vendor=`.
+Single-vendor builds accept only the adapter compiled into the binary and
+reject an unavailable `--vendor=` value.
 
 ## Usage
 
@@ -257,14 +260,17 @@ unset, restore with:
 
 ```bash
 # Establish SPDM session (VERSION → GET_PUBK → KEY_EXCHANGE → GIVE_PUB → FINISH)
-./examples/spdm/spdm_ctrl --connect
+./examples/spdm/spdm_ctrl \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect
 
 # Query SPDM status
 ./examples/spdm/spdm_ctrl --status
 ```
 
-**Note:** `--get-pubkey` retrieves the TPM's identity key as part of the full
-handshake within `--connect`. It is not intended as a standalone command.
+`--responder-pubkey` takes the trusted raw P-384 X||Y point as 192 hex
+characters. Obtain it from device provisioning records or another authenticated
+manufacturer channel. `--get-pubkey` is unauthenticated discovery and must not
+be used by itself to establish trust.
 
 #### PSK Mode (Nations)
 
@@ -284,25 +290,25 @@ enforcement to take effect.
 **Nuvoton (identity key):**
 
 ```bash
-./examples/spdm/spdm_ctrl --connect --lock
+./examples/spdm/spdm_ctrl \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect --lock
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 
-# TPM now requires SPDM — all commands auto-encrypted:
-./examples/wrap/caps          # auto-SPDM session, all AES-256-GCM
-./tests/unit.test             # full test suite over encrypted bus
-
 # Unlock
-./examples/spdm/spdm_ctrl --connect --unlock
+./examples/spdm/spdm_ctrl \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect --unlock
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 ```
 
 **Nations (identity key):**
 
 ```bash
-./examples/spdm/spdm_ctrl --connect --lock
+./examples/spdm/spdm_ctrl \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect --lock
 # Power cycle required (unplug and re-plug Raspberry Pi)
 
-./examples/spdm/spdm_ctrl --connect --unlock
+./examples/spdm/spdm_ctrl \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect --unlock
 # Power cycle again
 ```
 
@@ -347,6 +353,7 @@ to verify. Using the wrong size makes PSK_CLEAR impossible.
 
 ```bash
 # Nuvoton (identity key — includes GPIO resets between tests)
+export SPDM_RESPONDER_PUBKEY=<trusted_p384_x_y_hex>
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nuvoton
 
 # Nations (identity key — no GPIO resets)
@@ -355,6 +362,11 @@ to verify. Using the wrong size makes PSK_CLEAR impossible.
 # Nations (PSK — full lifecycle: provision → connect → clear → restore)
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations-psk
 ```
+
+Identity-mode hardware tests require `SPDM_RESPONDER_PUBKEY` from trusted
+device provisioning records. The local `fwtpm-tcg` test instead reads the
+freshly generated public key from the owner-only server log created by the
+test harness; this local bootstrap is not a hardware provisioning mechanism.
 
 ## TCG SPDM Vendor Commands
 
@@ -382,8 +394,11 @@ All `spdm_ctrl` options in one table:
 | `--disable`                   | Nuvoton | Disable SPDM via NTC2_PreConfig |
 | `--identity-key-set`          | Nations | Provision SPDM identity key (factory default) |
 | `--identity-key-unset`        | Nations | Un-provision identity key (required before PSK) |
-| `--get-pubkey`                | Both    | Get TPM's SPDM-Identity P-384 public key (used within `--connect`) |
+| `--vendor=nuvoton\|nations`  | Both    | Select the identity/vendor adapter explicitly |
+| `--get-pubkey`                | Both    | Discover the TPM identity key without authenticating it |
+| `--responder-pubkey <hex>`    | Both    | Pin a trusted raw P-384 X\|\|Y responder key |
 | `--connect`                   | Both    | Establish identity key SPDM session |
+| `--caps`                      | Both    | Read TPM capabilities over the current transport |
 | `--status`                    | Both    | Query SPDM status |
 | `--lock`                      | Both    | Lock SPDM-only mode (requires active session) |
 | `--unlock`                    | Both    | Unlock SPDM-only mode (requires active session) |
@@ -440,13 +455,28 @@ to verify.
 
 ## How Auto-SPDM Works
 
-When the TPM is in SPDM-only mode, `wolfTPM2_Init()` handles everything:
+Call `wolfTPM2_InitWithSpdmKey()` with the trusted responder key for identity
+mode, or `wolfTPM2_InitWithSpdmPsk()` with the provisioned PSK for PSK mode.
+Both entry points recover a TPM that is already locked in SPDM-only mode. The
+identity-mode initialization sequence is:
 
-1. `TPM2_Startup` is sent in cleartext — TPM returns `TPM_RC_DISABLED`
-2. wolfTPM detects this and sets `spdmOnlyDetected`
-3. An SPDM session is automatically established (P-384 keygen + handshake)
-4. `TPM2_Startup` is retried over the encrypted channel — succeeds
-5. All subsequent commands go through the SPDM encrypted channel
+1. `TPM2_Startup` probes whether the TPM is already in SPDM-only mode
+2. The caller-provided responder key is installed as the trust anchor
+3. The discovered responder key is compared with that trusted key
+4. An SPDM session is always established (P-384 keygen + handshake)
+5. If the probe returned `TPM_RC_DISABLED`, `TPM2_Startup` is retried securely
+6. All subsequent commands go through the SPDM encrypted channel
+
+In a dual-vendor build, `wolfTPM2_InitWithSpdmKey()` selects the identity
+adapter from TPM DID/VID. A transport that does not expose DID/VID must call
+`wolfTPM2_InitWithSpdmKey_ex()` with `WOLFSPDM_MODE_NUVOTON` or
+`WOLFSPDM_MODE_NATIONS`; automatic mode fails closed rather than guessing.
+
+`wolfTPM2_Init()` without a credential fails closed if it detects any
+SPDM-only mode. For a normal-mode TPM that does not require an immediate secure
+channel, identity-mode applications may instead call
+`wolfTPM2_SpdmInit()`, `wolfTPM2_SpdmSetResponderPubKey()`, and then the
+vendor-specific connect function.
 
 Both `TPM2_SendCommand` (non-auth commands) and `TPM2_SendCommandAuth`
 (auth-session commands like PCR operations, key creation, signing) are
@@ -470,6 +500,7 @@ Useful on platforms with small stacks.
 | `wolfSPDM_Free()`            | Free context (releases resources; frees heap only if dynamic) |
 | `wolfSPDM_GetCtxSize()`      | Return `sizeof(WOLFSPDM_CTX)` at runtime |
 | `wolfSPDM_SetIO()`           | Set transport I/O callback |
+| `wolfSPDM_SetResponderPubKey()` | Pin the trusted responder P-384 key |
 | `wolfSPDM_SetDebug()`        | Enable/disable debug output |
 | `wolfSPDM_Connect()`         | Full SPDM handshake |
 | `wolfSPDM_IsConnected()`     | Check session status |

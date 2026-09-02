@@ -39,6 +39,7 @@
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 #include <wolftpm/fwtpm/fwtpm_crypto.h>
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1207,6 +1208,125 @@ static void FwPatchMoreData(TPM2_Packet* rsp, int pos, byte v)
     rsp->buf[pos] = v;
 }
 
+#ifdef HAVE_ECC
+typedef struct FWTPM_ECC_CURVE_INFO {
+    UINT16 tpmCurve;
+    UINT16 keyBits;
+} FWTPM_ECC_CURVE_INFO;
+
+static const FWTPM_ECC_CURVE_INFO gFwEccCurves[] = {
+    { TPM_ECC_NIST_P256, 256 },
+    { TPM_ECC_NIST_P384, 384 },
+#ifdef FWTPM_HAVE_ECC521
+    { TPM_ECC_NIST_P521, 521 },
+#endif
+};
+
+static const FWTPM_ECC_CURVE_INFO* FwGetEccCurveInfo(UINT16 curve)
+{
+    int i;
+
+    for (i = 0; i < (int)(sizeof(gFwEccCurves) /
+            sizeof(gFwEccCurves[0])); i++) {
+        if (gFwEccCurves[i].tpmCurve == curve) {
+            return &gFwEccCurves[i];
+        }
+    }
+    return NULL;
+}
+
+static const ecc_set_type* FwGetEccCurveParams(UINT16 curve)
+{
+    const FWTPM_ECC_CURVE_INFO* curveInfo;
+    int wcCurve;
+    int curveIdx;
+
+    curveInfo = FwGetEccCurveInfo(curve);
+    if (curveInfo == NULL || curveInfo->keyBits < ECC_MIN_KEY_SZ) {
+        return NULL;
+    }
+    wcCurve = FwGetWcCurveId(curve);
+    if (wcCurve < 0) {
+        return NULL;
+    }
+    curveIdx = wc_ecc_get_curve_idx(wcCurve);
+    if (curveIdx < 0) {
+        return NULL;
+    }
+    return wc_ecc_get_curve_params(curveIdx);
+}
+#endif /* HAVE_ECC */
+
+/* Select the numerically lowest handle in handleClass that is at or above
+ * property and, after the first selection, greater than previous. The slot
+ * tables are intentionally rescanned per result: their configured defaults
+ * are small, and this avoids scratch storage proportional to the table sizes. */
+static int FwSelectCapabilityHandle(const FWTPM_CTX* ctx, UINT32 handleClass,
+    UINT32 property, UINT32 previous, int havePrevious, UINT32* selected)
+{
+    int idx;
+    int slotCount = 0;
+    int found = 0;
+    int used;
+    UINT32 candidate;
+
+    if (handleClass == HR_TRANSIENT) {
+        slotCount = FWTPM_MAX_OBJECTS;
+    }
+    else if (handleClass == HR_PERSISTENT) {
+        slotCount = FWTPM_MAX_PERSISTENT;
+    }
+    #ifndef FWTPM_NO_NV
+    else if (handleClass == HR_NV_INDEX) {
+        slotCount = FWTPM_MAX_NV_INDICES;
+    }
+    #endif
+    else if (handleClass == HR_HMAC_SESSION ||
+             handleClass == HR_POLICY_SESSION) {
+        slotCount = FWTPM_MAX_SESSIONS;
+    }
+
+    for (idx = 0; idx < slotCount; idx++) {
+        used = 0;
+        candidate = 0;
+        if (handleClass == HR_TRANSIENT) {
+            used = ctx->objects[idx].used;
+            candidate = ctx->objects[idx].handle;
+        }
+        else if (handleClass == HR_PERSISTENT) {
+            used = ctx->persistent[idx].used;
+            candidate = ctx->persistent[idx].handle;
+        }
+    #ifndef FWTPM_NO_NV
+        else if (handleClass == HR_NV_INDEX) {
+            used = ctx->nvIndices[idx].inUse;
+            candidate = ctx->nvIndices[idx].nvPublic.nvIndex;
+        }
+    #endif
+        else if (handleClass == HR_HMAC_SESSION ||
+                handleClass == HR_POLICY_SESSION) {
+            used = ctx->sessions[idx].used;
+            candidate = ctx->sessions[idx].handle;
+        }
+
+        /* TPM_HT_LOADED_SESSION (0x02) covers both HMAC and policy sessions.
+         * Preserve each real 0x02/0x03 handle prefix so the reported handle
+         * remains directly usable instead of normalizing it to 0x02. A 0x03
+         * query is deliberately limited to loaded policy sessions because
+         * fwTPM has no saved-session list. */
+        if (used && (handleClass == HR_HMAC_SESSION ||
+                (candidate & HR_RANGE_MASK) == handleClass) &&
+            candidate >= property &&
+            (!havePrevious || candidate > previous) &&
+            (!found || candidate < *selected)) {
+            *selected = candidate;
+            found = 1;
+        }
+    }
+
+    return found;
+}
+
 /* --- TPM2_GetCapability (CC 0x017A) --- */
 static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -1218,8 +1338,6 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 i;
     int paramSzPos, paramStart;
     int moreDataPos;
-
-    (void)ctx;
 
     if (cmdSize < TPM2_HEADER_SIZE + 12) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -1694,113 +1812,62 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         case TPM_CAP_HANDLES: {
-            int count = 0;
-            int idx;
-            UINT32 handleClass = property & 0xFF000000;
+            UINT32 handleClass = property & HR_RANGE_MASK;
+            UINT32 selected = 0;
+            UINT32 previous = 0;
+            int countPos = rsp->pos;
+            int emitted = 0;
+            int havePrevious = 0;
 
-            /* Filter by handle class per TPM 2.0 spec Part 2 Section 8.4:
-             * only return handles whose upper byte matches property */
-            if (handleClass == 0x80000000) {
-                /* Transient objects */
-                for (idx = 0; idx < FWTPM_MAX_OBJECTS; idx++) {
-                    if (ctx->objects[idx].used &&
-                        ctx->objects[idx].handle >= property) {
+            TPM2_Packet_AppendU32(rsp, 0); /* back-patched below */
+            while ((UINT32)emitted < propertyCount &&
+                   FwSelectCapabilityHandle(ctx, handleClass, property,
+                       previous, havePrevious, &selected)) {
+                TPM2_Packet_AppendU32(rsp, selected);
+                previous = selected;
+                havePrevious = 1;
+                emitted++;
+            }
+            FwPatchU32BE(rsp, countPos, (UINT32)emitted);
+
+            /* If selection exhausted the table before reaching the requested
+             * count, it already proved there is no next page. */
+            if ((UINT32)emitted == propertyCount &&
+                    FwSelectCapabilityHandle(ctx, handleClass, property,
+                        previous, havePrevious, &selected)) {
+                FwPatchMoreData(rsp, moreDataPos, 1);
+            }
+            break;
+        }
+        case TPM_CAP_ECC_CURVES: {
+        #ifdef HAVE_ECC
+            UINT32 count = 0;
+            int countPos = rsp->pos;
+
+            TPM2_Packet_AppendU32(rsp, 0); /* back-patched below */
+            for (i = 0; i < (UINT32)(sizeof(gFwEccCurves) /
+                    sizeof(gFwEccCurves[0])); i++) {
+                if ((UINT32)gFwEccCurves[i].tpmCurve >= property &&
+                    FwGetEccCurveParams(gFwEccCurves[i].tpmCurve) != NULL) {
+                    if (count < propertyCount) {
+                        TPM2_Packet_AppendU16(rsp,
+                            gFwEccCurves[i].tpmCurve);
                         count++;
+                    }
+                    else {
+                        FwPatchMoreData(rsp, moreDataPos, 1);
+                        break;
                     }
                 }
             }
-            else if (handleClass == 0x81000000) {
-                /* Persistent objects */
-                for (idx = 0; idx < FWTPM_MAX_PERSISTENT; idx++) {
-                    if (ctx->persistent[idx].used &&
-                        ctx->persistent[idx].handle >= property) {
-                        count++;
-                    }
-                }
-            }
-        #ifndef FWTPM_NO_NV
-            else if (handleClass == 0x01000000) {
-                /* NV indices */
-                for (idx = 0; idx < FWTPM_MAX_NV_INDICES; idx++) {
-                    if (ctx->nvIndices[idx].inUse &&
-                        ctx->nvIndices[idx].nvPublic.nvIndex >= property) {
-                        count++;
-                    }
-                }
-            }
+            FwPatchU32BE(rsp, countPos, count);
+        #else
+            TPM2_Packet_AppendU32(rsp, 0);
         #endif
-            else if (handleClass == 0x02000000 ||
-                     handleClass == 0x03000000) {
-                /* HMAC / policy sessions */
-                for (idx = 0; idx < FWTPM_MAX_SESSIONS; idx++) {
-                    if (ctx->sessions[idx].used &&
-                        ctx->sessions[idx].handle >= property) {
-                        count++;
-                    }
-                }
-            }
-            /* Other classes (PCR, permanent): report 0 */
-
-            if ((UINT32)count > propertyCount) {
-                count = (int)propertyCount;
-                FwPatchMoreData(rsp, moreDataPos, 1); /* more handles available */
-            }
-            TPM2_Packet_AppendU32(rsp, (UINT32)count);
-            if (count > 0) {
-                int emitted = 0;
-                if (handleClass == 0x81000000) {
-                    for (idx = 0; idx < FWTPM_MAX_PERSISTENT &&
-                         emitted < count; idx++) {
-                        if (ctx->persistent[idx].used &&
-                            ctx->persistent[idx].handle >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->persistent[idx].handle);
-                            emitted++;
-                        }
-                    }
-                }
-                else if (handleClass == 0x80000000) {
-                    for (idx = 0; idx < FWTPM_MAX_OBJECTS &&
-                         emitted < count; idx++) {
-                        if (ctx->objects[idx].used &&
-                            ctx->objects[idx].handle >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->objects[idx].handle);
-                            emitted++;
-                        }
-                    }
-                }
-            #ifndef FWTPM_NO_NV
-                else if (handleClass == 0x01000000) {
-                    for (idx = 0; idx < FWTPM_MAX_NV_INDICES &&
-                         emitted < count; idx++) {
-                        if (ctx->nvIndices[idx].inUse &&
-                            ctx->nvIndices[idx].nvPublic.nvIndex >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->nvIndices[idx].nvPublic.nvIndex);
-                            emitted++;
-                        }
-                    }
-                }
-            #endif
-                else if (handleClass == 0x02000000 ||
-                         handleClass == 0x03000000) {
-                    for (idx = 0; idx < FWTPM_MAX_SESSIONS &&
-                         emitted < count; idx++) {
-                        if (ctx->sessions[idx].used &&
-                            ctx->sessions[idx].handle >= property) {
-                            TPM2_Packet_AppendU32(rsp,
-                                ctx->sessions[idx].handle);
-                            emitted++;
-                        }
-                    }
-                }
-            }
             break;
         }
         case TPM_CAP_PP_COMMANDS:
         case TPM_CAP_AUDIT_COMMANDS:
-        case TPM_CAP_ECC_CURVES:
             TPM2_Packet_AppendU32(rsp, 0);
             break;
 
@@ -2991,7 +3058,6 @@ static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     (void)cmd;
     (void)cmdSize;
-    (void)ctx;
     (void)cmdTag;
 
 #ifdef DEBUG_WOLFTPM
@@ -3005,8 +3071,8 @@ static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     clockMs = FWTPM_Clock_GetMs(ctx);
     TPM2_Packet_AppendU64(rsp, clockMs); /* time */
     TPM2_Packet_AppendU64(rsp, clockMs); /* clock */
-    TPM2_Packet_AppendU32(rsp, 0); /* resetCount */
-    TPM2_Packet_AppendU32(rsp, 0); /* restartCount */
+    TPM2_Packet_AppendU32(rsp, ctx->resetCount);
+    TPM2_Packet_AppendU32(rsp, ctx->restartCount);
     TPM2_Packet_AppendU8(rsp, 1);  /* safe = YES */
 
     FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
@@ -15525,59 +15591,89 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* ================================================================== */
 
 #ifndef FWTPM_NO_ECDH
-/* Convert hex string to binary. Returns byte count, or -1 on error. */
+static int FwHexNibble(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
+/* Convert a big-endian hex value to binary. An odd leading digit is the low
+ * nibble of the first output byte. Returns byte count, or -1 on error. */
 static int FwHexToBin(const char* hex, byte* out, int outSz)
 {
-    int i, len;
-    if (hex == NULL) return -1;
-    len = (int)XSTRLEN(hex);
-    if (len & 1) return -1;
-    len /= 2;
-    if (len > outSz) return -1;
-    for (i = 0; i < len; i++) {
-        byte hi, lo;
-        char ch = hex[i * 2];
-        char cl = hex[i * 2 + 1];
-        hi = (byte)((ch >= 'A' && ch <= 'F') ? (ch - 'A' + 10) :
-             (ch >= 'a' && ch <= 'f') ? (ch - 'a' + 10) : (ch - '0'));
-        lo = (byte)((cl >= 'A' && cl <= 'F') ? (cl - 'A' + 10) :
-             (cl >= 'a' && cl <= 'f') ? (cl - 'a' + 10) : (cl - '0'));
-        out[i] = (byte)((hi << 4) | lo);
+    int i, len, decodedLen, outPos = 0;
+    int hi, lo;
+    size_t hexLen;
+
+    if (hex == NULL || out == NULL || outSz < 0) return -1;
+    hexLen = XSTRLEN(hex);
+    if (hexLen > (size_t)INT_MAX) return -1;
+    len = (int)hexLen;
+    decodedLen = len / 2 + (len & 1);
+    if (decodedLen > outSz) {
+        return -1;
     }
-    return len;
+
+    i = 0;
+    if ((len & 1) != 0) {
+        lo = FwHexNibble(hex[i++]);
+        if (lo < 0) return -1;
+        out[outPos++] = (byte)lo;
+    }
+    while (i < len) {
+        hi = FwHexNibble(hex[i++]);
+        lo = FwHexNibble(hex[i++]);
+        if (hi < 0 || lo < 0) return -1;
+        out[outPos++] = (byte)((hi << 4) | lo);
+    }
+    return outPos;
 }
+
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+int FWTPM_TestHexToBin(const char* hex, byte* out, int outSz);
+
+int FWTPM_TestHexToBin(const char* hex, byte* out, int outSz)
+{
+    return FwHexToBin(hex, out, outSz);
+}
+#endif
 
 /* --- TPM2_ECC_Parameters (CC 0x0178) ---
  * Returns curve parameters from wolfCrypt's ecc_set_type via
  * wc_ecc_get_curve_params(). Automatically supports P-256, P-384,
- * and P-521 (when HAVE_ECC521 is defined). */
+ * and P-521 when wolfCrypt and the TPM ECC buffers support it. */
 static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 curveID;
-    int wcCurve, curveIdx, f;
+    UINT16 keyBits;
+    int f;
+    const FWTPM_ECC_CURVE_INFO* curveInfo = NULL;
     const ecc_set_type* params = NULL;
     byte paramBuf[MAX_ECC_BYTES];
     int paramSz;
+    int padSz;
     const char* fields[6];
 
     (void)ctx; (void)cmdSize; (void)cmdTag;
 
     TPM2_Packet_ParseU16(cmd, &curveID);
 
-    wcCurve = FwGetWcCurveId(curveID);
-    if (wcCurve < 0) {
+    curveInfo = FwGetEccCurveInfo(curveID);
+    params = FwGetEccCurveParams(curveID);
+    if (curveInfo == NULL || params == NULL) {
         rc = TPM_RC_CURVE;
     }
-
-    if (rc == 0) {
-        curveIdx = wc_ecc_get_curve_idx(wcCurve);
-        params = wc_ecc_get_curve_params(curveIdx);
-        if (params == NULL) {
-            rc = TPM_RC_CURVE;
-        }
-    }
+    keyBits = (curveInfo != NULL) ? curveInfo->keyBits : 0;
 
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
@@ -15588,7 +15684,7 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         TPM2_Packet_AppendU16(rsp, curveID);
-        TPM2_Packet_AppendU16(rsp, (UINT16)(params->size * 8)); /* bits */
+        TPM2_Packet_AppendU16(rsp, keyBits);
         TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL); /* kdf */
         TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL); /* sign */
 
@@ -15607,7 +15703,15 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_FAILURE;
                 break;
             }
-            TPM2_Packet_AppendU16(rsp, (UINT16)paramSz);
+            if (paramSz > params->size) {
+                rc = TPM_RC_FAILURE;
+                break;
+            }
+            padSz = params->size - paramSz;
+            TPM2_Packet_AppendU16(rsp, (UINT16)(padSz + paramSz));
+            while (padSz-- > 0) {
+                TPM2_Packet_AppendU8(rsp, 0);
+            }
             TPM2_Packet_AppendBytes(rsp, paramBuf, paramSz);
         }
 
@@ -16856,9 +16960,18 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Parse buffer (TPM2B_MAX_BUFFER) */
     if (rc == 0) {
-        TPM2_Packet_ParseU16(cmd, &bufSize);
-        if (bufSize > (UINT16)FWTPM_MAX_DATA_BUF) {
-            rc = TPM_RC_SIZE;
+        if (cmd->pos > cmdSize ||
+                (int)sizeof(UINT16) > cmdSize - cmd->pos) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+        else {
+            TPM2_Packet_ParseU16(cmd, &bufSize);
+            if (bufSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+                rc = TPM_RC_SIZE;
+            }
+            else if ((int)bufSize > cmdSize - cmd->pos) {
+                rc = TPM_RC_INSUFFICIENT;
+            }
         }
     }
     if (rc == 0) {

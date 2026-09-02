@@ -36,6 +36,7 @@ src_libwolftpm_la_SOURCES += src/spdm/spdm_responder.c
 endif
 
 check_PROGRAMS += src/spdm/unit_test
+noinst_PROGRAMS += src/spdm/unit_test
 src_spdm_unit_test_SOURCES  = src/spdm/unit_test.c
 src_spdm_unit_test_LDADD    = src/libwolftpm.la $(LIB_STATIC_ADD)
 src_spdm_unit_test_CFLAGS   = $(AM_CFLAGS)

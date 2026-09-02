@@ -46,6 +46,9 @@
 #if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 #include <fcntl.h>
 #endif
+#ifdef WOLFTPM_SPDM
+#include <stdlib.h>
+#endif
 
 /* Test Fail Helpers */
 #ifndef NO_ABORT
@@ -131,16 +134,203 @@ static int test_tpm_alg_supported(TPM_ALG_ID alg)
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC && !WOLFTPM2_NO_ASN */
 
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG) && \
+    !defined(NO_GETENV)
+static int TestWolfTPM2_HasResponderPin(void)
+{
+    const char* keyHex = getenv("SPDM_RESPONDER_PUBKEY");
+
+    return keyHex != NULL && keyHex[0] != '\0';
+}
+
+static int TestWolfTPM2_InitConfigured(WOLFTPM2_DEV* dev,
+    TPM2HalIoCb ioCb, void* userCtx)
+{
+    const char* keyHex = getenv("SPDM_RESPONDER_PUBKEY");
+    const char* vendor = getenv("SPDM_IDENTITY_VENDOR");
+    byte key[WOLFSPDM_ECC_POINT_SIZE];
+    WOLFSPDM_MODE mode = WOLFSPDM_MODE_AUTO;
+    int keySz;
+
+    if (keyHex == NULL || keyHex[0] == '\0') {
+        return wolfTPM2_Init(dev, ioCb, userCtx);
+    }
+    if (XSTRLEN(keyHex) != sizeof(key) * 2U) {
+        return BAD_FUNC_ARG;
+    }
+    keySz = hexToByte(keyHex, key, (unsigned long)XSTRLEN(keyHex));
+    if (keySz != (int)sizeof(key)) {
+        return BAD_FUNC_ARG;
+    }
+    if (vendor != NULL && XSTRCMP(vendor, "nuvoton") == 0) {
+        mode = WOLFSPDM_MODE_NUVOTON;
+    }
+    else if (vendor != NULL && XSTRCMP(vendor, "nations") == 0) {
+        mode = WOLFSPDM_MODE_NATIONS;
+    }
+    else if (vendor != NULL && vendor[0] != '\0') {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_InitWithSpdmKey_ex(dev, ioCb, userCtx, key,
+        (word32)sizeof(key), mode);
+}
+#else
+static int TestWolfTPM2_HasResponderPin(void)
+{
+    return 0;
+}
+
+static int TestWolfTPM2_InitConfigured(WOLFTPM2_DEV* dev,
+    TPM2HalIoCb ioCb, void* userCtx)
+{
+    return wolfTPM2_Init(dev, ioCb, userCtx);
+}
+#endif
+
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG) && \
+    defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+static void test_wolfTPM2_SpdmModeFromDidVid(void)
+{
+    WOLFSPDM_MODE mode;
+    int rc;
+
+    mode = WOLFSPDM_MODE_AUTO;
+    rc = wolfTPM2_SpdmModeFromDidVid(
+        0x12340000U | TPM_VENDOR_NUVOTON, &mode);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(mode, WOLFSPDM_MODE_NUVOTON);
+
+    mode = WOLFSPDM_MODE_AUTO;
+    rc = wolfTPM2_SpdmModeFromDidVid(
+        0x56780000U | TPM_VENDOR_NATIONTECH, &mode);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(mode, WOLFSPDM_MODE_NATIONS);
+
+    mode = WOLFSPDM_MODE_NUVOTON;
+    rc = wolfTPM2_SpdmModeFromDidVid(0x12345678U, &mode);
+    AssertIntEQ(rc, WOLFSPDM_E_BAD_STATE);
+    AssertIntEQ(mode, WOLFSPDM_MODE_AUTO);
+    AssertIntEQ(wolfTPM2_SpdmModeFromDidVid(0, NULL), BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "SPDM DID/VID mode:");
+}
+#endif
+
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK) && \
+    !defined(NO_GETENV)
+static void test_wolfTPM2_InitWithSpdmPsk_success(void)
+{
+    const char* pskHex = getenv("WOLFTPM_TEST_SPDM_PSK");
+    byte psk[128];
+    size_t hexSz;
+    int pskSz;
+    int rc;
+    WOLFTPM2_DEV dev;
+
+    if (pskHex == NULL || pskHex[0] == '\0') {
+        return;
+    }
+
+    hexSz = XSTRLEN(pskHex);
+    AssertTrue((hexSz & 1U) == 0U);
+    AssertTrue(hexSz <= sizeof(psk) * 2U);
+    if ((hexSz & 1U) != 0U || hexSz > sizeof(psk) * 2U) {
+        return;
+    }
+    pskSz = hexToByte(pskHex, psk, (unsigned long)hexSz);
+    AssertIntGT(pskSz, 0);
+    if (pskSz <= 0) {
+        wc_ForceZero(psk, sizeof(psk));
+        return;
+    }
+
+    rc = wolfTPM2_InitWithSpdmPsk(&dev, TPM2_IoCb, NULL, psk,
+        (word32)pskSz, NULL, 0);
+    wc_ForceZero(psk, sizeof(psk));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(wolfTPM2_SpdmIsConnected(&dev), 1);
+    AssertIntNE(wolfTPM2_SpdmGetSessionId(&dev), 0);
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+    AssertNull(dev.spdmCtx);
+}
+#endif
+
 static void test_wolfTPM2_Init(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
+#ifdef WOLFTPM_LINUX_DEV
+    TPM2_CTX initCtx;
+#endif
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+    byte rspPubKey[WOLFSPDM_ECC_POINT_SIZE];
+    #if !defined(WOLFSPDM_NUVOTON) && !defined(WOLFSPDM_NATIONS)
+    WOLFTPM2_DEV untouchedDev;
+    #endif
+#endif
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK)
+    byte psk[32];
+#endif
+
+#ifdef WOLFTPM_LINUX_DEV
+    rc = TPM2_Init_ex(&initCtx, NULL, &initCtx, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    AssertIntEQ(initCtx.fd, -1);
+    AssertIntEQ(TPM2_Cleanup(&initCtx), TPM_RC_SUCCESS);
+#endif
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+    XMEMSET(rspPubKey, 0xA5, sizeof(rspPubKey));
+    rc = wolfTPM2_InitWithSpdmKey(NULL, TPM2_IoCb, NULL,
+        rspPubKey, sizeof(rspPubKey));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_InitWithSpdmKey(&dev, TPM2_IoCb, NULL, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_InitWithSpdmKey(&dev, TPM2_IoCb, NULL,
+        rspPubKey, sizeof(rspPubKey) - 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_InitWithSpdmKey_ex(&dev, TPM2_IoCb, NULL,
+        rspPubKey, sizeof(rspPubKey), (WOLFSPDM_MODE)99);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    #if !defined(WOLFSPDM_NUVOTON) && !defined(WOLFSPDM_NATIONS)
+    XMEMSET(&dev, 0xA5, sizeof(dev));
+    XMEMCPY(&untouchedDev, &dev, sizeof(untouchedDev));
+    rc = wolfTPM2_InitWithSpdmKey(&dev, TPM2_IoCb, NULL,
+        rspPubKey, sizeof(rspPubKey));
+    AssertIntEQ(rc, WOLFSPDM_E_NOT_AVAILABLE);
+    AssertIntEQ(XMEMCMP(&dev, &untouchedDev, sizeof(dev)), 0);
+    #endif
+#endif
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK)
+    XMEMSET(psk, 0x5A, sizeof(psk));
+    rc = wolfTPM2_InitWithSpdmPsk(NULL, TPM2_IoCb, NULL, psk,
+        sizeof(psk), NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_InitWithSpdmPsk(&dev, TPM2_IoCb, NULL, NULL, 0,
+        NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_InitWithSpdmPsk(&dev, TPM2_IoCb, NULL, psk,
+        sizeof(psk), NULL, 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    #ifndef NO_GETENV
+    test_wolfTPM2_InitWithSpdmPsk_success();
+    #endif
+#endif
 
     /* Test first argument, wolfTPM2 context */
     rc = wolfTPM2_Init(NULL, TPM2_IoCb, NULL);
     AssertIntNE(rc, 0);
+#if defined(WOLFTPM_SPDM) && !defined(NO_GETENV)
+    if (getenv("WOLFTPM_TEST_SPDM_ONLY") != NULL) {
+        rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+        AssertIntEQ(rc, WOLFSPDM_E_BAD_STATE);
+        AssertNull(TPM2_GetActiveCtx());
+        AssertIntEQ(dev.ctx.locality, -1);
+        AssertNull(dev.spdmCtx);
+    }
+#endif
     /* Test second argument, TPM2 IO Callbacks */
-    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    rc = TestWolfTPM2_InitConfigured(&dev, NULL, NULL);
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
     defined(WOLFTPM_WINAPI)
     /* Custom IO Callbacks are not needed for Linux TIS driver */
@@ -152,7 +342,7 @@ static void test_wolfTPM2_Init(void)
 #endif
 
     /* Test success */
-    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    rc = TestWolfTPM2_InitConfigured(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
 
     wolfTPM2_Cleanup(&dev);
@@ -160,6 +350,28 @@ static void test_wolfTPM2_Init(void)
     printf("Test TPM Wrapper: %-40s %s\n", "Init:",
         rc == 0 ? "Passed" : "Failed");
 }
+
+#if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
+/* The test server returns TPM_RC_UPGRADE from Startup. The wrapper must keep
+ * the active context so the caller can issue vendor recovery commands. */
+static void test_wolfTPM2_InitUpgrade(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntEQ(rc, TPM_RC_UPGRADE);
+    AssertTrue(TPM2_GetActiveCtx() == &dev.ctx);
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+    AssertNull(TPM2_GetActiveCtx());
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Init upgrade context:");
+}
+#endif
+
+/* When the SPDM integration harness supplies a trusted pin, route the
+ * remaining wrapper tests through authenticated initialization. */
+#define wolfTPM2_Init TestWolfTPM2_InitConfigured
 
 
 /* test for WOLFTPM2_DEV restore */
@@ -180,6 +392,15 @@ static void test_wolfTPM2_OpenExisting(void)
     /* Perform cleanup, but don't shutdown TPM module */
     rc = wolfTPM2_Cleanup_ex(&dev, 0);
     AssertIntEQ(rc, 0);
+
+    /* OpenExisting deliberately does not recreate transport sessions. The
+     * pinned SPDM integration run covers authenticated reinitialization in
+     * every other wrapper test. */
+    if (TestWolfTPM2_HasResponderPin()) {
+        printf("Test TPM Wrapper: %-40s Skipped (SPDM pinned mode)\n",
+            "Open Existing:");
+        return;
+    }
 
 
     /* Restore TPM access */
@@ -287,12 +508,20 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     int isImpl;
     int fromTpm = 0;
     TPM_CC ccStart, ccData, ccStartRule, ccDataRule;
+    TPM2_CTX* savedCtx;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* Invalid manifest size (not 321, 177 or 2697) for auto-detection */
     uint8_t dummy_manifest[10] = {0};
 #endif
+
+    /* A missing active context must fail before raw packet marshalling. */
+    savedCtx = TPM2_GetActiveCtx();
+    TPM2_SetActiveCtx(NULL);
+    rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeData, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    TPM2_SetActiveCtx(savedCtx);
 
     /* Initialize TPM */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
@@ -4218,9 +4447,15 @@ static void test_TPM2_DispatchCommand_overflow(void)
     XMEMSET(small, 0x5A, sizeof(small));
     XMEMSET(&ctx, 0, sizeof(ctx));
 
-    /* timeoutTries 0, so this performs no IO but does set the active ctx */
+    /* timeoutTries 0, so this performs no IO but does set the active ctx. */
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
     AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
     ctx.ioCb = test_ovf_ioCb;
+#else
+    AssertIntEQ(TPM2_Init_ex(&ctx, test_ovf_ioCb, NULL, 0),
+        TPM_RC_SUCCESS);
+#endif
 
     /* Control: a payload that fits is not refused here, it goes on to the
      * transport and fails there instead. This is what makes the guard
@@ -7123,6 +7358,9 @@ static void test_wolfTPM2_SPDM_Functions(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+    byte rspPubKey[WOLFSPDM_ECC_POINT_SIZE];
+#endif
 #ifdef WOLFSPDM_NUVOTON
     WOLFSPDM_NUVOTON_STATUS nuvStatus;
 #endif
@@ -7135,13 +7373,14 @@ static void test_wolfTPM2_SPDM_Functions(void)
     TPM2_AUTH_SESSION nationsOrigSess;
 #endif
 
+    AssertStrEQ(wolfSPDM_GetErrorString(WOLFSPDM_E_BAD_STATE),
+        "Invalid state");
+    AssertStrNE(TPM2_GetRCString(WOLFSPDM_E_BAD_STATE),
+        "SPDM invalid state");
+
     /* Initialize device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
-    if (rc != 0) {
-        printf("Test TPM Wrapper: %-40s Failed (Init 0x%x)\n",
-            "SPDM Functions:", rc);
-        return;
-    }
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     /* Test 1: Parameter validation - NULL args */
     rc = wolfTPM2_SpdmInit(NULL);
@@ -7154,17 +7393,44 @@ static void test_wolfTPM2_SPDM_Functions(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
     rc = wolfTPM2_SpdmCleanup(NULL);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+    XMEMSET(rspPubKey, 0xA5, sizeof(rspPubKey));
+    rc = wolfTPM2_SpdmSetResponderPubKey(NULL, rspPubKey,
+        sizeof(rspPubKey));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
 
     /* Test 2: Context lifecycle - init, check state, cleanup */
     rc = wolfTPM2_SpdmInit(&dev);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+    rc = wolfTPM2_SpdmSetResponderPubKey(&dev, NULL, 0);
+    AssertIntEQ(rc, WOLFSPDM_E_INVALID_ARG);
+    rc = wolfTPM2_SpdmSetResponderPubKey(&dev, rspPubKey,
+        sizeof(rspPubKey) - 1);
+    AssertIntEQ(rc, WOLFSPDM_E_INVALID_ARG);
+    if (!TestWolfTPM2_HasResponderPin()) {
+        rc = wolfTPM2_SpdmSetResponderPubKey(&dev, rspPubKey,
+            sizeof(rspPubKey));
+        AssertIntEQ(rc, WOLFSPDM_SUCCESS);
+    }
+#endif
     /* When SPDM-only mode is active, auto-SPDM connects during Init.
      * Otherwise, just initialized but not yet connected. */
-    if (!dev.ctx.spdmOnlyDetected) {
+    if (!dev.ctx.spdmOnlyDetected && !TestWolfTPM2_HasResponderPin()) {
         AssertIntEQ(wolfTPM2_SpdmIsConnected(&dev), 0);
         AssertIntEQ(wolfTPM2_SpdmGetSessionId(&dev), 0);
     }
+    else if (TestWolfTPM2_HasResponderPin()) {
+        AssertIntEQ(wolfTPM2_SpdmIsConnected(&dev), 1);
+        AssertIntNE(wolfTPM2_SpdmGetSessionId(&dev), 0);
+    }
     /* Cleanup */
+    if (TestWolfTPM2_HasResponderPin() &&
+            wolfTPM2_SpdmIsConnected(&dev)) {
+        rc = wolfTPM2_SpdmDisconnect(&dev);
+        AssertIntEQ(rc, WOLFSPDM_SUCCESS);
+    }
     rc = wolfTPM2_SpdmCleanup(&dev);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     /* Idempotent cleanup */
@@ -8808,10 +9074,21 @@ int main(int argc, char *argv[])
 int unit_tests(int argc, char *argv[])
 #endif
 {
+#if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV) && \
+    !defined(WOLFTPM2_NO_WRAPPER)
+    if (argc == 2 && XSTRCMP(argv[1], "--init-upgrade") == 0) {
+        test_wolfTPM2_InitUpgrade();
+        return 0;
+    }
+#endif
     (void)argc;
     (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG) && \
+    defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+    test_wolfTPM2_SpdmModeFromDidVid();
+#endif
     test_wolfTPM2_Init();
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();

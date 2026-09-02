@@ -32,8 +32,20 @@ tests_fwtpm_unit_test_SOURCES = \
     src/tpm2_crypto.c \
     src/tpm2_param_enc.c
 tests_fwtpm_unit_test_CFLAGS   = -DWOLFTPM_FWTPM -DFWTPM_NV_FILE=\"fwtpm_test_nv.bin\" $(AM_CFLAGS)
-tests_fwtpm_unit_test_CPPFLAGS = -DWOLFTPM_FWTPM $(AM_CPPFLAGS)
+tests_fwtpm_unit_test_CPPFLAGS = \
+    -DWOLFTPM_FWTPM -DWOLFTPM_FWTPM_UNIT_TEST $(AM_CPPFLAGS)
 tests_fwtpm_unit_test_LDADD    = $(LIB_STATIC_ADD)
+endif
+
+if BUILD_FWTPM_TIS
+check_PROGRAMS += tests/fwtpm_hal_unit.test
+noinst_PROGRAMS += tests/fwtpm_hal_unit.test
+tests_fwtpm_hal_unit_test_SOURCES = tests/fwtpm_hal_unit_tests.c
+tests_fwtpm_hal_unit_test_CFLAGS = \
+    -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO -DWOLFTPM_EXAMPLE_HAL $(AM_CFLAGS)
+tests_fwtpm_hal_unit_test_CPPFLAGS = \
+    -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO -DWOLFTPM_EXAMPLE_HAL $(AM_CPPFLAGS)
+tests_fwtpm_hal_unit_test_LDADD = $(FWTPM_TIS_LIBS)
 endif
 
 # TPM make check: manages server, runs unit.test + run_examples.sh

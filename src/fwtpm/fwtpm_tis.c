@@ -436,7 +436,6 @@ int FWTPM_TIS_Init(FWTPM_CTX* ctx)
 
     /* Initialize register state */
     XMEMSET(regs, 0, sizeof(FWTPM_TIS_REGS));
-    regs->magic = FWTPM_TIS_MAGIC;
     regs->version = FWTPM_TIS_VERSION;
 
     /* Power-on register defaults. ACCESS is not stored here: it is served
@@ -450,6 +449,9 @@ int FWTPM_TIS_Init(FWTPM_CTX* ctx)
                      FWTPM_INTF_INT_LEVEL_LOW;
     regs->did_vid = FWTPM_TIS_DID_VID_VAL;
     regs->rid = FWTPM_VERSION_PATCH;
+
+    /* Publish the validity sentinel only after all client-visible state. */
+    FWTPM_TIS_ATOMIC_STORE(regs->magic, FWTPM_TIS_MAGIC);
 
     /* Auto power-on in TIS mode (no platform port to signal power) */
     ctx->powerOn = 1;

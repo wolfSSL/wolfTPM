@@ -155,7 +155,7 @@ struct WOLFSPDM_CTX {
     word32 sessionId;           /* Combined: reqSessionId | (rspSessionId << 16) */
 
     /* Responder's identity public key (for cert-less mode like Nuvoton) */
-    byte rspPubKey[WOLFSPDM_PUBKEY_BUF_SZ / 2]; /* TPMT_PUBLIC or raw X||Y */
+    byte rspPubKey[WOLFSPDM_PUBKEY_BUF_SZ / 2]; /* pinned raw X||Y */
     word32 rspPubKeyLen;
 
     /* Mutual auth fields from KEY_EXCHANGE_RSP */
@@ -306,6 +306,8 @@ WOLFTPM_API int wolfSPDM_ComputeSharedSecret(WOLFSPDM_CTX* ctx,
 WOLFTPM_API int wolfSPDM_GetRandom(WOLFSPDM_CTX* ctx, byte* out, word32 outSz);
 WOLFTPM_API int wolfSPDM_SignHash(WOLFSPDM_CTX* ctx, const byte* hash, word32 hashSz,
     byte* sig, word32* sigSz);
+WOLFTPM_TEST_API int wolfSPDM_ExtractEccPoint(const byte* pubKey,
+    word32 pubKeySz, const byte** pubKeyX, const byte** pubKeyY);
 WOLFTPM_API int wolfSPDM_VerifySignature(WOLFSPDM_CTX* ctx,
     const byte* hash, word32 hashSz,
     const byte* sig, word32 sigSz);

@@ -177,6 +177,10 @@ wolfTPM fwTPM Server v0.1.0
   Model:         fwTPM
 ```
 
+In `--spdm-tcg` test mode the server also prints its generated responder
+public key. This is a local test-harness convenience, not a provisioning or
+trust-anchor channel for hardware responders.
+
 ### Connecting wolfTPM Clients
 
 Any wolfTPM application built with `--enable-swtpm` connects to the fwTPM
@@ -643,7 +647,8 @@ disabled, the corresponding TPM commands are excluded from the build.
 | `NO_RSA` | not defined | Excludes RSA keygen, sign, verify, `RSA_Encrypt`, `RSA_Decrypt` |
 | `HAVE_ECC` | defined | Enables ECC keygen, sign, verify, `ECDH_KeyGen`, `ECDH_ZGen`, `ECC_Parameters` |
 | `HAVE_ECC384` | defined | Enables P-384 curve support |
-| `HAVE_ECC521` | defined | Enables P-521 curve support |
+| `HAVE_ECC521` or `HAVE_ALL_CURVES` | build-dependent | Enables P-521 when `MAX_ECC_KEY_BITS >= 521` provides 66-byte TPM ECC fields |
+| `ECC_MIN_KEY_SZ` | wolfCrypt-defined | Excludes smaller curves from `ECC_Parameters` and `TPM_CAP_ECC_CURVES` |
 | `NO_AES` | not defined | Excludes `EncryptDecrypt`, `EncryptDecrypt2`, AES parameter encryption |
 | `WOLFSSL_SHA384` | defined | Enables SHA-384 PCR bank |
 
@@ -749,7 +754,7 @@ register-level access. This mode simulates an SPI-attached TPM.
 
 | Field | Description |
 |-------|-------------|
-| `magic` / `version` | Validation header (`0x57544953` / `"WTIS"`) |
+| `magic` / `version` | Validation header (`0x57544953` / `"WTIS"`, protocol version 2) |
 | `reg_addr`, `reg_len`, `reg_is_write`, `reg_data` | Register access request |
 | TIS register shadow: `access`, `sts`, `int_enable`, `int_status`, `intf_caps`, `did_vid`, `rid` | Emulated TIS registers |
 | `cmd_buf[4096]`, `cmd_len`, `fifo_write_pos` | Command FIFO |
@@ -759,9 +764,14 @@ register-level access. This mode simulates an SPI-attached TPM.
 
 | Define | Default | Description |
 |--------|---------|-------------|
-| `FWTPM_TIS_SHM_PATH` | `/tmp/fwtpm.shm` | Shared memory file |
+| `FWTPM_TIS_SHM_PATH` | `/tmp/fwtpm.shm` | Shared memory file; clients require a regular, single-link, same-UID, exact-size `0600` endpoint |
 | `FWTPM_TIS_SEM_CMD` | `/fwtpm_cmd` | Command semaphore name |
 | `FWTPM_TIS_SEM_RSP` | `/fwtpm_rsp` | Response semaphore name |
+
+Clients require an exact protocol version and shared-region-size match, so
+rebuild the client library and `fwtpm_server` together when changing options
+that affect `FWTPM_TIS_FIFO_SIZE`. The default paths are global, so one server
+per host.
 
 **Server-side API:**
 

@@ -24,6 +24,7 @@ src_fwtpm_fwtpm_server_SOURCES += src/fwtpm/fwtpm_tis.c \
     src/fwtpm/fwtpm_tis_shm.c
 src_fwtpm_fwtpm_server_CFLAGS  += -DWOLFTPM_FWTPM_TIS
 src_fwtpm_fwtpm_server_CPPFLAGS += -DWOLFTPM_FWTPM_TIS
+src_fwtpm_fwtpm_server_LDADD   += $(FWTPM_TIS_LIBS)
 endif
 
 # fwtpm_server doesn't link libwolftpm.la (it compiles its own copies with
