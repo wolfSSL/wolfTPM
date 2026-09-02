@@ -403,6 +403,22 @@ WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps)
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Decode a TPM property list into WOLFTPM2_CAPS
+    \note Exposed so the decode can be unit tested against synthetic property
+        lists; callers want wolfTPM2_GetCapabilities
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param caps pointer to a WOLFTPM2_CAPS struct to fill
+    \param props pointer to the tagged property list to decode
+
+    \sa wolfTPM2_GetCapabilities
+*/
+WOLFTPM_TEST_API int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
+    TPML_TAGGED_TPM_PROPERTY* props);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
 
     \brief Report whether the TPM implements a given algorithm
 
@@ -5473,8 +5489,10 @@ WOLFTPM_API int wolfTPM2_ST33_CmdImplemented(TPM_CC cc, int* isImpl);
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: ccStart or ccData is NULL
 
-    \param caps capabilities of the attached TPM, or NULL when the running
-        firmware version is unknown, as it is in firmware upgrade mode
+    \param caps capabilities of the attached TPM, or NULL once it has entered
+        firmware upgrade mode, where no capability query may be issued because
+        the TPM accepts only FieldUpgradeData and any other command leaves the
+        mode. With NULL the firmware version rule decides alone
     \param manifestMajor target major version from wolfTPM2_ST33_ManifestVersion
     \param ccStart pointer to store the field upgrade start command code
     \param ccData pointer to store the field upgrade data command code

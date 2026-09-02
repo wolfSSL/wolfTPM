@@ -424,6 +424,19 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
         AssertIntEQ((int)ccStart, (int)ccStartRule);
         AssertIntEQ((int)ccData, (int)ccDataRule);
     }
+
+    /* Once the TPM is in firmware upgrade mode it accepts only
+     * FieldUpgradeData, so selection must issue no capability query at all.
+     * caps NULL is that mode, and it has to resolve from the image alone. */
+    AssertIntEQ(wolfTPM2_ST33_GetFwUpgradeCommands(NULL, 2, &ccStart, &ccData,
+        &fromTpm), TPM_RC_SUCCESS);
+    AssertIntEQ(fromTpm, 0);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStart);
+    AssertIntEQ((int)ccData, (int)TPM_CC_FieldUpgradeData);
+    AssertIntEQ(wolfTPM2_ST33_GetFwUpgradeCommands(NULL, 9, &ccStart, &ccData,
+        &fromTpm), TPM_RC_SUCCESS);
+    AssertIntEQ(fromTpm, 0);
+    AssertIntEQ((int)ccStart, (int)TPM_CC_FieldUpgradeStartVendor_ST33);
     AssertIntEQ(wolfTPM2_ST33_GetFwUpgradeCommands(&caps, 9, NULL, &ccData,
         NULL), BAD_FUNC_ARG);
 
@@ -4235,6 +4248,50 @@ static void test_TPM2_DispatchCommand_overflow(void)
     printf("Test TPM Wrapper:\tDispatch overflow guard:\tPassed\n");
 }
 #endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_ST33 || WOLFTPM_AUTODETECT) */
+
+/* Vendor string chunks used to be appended at the current string length, so a
+ * chunk starting with a zero byte left the length at zero and the next chunk
+ * overwrote it - a part reporting a binary vendor string kept only its last
+ * chunk. Each chunk must land at the offset its property owns, whatever the
+ * bytes are and whatever order the properties arrive in. */
+static void test_wolfTPM2_ParseCapabilities_vendorStr(void)
+{
+    WOLFTPM2_CAPS caps;
+    TPML_TAGGED_TPM_PROPERTY props;
+    static const byte expected[16] = {
+        0x00, 0x01, 0x01, 0x02,   /* leading zero, used to be overwritten */
+        0x00, 0x02, 0x01, 0x02,   /* leading zero */
+        0x41, 0x42, 0x43, 0x44,   /* "ABCD" */
+        0x45, 0x00, 0x00, 0x00    /* "E" plus embedded terminator */
+    };
+    static const UINT32 vals[4] = {
+        0x00010102, 0x00020102, 0x41424344, 0x45000000
+    };
+    int i, pass;
+
+    for (pass = 0; pass < 2; pass++) {
+        XMEMSET(&caps, 0, sizeof(caps));
+        XMEMSET(&props, 0, sizeof(props));
+        props.count = 4;
+        for (i = 0; i < 4; i++) {
+            /* second pass delivers the same chunks in reverse, since the
+             * offset has to come from the property and not the array index */
+            int src = (pass == 0) ? i : (3 - i);
+            props.tpmProperty[i].property =
+                (TPM_PT)(TPM_PT_VENDOR_STRING_1 + src);
+            props.tpmProperty[i].value = vals[src];
+        }
+
+        AssertIntEQ(wolfTPM2_ParseCapabilities(&caps, &props), TPM_RC_SUCCESS);
+        for (i = 0; i < 16; i++) {
+            AssertIntEQ((int)(byte)caps.vendorStr[i], (int)expected[i]);
+        }
+        /* still terminated, so printing the field stays safe */
+        AssertIntEQ((int)caps.vendorStr[16], 0);
+    }
+
+    printf("Test TPM Wrapper:\tVendor string placement:\tPassed\n");
+}
 
 /* st33_detect_blob0 decides where the manifest ends and firmware data begins,
  * including in upgrade mode where the TPM cannot be consulted at all, so a
@@ -8826,6 +8883,7 @@ int unit_tests(int argc, char *argv[])
     (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
     test_TPM2_DispatchCommand_overflow();
 #endif
+    test_wolfTPM2_ParseCapabilities_vendorStr();
     test_st33_detect_blob0();
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
     (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))

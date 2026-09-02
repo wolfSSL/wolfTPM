@@ -837,7 +837,7 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
  *      comply with all of the FIPS 140-2 requirements at Level 1 or higher.
  *   TPM_PT_FIRMWARE_VERSION_2: ST Internal Additional Version
  */
-static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
+int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
     TPML_TAGGED_TPM_PROPERTY* props)
 {
     int rc = 0;
@@ -12134,6 +12134,14 @@ int wolfTPM2_ST33_GetFwUpgradeCommands(const WOLFTPM2_CAPS* caps,
         *fromTpm = 0;
     }
 
+    /* caps NULL means the TPM is already in firmware upgrade mode, where it
+     * accepts only FieldUpgradeData - any other command leaves that mode. No
+     * capability query may be issued here, so the image decides alone. */
+    if (caps == NULL) {
+        return wolfTPM2_ST33_FwUpgradeCommands(0, 0, manifestMajor, ccStart,
+            ccData);
+    }
+
     rcVendor = wolfTPM2_ST33_CmdImplemented(TPM_CC_FieldUpgradeStartVendor_ST33,
         &vendorImpl);
     rcStd = wolfTPM2_ST33_CmdImplemented(TPM_CC_FieldUpgradeStart, &stdImpl);
@@ -12158,10 +12166,20 @@ int wolfTPM2_ST33_GetFwUpgradeCommands(const WOLFTPM2_CAPS* caps,
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("ST33 Field upgrade command set inconclusive (vendor rc 0x%x "
-        "impl %d, standard rc 0x%x impl %d), using the firmware version "
-        "rule\n", (unsigned int)rcVendor, vendorImpl, (unsigned int)rcStd,
-        stdImpl);
+    /* A TPM that lists neither pair may simply not enumerate its vendor
+     * commands, so the version rule still gets a turn rather than refusing
+     * an image the part would have taken */
+    if (rcVendor == TPM_RC_SUCCESS && rcStd == TPM_RC_SUCCESS &&
+            !vendorImpl && !stdImpl) {
+        printf("ST33 TPM lists neither field upgrade pair, using the "
+            "firmware version rule\n");
+    }
+    else {
+        printf("ST33 Field upgrade command set inconclusive (vendor rc 0x%x "
+            "impl %d, standard rc 0x%x impl %d), using the firmware version "
+            "rule\n", (unsigned int)rcVendor, vendorImpl, (unsigned int)rcStd,
+            stdImpl);
+    }
 #endif
     return wolfTPM2_ST33_FwUpgradeCommands(
         (caps != NULL) ? caps->fwVerMinor : 0, (caps != NULL),
@@ -12408,8 +12426,15 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
     #endif
         return rc;
     }
-    (void)wolfTPM2_ST33_GetFwUpgradeCommands(&caps, manifestMajor, &ccStart,
+    rc = wolfTPM2_ST33_GetFwUpgradeCommands(&caps, manifestMajor, &ccStart,
         &ccData, NULL);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Could not select field upgrade command codes 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
 
 #ifdef DEBUG_WOLFTPM
     printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",

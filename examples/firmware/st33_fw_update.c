@@ -82,16 +82,13 @@ static void usage(void)
 /* Field upgrade command codes come from the library, so the codes this tool
  * reports, and binds a PolicyCommandCode to, are the ones that will be sent.
  * In firmware upgrade mode the capabilities cannot be read, so caps is passed
- * as NULL and the image's own target version decides. Returns 1 when the TPM
- * decided, 0 when the codes came from the firmware version rule. */
+ * as NULL and the image's own target version decides. Sets fromTpm to 1 when
+ * the TPM decided, 0 when the firmware version rule did. */
 static int TPM2_ST33_PickOrdinals(const WOLFTPM2_CAPS* caps, int haveCaps,
-    word16 manifestMajor, TPM_CC* ccStart, TPM_CC* ccData)
+    word16 manifestMajor, TPM_CC* ccStart, TPM_CC* ccData, int* fromTpm)
 {
-    int fromTpm = 0;
-
-    (void)wolfTPM2_ST33_GetFwUpgradeCommands(haveCaps ? caps : NULL,
-        manifestMajor, ccStart, ccData, &fromTpm);
-    return fromTpm;
+    return wolfTPM2_ST33_GetFwUpgradeCommands(haveCaps ? caps : NULL,
+        manifestMajor, ccStart, ccData, fromTpm);
 }
 
 /* ST33 vendor product information. Two parts of the same model and firmware
@@ -580,8 +577,13 @@ load_firmware:
         rc = BAD_FUNC_ARG;
         goto exit;
     }
-    ccFromTpm = TPM2_ST33_PickOrdinals(&caps, !fwinfo.in_upgrade_mode,
-        manifestMajor, &ccStart, &ccData);
+    rc = TPM2_ST33_PickOrdinals(&caps, !fwinfo.in_upgrade_mode, manifestMajor,
+        &ccStart, &ccData, &ccFromTpm);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Error: could not select field upgrade command codes "
+            "(0x%x: %s)\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
 
     printf("Firmware Update:\n");
     printf("\tTotal file size: %zu bytes\n", fwinfo.fi_bufSz);
