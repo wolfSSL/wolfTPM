@@ -837,7 +837,7 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
  *      comply with all of the FIPS 140-2 requirements at Level 1 or higher.
  *   TPM_PT_FIRMWARE_VERSION_2: ST Internal Additional Version
  */
-static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
+int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
     TPML_TAGGED_TPM_PROPERTY* props)
 {
     int rc = 0;
@@ -886,7 +886,10 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
             case TPM_PT_VENDOR_STRING_3:
             case TPM_PT_VENDOR_STRING_4:
                 val = TPM2_Packet_SwapU32(val); /* swap for little endian */
-                len = (word32)XSTRLEN(caps->vendorStr); /* add to existing string */
+                /* Offset by property, not string length: a chunk starting
+                 * with a zero byte would let the next one overwrite it */
+                len = (word32)(props->tpmProperty[i].property -
+                    TPM_PT_VENDOR_STRING_1) * (word32)sizeof(UINT32);
                 if (len + sizeof(UINT32) < sizeof(caps->vendorStr)) {
                     XMEMCPY(&caps->vendorStr[len], &val, sizeof(UINT32));
                 }
@@ -1006,8 +1009,10 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
 
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
-    /* Get vendor specific information */
-    if (rc == 0) {
+    /* Get vendor specific information. These properties only exist on
+     * Infineon parts - probing them on another manufacturer's TPM just
+     * produces misleading TPM_RC_VALUE errors. */
+    if (rc == 0 && cap->mfg == TPM_MFG_INFINEON) {
         int rc_ifx;
         rc_ifx = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_OPERATION_MODE,
             &cap->opMode, sizeof(cap->opMode));
@@ -11948,12 +11953,32 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
 /* Maximum size of firmware chunks for ST33 */
 #define ST33_FW_MAX_CHUNK_SZ 2048  /* Must be large enough for firmware blobs */
 
-/* ST33 firmware version threshold for LMS requirement. LMS is a generation 9
- * feature: on those parts a minor version >= 512 requires the LMS format
- * (e.g. 9.512), below that the ECDSA format (e.g. 9.257). Generation 1 parts
- * are always non-LMS no matter how high the minor version goes (e.g. 1.771). */
-#define ST33_FW_GENERATION_LMS_CAPABLE 9
-#define ST33_FW_VERSION_LMS_REQUIRED   512
+/* The manifest format follows the silicon family, which the firmware major
+ * version identifies. ST33TPHF2X (majors 1, 2 and the older 74 line) signs
+ * with SHA-256 + RSA-PSS; ST33KTPM (majors 9 and 10) signs with ECDSA P-384,
+ * and from minor 512 with LMS. A major outside both lists is unknown and no
+ * size is asserted for it, rather than guessing an upgrade into a rejection. */
+#define ST33_FW_FAMILY_UNKNOWN 0
+#define ST33_FW_FAMILY_TPHF2X  1
+#define ST33_FW_FAMILY_KTPM    2
+#define ST33_FW_VERSION_LMS_REQUIRED 512
+
+static int tpm2_st33_family(word16 fwVerMajor)
+{
+    switch (fwVerMajor) {
+        case 1:  /* ST33TPHF2X, SPI firmware line */
+        case 2:  /* ST33TPHF2X, I2C firmware line */
+        case 74: /* ST33TPHF2X, older line both buses (74.8 SPI, 74.9 I2C) */
+            return ST33_FW_FAMILY_TPHF2X;
+        case 9:  /* ST33KTPM2X */
+        case 10: /* ST33KTPM2A */
+            return ST33_FW_FAMILY_KTPM;
+        /* Uncharacterized majors stay unknown so no size or family rule is
+         * asserted against them, even ones the tool can name */
+        default:
+            return ST33_FW_FAMILY_UNKNOWN;
+    }
+}
 
 /* ST33 manifest (blob0) sizes determine firmware format. The manifest is a
  * 33 byte fixed header followed by the firmware digest and the signature over
@@ -11965,16 +11990,199 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
 /* gen 9 at 512 and above: embedded LMS signature */
 #define ST33_MANIFEST_SIZE_LMS         2697
 
-/* Manifest size the running firmware expects for its next update */
+/* Manifest size the running firmware expects for its next update. Returns 0
+ * when the family is unknown, meaning no size can be asserted. */
 static uint32_t tpm2_st33_expected_manifest_sz(const WOLFTPM2_CAPS* caps)
 {
-    if (caps->fwVerMajor < ST33_FW_GENERATION_LMS_CAPABLE) {
-        return ST33_MANIFEST_SIZE_NON_LMS_RSA;
+    switch (tpm2_st33_family(caps->fwVerMajor)) {
+        case ST33_FW_FAMILY_TPHF2X:
+            return ST33_MANIFEST_SIZE_NON_LMS_RSA;
+        case ST33_FW_FAMILY_KTPM:
+            if (caps->fwVerMinor < ST33_FW_VERSION_LMS_REQUIRED) {
+                return ST33_MANIFEST_SIZE_NON_LMS;
+            }
+            return ST33_MANIFEST_SIZE_LMS;
+        default:
+            return 0;
     }
-    if (caps->fwVerMinor < ST33_FW_VERSION_LMS_REQUIRED) {
-        return ST33_MANIFEST_SIZE_NON_LMS;
+}
+
+/* Target firmware version carried in the manifest (blob0) header. The header
+ * opens with a zero byte followed by the version the image upgrades to, laid
+ * out exactly like TPM_PT_FIRMWARE_VERSION_1: UINT16 major then UINT16 minor,
+ * big endian (for example 00 | 00 02 02 00 for 2.512). */
+#define ST33_MANIFEST_VERSION_OFFSET 1
+
+int wolfTPM2_ST33_ManifestVersion(const uint8_t* manifest,
+    uint32_t manifest_sz, word16* major, word16* minor)
+{
+    const uint8_t* ver;
+
+    if (manifest == NULL ||
+            manifest_sz < (uint32_t)(ST33_MANIFEST_VERSION_OFFSET + 4)) {
+        return BAD_FUNC_ARG;
     }
-    return ST33_MANIFEST_SIZE_LMS;
+    ver = &manifest[ST33_MANIFEST_VERSION_OFFSET];
+    if (major != NULL) {
+        *major = (word16)(((word16)ver[0] << 8) | ver[1]);
+    }
+    if (minor != NULL) {
+        *minor = (word16)(((word16)ver[2] << 8) | ver[3]);
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* ST33 implements the field upgrade with one of two command code pairs and
+ * the wrong one is answered with TPM_RC_COMMAND_CODE. This mirrors the
+ * selection in ST's reference tool (TPM_FU_STM_V1.py), which uses the
+ * standard TPM command codes when the running firmware minor version is
+ * below 256, or when the image targets firmware generation 2, and the
+ * ST33KTPM vendor codes otherwise. Exposed so the example tool and the unit
+ * tests exercise the same implementation the library sends from. It is only
+ * a fallback: wolfTPM2_ST33_GetFwUpgradeCommands asks the TPM first, as the
+ * heuristic does not hold on every firmware line (an ST33KTPMQ at 11.1
+ * implements only the vendor pair despite a minor version below 256). */
+#define ST33_FW_VERSION_STD_CC_MINOR 256
+#define ST33_FW_GENERATION_STD_CC    2
+
+int wolfTPM2_ST33_FwUpgradeCommands(word16 fwVerMinor, int haveFwVer,
+    word16 manifestMajor, TPM_CC* ccStart, TPM_CC* ccData)
+{
+    int useStd;
+
+    if (ccStart == NULL || ccData == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    useStd = (manifestMajor == ST33_FW_GENERATION_STD_CC);
+    if (haveFwVer && fwVerMinor < ST33_FW_VERSION_STD_CC_MINOR) {
+        useStd = 1;
+    }
+    if (useStd) {
+        *ccStart = TPM_CC_FieldUpgradeStart;
+        *ccData  = TPM_CC_FieldUpgradeData;
+    }
+    else {
+        *ccStart = TPM_CC_FieldUpgradeStartVendor_ST33;
+        *ccData  = TPM_CC_FieldUpgradeDataVendor_ST33;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* Report whether the TPM implements a command code. TPM_CAP_COMMANDS returns
+ * commands with a code at or above the requested property, so a match at
+ * index 0 of a single-property query means it is implemented. The attributes
+ * carry the command index with the vendor bit separate, so the full code has
+ * to be put back together before comparing. */
+int wolfTPM2_ST33_CmdImplemented(TPM_CC cc, int* isImpl)
+{
+    int rc;
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_CCA* cmds;
+    TPM_CC got;
+
+    if (isImpl == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    *isImpl = 0;
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_COMMANDS;
+    in.property = cc;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+    /* capabilityData.data is a union - confirm the TPM answered with the
+     * capability that was asked for before reading the command member */
+    if (out.capabilityData.capability != TPM_CAP_COMMANDS) {
+        return TPM_RC_VALUE;
+    }
+    cmds = &out.capabilityData.data.command;
+    if (cmds->count > 0) {
+        got = (TPM_CC)(cmds->commandAttributes[0] & TPMA_CC_commandIndex);
+        if (cmds->commandAttributes[0] & TPMA_CC_V) {
+            got |= CC_VEND;
+        }
+        if (got == cc) {
+            *isImpl = 1;
+        }
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* Select the field upgrade command codes. The TPM's own command list is
+ * authoritative, so ask it rather than infer: ST33 firmware lines do not
+ * follow the version heuristic consistently (an ST33KTPMQ at 11.1 implements
+ * only the vendor pair even though its minor version is below 256). Only the
+ * start codes are queried, the data code always follows its start code.
+ * wolfTPM2_ST33_FwUpgradeCommands decides when the TPM will not answer -
+ * which is the case in firmware upgrade mode - or the answer is ambiguous.
+ * Pass caps as NULL when the running firmware version is not known. */
+int wolfTPM2_ST33_GetFwUpgradeCommands(const WOLFTPM2_CAPS* caps,
+    word16 manifestMajor, TPM_CC* ccStart, TPM_CC* ccData, int* fromTpm)
+{
+    int vendorImpl = 0, stdImpl = 0;
+    int rcVendor, rcStd;
+
+    if (ccStart == NULL || ccData == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (fromTpm != NULL) {
+        *fromTpm = 0;
+    }
+
+    /* caps NULL means the TPM is already in firmware upgrade mode, where it
+     * accepts only FieldUpgradeData - any other command leaves that mode. No
+     * capability query may be issued here, so the image decides alone. */
+    if (caps == NULL) {
+        return wolfTPM2_ST33_FwUpgradeCommands(0, 0, manifestMajor, ccStart,
+            ccData);
+    }
+
+    rcVendor = wolfTPM2_ST33_CmdImplemented(TPM_CC_FieldUpgradeStartVendor_ST33,
+        &vendorImpl);
+    rcStd = wolfTPM2_ST33_CmdImplemented(TPM_CC_FieldUpgradeStart, &stdImpl);
+
+    if (rcVendor == TPM_RC_SUCCESS && rcStd == TPM_RC_SUCCESS &&
+            vendorImpl != stdImpl) {
+        if (vendorImpl) {
+            *ccStart = TPM_CC_FieldUpgradeStartVendor_ST33;
+            *ccData  = TPM_CC_FieldUpgradeDataVendor_ST33;
+        }
+        else {
+            *ccStart = TPM_CC_FieldUpgradeStart;
+            *ccData  = TPM_CC_FieldUpgradeData;
+        }
+        if (fromTpm != NULL) {
+            *fromTpm = 1;
+        }
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Field upgrade command codes from TPM_CAP_COMMANDS\n");
+    #endif
+        return TPM_RC_SUCCESS;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    /* A TPM that lists neither pair may simply not enumerate its vendor
+     * commands, so the version rule still gets a turn rather than refusing
+     * an image the part would have taken */
+    if (rcVendor == TPM_RC_SUCCESS && rcStd == TPM_RC_SUCCESS &&
+            !vendorImpl && !stdImpl) {
+        printf("ST33 TPM lists neither field upgrade pair, using the "
+            "firmware version rule\n");
+    }
+    else {
+        printf("ST33 Field upgrade command set inconclusive (vendor rc 0x%x "
+            "impl %d, standard rc 0x%x impl %d), using the firmware version "
+            "rule\n", (unsigned int)rcVendor, vendorImpl, (unsigned int)rcStd,
+            stdImpl);
+    }
+#endif
+    return wolfTPM2_ST33_FwUpgradeCommands(
+        (caps != NULL) ? caps->fwVerMinor : 0, (caps != NULL),
+        manifestMajor, ccStart, ccData);
 }
 
 /* ST33 uses password auth (TPM_RS_PW) for firmware update, not policy */
@@ -11984,7 +12192,7 @@ static uint32_t tpm2_st33_expected_manifest_sz(const WOLFTPM2_CAPS* caps)
  * 300ms delay: ST reference implementation uses this delay to allow
  * TPM to switch modes after FieldUpgradeStart command */
 static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz, int is_lms,
+    uint8_t* manifest, uint32_t manifest_sz, int is_lms, TPM_CC ccStart,
     WOLFTPM2_SESSION* startSession)
 {
     int rc;
@@ -12000,7 +12208,8 @@ static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
      * LMS signature. Send the full manifest directly. */
     sessionHandle = (startSession != NULL) ?
         startSession->handle.hndl : (TPM_HANDLE)TPM_RS_PW;
-    rc = TPM2_ST33_FieldUpgradeStart(sessionHandle, manifest, manifest_sz);
+    rc = TPM2_ST33_FieldUpgradeStart_ex(sessionHandle, ccStart, manifest,
+        manifest_sz);
 
     if (rc == TPM_RC_SUCCESS) {
         /* The TPM consumed the session entering firmware upgrade mode; mark a
@@ -12024,8 +12233,9 @@ static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("ST33 Firmware upgrade start%s failed 0x%x: %s\n",
-            is_lms ? " (LMS)" : "", rc, TPM2_GetRCString(rc));
+        printf("ST33 Firmware upgrade start%s (cc 0x%08x) failed 0x%x: %s\n",
+            is_lms ? " (LMS)" : "", (unsigned int)ccStart, rc,
+            TPM2_GetRCString(rc));
     }
 #else
     (void)is_lms;  /* Suppress unused parameter warning when DEBUG_WOLFTPM not defined */
@@ -12041,7 +12251,7 @@ static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
  * - Bytes 1-2: blob data length (big-endian)
  * - Bytes 3+: blob data
  * Each blob is sent complete to the TPM via FieldUpgradeData command */
-static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
+static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev, TPM_CC ccData,
     wolfTPM2FwDataCb cb, void* cb_ctx)
 {
     int rc;
@@ -12118,8 +12328,7 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
         }
 
         /* Send blob to TPM - blob is sent as-is per ST reference */
-        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
-            blob_buf, blob_total);
+        rc = TPM2_ST33_FieldUpgradeCommand(ccData, blob_buf, blob_total);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
             printf("ST33 FieldUpgradeData failed at offset %u: 0x%x\n",
@@ -12172,6 +12381,8 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
     WOLFTPM2_CAPS caps;
     int is_lms;
     uint32_t expected_sz;
+    word16 manifestMajor = 0, manifestMinor = 0;
+    TPM_CC ccStart, ccData;
 
     /* ST33 sends full manifest directly, not hash */
     (void)hashAlg;
@@ -12206,16 +12417,36 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
         return rc;
     }
 
+    rc = wolfTPM2_ST33_ManifestVersion(manifest, manifest_sz, &manifestMajor,
+        &manifestMinor);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Error: manifest too small to hold a version header\n");
+    #endif
+        return rc;
+    }
+    rc = wolfTPM2_ST33_GetFwUpgradeCommands(&caps, manifestMajor, &ccStart,
+        &ccData, NULL);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Could not select field upgrade command codes 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
 #ifdef DEBUG_WOLFTPM
     printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",
         caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
-    printf("ST33 Manifest size: %u bytes, format: %s\n",
-        manifest_sz, is_lms ? "LMS" : "non-LMS");
+    printf("ST33 Manifest size: %u bytes, format: %s, targets %u.%u\n",
+        manifest_sz, is_lms ? "LMS" : "non-LMS", manifestMajor, manifestMinor);
+    printf("ST33 Field upgrade command codes: start 0x%08x, data 0x%08x\n",
+        (unsigned int)ccStart, (unsigned int)ccData);
 #endif
 
     /* Validate the manifest matches what this firmware generation expects */
     expected_sz = tpm2_st33_expected_manifest_sz(&caps);
-    if (manifest_sz != expected_sz) {
+    if (expected_sz != 0 && manifest_sz != expected_sz) {
     #ifdef DEBUG_WOLFTPM
         printf("ST33 Error: manifest size %u does not match the %u bytes "
             "firmware %u.%u expects\n", manifest_sz, expected_sz,
@@ -12224,12 +12455,28 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
         return BAD_FUNC_ARG;
     }
 
+    /* The manifest carries the firmware line it upgrades. Within a family a
+     * version jump is normal and expected - an ST33TPHF2X goes 74.9 to 2.512 -
+     * so only an image from a different silicon family is refused. The TPM
+     * would otherwise report that as a signature or command code failure. */
+    if (tpm2_st33_family(manifestMajor) != ST33_FW_FAMILY_UNKNOWN &&
+            tpm2_st33_family(caps.fwVerMajor) != ST33_FW_FAMILY_UNKNOWN &&
+            tpm2_st33_family(manifestMajor) !=
+                tpm2_st33_family(caps.fwVerMajor)) {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Error: firmware image targets %u.%u, a different part "
+            "family than this TPM running %u.%u\n", manifestMajor,
+            manifestMinor, caps.fwVerMajor, caps.fwVerMinor);
+    #endif
+        return BAD_FUNC_ARG;
+    }
+
     /* Send manifest - the common function handles both LMS and non-LMS */
     rc = tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, is_lms,
-        startSession);
+        ccStart, startSession);
 
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm2_st33_firmware_data(dev, cb, cb_ctx);
+        rc = tpm2_st33_firmware_data(dev, ccData, cb, cb_ctx);
     }
     /* Note: ST33 doesn't require a finalize command - the firmware update
      * is complete after all blobs are sent. The TPM will automatically

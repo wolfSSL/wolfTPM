@@ -267,6 +267,10 @@ STMicro ST33TPHF2XSPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 Mfg STM  (2), Vendor , Fw 74.8 (1151341959), FIPS 140-2 1, CC-EAL4 0
 
+STMicro ST33TPHF2XSPI (newer firmware line)
+TPM2: Caps 0x30000415, Did 0x0000, Vid 0x104a, Rid 0x4e
+Mfg STM  (2), Vendor , Fw 1.258 (0x0), FIPS 140-2 1, CC-EAL4 0
+
 STMicro ST33TPHF2XI2C
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 Mfg STM  (2), Vendor , Fw 74.9 (1151341959), FIPS 140-2 1, CC-EAL4 0
@@ -274,6 +278,14 @@ Mfg STM  (2), Vendor , Fw 74.9 (1151341959), FIPS 140-2 1, CC-EAL4 0
 Microchip ATTPM20
 TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1
 Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
+
+Note: early ST33TPHF2X 1.x firmware reports `TPM_PT_VENDOR_STRING_1..4` as
+binary rather than text, so the `Vendor` field prints empty; later 1.x firmware
+reports ASCII such as `ST33TPHF2XSPI`. The firmware major version identifies the line
+instead: 1.x and 2.x are ST33TPHF2X (SPI and I2C firmware respectively), 9.x is
+ST33KTPM2X and 10.x is ST33KTPM2A. See
+[examples/firmware/README.md](examples/firmware/README.md) for how this selects
+the firmware update format and command codes.
 
 Nations Technologies Inc. Z32H330 TPM 2.0 module
 Mfg NTZ (0), Vendor Z32H330, Fw 7.51 (419631892), FIPS 140-2 0, CC-EAL4 0
