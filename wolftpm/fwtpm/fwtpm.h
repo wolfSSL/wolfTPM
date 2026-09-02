@@ -893,6 +893,11 @@ typedef struct FWTPM_CTX {
      * locality); 0-4 = owner, -1 = none. TIS layer only. */
     int tisLocality;
 #endif
+
+#ifndef FWTPM_NO_NV
+    /* Transient authorization methods for the command being dispatched. */
+    byte activeCmdAuthIsPolicy[FWTPM_MAX_CMD_AUTHS];
+#endif
 } FWTPM_CTX;
 
 /* fwTPM SPDM mode bits - used with FWTPM_CTX.spdmMode. */

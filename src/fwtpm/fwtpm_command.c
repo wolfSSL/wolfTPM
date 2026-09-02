@@ -76,7 +76,8 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
 #ifndef FWTPM_NO_NV
 static FWTPM_NvIndex* FwFindNvIndex(FWTPM_CTX* ctx, TPMI_RH_NV_INDEX nvIndex);
 static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
-    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite);
+    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite,
+    int authIsPolicy);
 #endif
 static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle);
 #ifndef FWTPM_NO_DA
@@ -1298,12 +1299,20 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     TPMA_ALGORITHM_object },
             #endif
             #ifdef WOLFTPM_V185
-                { TPM_ALG_MLKEM, TPMA_ALGORITHM_asymmetric |
-                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_encrypting },
-                { TPM_ALG_MLDSA, TPMA_ALGORITHM_asymmetric |
-                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing },
-                { TPM_ALG_HASH_MLDSA, TPMA_ALGORITHM_asymmetric |
-                    TPMA_ALGORITHM_object | TPMA_ALGORITHM_signing },
+                /* v1.85 PQC object types per Part 2 Sec.8.2 Table 35:
+                 *   bit 0 asymmetric, bit 3 object,
+                 *   bit 8 signing, bit 9 encrypting.
+                 * MLKEM is encrypting (encap/decap); MLDSA / Hash-MLDSA are
+                 * signing. */
+            #ifdef WOLFTPM_MLKEM
+                { TPM_ALG_MLKEM,      0x0209 }, /* asymmetric|object|encrypting */
+            #endif
+            #ifdef WOLFTPM_MLDSA
+                { TPM_ALG_MLDSA,      0x0109 }, /* asymmetric|object|signing */
+            #endif
+            #ifdef WOLFTPM_HASH_MLDSA
+                { TPM_ALG_HASH_MLDSA, 0x0109 }, /* asymmetric|object|signing */
+            #endif
             #endif
                 { TPM_ALG_NULL, 0 },
             };
@@ -2054,6 +2063,7 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
             }
             break;
         }
+#ifdef WOLFTPM_HASH_MLDSA
         case TPM_ALG_HASH_MLDSA: {
             int sz = FwMldsaPubKeySize(
                 pub->parameters.hash_mldsaDetail.parameterSet);
@@ -2070,7 +2080,13 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
             }
             break;
         }
+#endif /* WOLFTPM_HASH_MLDSA */
 #endif /* WOLFTPM_MLDSA */
+#if defined(WOLFTPM_PQC) && !defined(WOLFTPM_HASH_MLDSA)
+        case TPM_ALG_HASH_MLDSA:
+            rc = TPM_RC_TYPE;
+            break;
+#endif /* WOLFTPM_PQC && !WOLFTPM_HASH_MLDSA */
 #ifdef WOLFTPM_MLKEM
         case TPM_ALG_MLKEM: {
             int sz = FwMlkemPubKeySize(
@@ -2107,6 +2123,19 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
     }
     return rc;
 }
+
+#ifdef WOLFTPM_V185
+/* fwTPM does not implement the firmware/SVN-bound hierarchy seeds and
+ * proofs required by limited objects. */
+static TPM_RC FwValidateLimitedAttributes(const TPMT_PUBLIC* pub)
+{
+    if ((pub->objectAttributes &
+            (TPMA_OBJECT_firmwareLimited | TPMA_OBJECT_svnLimited)) != 0) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_V185 */
 
 static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
@@ -2176,6 +2205,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
                 break;
             }
+#ifdef WOLFTPM_HASH_MLDSA
             case TPM_ALG_HASH_MLDSA: {
                 UINT16 ps, hashAlg;
                 int psSupported = 0;
@@ -2202,6 +2232,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
                 break;
             }
+#endif /* WOLFTPM_HASH_MLDSA */
         #endif /* WOLFTPM_MLDSA */
         #ifdef WOLFTPM_MLKEM
             case TPM_ALG_MLKEM: {
@@ -3278,7 +3309,11 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
-
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
     /* Parse outsideInfo (TPM2B_DATA) - skip */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -3363,8 +3398,12 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* MLDSA / HASH_MLDSA / MLKEM: only feed user-supplied unique
              * bytes into hashUnique, not the raw buffer. A size==0 arm
              * must not read the uninitialized buffer pointer. */
+#ifdef WOLFTPM_MLDSA
             case TPM_ALG_MLDSA:
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
             case TPM_ALG_HASH_MLDSA:
+#endif
                 if (inPublic->publicArea.unique.mldsa.size > 0) {
                     uBuf = inPublic->publicArea.unique.mldsa.buffer;
                     uSz = (int)inPublic->publicArea.unique.mldsa.size;
@@ -3482,7 +3521,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
              * FIPS 204 deterministic keygen. Private material on the wire
              * is the seed itself per TCG Part 2 Table 210. */
             case TPM_ALG_MLDSA:
-            case TPM_ALG_HASH_MLDSA: {
+#ifdef WOLFTPM_HASH_MLDSA
+            case TPM_ALG_HASH_MLDSA:
+#endif
+            {
                 const char* label = (inPublic->publicArea.type == TPM_ALG_MLDSA)
                     ? "MLDSA" : "HASH_MLDSA";
                 TPMI_MLDSA_PARAMETER_SET ps =
@@ -6013,7 +6055,11 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
-
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
     /* Skip outsideInfo */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -6090,7 +6136,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
-            case TPM_ALG_HASH_MLDSA: {
+#ifdef WOLFTPM_HASH_MLDSA
+            case TPM_ALG_HASH_MLDSA:
+#endif
+            {
                 TPMI_MLDSA_PARAMETER_SET ps =
                     (inPublic->publicArea.type == TPM_ALG_MLDSA)
                         ? inPublic->publicArea.parameters.mldsaDetail.parameterSet
@@ -6475,6 +6524,14 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParsePublic(cmd, &inPublic);
     }
 
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&inPublic.publicArea, 0);
+    }
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic.publicArea);
+    }
+#endif /* WOLFTPM_V185 */
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
         printf("fwTPM: Load(parent=0x%x, type=%d, privSz=%d)\n",
@@ -6658,6 +6715,12 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMSET(&inPublic, 0, sizeof(inPublic));
         TPM2_Packet_ParsePublic(cmd, &inPublic);
     }
+
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic.publicArea);
+    }
+#endif /* WOLFTPM_V185 */
 
     /* authValue (present only with inPrivate) must not exceed the
      * object nameAlg digest size */
@@ -6989,6 +7052,14 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParsePublic(cmd, objectPublic);
     }
 
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&objectPublic->publicArea, 0);
+    }
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&objectPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
     /* Parse duplicate */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -8070,6 +8141,12 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParsePublic(cmd, inPublic);
     }
 
+#ifdef WOLFTPM_V185
+    if (rc == 0) {
+        rc = FwValidateLimitedAttributes(&inPublic->publicArea);
+    }
+#endif /* WOLFTPM_V185 */
+
     /* userAuth must not exceed the object nameAlg digest size */
     if (rc == 0 && userAuth.size > 0) {
         int digestSz = TPM2_GetHashDigestSize(inPublic->publicArea.nameAlg);
@@ -8125,7 +8202,10 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
-            case TPM_ALG_HASH_MLDSA: {
+#ifdef WOLFTPM_HASH_MLDSA
+            case TPM_ALG_HASH_MLDSA:
+#endif
+            {
                 TPMI_MLDSA_PARAMETER_SET ps =
                     (inPublic->publicArea.type == TPM_ALG_MLDSA)
                         ? inPublic->publicArea.parameters.mldsaDetail.parameterSet
@@ -11814,7 +11894,7 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify caller is authorized to read the NV index */
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvIndex,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Find policy session */
@@ -12904,7 +12984,7 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify caller is authorized to read the NV index */
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && !nv->written) {
@@ -13022,7 +13102,8 @@ static FWTPM_NvIndex* FwFindNvIndex(FWTPM_CTX* ctx, TPMI_RH_NV_INDEX nvIndex)
  * isWrite: 1 = write/extend/increment/setbits/writelock,
  *          0 = read/readlock/certify */
 static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
-    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite)
+    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite,
+    int authIsPolicy)
 {
     if (isWrite) {
         if (authHandle == TPM_RH_PLATFORM) {
@@ -13036,7 +13117,9 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
-            if (!(attributes & (TPMA_NV_AUTHWRITE | TPMA_NV_POLICYWRITE)))
+            UINT32 requiredAttr = authIsPolicy ?
+                TPMA_NV_POLICYWRITE : TPMA_NV_AUTHWRITE;
+            if (!(attributes & requiredAttr))
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else {
@@ -13055,7 +13138,9 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
-            if (!(attributes & (TPMA_NV_AUTHREAD | TPMA_NV_POLICYREAD)))
+            UINT32 requiredAttr = authIsPolicy ?
+                TPMA_NV_POLICYREAD : TPMA_NV_AUTHREAD;
+            if (!(attributes & requiredAttr))
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else {
@@ -13394,7 +13479,7 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Per TPM 2.0 Part 3 Section 31.3, NV_Write only valid for ordinary and PIN
@@ -13492,7 +13577,7 @@ static TPM_RC FwCmd_NV_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
@@ -13555,7 +13640,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
@@ -13641,7 +13726,7 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
@@ -13693,7 +13778,7 @@ static TPM_RC FwCmd_NV_WriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Per TPM 2.0 Part 3 Section 31.5.2: NV_WriteLock requires
@@ -13736,7 +13821,7 @@ static TPM_RC FwCmd_NV_ReadLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     /* Per TPM 2.0 Part 3 Section 31.4.2: NV_ReadLock requires
@@ -13784,7 +13869,7 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 1);
+            nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
@@ -14927,7 +15012,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0);
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[1]);
     }
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
         rc = TPM_RC_NV_LOCKED;
@@ -17865,6 +17950,7 @@ typedef struct {
                             /* Bit 1: first rsp param is TPM2B (can encrypt) */
                             /* Bit 2: first auth handle has DUP role */
                             /* Bit 3: command flushes its handle (TPMA_CC.F) */
+                            /* Bit 4: first auth handle has ADMIN role */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -17881,6 +17967,11 @@ typedef struct {
 /* Part 3 command-description modifier reported through TPMA_CC. {F}: the
  * object or sequence named by the command's handle is flushed on success. */
 #define FW_CMD_MOD_FLUSHED  0x08
+
+/* ADMIN role (TPM 2.0 Part 3): when an object has adminWithPolicy set, or
+ * an NV index is authorized in its ADMIN role, policy authorization with a
+ * matching PolicyCommandCode is required. */
+#define FW_CMD_FLAG_AUTH_ADMIN  0x10
 
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
@@ -17925,7 +18016,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_SetPrimaryPolicy,   FwCmd_SetPrimaryPolicy,     1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_EvictControl,       FwCmd_EvictControl,         2, 1, 0, 0 },
     { TPM_CC_Create,             FwCmd_Create,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_Load,               FwCmd_Load,                 1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Sign,               FwCmd_Sign,                 1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_VerifySignature,    FwCmd_VerifySignature,      1, 0, 0, 0 },
@@ -18013,7 +18104,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #ifndef FWTPM_NO_NV
     { TPM_CC_NV_DefineSpace,     FwCmd_NV_DefineSpace,       1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_NV_UndefineSpace,   FwCmd_NV_UndefineSpace,     2, 1, 0, 0 },
-    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, 0 },
+    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_NV_ReadPublic,      FwCmd_NV_ReadPublic,        1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_NV_Write,           FwCmd_NV_Write,             2, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_NV_Read,            FwCmd_NV_Read,              2, 1, 0, FW_CMD_FLAG_DEC },
@@ -18022,7 +18113,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_NV_WriteLock,       FwCmd_NV_WriteLock,         2, 1, 0, 0 },
     { TPM_CC_NV_ReadLock,        FwCmd_NV_ReadLock,          2, 1, 0, 0 },
     { TPM_CC_NV_SetBits,         FwCmd_NV_SetBits,           2, 1, 0, 0 },
-    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_NV_GlobalWriteLock, FwCmd_NV_GlobalWriteLock,   1, 1, 0, 0 },
 #endif /* !FWTPM_NO_NV */
     /* --- ECC Parameters --- */
@@ -18034,7 +18125,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Attestation --- */
 #ifndef FWTPM_NO_ATTESTATION
     { TPM_CC_Quote,              FwCmd_Quote,                1, 1, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_CertifyCreation,   FwCmd_CertifyCreation,      2, 1, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_GetTime,            FwCmd_GetTime,              2, 2, 0, FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_NV
@@ -18044,7 +18135,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Credentials --- */
 #ifndef FWTPM_NO_CREDENTIAL
     { TPM_CC_MakeCredential,     FwCmd_MakeCredential,       1, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
 #endif /* !FWTPM_NO_CREDENTIAL */
     /* --- Dictionary Attack --- */
 #ifndef FWTPM_NO_DA
@@ -18491,6 +18582,11 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSize == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifndef FWTPM_NO_NV
+    XMEMSET(ctx->activeCmdAuthIsPolicy, 0,
+        sizeof(ctx->activeCmdAuthIsPolicy));
+#endif
 
     /* rspSize is in/out: capacity in, bytes written out. Callers that leave
      * it unset get the historic FWTPM_MAX_COMMAND_SIZE assumption. */
@@ -19088,6 +19184,61 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         return TPM_RC_SUCCESS;
     }
 
+    /* ADMIN-role authorization requires a policy session when the object
+     * sets adminWithPolicy, and always for an NV index. A policy used for
+     * an ADMIN role must also be bound to this command with
+     * PolicyCommandCode. */
+    if ((entry->encDecFlags & FW_CMD_FLAG_AUTH_ADMIN) && cmdAuthCnt > 0) {
+        TPM_HANDLE entityH = cmdHandles[0];
+        FWTPM_Session* adminSess = cmdAuths[0].sess;
+        FWTPM_Object* adminObj = NULL;
+        int requirePolicy = 0;
+
+        if ((entityH & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000) ||
+            (entityH & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000)) {
+            adminObj = FwFindObject(ctx, entityH);
+            if (adminObj != NULL &&
+                (adminObj->pub.objectAttributes &
+                 TPMA_OBJECT_adminWithPolicy)) {
+                requirePolicy = 1;
+            }
+        }
+#ifndef FWTPM_NO_NV
+        else if ((entityH & 0xFF000000) ==
+                 (NV_INDEX_FIRST & 0xFF000000)) {
+            requirePolicy = 1;
+        }
+#endif
+        else if (entityH == TPM_RH_OWNER ||
+                 entityH == TPM_RH_ENDORSEMENT ||
+                 entityH == TPM_RH_PLATFORM ||
+                 entityH == TPM_RH_PLATFORM_NV ||
+                 entityH == TPM_RH_LOCKOUT) {
+            requirePolicy = 1;
+        }
+
+        if (requirePolicy &&
+            (adminSess == NULL || adminSess->sessionType != TPM_SE_POLICY)) {
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: ADMIN role requires a policy session (CC=0x%x)\n",
+                cmdCode);
+        #endif
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+            return TPM_RC_SUCCESS;
+        }
+        if (adminSess != NULL && adminSess->sessionType == TPM_SE_POLICY &&
+            adminSess->commandCode != cmdCode) {
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: ADMIN role requires PolicyCommandCode (CC=0x%x)\n",
+                cmdCode);
+        #endif
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_POLICY_CC);
+            return TPM_RC_SUCCESS;
+        }
+    }
+
     /* userWithAuth enforcement: per TPM 2.0 spec Part 1, Section 19.7.1,
      * if an object has authPolicy set and userWithAuth is CLEAR, only a
      * policy session can authorize the object. Reject password and HMAC
@@ -19297,7 +19448,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* Set up response packet */
     FwRspInit(&rspPkt, rspBuf, rspCap);
 
+#ifndef FWTPM_NO_NV
+    for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
+        ctx->activeCmdAuthIsPolicy[pj] =
+            (byte)(cmdAuths[pj].sess != NULL &&
+            cmdAuths[pj].sess->sessionType == TPM_SE_POLICY);
+    }
+#endif
     rc = entry->handler(ctx, &cmdPkt, cmdSize, &rspPkt, cmdTag);
+#ifndef FWTPM_NO_NV
+    XMEMSET(ctx->activeCmdAuthIsPolicy, 0,
+        sizeof(ctx->activeCmdAuthIsPolicy));
+#endif
     /* A sessions-tagged FlushContext leaves its target session alive so the
      * dispatcher can use it to generate the response authorization area. */
     if (rc == TPM_RC_SUCCESS && cmdCode == TPM_CC_FlushContext &&

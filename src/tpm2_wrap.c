@@ -3486,8 +3486,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
 
         /* store the size of the integrity */
         if (rc == 0) {
-            digestSz = TPM2_Packet_SwapU16(digestSz);
-            XMEMCPY(&priv->buffer[0], &digestSz, sizeof(word16));
+            TPM2_Packet_U16ToByteArray((word16)digestSz, &priv->buffer[0]);
         }
 
         TPM2_ForceZero(&symKey, sizeof(symKey));
