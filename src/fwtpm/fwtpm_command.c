@@ -2930,6 +2930,8 @@ static TPM_RC FwCmd_PCR_SetAuthPolicy(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 hashAlg = TPM_ALG_NULL;
     UINT32 pcrNum = 0;
     int pcrIndex;
+    TPM2B_DIGEST oldPcrPolicy;
+    TPMI_ALG_HASH oldPcrPolicyAlg;
 
     (void)cmdSize;
 
@@ -2978,14 +2980,22 @@ static TPM_RC FwCmd_PCR_SetAuthPolicy(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             pcrIndex, policySz, hashAlg);
     #endif
 
+        oldPcrPolicy = ctx->pcrPolicy[pcrIndex];
+        oldPcrPolicyAlg = ctx->pcrPolicyAlg[pcrIndex];
         ctx->pcrPolicy[pcrIndex].size = policySz;
         if (policySz > 0) {
             XMEMCPY(ctx->pcrPolicy[pcrIndex].buffer, policyBuf, policySz);
         }
         ctx->pcrPolicyAlg[pcrIndex] = (policySz > 0) ?
                                       hashAlg : (TPMI_ALG_HASH)TPM_ALG_NULL;
-        FWTPM_NV_SavePcrAuth(ctx);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_SavePcrAuth(ctx);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            ctx->pcrPolicy[pcrIndex] = oldPcrPolicy;
+            ctx->pcrPolicyAlg[pcrIndex] = oldPcrPolicyAlg;
+        }
     }
 
     return rc;
@@ -3001,6 +3011,9 @@ static TPM_RC FwCmd_PCR_SetAuthValue(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 newAuthSz = 0;
     byte newAuthBuf[TPM_MAX_DIGEST_SIZE];
     int pcrIndex;
+    TPM2B_AUTH oldPcrAuth;
+
+    XMEMSET(&oldPcrAuth, 0, sizeof(oldPcrAuth));
 
     (void)cmdSize;
 
@@ -3035,17 +3048,26 @@ static TPM_RC FwCmd_PCR_SetAuthValue(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             pcrIndex, newAuthSz);
     #endif
 
+        oldPcrAuth = ctx->pcrAuth[pcrIndex];
         TPM2_ForceZero(ctx->pcrAuth[pcrIndex].buffer,
             sizeof(ctx->pcrAuth[pcrIndex].buffer));
         ctx->pcrAuth[pcrIndex].size = newAuthSz;
         if (newAuthSz > 0) {
             XMEMCPY(ctx->pcrAuth[pcrIndex].buffer, newAuthBuf, newAuthSz);
         }
-        FWTPM_NV_SavePcrAuth(ctx);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_SavePcrAuth(ctx);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            TPM2_ForceZero(ctx->pcrAuth[pcrIndex].buffer,
+                sizeof(ctx->pcrAuth[pcrIndex].buffer));
+            ctx->pcrAuth[pcrIndex] = oldPcrAuth;
+        }
     }
 
     TPM2_ForceZero(newAuthBuf, sizeof(newAuthBuf));
+    TPM2_ForceZero(&oldPcrAuth, sizeof(oldPcrAuth));
     return rc;
 }
 
@@ -3117,6 +3139,7 @@ static TPM_RC FwCmd_ClockSet(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        UINT64 oldClockOffset = ctx->clockOffset;
         /* Calculate offset: if clock HAL is set, offset = newTime - halTime.
          * If no HAL, offset = newTime directly (original behavior). */
         if (ctx->clockHal.get_ms != NULL) {
@@ -3126,8 +3149,13 @@ static TPM_RC FwCmd_ClockSet(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         else {
             ctx->clockOffset = newTime;
         }
-        FWTPM_NV_SaveClock(ctx);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_SaveClock(ctx);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            ctx->clockOffset = oldClockOffset;
+        }
     }
 
     return rc;
@@ -5762,49 +5790,35 @@ static TPM_RC FwCmd_HierarchyChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 #endif
 
     if (rc == 0) {
-        switch (authHandle) {
-            case TPM_RH_OWNER:
-                TPM2_ForceZero(ctx->ownerAuth.buffer,
-                    sizeof(ctx->ownerAuth.buffer));
-                ctx->ownerAuth.size = newAuthSize;
-                if (newAuthSize > 0) {
-                    XMEMCPY(ctx->ownerAuth.buffer, newAuthBuf, newAuthSize);
-                }
-                break;
-            case TPM_RH_ENDORSEMENT:
-                TPM2_ForceZero(ctx->endorsementAuth.buffer,
-                    sizeof(ctx->endorsementAuth.buffer));
-                ctx->endorsementAuth.size = newAuthSize;
-                if (newAuthSize > 0) {
-                    XMEMCPY(ctx->endorsementAuth.buffer, newAuthBuf,
-                        newAuthSize);
-                }
-                break;
-            case TPM_RH_PLATFORM:
-                TPM2_ForceZero(ctx->platformAuth.buffer,
-                    sizeof(ctx->platformAuth.buffer));
-                ctx->platformAuth.size = newAuthSize;
-                if (newAuthSize > 0) {
-                    XMEMCPY(ctx->platformAuth.buffer, newAuthBuf, newAuthSize);
-                }
-                break;
-            case TPM_RH_LOCKOUT:
-                TPM2_ForceZero(ctx->lockoutAuth.buffer,
-                    sizeof(ctx->lockoutAuth.buffer));
-                ctx->lockoutAuth.size = newAuthSize;
-                if (newAuthSize > 0) {
-                    XMEMCPY(ctx->lockoutAuth.buffer, newAuthBuf, newAuthSize);
-                }
-                break;
-            default:
-                rc = TPM_RC_HIERARCHY;
-                break;
-        }
-    }
+        TPM2B_AUTH* auth = NULL;
+        TPM2B_AUTH oldAuth;
 
-    if (rc == 0) {
-        FWTPM_NV_SaveAuth(ctx, authHandle);
-        FwRspNoParams(rsp, cmdTag);
+        XMEMSET(&oldAuth, 0, sizeof(oldAuth));
+        switch (authHandle) {
+            case TPM_RH_OWNER:       auth = &ctx->ownerAuth; break;
+            case TPM_RH_ENDORSEMENT: auth = &ctx->endorsementAuth; break;
+            case TPM_RH_PLATFORM:    auth = &ctx->platformAuth; break;
+            case TPM_RH_LOCKOUT:     auth = &ctx->lockoutAuth; break;
+            default:                 rc = TPM_RC_HIERARCHY; break;
+        }
+
+        if (rc == 0) {
+            oldAuth = *auth;
+            TPM2_ForceZero(auth->buffer, sizeof(auth->buffer));
+            auth->size = newAuthSize;
+            if (newAuthSize > 0) {
+                XMEMCPY(auth->buffer, newAuthBuf, newAuthSize);
+            }
+            rc = FWTPM_NV_SaveAuth(ctx, authHandle);
+            if (rc == 0) {
+                FwRspNoParams(rsp, cmdTag);
+            }
+            else {
+                TPM2_ForceZero(auth->buffer, sizeof(auth->buffer));
+                *auth = oldAuth;
+            }
+            TPM2_ForceZero(&oldAuth, sizeof(oldAuth));
+        }
     }
 
     TPM2_ForceZero(newAuthBuf, sizeof(newAuthBuf));
@@ -5888,13 +5902,21 @@ static TPM_RC FwCmd_SetPrimaryPolicy(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 break;
         }
         if (rc == 0 && policy != NULL) {
+            TPM2B_DIGEST oldPolicy = *policy;
+            TPMI_ALG_HASH oldPolicyAlg = *policyAlg;
             policy->size = policySz;
             if (policySz > 0) {
                 XMEMCPY(policy->buffer, policyBuf, policySz);
             }
             *policyAlg = hashAlg;
-            FWTPM_NV_SaveHierarchyPolicy(ctx, authHandle);
-            FwRspNoParams(rsp, cmdTag);
+            rc = FWTPM_NV_SaveHierarchyPolicy(ctx, authHandle);
+            if (rc == 0) {
+                FwRspNoParams(rsp, cmdTag);
+            }
+            else {
+                *policy = oldPolicy;
+                *policyAlg = oldPolicyAlg;
+            }
         }
     }
 
@@ -5974,12 +5996,12 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* If objectHandle is persistent and matches persistentHandle -> evict */
     if (rc == 0 && (objectHandle & 0xFF000000) == 0x81000000 &&
         objectHandle == persistentHandle) {
-        /* Find and remove the persistent object */
+        /* Locate the persistent object; the slot is cleared only after the
+         * journal delete below has committed. */
         found = 0;
         for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
             if (ctx->persistent[i].used &&
                 ctx->persistent[i].handle == persistentHandle) {
-                TPM2_ForceZero(&ctx->persistent[i], sizeof(FWTPM_Object));
                 found = 1;
                 break;
             }
@@ -6036,14 +6058,24 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         if ((objectHandle & 0xFF000000) == 0x81000000 &&
             objectHandle == persistentHandle) {
-            /* Was evict: delete from journal */
-            FWTPM_NV_DeletePersistent(ctx, persistentHandle);
+            /* Was evict: delete from the journal first, then clear the RAM
+             * slot only once the delete has committed. */
+            rc = FWTPM_NV_DeletePersistent(ctx, persistentHandle);
+            if (rc == 0) {
+                TPM2_ForceZero(&ctx->persistent[i], sizeof(FWTPM_Object));
+            }
         }
         else {
-            /* Was make-persistent: save to journal */
-            FWTPM_NV_SavePersistent(ctx, i);
+            /* Was make-persistent: save to journal, freeing the new slot if
+             * the write fails so RAM does not outlive the NV record. */
+            rc = FWTPM_NV_SavePersistent(ctx, i);
+            if (rc != 0) {
+                TPM2_ForceZero(&ctx->persistent[i], sizeof(FWTPM_Object));
+            }
         }
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
     }
 
     return rc;
@@ -13374,9 +13406,14 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             slot->written = 1;
         }
 
-        FWTPM_NV_SaveNvIndex(ctx,
+        rc = FWTPM_NV_SaveNvIndex(ctx,
             (int)(slot - ctx->nvIndices));
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            TPM2_ForceZero(slot, sizeof(FWTPM_NvIndex));
+        }
     }
 
     TPM2_ForceZero(&auth, sizeof(auth));
@@ -13420,9 +13457,11 @@ static TPM_RC FwCmd_NV_UndefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        XMEMSET(nv, 0, sizeof(FWTPM_NvIndex));
-        FWTPM_NV_DeleteNvIndex(ctx, nvHandle);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_DeleteNvIndex(ctx, nvHandle);
+        if (rc == 0) {
+            XMEMSET(nv, 0, sizeof(FWTPM_NvIndex));
+            FwRspNoParams(rsp, cmdTag);
+        }
     }
 
     return rc;
@@ -13465,9 +13504,11 @@ static TPM_RC FwCmd_NV_UndefineSpaceSpecial(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: NV_UndefineSpaceSpecial(nv=0x%x)\n", nvHandle);
     #endif
-        XMEMSET(nv, 0, sizeof(FWTPM_NvIndex));
-        FWTPM_NV_DeleteNvIndex(ctx, nvHandle);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_DeleteNvIndex(ctx, nvHandle);
+        if (rc == 0) {
+            XMEMSET(nv, 0, sizeof(FWTPM_NvIndex));
+            FwRspNoParams(rsp, cmdTag);
+        }
     }
 
     return rc;
@@ -13527,21 +13568,27 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM_RC rc = TPM_RC_SUCCESS;
     TPM_HANDLE authHandle;
     TPMI_RH_NV_INDEX nvHandle;
-    FWTPM_NvIndex* nv;
+    FWTPM_NvIndex* nv = NULL;
     UINT16 dataSize = 0, offset = 0;
     FWTPM_DECLARE_BUF(dataBuf, FWTPM_MAX_NV_DATA);
+    FWTPM_DECLARE_BUF(oldData, FWTPM_MAX_NV_DATA);
 
     (void)cmdSize;
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_NV_DATA);
+    FWTPM_ALLOC_BUF(oldData, FWTPM_MAX_NV_DATA);
 
     TPM2_Packet_ParseU32(cmd, &authHandle);
     TPM2_Packet_ParseU32(cmd, &nvHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
 
-    nv = FwFindNvIndex(ctx, nvHandle);
-    if (nv == NULL) {
-        rc = FW_NV_HANDLE_ERR_2;
+    if (rc == 0) {
+        nv = FwFindNvIndex(ctx, nvHandle);
+        if (nv == NULL) {
+            rc = FW_NV_HANDLE_ERR_2;
+        }
     }
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
@@ -13594,6 +13641,9 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        int oldWritten = nv->written;
+        UINT32 oldAttrs = nv->nvPublic.attributes;
+        XMEMCPY(oldData, nv->data + offset, dataSize);
         XMEMCPY(nv->data + offset, dataBuf, dataSize);
         nv->written = 1;
 
@@ -13607,9 +13657,16 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             nv->nvPublic.attributes |= TPMA_NV_WRITELOCKED;
         }
 
-        FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            XMEMCPY(nv->data + offset, oldData, dataSize);
+            nv->written = oldWritten;
+            nv->nvPublic.attributes = oldAttrs;
+        }
     }
 
 #ifdef WOLFTPM_SMALL_STACK
@@ -13617,6 +13674,11 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 #endif
         TPM2_ForceZero(dataBuf, FWTPM_MAX_NV_DATA);
     FWTPM_FREE_BUF(dataBuf);
+#ifdef WOLFTPM_SMALL_STACK
+    if (oldData != NULL)
+#endif
+        TPM2_ForceZero(oldData, FWTPM_MAX_NV_DATA);
+    FWTPM_FREE_BUF(oldData);
     return rc;
 }
 
@@ -13750,6 +13812,10 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        byte oldData[TPM_MAX_DIGEST_SIZE];
+        int oldWritten = nv->written;
+        UINT32 oldAttrs = nv->nvPublic.attributes;
+        XMEMCPY(oldData, nv->data, hSz);
         wc_HashUpdate(hashCtx, wcHash, nv->data, hSz);
         wc_HashUpdate(hashCtx, wcHash, dataBuf, dataSize);
         wc_HashFinal(hashCtx, wcHash, newVal);
@@ -13758,9 +13824,17 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         nv->written = 1;
         nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
 
-        FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            XMEMCPY(nv->data, oldData, hSz);
+            nv->written = oldWritten;
+            nv->nvPublic.attributes = oldAttrs;
+        }
+        TPM2_ForceZero(oldData, sizeof(oldData));
     }
     if (hashInit) {
         wc_HashFree(hashCtx, wcHash);
@@ -13808,6 +13882,10 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        byte oldData[8];
+        int oldWritten = nv->written;
+        UINT32 oldAttrs = nv->nvPublic.attributes;
+        XMEMCPY(oldData, nv->data, 8);
         /* Read big-endian counter, increment, write back */
         counter = FwLoadU64BE(nv->data);
         counter++;
@@ -13815,9 +13893,17 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         nv->written = 1;
         nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
 
-        FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            XMEMCPY(nv->data, oldData, 8);
+            nv->written = oldWritten;
+            nv->nvPublic.attributes = oldAttrs;
+        }
+        TPM2_ForceZero(oldData, sizeof(oldData));
     }
 
     return rc;
@@ -13857,10 +13943,16 @@ static TPM_RC FwCmd_NV_WriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        UINT32 oldAttrs = nv->nvPublic.attributes;
         nv->nvPublic.attributes |= TPMA_NV_WRITELOCKED;
-        FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            nv->nvPublic.attributes = oldAttrs;
+        }
     }
 
     return rc;
@@ -13899,10 +13991,16 @@ static TPM_RC FwCmd_NV_ReadLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        UINT32 oldAttrs = nv->nvPublic.attributes;
         nv->nvPublic.attributes |= TPMA_NV_READLOCKED;
-        FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            nv->nvPublic.attributes = oldAttrs;
+        }
     }
 
     return rc;
@@ -13951,6 +14049,10 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        byte oldData[8];
+        int oldWritten = nv->written;
+        UINT32 oldAttrs = nv->nvPublic.attributes;
+        XMEMCPY(oldData, nv->data, 8);
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: NV_SetBits(nv=0x%x, bits=0x%llx)\n",
             nvHandle, (unsigned long long)bits);
@@ -13963,9 +14065,17 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         nv->written = 1;
         nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
 
-        FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            XMEMCPY(nv->data, oldData, 8);
+            nv->written = oldWritten;
+            nv->nvPublic.attributes = oldAttrs;
+        }
+        TPM2_ForceZero(oldData, sizeof(oldData));
     }
 
     return rc;
@@ -14016,6 +14126,7 @@ static TPM_RC FwCmd_NV_ChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        TPM2B_AUTH oldNvAuth = nv->authValue;
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: NV_ChangeAuth(nv=0x%x, newAuthSz=%d)\n",
             nvHandle, newAuthSize);
@@ -14028,9 +14139,16 @@ static TPM_RC FwCmd_NV_ChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             XMEMCPY(nv->authValue.buffer, newAuthBuf, newAuthSize);
         }
 
-        FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
-        FwRspNoParams(rsp, cmdTag);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            TPM2_ForceZero(nv->authValue.buffer, sizeof(nv->authValue.buffer));
+            nv->authValue = oldNvAuth;
+        }
+        TPM2_ForceZero(&oldNvAuth, sizeof(oldNvAuth));
     }
 
     /* Zero stack copy of new auth value before returning */
@@ -14094,6 +14212,10 @@ static TPM_RC FwCmd_DictionaryAttackLockReset(FWTPM_CTX* ctx,
     }
 
     if (rc == 0) {
+        UINT32 oldFailedTries = ctx->daFailedTries;
+        int oldLockoutFailed = ctx->lockoutAuthFailed;
+        UINT64 oldLockoutHealMs = ctx->daLockoutHealMs;
+        UINT64 oldSelfHealMs = ctx->daSelfHealMs;
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: DictionaryAttackLockReset\n");
     #endif
@@ -14101,8 +14223,16 @@ static TPM_RC FwCmd_DictionaryAttackLockReset(FWTPM_CTX* ctx,
         ctx->lockoutAuthFailed = 0;
         ctx->daLockoutHealMs = 0;
         ctx->daSelfHealMs = FwDaNowMs(ctx);
-        (void)FWTPM_NV_SaveFlags(ctx);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_SaveFlags(ctx);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            ctx->daFailedTries = oldFailedTries;
+            ctx->lockoutAuthFailed = oldLockoutFailed;
+            ctx->daLockoutHealMs = oldLockoutHealMs;
+            ctx->daSelfHealMs = oldSelfHealMs;
+        }
     }
 
     return rc;
@@ -14141,6 +14271,13 @@ static TPM_RC FwCmd_DictionaryAttackParameters(FWTPM_CTX* ctx,
     }
 
     if (rc == 0) {
+        UINT32 oldMaxTries = ctx->daMaxTries;
+        UINT32 oldRecoveryTime = ctx->daRecoveryTime;
+        UINT32 oldLockoutRecovery = ctx->daLockoutRecovery;
+        UINT32 oldFailedTries = ctx->daFailedTries;
+        int oldLockoutFailed = ctx->lockoutAuthFailed;
+        UINT64 oldLockoutHealMs = ctx->daLockoutHealMs;
+        UINT64 oldSelfHealMs = ctx->daSelfHealMs;
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: DictionaryAttackParameters(max=%u, recovery=%u, "
             "lockout=%u)\n", newMaxTries, newRecoveryTime, lockoutRecovery);
@@ -14153,8 +14290,19 @@ static TPM_RC FwCmd_DictionaryAttackParameters(FWTPM_CTX* ctx,
         ctx->lockoutAuthFailed = 0;
         ctx->daLockoutHealMs = 0;
         ctx->daSelfHealMs = FwDaNowMs(ctx);
-        (void)FWTPM_NV_SaveFlags(ctx);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_SaveFlags(ctx);
+        if (rc == 0) {
+            FwRspNoParams(rsp, cmdTag);
+        }
+        else {
+            ctx->daMaxTries = oldMaxTries;
+            ctx->daRecoveryTime = oldRecoveryTime;
+            ctx->daLockoutRecovery = oldLockoutRecovery;
+            ctx->daFailedTries = oldFailedTries;
+            ctx->lockoutAuthFailed = oldLockoutFailed;
+            ctx->daLockoutHealMs = oldLockoutHealMs;
+            ctx->daSelfHealMs = oldSelfHealMs;
+        }
     }
 
     return rc;

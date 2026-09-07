@@ -1101,6 +1101,16 @@ static int FwNvAppendCheckpoint(FWTPM_CTX* ctx)
 }
 #endif /* WOLFTPM_FWTPM_NV_APPEND_ONLY */
 
+/* A deletion cannot be captured by compaction of the live context (which
+ * still holds the item), so these tombstone tags must not be treated as
+ * committed-by-compaction. */
+static int FwNvTagIsDelete(UINT16 tag)
+{
+    return tag == FWTPM_NV_TAG_NV_INDEX_DEL ||
+           tag == FWTPM_NV_TAG_PERSISTENT_DEL ||
+           tag == FWTPM_NV_TAG_PRIMARY_CACHE_DEL;
+}
+
 /* Append a single TLV entry to the journal */
 static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
     const byte* value, UINT16 valueLen)
@@ -1109,11 +1119,28 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
     word32 entrySize = TLV_HDR_SIZE + valueLen;
     word32 reserve = FWTPM_NV_MAC_SIZE;
     byte tlvHdr[TLV_HDR_SIZE];
+    word32 savedWritePos;
     int rc;
 
     if (hal->write == NULL) {
+#ifdef FWTPM_NO_NV
+        /* Volatile-only build: there is no backing store, so a state change
+         * succeeds without being persisted rather than reporting a failure. */
+        return TPM_RC_SUCCESS;
+#else
         return TPM_RC_FAILURE;
+#endif
     }
+
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    /* A rejected append left an unsealed entry on the log that the next
+     * checkpoint would authenticate. Rewriting the single region now would
+     * erase the last committed image while the medium may still be failing,
+     * so refuse further mutations; the loader compacts the tail on restart. */
+    if (FW_NV_APPEND_ONLY(hal) && ctx->nvRebuild && !ctx->nvCompacting) {
+        return TPM_RC_NV_UNAVAILABLE;
+    }
+#endif
 
     /* Append-only also appends a checkpoint and rounds up to a granule. */
     if (FW_NV_APPEND_ONLY(hal)) {
@@ -1126,12 +1153,17 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
         if (ctx->nvCompacting) {
             return TPM_RC_NV_SPACE;
         }
-        /* Compact and retry */
+        /* Compact. The rewrite from the live context is the commit for a
+         * non-delete change, and for a deletion whose target the rewrite
+         * omitted; appending a redundant record afterwards would only put the
+         * compacted journal's seal at risk. */
         rc = FWTPM_NV_Save(ctx);
         if (rc != TPM_RC_SUCCESS) {
             return rc;
         }
-        /* After compaction, check again */
+        if (!FwNvTagIsDelete(tag) || ctx->nvDeleteHandle != 0) {
+            return TPM_RC_SUCCESS;
+        }
         if (ctx->nvWritePos + entrySize + reserve > hal->maxSize) {
             return TPM_RC_NV_SPACE;
         }
@@ -1141,6 +1173,7 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
     FwStoreU16LE(tlvHdr, tag);
     FwStoreU16LE(tlvHdr + 2, valueLen);
 
+    savedWritePos = ctx->nvWritePos;
     rc = FwNvHalWrite(ctx, ctx->nvWritePos, tlvHdr, TLV_HDR_SIZE);
     if (rc == TPM_RC_SUCCESS && valueLen > 0) {
         rc = FwNvHalWrite(ctx, ctx->nvWritePos + TLV_HDR_SIZE,
@@ -1149,16 +1182,33 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
     if (rc == TPM_RC_SUCCESS) {
         ctx->nvWritePos += entrySize;
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
-        /* Commit via a checkpoint; compaction emits one at the end instead. */
+        /* Commit via a checkpoint; compaction emits one at the end instead. An
+         * entry whose checkpoint fails is not durable, yet it stays on the log
+         * where the next checkpoint would seal it: no more appends until the
+         * loader has compacted it away. */
         if (FW_NV_APPEND_ONLY(hal)) {
             if (!ctx->nvCompacting) {
                 rc = FwNvAppendCheckpoint(ctx);
+                if (rc != TPM_RC_SUCCESS) {
+                    ctx->nvRebuild = 1;
+                }
             }
         }
         else
 #endif
         {
             rc = FwNvWriteHeader(ctx); /* byte-addressable: header + MAC */
+        }
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        /* A failed append must leave no committable remnant. On a byte-
+         * addressable backend roll the write cursor back so the partial entry
+         * is overwritten by the next append and never sealed into the journal
+         * by a later header write. Append-only flash cannot overwrite, so its
+         * cursor and granule state are left intact for recovery at the next
+         * compaction. */
+        if (!FW_NV_APPEND_ONLY(hal)) {
+            ctx->nvWritePos = savedWritePos;
         }
     }
     return rc;
@@ -1756,6 +1806,10 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         return BAD_FUNC_ARG;
     }
 
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    ctx->nvRebuild = 0;
+#endif
+
     /* Use custom HAL if set, otherwise default file-based */
     if (ctx->nvHal.read != NULL && ctx->nvHal.write != NULL) {
         hal = &ctx->nvHal;
@@ -2142,9 +2196,10 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
     }
 
-    /* --- NV indices (only used slots) --- */
+    /* --- NV indices (only used slots, minus a pending deletion) --- */
     for (i = 0; i < FWTPM_MAX_NV_INDICES && rc == 0; i++) {
-        if (ctx->nvIndices[i].inUse) {
+        if (ctx->nvIndices[i].inUse &&
+                ctx->nvIndices[i].nvPublic.nvIndex != ctx->nvDeleteHandle) {
             word32 needed;
             pos = 0;
             /* Estimate: ensure buf is large enough */
@@ -2171,9 +2226,10 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
     }
 
-    /* --- Persistent objects (only used slots) --- */
+    /* --- Persistent objects (only used slots, minus a pending deletion) --- */
     for (i = 0; i < FWTPM_MAX_PERSISTENT && rc == 0; i++) {
-        if (ctx->persistent[i].used) {
+        if (ctx->persistent[i].used &&
+                ctx->persistent[i].handle != ctx->nvDeleteHandle) {
             word32 needed;
             pos = 0;
             needed = 4 + FWTPM_NV_PUBAREA_EST + FWTPM_NV_NAME_EST + 2 +
@@ -2239,6 +2295,11 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             rc = FwNvWriteHeader(ctx);
         }
     }
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    /* A compaction that did not reach its checkpoint leaves the rewritten
+     * snapshot unsealed on the log, so it must be rebuilt before any append. */
+    ctx->nvRebuild = (rc != TPM_RC_SUCCESS);
+#endif
 
 #ifdef DEBUG_WOLFTPM
     printf("fwTPM: NV saved (compact, %d bytes)\n", (int)ctx->nvWritePos);
@@ -2514,6 +2575,7 @@ int FWTPM_NV_SaveNvIndex(FWTPM_CTX* ctx, int slot)
 
 int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle)
 {
+    int rc;
     byte buf[4];
     word32 pos = 0;
 
@@ -2522,8 +2584,10 @@ int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle)
     }
 
     FwNvMarshalU32(buf, &pos, sizeof(buf), nvHandle);
-    return FwNvAppendEntry(ctx, FWTPM_NV_TAG_NV_INDEX_DEL,
-        buf, (UINT16)pos);
+    ctx->nvDeleteHandle = nvHandle;
+    rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_NV_INDEX_DEL, buf, (UINT16)pos);
+    ctx->nvDeleteHandle = 0;
+    return rc;
 }
 
 int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
@@ -2564,6 +2628,7 @@ int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
 
 int FWTPM_NV_DeletePersistent(FWTPM_CTX* ctx, UINT32 handle)
 {
+    int rc;
     byte buf[4];
     word32 pos = 0;
 
@@ -2572,8 +2637,10 @@ int FWTPM_NV_DeletePersistent(FWTPM_CTX* ctx, UINT32 handle)
     }
 
     FwNvMarshalU32(buf, &pos, sizeof(buf), handle);
-    return FwNvAppendEntry(ctx, FWTPM_NV_TAG_PERSISTENT_DEL,
-        buf, (UINT16)pos);
+    ctx->nvDeleteHandle = handle;
+    rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PERSISTENT_DEL, buf, (UINT16)pos);
+    ctx->nvDeleteHandle = 0;
+    return rc;
 }
 
 int FWTPM_NV_SavePrimaryCache(FWTPM_CTX* ctx, int slot)
