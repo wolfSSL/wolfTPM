@@ -10652,6 +10652,8 @@ static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         sess->templateHash.size = 0;
         sess->checkNvWritten = 0;
         sess->nvWrittenState = 0;
+        sess->pcrUpdateCounter = 0;
+        sess->hasPcrUpdateCounter = 0;
 
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
@@ -10732,6 +10734,13 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (digestSz == 0) {
             rc = TPM_RC_HASH;
         }
+    }
+
+    /* A PCR change since this session's last PolicyPCR invalidates it */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY &&
+        sess->hasPcrUpdateCounter &&
+        sess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
+        rc = TPM_RC_PCR_CHANGED;
     }
 
     /* Compute the digest of the selected PCRs when none was supplied, and
@@ -10819,8 +10828,16 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* PCR digest */
         wc_HashUpdate(hashCtx, wcHash, pcrDigest, pcrDigestSize);
 
-        wc_HashFinal(hashCtx, wcHash, sess->policyDigest.buffer);
-        sess->policyDigest.size = digestSz;
+        if (wc_HashFinal(hashCtx, wcHash, sess->policyDigest.buffer) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            sess->policyDigest.size = digestSz;
+            if (sess->sessionType == TPM_SE_POLICY) {
+                sess->pcrUpdateCounter = ctx->pcrUpdateCounter;
+                sess->hasPcrUpdateCounter = 1;
+            }
+        }
     }
     if (hashInit) {
         wc_HashFree(hashCtx, wcHash);
@@ -19188,6 +19205,15 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             int sizeMismatch;
             int policyDiff;
             word32 cmpSz;
+
+            /* PCR values changed since PolicyPCR: the session no longer
+             * reflects the PCR state it was evaluated against. */
+            if (pSess->hasPcrUpdateCounter &&
+                pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_PCR_CHANGED);
+                return TPM_RC_SUCCESS;
+            }
 
             /* Find entity's authPolicy by handle type */
 #ifndef FWTPM_NO_NV

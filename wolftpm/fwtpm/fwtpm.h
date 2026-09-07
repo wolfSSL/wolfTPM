@@ -618,6 +618,8 @@ typedef struct FWTPM_Session {
     TPM2B_DIGEST templateHash;      /* PolicyTemplate: locked once set */
     int checkNvWritten;             /* 1 once PolicyNvWritten has been called */
     int nvWrittenState;             /* PolicyNvWritten writtenSet */
+    UINT32 pcrUpdateCounter;        /* PCR update counter seen by PolicyPCR */
+    int hasPcrUpdateCounter;        /* 1 once PolicyPCR has been evaluated */
 } FWTPM_Session;
 
 /* NV index slot (user NV RAM) */

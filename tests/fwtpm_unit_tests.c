@@ -9646,6 +9646,68 @@ static void test_fwtpm_policy_pcr_digest_verified(void)
     fwtpm_pass("PolicyPCR digest verified:", 0);
 }
 
+#ifndef FWTPM_NO_NV
+static TPM_RC SendPcrExtendLoc(FWTPM_CTX* ctx, int pcrIndex, int locality);
+
+/* A policy session evaluated against PCR values must stop authorizing once a
+ * PCR changes, and must be restarted before PolicyPCR is accepted again. */
+static void test_fwtpm_policy_pcr_change_invalidates(void)
+{
+    FWTPM_CTX ctx;
+    int pos, cmdSz, rspSize = 0;
+    UINT32 sessH;
+    UINT16 dSz;
+    byte digest[64];
+    UINT32 nvIdx = 0x01500063;
+    UINT32 nvAttrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, NULL, 0), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
+        TPM_RC_SUCCESS);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    AssertIntEQ(dSz, 32);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SetPrimaryPolicy); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, dSz); pos += 2;
+    memcpy(gCmd + pos, digest, dSz); pos += dSz;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 0, 0), TPM_RC_SUCCESS);
+
+    /* The policy digest still matches, but the PCRs it attests to moved */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, nvAttrs);
+    PutU32BE(gCmd + 18, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_PCR_CHANGED);
+
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, NULL, 0), TPM_RC_PCR_CHANGED);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyRestart, sessH),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, NULL, 0), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyPCR invalidated by PCR change:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
 static void test_fwtpm_admin_authorization_requires_policy(void)
 {
@@ -14603,6 +14665,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
     test_fwtpm_policy_pcr_digest_verified();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_policy_pcr_change_invalidates();
+#endif
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();
 #ifndef FWTPM_NO_NV
