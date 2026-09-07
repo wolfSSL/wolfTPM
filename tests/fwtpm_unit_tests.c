@@ -9587,6 +9587,83 @@ static void test_fwtpm_policy_cphash_enforced(void)
 }
 #endif /* !FWTPM_NO_NV */
 
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+/* Create a child under parent; copy its outPrivate and raw outPublic. */
+static void CreateChildBlobs(FWTPM_CTX* ctx, UINT32 parent,
+    byte* priv, UINT16* privSz, byte* pub, UINT16* pubSz)
+{
+    int rc, rspSize = 0, cmdSz, pos;
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA);
+    AssertIntGT(cmdSz, 0);
+    PutU32BE(gCmd + 6, TPM_CC_Create);
+    PutU32BE(gCmd + 10, parent);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE + 4;                       /* skip parameterSize */
+    *privSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntGT(*privSz, 0);
+    memcpy(priv, gRsp + pos, *privSz); pos += *privSz;
+    *pubSz = GetU16BE(gRsp + pos);
+    AssertIntGT(*pubSz, 0);
+    memcpy(pub, gRsp + pos, 2 + *pubSz);              /* keep the size prefix */
+}
+
+/* Load(parent, priv, pub) and return the response code */
+static TPM_RC SendLoadCmd(FWTPM_CTX* ctx, UINT32 parent,
+    const byte* priv, UINT16 privSz, const byte* pub, UINT16 pubSz)
+{
+    int pos, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
+    PutU32BE(gCmd + pos, parent); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, privSz); pos += 2;
+    memcpy(gCmd + pos, priv, privSz); pos += privSz;
+    memcpy(gCmd + pos, pub, 2 + pubSz); pos += 2 + pubSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* Two children wrapped under one parent must not share an IV, so identical
+ * leading sensitive bytes never produce identical leading ciphertext. */
+static void test_fwtpm_wrap_private_unique_iv(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 srk, child;
+    byte priv[2][sizeof(TPM2B_PRIVATE)];
+    byte pub[2][sizeof(TPM2B_PUBLIC)];
+    UINT16 privSz[2], pubSz[2];
+    int ivOff = 2 + 32;                               /* after integrity */
+    int encOff = ivOff + 16 + 2;                      /* after IV + size */
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    srk = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(srk, 0);
+
+    CreateChildBlobs(&ctx, srk, priv[0], &privSz[0], pub[0], &pubSz[0]);
+    CreateChildBlobs(&ctx, srk, priv[1], &privSz[1], pub[1], &pubSz[1]);
+    AssertIntGT(privSz[0], encOff + 16);
+    AssertIntGT(privSz[1], encOff + 16);
+    AssertIntNE(memcmp(priv[0] + ivOff, priv[1] + ivOff, 16), 0);
+    AssertIntNE(memcmp(priv[0] + encOff, priv[1] + encOff, 16), 0);
+
+    /* The blobs still round-trip through Load */
+    AssertIntEQ(SendLoadCmd(&ctx, srk, priv[0], privSz[0], pub[0], pubSz[0]),
+        TPM_RC_SUCCESS);
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(child, 0);
+    FlushHandle(&ctx, child);
+    FlushHandle(&ctx, srk);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Wrapped private blobs use unique IVs:", 0);
+}
+#endif /* !NO_RSA && WOLFSSL_KEY_GEN */
+
 /* PolicyPCR selecting PCR 0 in the SHA-256 bank with an optional caller digest */
 static TPM_RC SendPolicyPcrCmd(FWTPM_CTX* ctx, UINT32 sessH,
     const byte* digest, UINT16 digestSz)
@@ -14667,6 +14744,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_pcr_digest_verified();
 #ifndef FWTPM_NO_NV
     test_fwtpm_policy_pcr_change_invalidates();
+#endif
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    test_fwtpm_wrap_private_unique_iv();
 #endif
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();

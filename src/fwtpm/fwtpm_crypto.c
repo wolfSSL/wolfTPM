@@ -2034,14 +2034,12 @@ TPM_RC FwDeriveRsaPrimaryKey(TPMI_ALG_HASH nameAlg,
 /* Private key wrapping/unwrapping for Create/Load                     */
 /* ================================================================== */
 
-/* Derive a 32-byte AES key and 16-byte IV from parent's private key.
+/* Derive the 32-byte AES key and 32-byte MAC key from parent's private key.
  * Used to wrap child key sensitive data in TPM2B_PRIVATE. */
 int FwDeriveWrapKey(const FWTPM_Object* parent,
-    byte* aesKey, byte* aesIV)
+    byte* aesKey, byte* macKey)
 {
     int rc;
-    byte keyMaterial[WC_SHA256_DIGEST_SIZE];
-    byte ivMaterial[WC_SHA256_DIGEST_SIZE];
     FWTPM_DECLARE_VAR(hmac, Hmac);
 
     FWTPM_ALLOC_VAR(hmac, Hmac);
@@ -2060,35 +2058,25 @@ int FwDeriveWrapKey(const FWTPM_Object* parent,
         rc = wc_HmacUpdate(hmac, (const byte*)"fwTPM-wrap-key", 14);
     }
     if (rc == 0) {
-        rc = wc_HmacFinal(hmac, keyMaterial);
-    }
-    if (rc == 0) {
-        XMEMCPY(aesKey, keyMaterial, 32);
+        rc = wc_HmacFinal(hmac, aesKey);
     }
 
-    /* IV = HMAC-SHA256(parentPriv, "fwTPM-wrap-iv") truncated to 16.
-     * Use full parent private key (same as AES key above) — HMAC handles
-     * arbitrary-length keys via internal hashing. */
+    /* MAC key = HMAC-SHA256(parentPriv, "fwTPM-wrap-mac") */
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, WC_SHA256, parent->privKey,
             parent->privKeySize);
     }
     if (rc == 0) {
-        rc = wc_HmacUpdate(hmac, (const byte*)"fwTPM-wrap-iv", 13);
+        rc = wc_HmacUpdate(hmac, (const byte*)"fwTPM-wrap-mac", 14);
     }
     if (rc == 0) {
-        rc = wc_HmacFinal(hmac, ivMaterial);
-    }
-    if (rc == 0) {
-        XMEMCPY(aesIV, ivMaterial, AES_BLOCK_SIZE);
+        rc = wc_HmacFinal(hmac, macKey);
     }
 
     if (rc != 0) {
         rc = TPM_RC_FAILURE;
     }
 
-    TPM2_ForceZero(keyMaterial, sizeof(keyMaterial));
-    TPM2_ForceZero(ivMaterial, sizeof(ivMaterial));
     wc_HmacFree(hmac);
     FWTPM_FREE_VAR(hmac);
     return rc;
@@ -2221,16 +2209,19 @@ int FwUnmarshalSensitive(const byte* buf, int bufSz,
     return pos;
 }
 
-/* Wrap sensitive into TPM2B_PRIVATE using parent's key.
- * Format: integritySize(2) + integrity(32) + encSensSize(2) + encSens(N)
+/* Wrap sensitive into TPM2B_PRIVATE using parent's key. A fresh random IV
+ * per blob keeps every child on its own AES-CFB keystream.
+ * Format: integritySize(2) + integrity(32) + iv(16) + encSensSize(2) +
+ *         encSens(N)
  */
-int FwWrapPrivate(FWTPM_Object* parent,
+int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
     const byte* privKeyDer, int privKeyDerSz,
     TPM2B_PRIVATE* outPriv)
 {
     int rc = TPM_RC_SUCCESS;
     byte aesKey[FWTPM_MAX_SYM_KEY_SIZE], aesIV[AES_BLOCK_SIZE];
+    byte macKey[WC_SHA256_DIGEST_SIZE];
     FWTPM_DECLARE_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 128);
     byte hmacDigest[WC_SHA256_DIGEST_SIZE];
     FWTPM_DECLARE_VAR(aes, Aes);
@@ -2250,9 +2241,15 @@ int FwWrapPrivate(FWTPM_Object* parent,
         rc = TPM_RC_FAILURE;
     }
 
-    /* Derive wrapping key/IV from parent */
+    /* Derive wrapping keys from parent, fresh IV per blob */
     if (rc == 0) {
-        rc = FwDeriveWrapKey(parent, aesKey, aesIV);
+        rc = FwDeriveWrapKey(parent, aesKey, macKey);
+    }
+    if (rc == 0) {
+        if (rng == NULL ||
+                wc_RNG_GenerateBlock(rng, aesIV, AES_BLOCK_SIZE) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
     }
 
     /* AES-CFB encrypt in place */
@@ -2270,12 +2267,15 @@ int FwWrapPrivate(FWTPM_Object* parent,
         }
     }
 
-    /* HMAC integrity over encrypted data */
+    /* HMAC integrity over IV and encrypted data */
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
     }
     if (rc == 0) {
-        rc = wc_HmacSetKey(hmac, WC_SHA256, aesKey, 32);
+        rc = wc_HmacSetKey(hmac, WC_SHA256, macKey, sizeof(macKey));
+    }
+    if (rc == 0) {
+        rc = wc_HmacUpdate(hmac, aesIV, AES_BLOCK_SIZE);
     }
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, sensBuf, sensSz);
@@ -2287,17 +2287,18 @@ int FwWrapPrivate(FWTPM_Object* parent,
 
     /* Pack into TPM2B_PRIVATE */
     if (rc == 0) {
-        int totalSz = 2 + WC_SHA256_DIGEST_SIZE + 2 + sensSz;
+        int totalSz = 2 + WC_SHA256_DIGEST_SIZE + AES_BLOCK_SIZE + 2 + sensSz;
         if (totalSz > (int)sizeof(outPriv->buffer)) {
             rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        /* integritySize(2) + integrity(32) + encSensSize(2) + encSens(N) */
         outPriv->buffer[pos++] = 0;
         outPriv->buffer[pos++] = WC_SHA256_DIGEST_SIZE;
         XMEMCPY(outPriv->buffer + pos, hmacDigest, WC_SHA256_DIGEST_SIZE);
         pos += WC_SHA256_DIGEST_SIZE;
+        XMEMCPY(outPriv->buffer + pos, aesIV, AES_BLOCK_SIZE);
+        pos += AES_BLOCK_SIZE;
         FwStoreU16BE(outPriv->buffer + pos, (UINT16)sensSz);
         pos += 2;
         XMEMCPY(outPriv->buffer + pos, sensBuf, sensSz);
@@ -2310,6 +2311,7 @@ int FwWrapPrivate(FWTPM_Object* parent,
     }
 
     TPM2_ForceZero(aesKey, sizeof(aesKey));
+    TPM2_ForceZero(macKey, sizeof(macKey));
     TPM2_ForceZero(aesIV, sizeof(aesIV));
     TPM2_ForceZero(hmacDigest, sizeof(hmacDigest));
     TPM2_ForceZero(sensBuf, FWTPM_MAX_PRIVKEY_DER + 128);
@@ -2327,6 +2329,7 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
 {
     int rc = TPM_RC_SUCCESS;
     byte aesKey[FWTPM_MAX_SYM_KEY_SIZE], aesIV[AES_BLOCK_SIZE];
+    byte macKey[WC_SHA256_DIGEST_SIZE];
     byte hmacDigest[WC_SHA256_DIGEST_SIZE];
     byte hmacCheck[WC_SHA256_DIGEST_SIZE];
     FWTPM_DECLARE_BUF(decBuf, FWTPM_MAX_PRIVKEY_DER + 128);
@@ -2340,11 +2343,11 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
     FWTPM_ALLOC_VAR(aes, Aes);
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
-    if (inPriv->size < 36) {
-        rc = TPM_RC_FAILURE; /* min: 2+32+2 */
+    if (inPriv->size < 2 + WC_SHA256_DIGEST_SIZE + AES_BLOCK_SIZE + 2) {
+        rc = TPM_RC_FAILURE;
     }
 
-    /* Parse integrity */
+    /* Parse integrity and IV */
     if (rc == 0) {
         integritySize = FwLoadU16BE(inPriv->buffer + pos);
         pos += 2;
@@ -2355,6 +2358,8 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
     if (rc == 0) {
         XMEMCPY(hmacDigest, inPriv->buffer + pos, WC_SHA256_DIGEST_SIZE);
         pos += WC_SHA256_DIGEST_SIZE;
+        XMEMCPY(aesIV, inPriv->buffer + pos, AES_BLOCK_SIZE);
+        pos += AES_BLOCK_SIZE;
     }
 
     /* Parse encrypted sensitive size */
@@ -2372,17 +2377,20 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
         }
     }
 
-    /* Derive wrapping key/IV from parent */
+    /* Derive wrapping keys from parent */
     if (rc == 0) {
-        rc = FwDeriveWrapKey(parent, aesKey, aesIV);
+        rc = FwDeriveWrapKey(parent, aesKey, macKey);
     }
 
-    /* Verify HMAC */
+    /* Verify HMAC over IV and encrypted data */
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
     }
     if (rc == 0) {
-        rc = wc_HmacSetKey(hmac, WC_SHA256, aesKey, 32);
+        rc = wc_HmacSetKey(hmac, WC_SHA256, macKey, sizeof(macKey));
+    }
+    if (rc == 0) {
+        rc = wc_HmacUpdate(hmac, aesIV, AES_BLOCK_SIZE);
     }
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, inPriv->buffer + pos, encSensSize);
@@ -2425,6 +2433,7 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
     }
 
     TPM2_ForceZero(aesKey, sizeof(aesKey));
+    TPM2_ForceZero(macKey, sizeof(macKey));
     TPM2_ForceZero(aesIV, sizeof(aesIV));
     TPM2_ForceZero(hmacCheck, sizeof(hmacCheck));
     TPM2_ForceZero(decBuf, FWTPM_MAX_PRIVKEY_DER + 128);

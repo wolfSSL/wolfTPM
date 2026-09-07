@@ -31,9 +31,10 @@
 #endif
 
 /* Maximum XOR mask size. RSA-2048 inSensitive parameter blobs on Create can
- * exceed MAX_DIGEST_BUFFER (1024), so leave headroom to ~1250 bytes. */
+ * exceed MAX_DIGEST_BUFFER (1024), and an fwTPM outPrivate carries a 32-byte
+ * integrity value plus a 16-byte IV on top of the sensitive area. */
 #ifndef TPM2_XOR_MASK_MAX
-#define TPM2_XOR_MASK_MAX 1280
+#define TPM2_XOR_MASK_MAX 1536
 #endif
 
 /* XOR parameter encryption/decryption (raw pointer interface).

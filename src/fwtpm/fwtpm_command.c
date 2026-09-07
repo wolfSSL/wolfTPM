@@ -6379,7 +6379,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Wrap private key into TPM2B_PRIVATE */
     if (rc == 0) {
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
-        rc = FwWrapPrivate(parent, inPublic->publicArea.type, &userAuth,
+        rc = FwWrapPrivate(parent, &ctx->rng, inPublic->publicArea.type, &userAuth,
             privKeyDer, privKeyDerSz, outPrivate);
     }
 
@@ -6527,17 +6527,15 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Update auth on live object */
+    /* Re-wrap private key with new auth, then update the live object */
     if (rc == 0) {
-        XMEMCPY(&obj->authValue, &newAuth, sizeof(newAuth));
-    }
-
-    /* Re-wrap private key with new auth */
-    if (rc == 0) {
-        rc = FwWrapPrivate(parent, obj->pub.type, &newAuth,
+        rc = FwWrapPrivate(parent, &ctx->rng, obj->pub.type, &newAuth,
             obj->privKey, obj->privKeySize, &outPrivate);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
+        }
+        else {
+            XMEMCPY(&obj->authValue, &newAuth, sizeof(newAuth));
         }
     }
 
@@ -7432,7 +7430,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Wrap private for output */
     if (rc == 0) {
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
-        rc = FwWrapPrivate(parent, sensType, &importedAuth,
+        rc = FwWrapPrivate(parent, &ctx->rng, sensType, &importedAuth,
             privKeyDer, privKeyDerSz, outPrivate);
     }
 
@@ -8447,7 +8445,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Wrap private key */
     if (rc == 0) {
-        rc = FwWrapPrivate(parent, inPublic->publicArea.type, &userAuth,
+        rc = FwWrapPrivate(parent, &ctx->rng, inPublic->publicArea.type, &userAuth,
             privKeyDer, privKeyDerSz, outPrivate);
     }
 
