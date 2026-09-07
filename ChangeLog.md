@@ -1,10 +1,102 @@
 # Release Notes
 
+## wolfTPM Release 4.2.0 (Sep 14, 2026)
+
+**Summary**
+
+Feature and maintenance release centered on TCG TPM 2.0 v1.85 specification
+compliance in the firmware TPM (fwTPM), expanded post-quantum support, and new
+platform backends. Highlights: a broad set of fwTPM v1.85 compliance fixes
+(command attributes, PolicyAuthorize, context-blob authentication, NV
+authorization, ticket HMAC ordering), plus SPDM responder corrections;
+ML-DSA authentication for post-quantum TLS 1.3 and SealSQ QVault post-quantum
+TPM support; wolfHAL I2C/SPI backends and NVIDIA Jetson Orin OP-TEE fwTPM
+support; ST33 firmware-update corrections; transport and NV/hash performance
+improvements; and extensive security hardening (Coverity, static analysis, and
+negative tests).
+
+**Detail**
+
+* Firmware TPM (fwTPM) TCG v1.85 specification compliance
+  - Command-code masking and vendor-bit return-code fix (PR #556)
+  - Corrected auth-entry handling (PR #566)
+  - PolicyAuthorize compliance fixes and corrected response codes for the
+    keySign name ticket and approvedPolicy (PRs #567, #572)
+  - Authenticate object context blobs on ContextSave/ContextLoad (PR #568)
+  - Reject unsupported LoadExternal private types, fix creation-ticket HMAC
+    ordering, and validate ML-DSA / ML-KEM templates in LoadExternal and
+    CreateLoaded (PRs #573, #578)
+  - Validate NV space authorization and report the v1.85 revision (PR #575)
+  - Fix hierarchy and policy-authorization gaps and SPDM responder version
+    negotiation (PR #577)
+  - Correct command-attribute reporting and the verified-ticket HMAC algorithm
+    (PR #579)
+  - Additional TCG v1.85 fwTPM and SPDM compliance fixes (PR #584)
+* Post-quantum and TLS
+  - TPM-backed ML-DSA authentication for post-quantum TLS 1.3, with an example
+    and tests (PR #559)
+  - SealSQ QVault post-quantum TPM support (PR #570)
+  - ML-KEM credential activation and ML-DSA quotes in the fwTPM (PR #592)
+* New platform and HAL support
+  - wolfHAL I2C and SPI backends, enabled with `--enable-wolfhal` and an
+    application-supplied `board.h` (PR #562)
+  - NVIDIA Jetson Orin (Tegra234) OP-TEE firmware TPM, reached through the
+    Linux TPM kernel driver as `/dev/tpmrm0` (PR #576)
+  - Finer per-command-group gating macros in the fwTPM (PR #574)
+  - Caller-supplied policy authorization for firmware upgrade (PR #560)
+* ST33 firmware update
+  - Fix Generation 1 manifest size and refuse oversized commands (PR #583)
+  - Select ST33 field-upgrade commands from the TPM command set (PR #586)
+* Performance
+  - Reuse transport connections and reduce NV-write and hash-cache overhead
+    (PR #563)
+* Security hardening (Coverity, static analysis, input validation)
+  - Harden the crypto callback, ASN.1 parsing, parameter encryption, and
+    marshalling, with negative tests (PR #551)
+  - Bound the TPM2 response decrypt-parameter size, zeroize primary-key auth,
+    and expand marshalling/import test coverage (PR #555)
+  - Guard a tainted PCR-select copy in the fwTPM properties path (PR #558)
+  - Fix a fwTPM response buffer overflow and an SPDM clear-frame command bypass
+    (PR #561)
+  - Harden wolfTPM2 PCR/hash wrapper validation (PR #554)
+  - Strengthen TPM input validation and memory handling (PR #565)
+  - Fix a wolfCrypt refcount race in P521 primary derivation and a policy-session
+    authorization bypass (PR #571)
+  - Harden PCR policy bounds checks (PR #581)
+  - Harden wolfTPM validation and data handling (PR #582)
+  - Harden fwTPM protocol handling and SPDM authentication (PR #588)
+  - Make fwTPM state changes transactional and harden PolicyPCR and
+    private-blob wrapping (PR #593)
+  - Additional Coverity fixes across the TPM bounds and configuration paths,
+    including bounded fwTPM child-blob copies, a guarded public-name buffer
+    allocation, and restricted unsealed-output file permissions
+    (PRs #591, #595, #603, #605)
+  - Harden fwTPM key derivation and command validation (PR #596)
+  - Fix TPM2 core key-import parsing and response handling and improve core
+    zeroization and robustness (PRs #597, #600)
+  - Harden error handling and secret zeroization in the examples, SPI transfer,
+    and SPDM version parsing (PRs #598, #599, #604)
+  - Reject truncated fwTPM Rewrap input, require bound authorization for policy
+    sessions over empty-policy objects, bind the full keyed-hash secret into the
+    public name, fail public-area parsing on overflow, normalize the TIS
+    locality return, and clear residual request bytes from the shared command
+    buffer (PR #608)
+* Build fixes
+  - Fix AES_BLOCK_SIZE undeclared under OPENSSL_COEXIST wolfSSL (PR #552)
+  - Fix an edge-case build with TIS lock and no wolfCrypt (PR #564)
+  - Fix the --enable-pqc build with --disable-wolfcrypt (PR #606)
+  - Refresh the expired wolfSSL example CA certificates and add a refresh
+    script (PR #601)
+* Documentation and licensing
+  - Add contribution guidance (CONTRIBUTING.md) (PR #569)
+  - GPLv2 exception to the base GPLv3 license: wolfTPM combined with U-Boot
+    from Cisco Systems, Inc. may be licensed under GPLv2 (PR #557)
+
 ## wolfTPM Release 4.1.0 (Jul 10, 2026)
 
 **Summary**
 
-Feature release centered on TPM locality control and expanded post-quantum support. Highlights: runtime locality selection (`wolfTPM2_SetLocality`) with a corrected fwTPM per-PCR locality enforcement table and an optional GPIO nRST reset HAL; TPM 2.0 v1.85 post-quantum (ML-DSA / ML-KEM) support brought into the firmware TPM with fine-grained build macros; fwTPM Dictionary Attack hardening, transparent `TPM_RC_RETRY` handling, and SPDM secured transport for the fwTPM; FIPS 140-3 capability reporting; freestanding (no-libc) build support; SBOM (CycloneDX / SPDX) generation for EU Cyber Resilience Act (CRA) compliance; and extensive security hardening (Fenrir, Coverity, CodeQL).
+Feature release centered on TPM locality control and expanded post-quantum support. Highlights: runtime locality selection (`wolfTPM2_SetLocality`) with a corrected fwTPM per-PCR locality enforcement table and an optional GPIO nRST reset HAL; TPM 2.0 v1.85 post-quantum (ML-DSA / ML-KEM) support brought into the firmware TPM with fine-grained build macros; fwTPM Dictionary Attack hardening, transparent `TPM_RC_RETRY` handling, and SPDM secured transport for the fwTPM; FIPS 140-3 capability reporting; freestanding (no-libc) build support; SBOM (CycloneDX / SPDX) generation for EU Cyber Resilience Act (CRA) compliance; and extensive security hardening (Coverity, CodeQL).
 
 **Detail**
 
@@ -24,7 +116,7 @@ Feature release centered on TPM locality control and expanded post-quantum suppo
 * Nations NS350 example-suite fixes: RSA-4096 buffer sizing and SRK algorithm selection from the stored key type (PR #494)
 * Freestanding build support: `WOLFTPM_NO_STD_HEADERS` keeps the standard C headers out of `tpm2_types.h` for bare-metal integrators, with a `freestanding-build.yml` CI job (PR #549)
 * Software Bill of Materials (SBOM) generation for EU Cyber Resilience Act (CRA) compliance: new `make sbom` / `install-sbom` autotools targets and a CMake `sbom` target emit CycloneDX and SPDX documents for the built library, recording wolfSSL as a dependency (PR #536)
-* Security hardening: automated Fenrir review (bounds/OOB fixes in the TPM2 packet parsers and marshaling, secret zeroization, policy/ticket bypass fixes), Coverity fixes across the fwTPM PCR/seed/hash/seal paths, CodeQL/Semgrep/Copilot review gates, and a heap out-of-bounds read fix in `TPM2_ASN_RsaUnpadPkcsv15` (PRs #496, #503, #511, #512, #518, #523, #535, #545, #547, #548, #543, #542, #544, #538, #513, #514, #524, #528, #507, #516)
+* Security hardening: automated security review (bounds/OOB fixes in the TPM2 packet parsers and marshaling, secret zeroization, policy/ticket bypass fixes), Coverity fixes across the fwTPM PCR/seed/hash/seal paths, CodeQL/Semgrep/Copilot review gates, and a heap out-of-bounds read fix in `TPM2_ASN_RsaUnpadPkcsv15` (PRs #496, #503, #511, #512, #518, #523, #535, #545, #547, #548, #543, #542, #544, #538, #513, #514, #524, #528, #507, #516)
 * CI and build improvements: expanded CMake test cases, a GHCR container image, nightly fuzzing, wolfSSL latest-stable auto-resolve, and preflight smoke tests (PRs #495, #534, #522, #525, #508, #526, #521)
 * Bug fixes
   - Fixed the wolfCrypt crypto callback to propagate `ALREADY_E` for wolfSSL PR 10604 (PR #546)
@@ -41,7 +133,7 @@ Major release with three new features:
 2. SPDM secured transport: secure vendor-defined TCG command communication with Nuvoton NPCT75x and Nations NS350 TPM modules.
 3. ST33KTPM2X firmware update: automatic format detection for both Generation 1 (non-LMS) and Generation 2 (LMS-signed) ST33KTPM firmware.
 
-Also includes new seal/unseal examples, additional platform/HAL support, extensive security hardening (Fenrir and Coverity), CI sanitizer coverage, and deprecation of OPENSTM32.
+Also includes new seal/unseal examples, additional platform/HAL support, extensive security hardening (Coverity and static analysis), CI sanitizer coverage, and deprecation of OPENSTM32.
 
 **Detail**
 
@@ -91,7 +183,7 @@ Also includes new seal/unseal examples, additional platform/HAL support, extensi
   - TPM support for `wc_SignCert_cb` callback API (PR #450)
   - Fix for `wolfTPM2_SignHash` to return padded r/s, improved ECDSA P521 handling, added ECDSA tests with crypto callbacks (ZD20777)
 * Security hardening
-  - Fenrir findings addressed across tpm2_wrap, tpm2_packet, tpm2_asn, NV, session auth, SPDM, and fwtpm paths
+  - Security review findings addressed across tpm2_wrap, tpm2_packet, tpm2_asn, NV, session auth, SPDM, and fwtpm paths
   - `ForceZero` on sensitive stack buffers (auth passwords, keyBlob, ECC/RSA private material, symmetric seeds, derived identity digests, NV read/write buffers, PSS padded buffers, session auth)
   - Constant-time export for ECDH shared secret and ECC signature r/s
   - Removed short-circuit OR in auth paths (HMAC verification, policy digest checks, ticket HMAC, ticket cpHashA, policy NV, PolicyPassword, credential unwrap, RSA-PKCS1v1.5)
