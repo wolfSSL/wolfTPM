@@ -9587,6 +9587,65 @@ static void test_fwtpm_policy_cphash_enforced(void)
 }
 #endif /* !FWTPM_NO_NV */
 
+/* PolicyPCR selecting PCR 0 in the SHA-256 bank with an optional caller digest */
+static TPM_RC SendPolicyPcrCmd(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* digest, UINT16 digestSz)
+{
+    int pos = 0, rspSize = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyPCR); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, digestSz); pos += 2;
+    if (digestSz > 0) {
+        memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
+    }
+    PutU32BE(gCmd + pos, 1); pos += 4;               /* count */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;  /* hash */
+    gCmd[pos++] = 3;                                 /* sizeofSelect */
+    gCmd[pos++] = 0x01; gCmd[pos++] = 0x00; gCmd[pos++] = 0x00; /* PCR 0 */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A real policy session must verify a caller-supplied pcrDigest against the
+ * live PCR values; only a trial session may take it on faith. */
+static void test_fwtpm_policy_pcr_digest_verified(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    byte pcr0[32];
+    byte expect[32];
+    byte wrong[32];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(pcr0, 0, sizeof(pcr0));                   /* PCR 0 reset by Startup */
+    AssertIntEQ(wc_Hash(WC_HASH_TYPE_SHA256, pcr0, sizeof(pcr0),
+        expect, sizeof(expect)), 0);
+    memset(wrong, 0xAB, sizeof(wrong));
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, wrong, sizeof(wrong)),
+        TPM_RC_VALUE);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, expect, 16), TPM_RC_VALUE);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, expect, sizeof(expect)),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, wrong, sizeof(wrong)),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyPCR digest verified:", 0);
+}
+
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
 static void test_fwtpm_admin_authorization_requires_policy(void)
 {
@@ -14543,6 +14602,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_command_code();
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
+    test_fwtpm_policy_pcr_digest_verified();
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();
 #ifndef FWTPM_NO_NV

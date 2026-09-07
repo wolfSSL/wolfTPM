@@ -10667,6 +10667,7 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 sessHandle;
     UINT16 pcrDigestSize;
     byte pcrDigest[TPM_MAX_DIGEST_SIZE];
+    byte liveDigest[TPM_MAX_DIGEST_SIZE];
     TPML_PCR_SELECTION pcrs;
     FWTPM_Session* sess = NULL;
     int digestSz = 0;
@@ -10733,8 +10734,10 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* If pcrDigest.size == 0, compute it from current PCR values */
-    if (rc == 0 && pcrDigestSize == 0) {
+    /* Compute the digest of the selected PCRs when none was supplied, and
+     * always for a real policy session so a supplied digest is verified
+     * against the live PCR values rather than trusted (Part 3 Sec.23.7). */
+    if (rc == 0 && (pcrDigestSize == 0 || sess->sessionType == TPM_SE_POLICY)) {
         /* Hash together all selected PCR values */
         wcHash = FwGetWcHashType(sess->authHash);
         if (wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
@@ -10750,17 +10753,29 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     pcrs.pcrSelections[i].hash);
                 if (bankIdx < 0 || pcrDSz == 0)
                     continue;
-                for (j = 0; j < IMPLEMENTATION_PCR; j++) {
+                for (j = 0; j < IMPLEMENTATION_PCR && rc == 0; j++) {
                     if (j / 8 < pcrs.pcrSelections[i].sizeofSelect &&
                         (pcrs.pcrSelections[i].pcrSelect[j / 8] &
                             (1 << (j % 8)))) {
-                        wc_HashUpdate(hashCtx, wcHash,
-                            ctx->pcrDigest[j][bankIdx], pcrDSz);
+                        if (wc_HashUpdate(hashCtx, wcHash,
+                                ctx->pcrDigest[j][bankIdx], pcrDSz) != 0) {
+                            rc = TPM_RC_FAILURE;
+                        }
                     }
                 }
             }
-            pcrDigestSize = digestSz;
-            wc_HashFinal(hashCtx, wcHash, pcrDigest);
+            if (rc == 0 && wc_HashFinal(hashCtx, wcHash, liveDigest) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == 0 && pcrDigestSize != 0 &&
+                (pcrDigestSize != digestSz ||
+                 TPM2_ConstantCompare(pcrDigest, liveDigest, digestSz) != 0)) {
+                rc = TPM_RC_VALUE;
+            }
+            if (rc == 0) {
+                pcrDigestSize = (UINT16)digestSz;
+                XMEMCPY(pcrDigest, liveDigest, digestSz);
+            }
         }
         if (hashInit) {
             wc_HashFree(hashCtx, wcHash);
