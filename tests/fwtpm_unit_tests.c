@@ -11176,8 +11176,8 @@ static void test_fwtpm_pcr_properties_capability(void)
         }
         tag = GetU32BE(gRsp + p); p += 4;
         wireSz = gRsp[p]; p += 1;
-        if (wireSz <= 0 || p > rspSize || wireSz > rspSize - p) {
-            AssertTrue(wireSz > 0 && p <= rspSize &&
+        if (wireSz <= 0 || p >= rspSize || wireSz > rspSize - p) {
+            AssertTrue(wireSz > 0 && p < rspSize &&
                 wireSz <= rspSize - p);
             FWTPM_Cleanup(&ctx);
             return;

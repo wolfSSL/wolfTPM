@@ -1604,11 +1604,14 @@ static void test_wolfTPM2_SetAuthHandle_PolicyAuthOffset(void)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_HANDLE handle;
+    TPM2_AUTH_SESSION sessionBefore;
     int authDigestSz;
+    int maxAuthSz;
     int i;
 
     XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&handle, 0, sizeof(handle));
+    XMEMSET(&sessionBefore, 0, sizeof(sessionBefore));
 
     (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
 
@@ -1668,6 +1671,51 @@ static void test_wolfTPM2_SetAuthHandle_PolicyAuthOffset(void)
     /* Verify auth at offset [authDigestSz..] */
     AssertIntEQ(XMEMCMP(&dev.session[0].auth.buffer[authDigestSz],
         handle.auth.buffer, handle.auth.size), 0);
+
+    /* Verify the largest combined digest and authorization fits exactly. */
+    maxAuthSz = (int)sizeof(dev.session[0].auth.buffer) - authDigestSz;
+    AssertIntGT(maxAuthSz, 0);
+    handle.auth.size = (word16)maxAuthSz;
+    XMEMSET(handle.auth.buffer, 0x5A, handle.auth.size);
+    handle.name.size = (word16)sizeof(handle.name.name);
+    XMEMSET(handle.name.name, 0xA5, handle.name.size);
+
+    rc = wolfTPM2_SetAuthHandle(&dev, 0, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[0].auth.size,
+        (int)sizeof(dev.session[0].auth.buffer));
+    AssertIntEQ(XMEMCMP(&dev.session[0].auth.buffer[authDigestSz],
+        handle.auth.buffer, handle.auth.size), 0);
+    AssertIntEQ(dev.session[0].name.size,
+        (int)sizeof(dev.session[0].name.name));
+    AssertIntEQ(XMEMCMP(dev.session[0].name.name, handle.name.name,
+        handle.name.size), 0);
+
+    /* Reject one byte beyond the remaining auth capacity without mutation. */
+    handle.auth.size = (word16)(maxAuthSz + 1);
+    XMEMCPY(&sessionBefore, &dev.session[0], sizeof(sessionBefore));
+    rc = wolfTPM2_SetAuthHandle(&dev, 0, &handle);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(XMEMCMP(&dev.session[0], &sessionBefore,
+        sizeof(sessionBefore)), 0);
+
+    /* Reject an oversized name without mutating the session. */
+    handle.auth.size = 4;
+    handle.name.size = (word16)(sizeof(handle.name.name) + 1U);
+    XMEMCPY(&sessionBefore, &dev.session[0], sizeof(sessionBefore));
+    rc = wolfTPM2_SetAuthHandle(&dev, 0, &handle);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(XMEMCMP(&dev.session[0], &sessionBefore,
+        sizeof(sessionBefore)), 0);
+
+    /* Reject a non-hash session algorithm without mutating the session. */
+    handle.name.size = 2;
+    dev.session[0].authHash = TPM_ALG_NULL;
+    XMEMCPY(&sessionBefore, &dev.session[0], sizeof(sessionBefore));
+    rc = wolfTPM2_SetAuthHandle(&dev, 0, &handle);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(XMEMCMP(&dev.session[0], &sessionBefore,
+        sizeof(sessionBefore)), 0);
 
     wolfTPM2_Cleanup(&dev);
 
