@@ -9662,6 +9662,38 @@ static void test_fwtpm_wrap_private_unique_iv(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Wrapped private blobs use unique IVs:", 0);
 }
+
+/* A private blob is bound to the public area it was created with; loading it
+ * under a swapped or altered public area must fail the integrity check. */
+static void test_fwtpm_load_private_bound_to_public(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 srk;
+    byte priv[2][sizeof(TPM2B_PRIVATE)];
+    byte pub[2][sizeof(TPM2B_PUBLIC)];
+    UINT16 privSz[2], pubSz[2];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    srk = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(srk, 0);
+
+    CreateChildBlobs(&ctx, srk, priv[0], &privSz[0], pub[0], &pubSz[0]);
+    CreateChildBlobs(&ctx, srk, priv[1], &privSz[1], pub[1], &pubSz[1]);
+
+    /* Another object's public area */
+    AssertIntEQ(SendLoadCmd(&ctx, srk, priv[0], privSz[0], pub[1], pubSz[1]),
+        TPM_RC_INTEGRITY);
+
+    /* The right public area with one bit of its unique field altered */
+    pub[0][2 + pubSz[0] - 1] ^= 0x01;
+    AssertIntEQ(SendLoadCmd(&ctx, srk, priv[0], privSz[0], pub[0], pubSz[0]),
+        TPM_RC_INTEGRITY);
+
+    FlushHandle(&ctx, srk);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Private blob bound to its public area:", 0);
+}
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN */
 
 /* PolicyPCR selecting PCR 0 in the SHA-256 bank with an optional caller digest */
@@ -14747,6 +14779,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_wrap_private_unique_iv();
+    test_fwtpm_load_private_bound_to_public();
 #endif
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();

@@ -6376,11 +6376,16 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Wrap private key into TPM2B_PRIVATE */
+    /* Wrap private key into TPM2B_PRIVATE, bound to the child's Name */
     if (rc == 0) {
+        TPM2B_NAME childName;
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
-        rc = FwWrapPrivate(parent, &ctx->rng, inPublic->publicArea.type, &userAuth,
-            privKeyDer, privKeyDerSz, outPrivate);
+        rc = FwComputePublicName(&inPublic->publicArea, &childName);
+        if (rc == 0) {
+            rc = FwWrapPrivate(parent, &ctx->rng, &childName,
+                inPublic->publicArea.type, &userAuth,
+                privKeyDer, privKeyDerSz, outPrivate);
+        }
     }
 
     /* --- Build response (no handle for Create) --- */
@@ -6529,8 +6534,8 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Re-wrap private key with new auth, then update the live object */
     if (rc == 0) {
-        rc = FwWrapPrivate(parent, &ctx->rng, obj->pub.type, &newAuth,
-            obj->privKey, obj->privKeySize, &outPrivate);
+        rc = FwWrapPrivate(parent, &ctx->rng, &obj->name, obj->pub.type,
+            &newAuth, obj->privKey, obj->privKeySize, &outPrivate);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -6643,15 +6648,17 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Copy public area */
+    /* Copy public area and compute its Name; the private blob only unwraps
+     * under the Name it was wrapped with */
     if (rc == 0) {
         XMEMCPY(&obj->pub, &inPublic.publicArea, sizeof(TPMT_PUBLIC));
         obj->hierarchy = parent->hierarchy;
+        rc = FwComputeObjectName(obj);
     }
 
     /* Unwrap private */
     if (rc == 0) {
-        rc = FwUnwrapPrivate(parent, &inPrivate,
+        rc = FwUnwrapPrivate(parent, &obj->name, &inPrivate,
             &sensitiveType, &obj->authValue,
             obj->privKey, &obj->privKeySize);
     #ifdef DEBUG_WOLFTPM
@@ -6666,11 +6673,6 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (sensitiveType != inPublic.publicArea.type) {
             rc = TPM_RC_TYPE;
         }
-    }
-
-    /* Compute name */
-    if (rc == 0) {
-        rc = FwComputeObjectName(obj);
     }
 
     /* --- Build response --- */
@@ -7427,11 +7429,15 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
 
-    /* Wrap private for output */
+    /* Wrap private for output, bound to the imported object's Name */
     if (rc == 0) {
+        TPM2B_NAME childName;
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
-        rc = FwWrapPrivate(parent, &ctx->rng, sensType, &importedAuth,
-            privKeyDer, privKeyDerSz, outPrivate);
+        rc = FwComputePublicName(&objectPublic->publicArea, &childName);
+        if (rc == 0) {
+            rc = FwWrapPrivate(parent, &ctx->rng, &childName, sensType,
+                &importedAuth, privKeyDer, privKeyDerSz, outPrivate);
+        }
     }
 
     /* Build response */
@@ -8443,10 +8449,15 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Wrap private key */
+    /* Wrap private key, bound to the child's Name */
     if (rc == 0) {
-        rc = FwWrapPrivate(parent, &ctx->rng, inPublic->publicArea.type, &userAuth,
-            privKeyDer, privKeyDerSz, outPrivate);
+        TPM2B_NAME childName;
+        rc = FwComputePublicName(&inPublic->publicArea, &childName);
+        if (rc == 0) {
+            rc = FwWrapPrivate(parent, &ctx->rng, &childName,
+                inPublic->publicArea.type, &userAuth,
+                privKeyDer, privKeyDerSz, outPrivate);
+        }
     }
 
     /* Load into transient slot */
