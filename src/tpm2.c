@@ -480,6 +480,15 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
             }
+
+            /* Retire a one-shot session: when the TPM clears
+             * continueSession the session is consumed, so clear the local
+             * slot to prevent reuse of a stale handle. */
+            if ((authRsp.sessionAttributes & TPMA_SESSION_continueSession)
+                    == 0) {
+                TPM2_ForceZero(session, sizeof(TPM2_AUTH_SESSION));
+                session->sessionHandle = TPM_RS_PW;
+            }
         }
 
         TPM2_ForceZero(&authRsp, sizeof(authRsp));
