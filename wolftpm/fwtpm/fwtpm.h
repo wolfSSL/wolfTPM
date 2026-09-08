@@ -618,6 +618,8 @@ typedef struct FWTPM_Session {
     TPM2B_DIGEST templateHash;      /* PolicyTemplate: locked once set */
     int checkNvWritten;             /* 1 once PolicyNvWritten has been called */
     int nvWrittenState;             /* PolicyNvWritten writtenSet */
+    UINT32 pcrUpdateCounter;        /* PCR update counter seen by PolicyPCR */
+    int hasPcrUpdateCounter;        /* 1 once PolicyPCR has been evaluated */
 } FWTPM_Session;
 
 /* NV index slot (user NV RAM) */
@@ -679,6 +681,8 @@ typedef struct FWTPM_IO_CTX {
  * fwtpm_nv.h). */
 struct FWTPM_NV_HAL_S {
     int (*read)(void* ctx, word32 offset, byte* buf, word32 size);
+    /* Must return non-zero only if the bytes are not durable: a state change
+     * whose write fails is rolled back and reported as failed. */
     int (*write)(void* ctx, word32 offset, const byte* buf, word32 size);
     int (*erase)(void* ctx, word32 offset, word32 size); /* Optional */
     void* ctx;
@@ -855,6 +859,7 @@ typedef struct FWTPM_CTX {
     /* NV journal write position (next append offset) */
     word32 nvWritePos;
     int nvCompacting;   /* Guard flag to prevent cyclic recursion during NV compaction */
+    UINT32 nvDeleteHandle; /* Item a pending deletion omits from compaction */
 
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
     /* Append-only pending program granule (word-backed for alignment; element
@@ -863,6 +868,8 @@ typedef struct FWTPM_CTX {
         / sizeof(word32)];
     word32 nvGranuleBase;   /* aligned offset of the pending granule */
     word32 nvGranuleFill;   /* bytes buffered (0..writeAlign) */
+    int nvRebuild;          /* an unsealed append is on the log: NV refuses
+                             * mutations until a restart compacts it away */
 #endif
 
 #ifndef FWTPM_NO_CONTEXT

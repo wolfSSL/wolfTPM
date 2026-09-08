@@ -237,8 +237,10 @@ TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
 
 /* --- Key wrapping --- */
 
-int FwDeriveWrapKey(const FWTPM_Object* parent,
-    byte* aesKey, byte* aesIV);
+int FwComputePublicName(TPMT_PUBLIC* pub, TPM2B_NAME* name);
+
+int FwDeriveWrapKey(const FWTPM_Object* parent, const TPM2B_NAME* name,
+    byte* aesKey, byte* macKey);
 
 int FwMarshalSensitive(byte* buf, int bufSz,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
@@ -252,12 +254,13 @@ int FwUnmarshalSensitive(const byte* buf, int bufSz,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
     byte* privKeyDer, int* privKeyDerSz);
 
-int FwWrapPrivate(FWTPM_Object* parent,
+int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
+    const TPM2B_NAME* name,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
     const byte* privKeyDer, int privKeyDerSz,
     TPM2B_PRIVATE* outPriv);
 
-int FwUnwrapPrivate(FWTPM_Object* parent,
+int FwUnwrapPrivate(FWTPM_Object* parent, const TPM2B_NAME* name,
     const TPM2B_PRIVATE* inPriv,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
     byte* privKeyDer, int* privKeyDerSz);

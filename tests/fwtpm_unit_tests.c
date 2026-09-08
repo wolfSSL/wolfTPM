@@ -9588,6 +9588,236 @@ static void test_fwtpm_policy_cphash_enforced(void)
 #endif /* !FWTPM_NO_NV */
 
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+/* Create a child under parent; copy its outPrivate and raw outPublic. */
+static void CreateChildBlobs(FWTPM_CTX* ctx, UINT32 parent,
+    byte* priv, UINT16* privSz, byte* pub, UINT16* pubSz)
+{
+    int rc, rspSize = 0, cmdSz, pos;
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA);
+    AssertIntGT(cmdSz, 0);
+    PutU32BE(gCmd + 6, TPM_CC_Create);
+    PutU32BE(gCmd + 10, parent);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE + 4;                       /* skip parameterSize */
+    *privSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntGT(*privSz, 0);
+    memcpy(priv, gRsp + pos, *privSz); pos += *privSz;
+    *pubSz = GetU16BE(gRsp + pos);
+    AssertIntGT(*pubSz, 0);
+    memcpy(pub, gRsp + pos, 2 + *pubSz);              /* keep the size prefix */
+}
+
+/* Load(parent, priv, pub) and return the response code */
+static TPM_RC SendLoadCmd(FWTPM_CTX* ctx, UINT32 parent,
+    const byte* priv, UINT16 privSz, const byte* pub, UINT16 pubSz)
+{
+    int pos, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
+    PutU32BE(gCmd + pos, parent); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, privSz); pos += 2;
+    memcpy(gCmd + pos, priv, privSz); pos += privSz;
+    memcpy(gCmd + pos, pub, 2 + pubSz); pos += 2 + pubSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* Two children wrapped under one parent must not share an IV, so identical
+ * leading sensitive bytes never produce identical leading ciphertext. */
+static void test_fwtpm_wrap_private_unique_iv(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 srk, child;
+    byte priv[2][sizeof(TPM2B_PRIVATE)];
+    byte pub[2][sizeof(TPM2B_PUBLIC)];
+    UINT16 privSz[2], pubSz[2];
+    int ivOff = 2 + 32;                               /* after integrity */
+    int encOff = ivOff + 16 + 2;                      /* after IV + size */
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    srk = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(srk, 0);
+
+    CreateChildBlobs(&ctx, srk, priv[0], &privSz[0], pub[0], &pubSz[0]);
+    CreateChildBlobs(&ctx, srk, priv[1], &privSz[1], pub[1], &pubSz[1]);
+    AssertIntGT(privSz[0], encOff + 16);
+    AssertIntGT(privSz[1], encOff + 16);
+    AssertIntNE(memcmp(priv[0] + ivOff, priv[1] + ivOff, 16), 0);
+    AssertIntNE(memcmp(priv[0] + encOff, priv[1] + encOff, 16), 0);
+
+    /* The blobs still round-trip through Load */
+    AssertIntEQ(SendLoadCmd(&ctx, srk, priv[0], privSz[0], pub[0], pubSz[0]),
+        TPM_RC_SUCCESS);
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(child, 0);
+    FlushHandle(&ctx, child);
+    FlushHandle(&ctx, srk);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Wrapped private blobs use unique IVs:", 0);
+}
+
+/* A private blob is bound to the public area it was created with; loading it
+ * under a swapped or altered public area must fail the integrity check. */
+static void test_fwtpm_load_private_bound_to_public(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 srk;
+    byte priv[2][sizeof(TPM2B_PRIVATE)];
+    byte pub[2][sizeof(TPM2B_PUBLIC)];
+    UINT16 privSz[2], pubSz[2];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    srk = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(srk, 0);
+
+    CreateChildBlobs(&ctx, srk, priv[0], &privSz[0], pub[0], &pubSz[0]);
+    CreateChildBlobs(&ctx, srk, priv[1], &privSz[1], pub[1], &pubSz[1]);
+
+    /* Another object's public area */
+    AssertIntEQ(SendLoadCmd(&ctx, srk, priv[0], privSz[0], pub[1], pubSz[1]),
+        TPM_RC_INTEGRITY);
+
+    /* The right public area with one bit of its unique field altered */
+    pub[0][2 + pubSz[0] - 1] ^= 0x01;
+    AssertIntEQ(SendLoadCmd(&ctx, srk, priv[0], privSz[0], pub[0], pubSz[0]),
+        TPM_RC_INTEGRITY);
+
+    FlushHandle(&ctx, srk);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Private blob bound to its public area:", 0);
+}
+#endif /* !NO_RSA && WOLFSSL_KEY_GEN */
+
+/* PolicyPCR selecting PCR 0 in the SHA-256 bank with an optional caller digest */
+static TPM_RC SendPolicyPcrCmd(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* digest, UINT16 digestSz)
+{
+    int pos = 0, rspSize = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyPCR); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, digestSz); pos += 2;
+    if (digestSz > 0) {
+        memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
+    }
+    PutU32BE(gCmd + pos, 1); pos += 4;               /* count */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;  /* hash */
+    gCmd[pos++] = 3;                                 /* sizeofSelect */
+    gCmd[pos++] = 0x01; gCmd[pos++] = 0x00; gCmd[pos++] = 0x00; /* PCR 0 */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A real policy session must verify a caller-supplied pcrDigest against the
+ * live PCR values; only a trial session may take it on faith. */
+static void test_fwtpm_policy_pcr_digest_verified(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    byte pcr0[32];
+    byte expect[32];
+    byte wrong[32];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(pcr0, 0, sizeof(pcr0));                   /* PCR 0 reset by Startup */
+    AssertIntEQ(wc_Hash(WC_HASH_TYPE_SHA256, pcr0, sizeof(pcr0),
+        expect, sizeof(expect)), 0);
+    memset(wrong, 0xAB, sizeof(wrong));
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, wrong, sizeof(wrong)),
+        TPM_RC_VALUE);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, expect, 16), TPM_RC_VALUE);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, expect, sizeof(expect)),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, wrong, sizeof(wrong)),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyPCR digest verified:", 0);
+}
+
+#ifndef FWTPM_NO_NV
+static TPM_RC SendPcrExtendLoc(FWTPM_CTX* ctx, int pcrIndex, int locality);
+
+/* A policy session evaluated against PCR values must stop authorizing once a
+ * PCR changes, and must be restarted before PolicyPCR is accepted again. */
+static void test_fwtpm_policy_pcr_change_invalidates(void)
+{
+    FWTPM_CTX ctx;
+    int pos, cmdSz, rspSize = 0;
+    UINT32 sessH;
+    UINT16 dSz;
+    byte digest[64];
+    UINT32 nvIdx = 0x01500063;
+    UINT32 nvAttrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, NULL, 0), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
+        TPM_RC_SUCCESS);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    AssertIntEQ(dSz, 32);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SetPrimaryPolicy); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, dSz); pos += 2;
+    memcpy(gCmd + pos, digest, dSz); pos += dSz;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 0, 0), TPM_RC_SUCCESS);
+
+    /* The policy digest still matches, but the PCRs it attests to moved */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, nvAttrs);
+    PutU32BE(gCmd + 18, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_PCR_CHANGED);
+
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, NULL, 0), TPM_RC_PCR_CHANGED);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyRestart, sessH),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, NULL, 0), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyPCR invalidated by PCR change:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
 static void test_fwtpm_admin_authorization_requires_policy(void)
 {
     FWTPM_CTX ctx;
@@ -11385,6 +11615,120 @@ static void test_fwtpm_clear_control_nv_failure(void)
     AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ClearControl NV failure rollback:", 0);
+}
+
+/* State-changing handlers that persist to NV must report failure, not
+ * success, when the journal write fails. Representative commands from the
+ * clock, NV-index and hierarchy-auth families run on one context;
+ * HierarchyChangeAuth is exercised last because its volatile auth change would
+ * otherwise block the empty-password owner authorization of later commands. */
+static void test_fwtpm_state_change_nv_failure(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL oldHal, failHal;
+    int rspSize, pos, cmdSz;
+    UINT32 nvIdx = 0x01500007;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+                   ((UINT32)TPM_NT_COUNTER << 4);
+    byte newAuth[] = {0x0A, 0x0B, 0x0C, 0x0D};
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Define a counter while persistence works. */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    oldHal = ctx.nvHal;
+    failHal = oldHal;
+    failHal.write = fail_nv_write;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &failHal), TPM_RC_SUCCESS);
+
+#ifndef FWTPM_NO_CLOCK
+    /* ClockSet: a failed persist must report failure and roll the offset
+     * back. */
+    AssertIntEQ((int)ctx.clockOffset, 0);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_ClockSet); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, 0); pos += 4;    /* newTime high */
+    PutU32BE(gCmd + pos, 1000); pos += 4; /* newTime low */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
+    AssertIntEQ((int)ctx.clockOffset, 0);
+#endif
+
+    /* NV_Increment: a failed persist must report failure. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_Increment); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
+
+    /* Restore persistence and confirm the counter was rolled back (== 0). */
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_Read); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 8); pos += 2; /* size */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* offset */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + 14), 8);
+    AssertIntEQ((int)GetU32BE(gRsp + 16), 0);
+    AssertIntEQ((int)GetU32BE(gRsp + 20), 0);
+
+    /* Remove the counter while owner auth is still empty. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_UndefineSpace); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+
+    /* HierarchyChangeAuth: a failed persist must report failure and roll the
+     * auth back (empty). */
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &failHal), TPM_RC_SUCCESS);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_HierarchyChangeAuth); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)sizeof(newAuth)); pos += 2;
+    memcpy(gCmd + pos, newAuth, sizeof(newAuth)); pos += sizeof(newAuth);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
+    AssertIntEQ(ctx.ownerAuth.size, 0);
+
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("State-change NV failure reporting:", 0);
 }
 #endif /* !FWTPM_NO_NV */
 
@@ -13196,6 +13540,14 @@ static int mock_nv_write(void* c, word32 off, const byte* buf, word32 sz)
     gMockNvWrites++;
     return TPM_RC_SUCCESS;
 }
+/* Header-write failure injection: gMockNvFailHeader fails every header write;
+ * gMockNvFailAfterCompact fails the first header write issued outside a
+ * compaction once one has run (gMockNvCtx exposes the compacting flag). */
+static int gMockNvFailHeader;
+static int gMockNvFailAfterCompact;
+static int gMockNvCompactSeen;
+static FWTPM_CTX* gMockNvCtx;
+
 static int mock_nv_erase(void* c, word32 off, word32 sz)
 {
     (void)c;
@@ -13204,7 +13556,253 @@ static int mock_nv_erase(void* c, word32 off, word32 sz)
     }
     memset(gMockNvStore + off, 0xFF, sz);
     gMockNvErases++;
+    if (gMockNvFailAfterCompact) {
+        gMockNvCompactSeen = 1;
+    }
     return TPM_RC_SUCCESS;
+}
+static int mock_nv_key(void* c, byte* key, word32* keySz)
+{
+    (void)c;
+    memset(key, 0xA5, 32);
+    *keySz = 32;
+    return 0;
+}
+
+/* Fail only the trailing journal header write (offset 0). This models an
+ * entry whose bytes landed but whose commit did not, exercising the
+ * append-atomicity rollback. */
+static int mock_nv_write_failhdr(void* c, word32 off, const byte* buf,
+    word32 sz)
+{
+    if (off == 0) {
+        if (gMockNvFailHeader ||
+                (gMockNvCompactSeen && gMockNvCtx != NULL &&
+                 !gMockNvCtx->nvCompacting)) {
+            return TPM_RC_FAILURE;
+        }
+    }
+    return mock_nv_write(c, off, buf, sz);
+}
+
+/* Keyed byte-addressable journal: when a save must compact first, the
+ * compacted snapshot is the commit and its seal must survive whatever
+ * happens next, so the prior state is still there after a reboot. */
+static void test_fwtpm_nv_compaction_commit(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    byte savedSeed[FWTPM_SEED_SIZE];
+    int rc, i, baseErases;
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    gMockNvFailHeader = 0;
+    gMockNvFailAfterCompact = 0;
+    gMockNvCompactSeen = 0;
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write_failhdr;
+    hal.erase = mock_nv_erase;
+    hal.get_integrity_key = mock_nv_key;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memcpy(savedSeed, ctx.ownerSeed, FWTPM_SEED_SIZE);
+
+    /* Fill the journal until a save has to compact; the write that would
+     * follow that compaction's seal fails. */
+    baseErases = gMockNvErases;
+    gMockNvCtx = &ctx;
+    gMockNvFailAfterCompact = 1;
+    for (i = 0; i < 20000 && gMockNvErases == baseErases; i++) {
+        ctx.disableClear = 1;
+        rc = FWTPM_NV_SaveFlags(&ctx);
+        AssertIntEQ(rc, 0);
+    }
+    AssertIntGT(gMockNvErases, baseErases);
+    gMockNvFailAfterCompact = 0;
+    gMockNvCompactSeen = 0;
+    gMockNvCtx = NULL;
+
+    /* Unclean restart: the compacted state must load intact. */
+    wc_FreeRng(&ctx.rng);
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write_failhdr;
+    hal.erase = mock_nv_erase;
+    hal.get_integrity_key = mock_nv_key;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    AssertIntEQ(memcmp(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    AssertIntEQ((int)ctx.disableClear, 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV compaction is the commit:", 0);
+}
+
+/* A deletion that has to compact first must still complete when the compacted
+ * journal leaves no room for a separate deletion record. */
+static void test_fwtpm_nv_delete_at_capacity(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    UINT32 nvIdx = 0x0150000A;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA;
+    int rc, i, rspSize, cmdSz, found;
+    word32 maxSize;
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    gMockNvFailHeader = 0;
+    gMockNvFailAfterCompact = 0;
+    gMockNvCompactSeen = 0;
+    gMockNvCtx = NULL;
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Compact, then shrink the store so the compacted image leaves less than
+     * a deletion record plus the journal seal free. */
+    AssertIntEQ(FWTPM_NV_Save(&ctx), 0);
+    maxSize = ctx.nvWritePos + WC_SHA256_DIGEST_SIZE + 4;
+    ctx.nvHal.maxSize = maxSize;
+
+    rc = FWTPM_NV_DeleteNvIndex(&ctx, nvIdx);
+    AssertIntEQ(rc, 0);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].inUse &&
+            ctx.nvIndices[i].nvPublic.nvIndex == nvIdx) {
+            memset(&ctx.nvIndices[i], 0, sizeof(ctx.nvIndices[i]));
+        }
+    }
+
+    /* Unclean restart on the same store: the index is gone. */
+    wc_FreeRng(&ctx.rng);
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = maxSize;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    found = 0;
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].inUse &&
+            ctx.nvIndices[i].nvPublic.nvIndex == nvIdx) {
+            found = 1;
+        }
+    }
+    AssertIntEQ(found, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV delete completes at capacity:", 0);
+}
+
+/* A journal append whose header commit fails must leave no committable
+ * remnant: after a later successful append and a simulated reboot, the failed
+ * command's change is absent while the later change persists. */
+static void test_fwtpm_nv_append_atomic(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    UINT32 nvIdx = 0x01500009;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+                   ((UINT32)TPM_NT_COUNTER << 4);
+    byte newAuth[] = {0x0A, 0x0B, 0x0C, 0x0D};
+    int rspSize, pos, cmdSz, i, found;
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    gMockNvFailHeader = 0;
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write_failhdr;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Define a counter so the later successful append records observable
+     * state for the reboot to confirm. */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* HierarchyChangeAuth whose header commit fails: the auth entry bytes are
+     * written but the command must report failure. An always-present command
+     * is used so the scenario also runs under FWTPM_NO_CLOCK. */
+    gMockNvFailHeader = 1;
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_HierarchyChangeAuth); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)sizeof(newAuth)); pos += 2;
+    memcpy(gCmd + pos, newAuth, sizeof(newAuth)); pos += sizeof(newAuth);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* A subsequent successful append must overwrite any orphan left by the
+     * failed auth change rather than seal it into the journal. */
+    gMockNvFailHeader = 0;
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_Increment); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Unclean restart: reload the same journal image WITHOUT a clean shutdown
+     * (a clean FWTPM_Cleanup would recompact the whole live context). Free the
+     * live RNG first since the reinit allocates a fresh one. The failed auth
+     * change must be absent (owner auth empty) while the increment persisted
+     * (counter == 1). */
+    wc_FreeRng(&ctx.rng);
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write_failhdr;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    AssertIntEQ(ctx.ownerAuth.size, 0);
+
+    found = 0;
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].inUse &&
+            ctx.nvIndices[i].nvPublic.nvIndex == nvIdx) {
+            found = 1;
+            AssertIntEQ(ctx.nvIndices[i].data[7], 1);
+            break;
+        }
+    }
+    AssertIntEQ(found, 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV append atomic on commit failure:", 0);
 }
 
 #ifndef FWTPM_NO_DA
@@ -13401,10 +13999,20 @@ static void test_fwtpm_nv_sethal_mock(void)
 static byte gFlashNv[FNV_SIZE];
 static int  gFlashEraseCnt;
 static int  gFlashProgCnt;
+static int  gFlashFailRead;   /* when set, reads fail (used to fail a checkpoint
+                               * MAC computation without touching the log) */
+
+static int  gFlashFailReadInCompact; /* fail reads only while compacting */
+static FWTPM_CTX* gFlashCtx;
 
 static int flash_read(void* c, word32 off, byte* buf, word32 sz)
 {
     (void)c;
+    if (gFlashFailRead ||
+            (gFlashFailReadInCompact && gFlashCtx != NULL &&
+             gFlashCtx->nvCompacting)) {
+        return -1;
+    }
     if ((size_t)off + sz > FNV_SIZE) {
         return -1;
     }
@@ -13693,6 +14301,163 @@ static void test_fwtpm_nv_flash_append_only(void)
 #endif
 }
 
+/* Append-only: a save whose checkpoint fails must report failure, and the
+ * unsealed entry it leaves on the log must never be authenticated afterwards,
+ * whether the next event is a reboot or a further successful save. */
+static void test_fwtpm_nv_append_checkpoint_failure(void)
+{
+#if defined(WOLFTPM_FWTPM_NV_APPEND_ONLY) && !defined(FWTPM_NO_NV)
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    byte savedSeed[FWTPM_SEED_SIZE];
+    int rc;
+    int pass;
+
+    for (pass = 0; pass < 2; pass++) {
+        XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+        gFlashEraseCnt = 0;
+        gFlashProgCnt = 0;
+        rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+        AssertIntEQ(rc, 0);
+        XMEMCPY(savedSeed, ctx.ownerSeed, FWTPM_SEED_SIZE);
+        AssertIntEQ((int)ctx.ownerAuth.size, 0);
+
+        ctx.ownerAuth.size = 4;
+        XMEMSET(ctx.ownerAuth.buffer, 0xA1, 4);
+        gFlashFailRead = 1;
+        rc = FWTPM_NV_SaveAuth(&ctx, TPM_RH_OWNER);
+        gFlashFailRead = 0;
+        AssertIntNE(rc, 0);
+        ctx.ownerAuth.size = 0;                    /* as the handler rolls back */
+        XMEMSET(ctx.ownerAuth.buffer, 0, sizeof(ctx.ownerAuth.buffer));
+
+        if (pass == 1) {
+            /* NV stays unavailable until a restart compacts the tail */
+            ctx.disableClear = 1;
+            rc = FWTPM_NV_SaveFlags(&ctx);
+            AssertIntEQ(rc, TPM_RC_NV_UNAVAILABLE);
+        }
+        wc_FreeRng(&ctx.rng);                      /* drop ctx without a save */
+
+        rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+        AssertIntEQ(rc, 0);
+        AssertIntEQ(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+        AssertIntEQ((int)ctx.ownerAuth.size, 0);
+        AssertIntEQ((int)ctx.disableClear, 0);
+        ctx.disableClear = 1;
+        rc = FWTPM_NV_SaveFlags(&ctx);             /* writable again */
+        AssertIntEQ(rc, 0);
+        FWTPM_Cleanup(&ctx);
+    }
+
+    fwtpm_pass("NV append-only checkpoint failure:", 0);
+#else
+    printf("Test fwTPM: %-6s %-42s Skipped\n", "",
+        "NV append-only checkpoint failure:");
+#endif
+}
+
+/* Append-only: a compaction that fails at its checkpoint leaves the rewritten
+ * snapshot on the log; state rolled back after that failure must never be
+ * sealed by a later save, so NV stays unavailable until a restart. */
+static void test_fwtpm_nv_append_compaction_failure(void)
+{
+#if defined(WOLFTPM_FWTPM_NV_APPEND_ONLY) && !defined(FWTPM_NO_NV)
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    int rc = 0;
+    int i;
+    int eraseBase;
+
+    XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+    gFlashEraseCnt = 0;
+    gFlashProgCnt = 0;
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)ctx.ownerAuth.size, 0);
+
+    /* Proposed state that only a compaction would carry to the log; fill the
+     * journal until a save has to compact, and fail that compaction's seal. */
+    ctx.ownerAuth.size = 4;
+    XMEMSET(ctx.ownerAuth.buffer, 0xA1, 4);
+    eraseBase = gFlashEraseCnt;
+    gFlashCtx = &ctx;
+    gFlashFailReadInCompact = 1;
+    for (i = 0; i < 5000 && rc == 0; i++) {
+        rc = FWTPM_NV_SaveFlags(&ctx);
+    }
+    gFlashFailReadInCompact = 0;
+    gFlashCtx = NULL;
+    AssertIntNE(rc, 0);
+    AssertIntGT(gFlashEraseCnt, eraseBase);
+    ctx.ownerAuth.size = 0;                        /* as the handler rolls back */
+    XMEMSET(ctx.ownerAuth.buffer, 0, sizeof(ctx.ownerAuth.buffer));
+
+    ctx.disableClear = 1;
+    eraseBase = gFlashEraseCnt;
+    rc = FWTPM_NV_SaveFlags(&ctx);
+    AssertIntEQ(rc, TPM_RC_NV_UNAVAILABLE);
+    AssertIntEQ(gFlashEraseCnt, eraseBase);
+    wc_FreeRng(&ctx.rng);                          /* drop ctx without a save */
+
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)ctx.ownerAuth.size, 0);
+    AssertIntEQ((int)ctx.disableClear, 0);
+    FWTPM_Cleanup(&ctx);
+
+    fwtpm_pass("NV append-only compaction failure:", 0);
+#else
+    printf("Test fwTPM: %-6s %-42s Skipped\n", "",
+        "NV append-only compaction failure:");
+#endif
+}
+
+/* Append-only: after a checkpoint failure no further mutation may touch the
+ * medium, so the last committed image survives a persisting fault. */
+static void test_fwtpm_nv_append_rebuild_probe(void)
+{
+#if defined(WOLFTPM_FWTPM_NV_APPEND_ONLY) && !defined(FWTPM_NO_NV)
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    byte savedSeed[FWTPM_SEED_SIZE];
+    int rc;
+    int eraseBase;
+
+    XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+    gFlashEraseCnt = 0;
+    gFlashProgCnt = 0;
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    XMEMCPY(savedSeed, ctx.ownerSeed, FWTPM_SEED_SIZE);
+    ctx.disableClear = 1;
+    rc = FWTPM_NV_SaveFlags(&ctx);
+    AssertIntEQ(rc, 0);
+
+    gFlashFailRead = 1;
+    ctx.disableClear = 0;
+    rc = FWTPM_NV_SaveFlags(&ctx);                 /* checkpoint fails */
+    AssertIntNE(rc, 0);
+    eraseBase = gFlashEraseCnt;
+    rc = FWTPM_NV_SaveFlags(&ctx);                 /* refused, no erase */
+    AssertIntEQ(rc, TPM_RC_NV_UNAVAILABLE);
+    AssertIntEQ(gFlashEraseCnt, eraseBase);
+    gFlashFailRead = 0;
+    wc_FreeRng(&ctx.rng);                          /* drop ctx without a save */
+
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    AssertIntEQ((int)ctx.disableClear, 1);
+    FWTPM_Cleanup(&ctx);
+
+    fwtpm_pass("NV append-only unavailable after checkpoint failure:", 0);
+#else
+    printf("Test fwTPM: %-6s %-42s Skipped\n", "",
+        "NV append-only unavailable after checkpoint failure:");
+#endif
+}
+
 /* ================================================================== */
 /* main                                                                */
 /* ================================================================== */
@@ -13793,6 +14558,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_clock_sethal();
     test_fwtpm_nv_sethal_mock();
     test_fwtpm_nv_flash_append_only();
+    test_fwtpm_nv_append_checkpoint_failure();
+    test_fwtpm_nv_append_compaction_failure();
+    test_fwtpm_nv_append_rebuild_probe();
     (void)remove(FWTPM_NV_FILE);
 
     /* Key operations */
@@ -14005,6 +14773,14 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_command_code();
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
+    test_fwtpm_policy_pcr_digest_verified();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_policy_pcr_change_invalidates();
+#endif
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    test_fwtpm_wrap_private_unique_iv();
+    test_fwtpm_load_private_bound_to_public();
+#endif
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();
 #ifndef FWTPM_NO_NV
@@ -14065,6 +14841,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_sessions_missing_authsize_command_size();
 #ifndef FWTPM_NO_NV
     test_fwtpm_clear_control_nv_failure();
+    test_fwtpm_state_change_nv_failure();
+    test_fwtpm_nv_append_atomic();
+    test_fwtpm_nv_compaction_commit();
+    test_fwtpm_nv_delete_at_capacity();
 #endif /* !FWTPM_NO_NV */
     test_fwtpm_clear();
 
