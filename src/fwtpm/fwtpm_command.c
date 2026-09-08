@@ -16277,7 +16277,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc != 0) rc = TPM_RC_ECC_POINT;
     }
     if (rc == 0) {
-        rc = FwEccSharedPoint(privKeyA, peerPub,
+        rc = FwEccSharedPoint(privKeyA, peerPub, &ctx->rng,
             z1xBuf, &z1xSz, z1yBuf, &z1ySz);
         if (rc != 0) rc = TPM_RC_FAILURE;
     }
@@ -16313,7 +16313,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc != 0) rc = TPM_RC_ECC_POINT;
     }
     if (rc == 0) {
-        rc = FwEccSharedPoint(privEph, peerPub,
+        rc = FwEccSharedPoint(privEph, peerPub, &ctx->rng,
             z2xBuf, &z2xSz, z2yBuf, &z2ySz);
         if (rc != 0) rc = TPM_RC_FAILURE;
     }

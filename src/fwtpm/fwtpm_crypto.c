@@ -3588,15 +3588,15 @@ int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key)
  * coordinates. wc_ecc_shared_secret only returns x; ZGen_2Phase marshals a
  * full TPM2B_ECC_POINT and TPM_ALG_ECMQV requires y as well.
  * xBuf/yBuf must each hold at least curve byte length. */
-int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
+int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     byte* xBuf, word32* xSz, byte* yBuf, word32* ySz)
 {
     int rc;
     int curveIdx;
     ecc_point* R = NULL;
-    mp_int prime, a;
+    mp_int prime, a, order;
     const ecc_set_type* dp;
-    int primeInit = 0, aInit = 0;
+    int primeInit = 0, aInit = 0, orderInit = 0;
 
     if (priv == NULL || peer == NULL || xBuf == NULL || xSz == NULL ||
         yBuf == NULL || ySz == NULL) {
@@ -3621,12 +3621,36 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
     }
     if (rc == 0) {
         aInit = 1;
+        rc = mp_init(&order);
+    }
+    if (rc == 0) {
+        orderInit = 1;
         rc = mp_read_radix(&prime, dp->prime, MP_RADIX_HEX);
     }
     if (rc == 0)
         rc = mp_read_radix(&a, dp->Af, MP_RADIX_HEX);
     if (rc == 0)
+        rc = mp_read_radix(&order, dp->order, MP_RADIX_HEX);
+    if (rc == 0) {
+    #ifdef WOLFSSL_PUBLIC_ECC_ADD_DBL
+        /* RNG-blinded scalar multiply bound to the curve order. Fall back to
+         * the base multiply if no RNG is available so a NULL rng cannot be
+         * dereferenced. */
+        if (rng != NULL) {
+            rc = wc_ecc_mulmod_ex2(ecc_get_k(priv), &peer->pubkey, R, &a,
+                &prime, &order, rng, 1, NULL);
+        }
+        else {
+            rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a,
+                &prime, 1);
+        }
+    #else
+        /* wc_ecc_mulmod_ex2 is public only with WOLFSSL_PUBLIC_ECC_ADD_DBL;
+         * fall back to the base multiply when it is unavailable */
+        (void)rng;
         rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a, &prime, 1);
+    #endif
+    }
 
     /* Export x and y with fixed-size left-zero padding to the curve byte
      * length. Using mp_unsigned_bin_size/mp_to_unsigned_bin here would drop
@@ -3642,6 +3666,8 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
         rc = mp_to_unsigned_bin_len(R->y, yBuf, dp->size);
     }
 
+    if (orderInit)
+        mp_clear(&order);
     if (aInit)
         mp_clear(&a);
     if (primeInit)
