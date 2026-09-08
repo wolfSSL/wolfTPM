@@ -3624,14 +3624,19 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     if (parentKey != NULL) {
         symKey.size = parentKey->handle.symmetric.keyBits.sym;
     }
-    else {
+    else if (sym != NULL) {
         symKey.size = sym->keyBits.sym;
     }
-    /* convert from bit to byte and round up */
-    symKey.size = (symKey.size + 7) / 8;
-    /* check for invalid value */
-    if (symKey.size > sizeof(symKey.buffer)) {
-        rc = BUFFER_E;
+    else {
+        rc = BAD_FUNC_ARG;
+    }
+    if (rc == 0) {
+        /* convert from bit to byte and round up */
+        symKey.size = (symKey.size + 7) / 8;
+        /* check for invalid value */
+        if (symKey.size > sizeof(symKey.buffer)) {
+            rc = BUFFER_E;
+        }
     }
 #endif
 
