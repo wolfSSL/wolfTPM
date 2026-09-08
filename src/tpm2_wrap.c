@@ -3372,14 +3372,19 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (dev == NULL || key == NULL)
         return BAD_FUNC_ARG;
 
+    XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
+
     rc = wolfTPM2_CreateKey(dev, &keyBlob, parent, publicTemplate,
         auth, authSz);
     if (rc == TPM_RC_SUCCESS) {
         rc = wolfTPM2_LoadKey(dev, &keyBlob, parent);
     }
 
-    /* return loaded key */
-    XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
+    if (rc == TPM_RC_SUCCESS) {
+        /* return loaded key */
+        XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
+    }
 
     TPM2_ForceZero(&keyBlob, sizeof(keyBlob));
     return rc;
