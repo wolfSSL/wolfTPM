@@ -18862,7 +18862,13 @@ static int FwPhysicalPresenceAsserted(FWTPM_CTX* ctx)
     if (ctx->ppHal.get_pp != NULL) {
         return ctx->ppHal.get_pp(ctx->ppHal.ctx) != 0;
     }
+#ifdef FWTPM_ALLOW_PLATFORM_PP
+    /* Trust the unauthenticated platform-channel latch only when the
+     * integrator has explicitly opted in (simulator/bring-up use). */
     return ctx->physicalPresence != 0;
+#else
+    return 0;
+#endif
 }
 #endif /* !FWTPM_NO_PP */
 
