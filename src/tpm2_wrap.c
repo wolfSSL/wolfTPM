@@ -5531,6 +5531,11 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
+    if (key->pub.publicArea.type != TPM_ALG_ECC &&
+            key->pub.publicArea.type != TPM_ALG_RSA) {
+        return BAD_FUNC_ARG;
+    }
+
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
         /* get curve size */
         curveSize = wolfTPM2_GetCurveSize(
