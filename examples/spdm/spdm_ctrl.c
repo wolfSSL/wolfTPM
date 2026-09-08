@@ -79,6 +79,9 @@ static void usage(void)
            "  --get-pubkey   Get TPM's SPDM-Identity public key\n"
            "  --connect      Establish SPDM session\n"
            "  --caps         Get TPM capabilities (use with --connect)\n"
+           "  --session-info Show the TPM's view of the SPDM session\n"
+           "  --policy-nv    Bind an NV index to the SPDM session with\n"
+           "                 TPM2_PolicyTransportSPDM and access it (use with --connect)\n"
            "  -h, --help     Show this help\n\n"
 #ifdef WOLFSPDM_NUVOTON
            "Build: ./configure --enable-spdm --enable-nuvoton\n"
@@ -101,6 +104,251 @@ static int ctrl_caps(WOLFTPM2_DEV* dev)
     }
     else {
         printf("  FAILED: 0x%x: %s\n", rc, ctrl_init_rc_string(rc));
+    }
+    return rc;
+}
+
+static void ctrl_print_name(const char* label, const TPM2B_NAME* name)
+{
+    word32 i;
+    printf("    %s (%d bytes): ", label, name->size);
+    if (name->size == 0) {
+        printf("(empty)");
+    }
+    for (i = 0; i < name->size; i++) {
+        printf("%02x", name->name[i]);
+    }
+    printf("\n");
+}
+
+/* Ask the TPM which SPDM session (if any) this command arrived through.
+ * Returns TPM_RC_SUCCESS on a successful query, else the TPM/wolfTPM code. */
+static int ctrl_session_info(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    word32 i;
+    TPML_SPDM_SESSION_INFO info;
+
+    printf("\n=== SPDM Session Info (TPM_CAP_SPDM_SESSION_INFO) ===\n");
+    XMEMSET(&info, 0, sizeof(info));
+    rc = wolfTPM2_GetCapability_SPDMSessionInfo(dev, &info);
+    if (rc == TPM_RC_VALUE) {
+        printf("  Not supported by this TPM (TPM_RC_VALUE)\n");
+        return rc;
+    }
+    if (rc != 0) {
+        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        return rc;
+    }
+    printf("  Sessions: %u%s\n", info.count,
+        info.count == 0 ? " (command was not sent inside an SPDM session)" : "");
+    for (i = 0; i < info.count; i++) {
+        printf("  Session %u:\n", i);
+        ctrl_print_name("reqKeyName", &info.spdmSessionInfo[i].reqKeyName);
+        ctrl_print_name("tpmKeyName", &info.spdmSessionInfo[i].tpmKeyName);
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* Run one NV op (write when writeBuf != NULL, else read) under a fresh
+ * policy session whose only term is PolicyTransportSPDM. */
+static int ctrl_policy_nv_op(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, const TPM2B_NAME* reqKeyName, const TPM2B_NAME* tpmKeyName,
+    byte* writeBuf, byte* readBuf, word32* ioSz)
+{
+    int rc;
+    WOLFTPM2_SESSION session;
+
+    XMEMSET(&session, 0, sizeof(session));
+    /* Refresh the NV Name: writing flips TPMA_NV_WRITTEN, which changes the
+     * index's Name and therefore the policy-session authorization. */
+    rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+    if (rc != 0) {
+        return rc;
+    }
+    rc = wolfTPM2_StartSession(dev, &session, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    if (rc != 0) {
+        return rc;
+    }
+    rc = wolfTPM2_SetAuthSession(dev, 0, &session,
+        TPMA_SESSION_continueSession);
+    if (rc == 0) {
+        rc = wolfTPM2_PolicyTransportSPDM(dev, session.handle.hndl,
+            reqKeyName, tpmKeyName);
+    }
+    if (rc == 0) {
+        if (writeBuf != NULL) {
+            rc = wolfTPM2_NVWriteAuth(dev, nv, nvIndex, writeBuf, *ioSz, 0);
+        }
+        else {
+            rc = wolfTPM2_NVReadAuth(dev, nv, nvIndex, readBuf, ioSz, 0);
+        }
+    }
+    wolfTPM2_UnsetAuth(dev, 0);
+    wolfTPM2_UnloadHandle(dev, &session.handle);
+    return rc;
+}
+
+/* Define (or replace) the demo index with the given authPolicy. */
+static int ctrl_policy_nv_define(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 dataSz,
+    const byte* policyDigest, word32 policyDigestSz)
+{
+    int rc;
+
+    rc = wolfTPM2_NVCreateAuthPolicy(dev, parent, nv, nvIndex, nvAttributes,
+        dataSz, NULL, 0, policyDigest, (int)policyDigestSz);
+    if (rc == TPM_RC_NV_DEFINED) {
+        rc = wolfTPM2_NVDeleteAuth(dev, parent, nvIndex);
+        if (rc == 0) {
+            rc = wolfTPM2_NVCreateAuthPolicy(dev, parent, nv, nvIndex,
+                nvAttributes, dataSz, NULL, 0, policyDigest,
+                (int)policyDigestSz);
+        }
+    }
+    return rc;
+}
+
+/* Define an NV index whose authPolicy is PolicyTransportSPDM bound to the
+ * current session's key names, then write and read it. Outside an SPDM
+ * session the TPM answers TPM_RC_CHANNEL. */
+static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    word32 nvIndex = TPM2_DEMO_NVRAM_STORE_INDEX;
+    word32 nvAttributes;
+    word32 ioSz;
+    byte policyDigest[TPM_MAX_DIGEST_SIZE];
+    word32 policyDigestSz;
+    byte writeBuf[] = "wolfTPM SPDM bound NV";
+    byte readBuf[sizeof(writeBuf)];
+    const TPM2B_NAME* reqKeyName = NULL;
+    const TPM2B_NAME* tpmKeyName = NULL;
+    TPML_SPDM_SESSION_INFO info;
+    TPM2B_NAME badName;
+    WOLFTPM2_HANDLE parent;
+    WOLFTPM2_NV nv;
+    int nvAttempted = 0;
+
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    parent.hndl = TPM_RH_OWNER;
+
+    printf("\n=== PolicyTransportSPDM NV binding ===\n");
+
+    /* Bind to any SPDM session (empty key names). */
+    printf("  Binding NV access to any SPDM session\n");
+
+    XMEMSET(policyDigest, 0, sizeof(policyDigest));
+    policyDigestSz = (word32)sizeof(policyDigest);
+    rc = wolfTPM2_PolicyTransportSPDMMake(WOLFTPM2_WRAP_DIGEST, reqKeyName,
+        tpmKeyName, policyDigest, &policyDigestSz);
+    if (rc != 0) goto exit;
+    printf("  authPolicy: ");
+    TPM2_PrintBin(policyDigest, policyDigestSz);
+
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    if (rc != 0) goto exit;
+    /* Policy-only: clear owner and auth access so the SPDM policy is the only
+     * way in (an owner-authorized read would otherwise bypass it). */
+    nvAttributes &= ~(TPMA_NV_AUTHREAD | TPMA_NV_AUTHWRITE |
+        TPMA_NV_OWNERREAD | TPMA_NV_OWNERWRITE);
+    nvAttributes |= (TPMA_NV_POLICYREAD | TPMA_NV_POLICYWRITE);
+
+    nvAttempted = 1;
+    rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(writeBuf), policyDigest, policyDigestSz);
+    if (rc != 0) goto exit;
+    printf("  Created NV index 0x%x with PolicyTransportSPDM authPolicy\n",
+        nvIndex);
+
+    ioSz = (word32)sizeof(writeBuf);
+    rc = ctrl_policy_nv_op(dev, &nv, nvIndex, reqKeyName, tpmKeyName,
+        writeBuf, NULL, &ioSz);
+    if (rc != 0) goto exit;
+    printf("  NV write through the policy session succeeded\n");
+
+    ioSz = (word32)sizeof(readBuf);
+    rc = ctrl_policy_nv_op(dev, &nv, nvIndex, reqKeyName, tpmKeyName,
+        NULL, readBuf, &ioSz);
+    if (rc != 0) goto exit;
+    if (ioSz != (word32)sizeof(writeBuf) ||
+            XMEMCMP(readBuf, writeBuf, ioSz) != 0) {
+        printf("  NV read back mismatch\n");
+        rc = TPM_RC_FAILURE;
+        goto exit;
+    }
+    printf("  NV read through the policy session succeeded: \"%s\"\n",
+        (const char*)readBuf);
+
+    /* Only asymmetric sessions report a TPM identity key (PSK sessions carry
+     * none), so the bound-name checks are skipped rather than failed. */
+    XMEMSET(&info, 0, sizeof(info));
+    rc = wolfTPM2_GetCapability_SPDMSessionInfo(dev, &info);
+    if (rc != 0) goto exit;
+    if (info.count != 1 || info.spdmSessionInfo[0].tpmKeyName.size == 0) {
+        printf("  No TPM identity key reported; bound-name check skipped\n");
+        goto exit;
+    }
+    tpmKeyName = &info.spdmSessionInfo[0].tpmKeyName;
+    XMEMSET(policyDigest, 0, sizeof(policyDigest));
+    policyDigestSz = (word32)sizeof(policyDigest);
+    rc = wolfTPM2_PolicyTransportSPDMMake(WOLFTPM2_WRAP_DIGEST, NULL,
+        tpmKeyName, policyDigest, &policyDigestSz);
+    if (rc != 0) goto exit;
+    rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(writeBuf), policyDigest, policyDigestSz);
+    if (rc != 0) goto exit;
+    ioSz = (word32)sizeof(writeBuf);
+    rc = ctrl_policy_nv_op(dev, &nv, nvIndex, NULL, tpmKeyName,
+        writeBuf, NULL, &ioSz);
+    if (rc != 0) goto exit;
+    ioSz = (word32)sizeof(readBuf);
+    rc = ctrl_policy_nv_op(dev, &nv, nvIndex, NULL, tpmKeyName,
+        NULL, readBuf, &ioSz);
+    if (rc != 0) goto exit;
+    if (ioSz != (word32)sizeof(writeBuf) ||
+            XMEMCMP(readBuf, writeBuf, ioSz) != 0) {
+        printf("  Bound NV read back mismatch\n");
+        rc = TPM_RC_FAILURE;
+        goto exit;
+    }
+    printf("  Bound tpmKeyName policy: write/read OK\n");
+
+    /* A policy bound to a different name must be refused by the channel. */
+    XMEMCPY(&badName, tpmKeyName, sizeof(badName));
+    badName.name[badName.size - 1] ^= 0x01;
+    XMEMSET(policyDigest, 0, sizeof(policyDigest));
+    policyDigestSz = (word32)sizeof(policyDigest);
+    rc = wolfTPM2_PolicyTransportSPDMMake(WOLFTPM2_WRAP_DIGEST, NULL,
+        &badName, policyDigest, &policyDigestSz);
+    if (rc != 0) goto exit;
+    rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(writeBuf), policyDigest, policyDigestSz);
+    if (rc != 0) goto exit;
+    ioSz = (word32)sizeof(readBuf);
+    rc = ctrl_policy_nv_op(dev, &nv, nvIndex, NULL, &badName,
+        NULL, readBuf, &ioSz);
+    if ((rc & RC_MAX_FMT1) != TPM_RC_CHANNEL_KEY) {
+        printf("  Bound-name mismatch not rejected (0x%x)\n", rc);
+        rc = TPM_RC_FAILURE;
+        goto exit;
+    }
+    rc = TPM_RC_SUCCESS;
+    printf("  Bound tpmKeyName policy: mismatch rejected (TPM_RC_CHANNEL_KEY)\n");
+
+exit:
+    if (rc != 0) {
+        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        /* Format-one codes may carry an auth-session selector in upper bits. */
+        if ((rc & RC_MAX_FMT1) == TPM_RC_CHANNEL) {
+            printf("  (the policy requires the command to arrive over SPDM)\n");
+        }
+    }
+    if (nvAttempted) {
+        (void)wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
     }
     return rc;
 }
@@ -504,26 +752,7 @@ static int ctrl_nations_caps184(WOLFTPM2_DEV* dev)
     }
 
     /* 3. TPM_CAP_SPDM_SESSION_INFO (TPM 184: SPDM session state) */
-    printf("  SPDM Session Info (TPM_CAP_SPDM_SESSION_INFO):\n");
-    XMEMSET(&capIn, 0, sizeof(capIn));
-    capIn.capability = TPM_CAP_SPDM_SESSION_INFO;
-    capIn.property = 0;
-    capIn.propertyCount = 1;
-    XMEMSET(&capOut, 0, sizeof(capOut));
-    rc = TPM2_GetCapability(&capIn, &capOut);
-    if (rc == 0) {
-        byte* raw = (byte*)&capOut.capabilityData;
-        word32 rawSz = sizeof(capOut.capabilityData);
-        printf("    Response (%u bytes): ", rawSz);
-        for (i = 0; i < rawSz && i < 64; i++)
-            printf("%02x", raw[i]);
-        if (rawSz > 64) printf("...");
-        printf("\n");
-    } else if (rc == TPM_RC_VALUE) {
-        printf("    Not supported (TPM_RC_VALUE)\n");
-    } else {
-        printf("    Failed: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-    }
+    (void)ctrl_session_info(dev);
 
     return 0;
 }
@@ -961,6 +1190,14 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
         /* Generic admin - available whenever the library is built. */
         if (!matched && XSTRCMP(argv[i], "--caps") == 0) {
             rc = ctrl_caps(&dev);
+            matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--session-info") == 0) {
+            rc = ctrl_session_info(&dev);
+            matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--policy-nv") == 0) {
+            rc = ctrl_policy_nv(&dev);
             matched = 1;
         }
         else if (!matched && XSTRCMP(argv[i], "--tpm-clear") == 0) {

@@ -4,15 +4,23 @@
 if BUILD_EXAMPLES
 if BUILD_SPDM
 noinst_PROGRAMS += examples/spdm/spdm_ctrl
+noinst_PROGRAMS += examples/spdm/nv_bind
 
 examples_spdm_spdm_ctrl_SOURCES         = examples/spdm/spdm_ctrl.c
 examples_spdm_spdm_ctrl_LDADD           = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_spdm_spdm_ctrl_DEPENDENCIES    = src/libwolftpm.la
 examples_spdm_spdm_ctrl_CFLAGS          = $(AM_CFLAGS)
+
+examples_spdm_nv_bind_SOURCES           = examples/spdm/nv_bind.c
+examples_spdm_nv_bind_LDADD             = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_spdm_nv_bind_DEPENDENCIES      = src/libwolftpm.la
+examples_spdm_nv_bind_CFLAGS            = $(AM_CFLAGS)
 endif
 endif
 
 example_spdmdir = $(exampledir)/spdm
 dist_example_spdm_DATA = examples/spdm/spdm_ctrl.c
+dist_example_spdm_DATA += examples/spdm/nv_bind.c
 
 DISTCLEANFILES+= examples/spdm/.libs/spdm_ctrl
+DISTCLEANFILES+= examples/spdm/.libs/nv_bind

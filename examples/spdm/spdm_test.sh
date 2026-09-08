@@ -447,6 +447,10 @@ elif [ "$VENDOR" = "fwtpm-tcg" ]; then
     fi
     run_test "Status in SPDM-only mode" run_identity --status
     run_test "TPM capabilities in SPDM-only mode" run_identity --caps
+    run_test_output "SPDM session info reports the TPM identity key" \
+        "tpmKeyName (50 bytes): 000c" run_identity --connect --session-info
+    run_test_output "PolicyTransportSPDM NV binding over SPDM" \
+        "mismatch rejected (TPM_RC_CHANNEL_KEY)" run_identity --connect --policy-nv
     run_test "Unlock SPDM-only mode" run_identity --connect --unlock
 
     if [ -x "$CAPS_DEMO" ]; then
@@ -512,6 +516,11 @@ elif [ "$VENDOR" = "fwtpm-psk" ]; then
     else
         echo -e "  ${YELLOW}Skipping: $UNIT_TEST not found${NC}"
     fi
+    if [ -x ./examples/spdm/nv_bind ]; then
+        run_test_output "NV index bound to SPDM (nv_bind demo)" \
+            "reachable only over SPDM" \
+            ./examples/spdm/nv_bind --psk "$NATIONS_PSK"
+    fi
     run_test "Lock PSK SPDM-only mode" "$SPDM_DEMO" --vendor=nations \
         --psk "$NATIONS_PSK" --lock
     run_test_rejected "Uncredentialed initialization rejected while locked" \
@@ -522,6 +531,9 @@ elif [ "$VENDOR" = "fwtpm-psk" ]; then
     run_test_output "Status preserves the PSK session for TPM commands" \
         "Session: active" "$SPDM_DEMO" --vendor=nations \
         --psk "$NATIONS_PSK" --status --caps
+    run_test_output "SPDM session info reports no identity key for PSK" \
+        "tpmKeyName (0 bytes): (empty)" "$SPDM_DEMO" --vendor=nations \
+        --psk "$NATIONS_PSK" --session-info
     run_test "Unlock PSK SPDM-only mode" "$SPDM_DEMO" --vendor=nations \
         --psk "$NATIONS_PSK" --unlock
     run_test "PSK clear (PSK_CLEAR)" "$SPDM_DEMO" --vendor=nations \
