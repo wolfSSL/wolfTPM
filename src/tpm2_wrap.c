@@ -4419,6 +4419,7 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             }
         }
         wc_FreeRsaKey(key);
+        TPM2_ForceZero(key, sizeof(RsaKey));
     }
 
     TPM2_ForceZero(d, sizeof(d));
@@ -4544,6 +4545,7 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
         }
 
         wc_ecc_free(key);
+        TPM2_ForceZero(key, sizeof(ecc_key));
     }
 
     TPM2_ForceZero(d, sizeof(d));
@@ -4887,8 +4889,10 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
             qSz, scheme, hashAlg);
     }
 
-    if (initRc == 0)
+    if (initRc == 0) {
         wc_FreeRsaKey(key);
+        TPM2_ForceZero(key, sizeof(RsaKey));
+    }
 
     TPM2_ForceZero(d, sizeof(d));
     TPM2_ForceZero(p, sizeof(p));
