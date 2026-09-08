@@ -235,6 +235,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                     printf("Command parameter encryption failed\n");
             #endif
+                    TPM2_ForceZero(&authCmd, sizeof(authCmd));
                     return rc;
                 }
             }
@@ -249,6 +250,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                 printf("Error getting names for cpHash!\n");
             #endif
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return BAD_FUNC_ARG;
             }
 
@@ -259,6 +261,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating cpHash!\n");
             #endif
+                TPM2_ForceZero(&hash, sizeof(hash));
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return rc;
             }
             /* Calculate HMAC for policy, hmac or salted sessions */
@@ -270,6 +274,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating command HMAC!\n");
             #endif
+                TPM2_ForceZero(&hash, sizeof(hash));
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return rc;
             }
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
