@@ -1795,19 +1795,41 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         case TPM_CAP_PCRS: {
-            TPM2_Packet_AppendU32(rsp, FWTPM_PCR_BANKS);
-            TPM2_Packet_AppendU16(rsp, TPM_ALG_SHA256);
-            TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
+            UINT16 pcrBankAlg[FWTPM_PCR_BANKS];
+            byte pcrBankBit[FWTPM_PCR_BANKS];
+            int b, pIdx, bitsThisByte;
+            byte sel;
+
+            pcrBankAlg[FWTPM_PCR_BANK_SHA256] = TPM_ALG_SHA256;
+            pcrBankBit[FWTPM_PCR_BANK_SHA256] =
+                (byte)(1 << FWTPM_PCR_BANK_SHA256);
         #ifdef WOLFSSL_SHA384
-            TPM2_Packet_AppendU16(rsp, TPM_ALG_SHA384);
-            TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
+            pcrBankAlg[FWTPM_PCR_BANK_SHA384] = TPM_ALG_SHA384;
+            pcrBankBit[FWTPM_PCR_BANK_SHA384] =
+                (byte)(1 << FWTPM_PCR_BANK_SHA384);
         #endif
+        #ifndef NO_SHA
+            pcrBankAlg[FWTPM_PCR_BANK_SHA1] = TPM_ALG_SHA1;
+            pcrBankBit[FWTPM_PCR_BANK_SHA1] =
+                (byte)(1 << FWTPM_PCR_BANK_SHA1);
+        #endif
+
+            TPM2_Packet_AppendU32(rsp, FWTPM_PCR_BANKS);
+            for (b = 0; b < FWTPM_PCR_BANKS; b++) {
+                TPM2_Packet_AppendU16(rsp, pcrBankAlg[b]);
+                TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
+                for (pIdx = 0; pIdx < PCR_SELECT_MAX; pIdx++) {
+                    sel = 0x00;
+                    if (ctx->pcrAllocatedBanks & pcrBankBit[b]) {
+                        bitsThisByte = IMPLEMENTATION_PCR - (pIdx * 8);
+                        if (bitsThisByte >= 8)
+                            sel = 0xFF;
+                        else if (bitsThisByte > 0)
+                            sel = (byte)((1u << bitsThisByte) - 1u);
+                    }
+                    TPM2_Packet_AppendU8(rsp, sel);
+                }
+            }
             break;
         }
 
