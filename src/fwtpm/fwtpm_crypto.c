@@ -192,6 +192,9 @@ int FwComputePublicName(TPMT_PUBLIC* pub, TPM2B_NAME* name)
     int digestSz;
 
     FWTPM_ALLOC_BUF(pubBuf, FWTPM_MAX_PUB_BUF);
+    if (rc != 0) {
+        return rc;
+    }
 
     /* Marshal public area into temp buffer */
     tmpPkt.buf = pubBuf;
