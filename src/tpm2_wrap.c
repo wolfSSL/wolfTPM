@@ -3653,8 +3653,12 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     }
 #endif
 
-    if (innerWrap) {
-        /* TODO: Inner wrap support */
+    if (innerWrap && !outerWrap) {
+        /* A symmetric definition without an outer wrap seed would emit the
+         * sensitive unprotected (inner-wrap-only is not implemented); reject
+         * rather than return success with plaintext. When an outer wrap is
+         * present it applies this symmetric encryption. */
+        rc = NOT_COMPILED_IN;
     }
 
     if (rc == 0 && outerWrap) {
