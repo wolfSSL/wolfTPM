@@ -3699,21 +3699,26 @@ int FwGetRsaPadding(UINT16 scheme)
 int FwRsaComputeCRT(RsaKey* rsaKey)
 {
     int rc;
+    int pm1Init = 0, qm1Init = 0, phiInit = 0;
     mp_int pm1, qm1, phi;
 
     rc = mp_init(&pm1);
     if (rc == 0) {
+        pm1Init = 1;
         rc = mp_init(&qm1);
     }
     if (rc == 0) {
+        qm1Init = 1;
         rc = mp_init(&phi);
     }
-    if (rc != 0) {
-        return TPM_RC_FAILURE;
+    if (rc == 0) {
+        phiInit = 1;
     }
 
     /* phi = (p-1)(q-1) */
-    rc = mp_sub_d(&rsaKey->p, 1, &pm1);
+    if (rc == 0) {
+        rc = mp_sub_d(&rsaKey->p, 1, &pm1);
+    }
     if (rc == 0) {
         rc = mp_sub_d(&rsaKey->q, 1, &qm1);
     }
@@ -3735,12 +3740,18 @@ int FwRsaComputeCRT(RsaKey* rsaKey)
         rc = mp_invmod(&rsaKey->q, &rsaKey->p, &rsaKey->u);
     }
 
-    mp_forcezero(&pm1);
-    mp_forcezero(&qm1);
-    mp_forcezero(&phi);
-    mp_clear(&pm1);
-    mp_clear(&qm1);
-    mp_clear(&phi);
+    if (pm1Init) {
+        mp_forcezero(&pm1);
+        mp_clear(&pm1);
+    }
+    if (qm1Init) {
+        mp_forcezero(&qm1);
+        mp_clear(&qm1);
+    }
+    if (phiInit) {
+        mp_forcezero(&phi);
+        mp_clear(&phi);
+    }
 
     if (rc != 0) {
         rc = TPM_RC_FAILURE;
