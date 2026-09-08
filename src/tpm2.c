@@ -6828,6 +6828,10 @@ int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
     }
     /* response buffer held freshly generated random; wipe before return */
     TPM2_ForceZero(buffer, sizeof(buffer));
+    if (rc != TPM_RC_SUCCESS && randSz > 0) {
+        /* wipe partial nonce bytes already written from earlier chunks */
+        TPM2_ForceZero(nonceBuf, (word32)randSz);
+    }
 #endif
 
     return rc;
