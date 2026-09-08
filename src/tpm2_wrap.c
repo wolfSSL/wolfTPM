@@ -5880,6 +5880,8 @@ int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         *sequenceHandle = signSeqStartOut.sequenceHandle;
     }
 
+    TPM2_ForceZero(&signSeqStartIn, sizeof(signSeqStartIn));
+
     return rc;
 }
 
@@ -6069,6 +6071,8 @@ int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (rc == TPM_RC_SUCCESS) {
         *sequenceHandle = verifySeqStartOut.sequenceHandle;
     }
+
+    TPM2_ForceZero(&verifySeqStartIn, sizeof(verifySeqStartIn));
 
     return rc;
 }
