@@ -420,7 +420,8 @@ int TPM2_HmacCompute(
     int dSz;
 
     if (digest == NULL || (key == NULL && keySz > 0) ||
-        (data == NULL && dataSz > 0)) {
+        (data == NULL && dataSz > 0) ||
+        (data2 == NULL && data2Sz > 0)) {
         return BAD_FUNC_ARG;
     }
 
