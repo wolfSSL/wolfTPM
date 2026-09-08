@@ -871,6 +871,7 @@ void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
         }
         else {
             packet->pos = packet->size;
+            packet->overflow = 1;
         }
     }
 }
