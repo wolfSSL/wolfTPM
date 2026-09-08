@@ -4758,6 +4758,10 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+    if (keyType != TPM_ALG_RSA && keyType != TPM_ALG_ECC) {
+        return BAD_FUNC_ARG;
+    }
+
     pub = &keyBlob->pub;
     XMEMSET(pub, 0, sizeof(*pub));
     XMEMSET(&sens, 0, sizeof(sens));
