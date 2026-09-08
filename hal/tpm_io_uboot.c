@@ -148,6 +148,10 @@
         #ifdef DEBUG_WOLFTPM
             printf("wolfTPM: SPI header xfer failed: %d\n", ret);
         #endif
+            /* End the transaction so a driver that holds CS does not leave
+             * it active for the next request */
+            spi_xfer(g_spi_slave, 0, NULL, NULL, SPI_XFER_END);
+            ret = TPM_RC_FAILURE;
             goto cleanup;
         }
 
