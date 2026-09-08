@@ -2609,6 +2609,12 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
         rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
     }
 
+    if (rc != 0) {
+        /* Do not leave the plaintext salt or seed in the caller buffer */
+        TPM2_ForceZero(data->buffer, sizeof(data->buffer));
+        data->size = 0;
+    }
+
     return rc;
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA && !WC_NO_RNG */
