@@ -162,10 +162,18 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         rc = wc_HashInit(&dig, hashType);
         if (rc == 0)
             hashInitialized = 1;
-        while (rc == 0 && !XFEOF(fp)) {
+        while (rc == 0) {
             len = XFREAD(dataBuffer, 1, sizeof(dataBuffer), fp);
             if (len > 0) {
                 rc = wc_HashUpdate(&dig, hashType, dataBuffer, (int)len);
+            }
+            if (len < sizeof(dataBuffer)) {
+                /* Short read: end of file, or an input error to report */
+                if (!XFEOF(fp)) {
+                    printf("Error reading file %s\n", filename);
+                    rc = BAD_FUNC_ARG;
+                }
+                break;
             }
         }
         XFCLOSE(fp);
