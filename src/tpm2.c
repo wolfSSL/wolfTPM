@@ -7538,6 +7538,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int rc;
     int hashSize, nameAlgSize;
+    int hashInitialized = 0;
     UINT16 nameAlgValue;
     wc_HashAlg hash;
     enum wc_HashType hashType;
@@ -7573,6 +7574,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 
     rc = wc_HashInit(&hash, hashType);
     if (rc == 0) {
+        hashInitialized = 1;
         rc = wc_HashUpdate(&hash, hashType, packet.buf, packet.pos);
     }
     if (rc == 0) {
@@ -7589,7 +7591,11 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
         rc = TPM_RC_SUCCESS;
     }
 
-    wc_HashFree(&hash, hashType);
+    if (hashInitialized) {
+        wc_HashFree(&hash, hashType);
+    }
+    TPM2_ForceZero(&hash, sizeof(hash));
+    TPM2_ForceZero(appending, sizeof(appending));
 
     return rc;
 #else
