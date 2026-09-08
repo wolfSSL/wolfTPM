@@ -2065,13 +2065,26 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
         if (handle->policyAuth) {
             TPM2_AUTH_SESSION* session = &dev->session[index];
             int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
+            word32 authSz;
+
+            /* Validate bounds before reading caller data or mutating the
+             * session so it isn't left inconsistent on BUFFER_E. */
+            if (authDigestSz <= 0 ||
+                (word32)authDigestSz >
+                    (word32)sizeof(session->auth.buffer) ||
+                handle->auth.size > (word32)sizeof(session->auth.buffer) -
+                    (word32)authDigestSz ||
+                handle->name.size > sizeof(session->name.name)) {
+                return BUFFER_E;
+            }
+            authSz = (word32)authDigestSz + handle->auth.size;
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Session %d: Edit (PolicyAuth)\n", index);
             printf("\tHandle 0x%x (not touching)\n", session->sessionHandle);
             printf("\tPolicyAuth %d->%d\n",
                 session->policyAuth, handle->policyAuth);
-            printf("\tAuth Sz %d -> %d\n", session->auth.size,
-                authDigestSz + handle->auth.size);
+            printf("\tAuth Sz %d -> %u\n", session->auth.size,
+                (unsigned int)authSz);
         #ifdef WOLFTPM_DEBUG_SECRETS
             TPM2_PrintBin(session->auth.buffer, session->auth.size);
             TPM2_PrintBin(handle->auth.buffer, handle->auth.size);
@@ -2080,22 +2093,13 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
             TPM2_PrintBin(session->name.name, session->name.size);
             TPM2_PrintBin(handle->name.name, handle->name.size);
         #endif
-            /* Validate bounds before any session-state mutation so the
-             * session isn't left inconsistent on BUFFER_E. */
-            if (authDigestSz <= 0 ||
-                (handle->auth.size + authDigestSz) >
-                    (int)sizeof(session->auth.buffer) ||
-                handle->name.size > sizeof(session->name.name)) {
-                return BUFFER_E;
-            }
             session->policyAuth = handle->policyAuth;
-            session->auth.size = authDigestSz + handle->auth.size;
+            session->auth.size = (word16)authSz;
             XMEMMOVE(&session->auth.buffer[authDigestSz], handle->auth.buffer,
                 handle->auth.size);
-            if (session->auth.size < sizeof(session->auth.buffer)) {
-                TPM2_ForceZero(&session->auth.buffer[session->auth.size],
-                    (word32)sizeof(session->auth.buffer) -
-                        session->auth.size);
+            if (authSz < sizeof(session->auth.buffer)) {
+                TPM2_ForceZero(&session->auth.buffer[authSz],
+                    (word32)sizeof(session->auth.buffer) - authSz);
             }
             session->name.size = handle->name.size;
             XMEMCPY(session->name.name, handle->name.name, session->name.size);
@@ -11441,11 +11445,14 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     TPM2_Packet_AppendPCR(&packet, &pcr);
 
     /* Copy the pcrDigest to the end of buffer */
-    if (packet.overflow || packet.pos > packet.size ||
-        pcrDigestSz > (word32)(packet.size - packet.pos)) {
+    if (packet.overflow || packet.pos > packet.size) {
         return BUFFER_E;
     }
     if (pcrDigestSz > 0) {
+        if (packet.pos >= packet.size ||
+            pcrDigestSz > (word32)(packet.size - packet.pos)) {
+            return BUFFER_E;
+        }
         XMEMCPY(buf + packet.pos, pcrDigest, pcrDigestSz);
         packet.pos += (int)pcrDigestSz;
     }
@@ -12384,8 +12391,7 @@ int wolfTPM2_ST33_GetFwUpgradeCommands(const WOLFTPM2_CAPS* caps,
             stdImpl);
     }
 #endif
-    return wolfTPM2_ST33_FwUpgradeCommands(
-        (caps != NULL) ? caps->fwVerMinor : 0, (caps != NULL),
+    return wolfTPM2_ST33_FwUpgradeCommands(caps->fwVerMinor, 1,
         manifestMajor, ccStart, ccData);
 }
 

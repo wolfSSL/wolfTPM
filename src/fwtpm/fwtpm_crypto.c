@@ -418,31 +418,36 @@ int FwAppendCreationHashAndTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
 int FwGetWcCurveId(UINT16 tpmCurve)
 {
     int curveIdx;
-    int keyBits;
     int wcCurve;
 
     switch (tpmCurve) {
         case TPM_ECC_NIST_P256:
-            keyBits = 256;
+        #if ECC_MIN_KEY_SZ > 256
+            return -1;
+        #else
             wcCurve = ECC_SECP256R1;
             break;
+        #endif
         case TPM_ECC_NIST_P384:
-            keyBits = 384;
+        #if ECC_MIN_KEY_SZ > 384
+            return -1;
+        #else
             wcCurve = ECC_SECP384R1;
             break;
+        #endif
     #ifdef FWTPM_HAVE_ECC521
         case TPM_ECC_NIST_P521:
-            keyBits = 521;
+        #if ECC_MIN_KEY_SZ > 521
+            return -1;
+        #else
             wcCurve = ECC_SECP521R1;
             break;
+        #endif
     #endif
         default:
             return -1;
     }
 
-    if (keyBits < ECC_MIN_KEY_SZ) {
-        return -1;
-    }
     curveIdx = wc_ecc_get_curve_idx(wcCurve);
     if (curveIdx < 0 || wc_ecc_get_curve_params(curveIdx) == NULL) {
         return -1;

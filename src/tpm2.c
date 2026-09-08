@@ -88,6 +88,11 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 
 #define TPM2_LOCALITY_UNINITIALIZED (-1)
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_NO_LOCK) && \
+    !defined(SINGLE_THREADED) && !defined(WOLFSSL_MUTEX_INITIALIZER)
+#define TPM2_DYNAMIC_HW_LOCK
+#endif
+
 /******************************************************************************/
 /* --- Local Functions -- */
 /******************************************************************************/
@@ -1019,9 +1024,11 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 {
     TPM_RC rc;
-    int lockCtx = 1;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int wolfCryptInit;
+    #ifdef TPM2_DYNAMIC_HW_LOCK
+    int lockCtx;
+    #endif
 #endif
 
     if (ctx == NULL)
@@ -1029,23 +1036,32 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     wolfCryptInit = (ctx->locality != TPM2_LOCALITY_UNINITIALIZED);
-    #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
-        !defined(WOLFSSL_MUTEX_INITIALIZER)
+    #ifdef TPM2_DYNAMIC_HW_LOCK
     lockCtx = wolfCryptInit;
     #endif
 #endif
 
     /* clear global */
-    if (lockCtx)
+    #ifdef TPM2_DYNAMIC_HW_LOCK
+    if (lockCtx) {
         rc = TPM2_AcquireLock(ctx);
-    else
+    }
+    else {
         rc = TPM_RC_SUCCESS;
+    }
+    #else
+    rc = TPM2_AcquireLock(ctx);
+    #endif
     if (rc == TPM_RC_SUCCESS) {
 
         if (TPM2_GetActiveCtx() == ctx) {
+        #ifdef TPM2_DYNAMIC_HW_LOCK
             if (lockCtx) {
                 TPM2_INTERNAL_CLEANUP(ctx);
             }
+        #else
+            TPM2_INTERNAL_CLEANUP(ctx);
+        #endif
             /* set non-active */
             TPM2_SetActiveCtx(NULL);
         }
@@ -1054,8 +1070,13 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
          * auth values, decrypted parameters) */
         TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
 
-        if (lockCtx)
+    #ifdef TPM2_DYNAMIC_HW_LOCK
+        if (lockCtx) {
             TPM2_ReleaseLock(ctx);
+        }
+    #else
+        TPM2_ReleaseLock(ctx);
+    #endif
     }
     else {
         TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
