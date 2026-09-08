@@ -3403,7 +3403,16 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &primaryHandle);
         seed = FwGetHierarchySeed(ctx, primaryHandle);
         if (seed == NULL) {
-            rc = TPM_RC_HIERARCHY;
+            /* A permanent handle is a recognized hierarchy selector this
+             * fwTPM does not support (includes the v1.85 firmware- and
+             * SVN-limited hierarchies); any other value is not a valid
+             * TPMI_RH_HIERARCHY and is rejected as a malformed value. */
+            if ((primaryHandle & HR_RANGE_MASK) == HR_PERMANENT) {
+                rc = TPM_RC_HIERARCHY;
+            }
+            else {
+                rc = TPM_RC_VALUE;
+            }
         }
     }
 
