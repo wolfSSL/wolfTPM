@@ -946,6 +946,7 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
 
     TPM2_Packet_ParseU16(packet, &sensitive->size);
     if (sensitive->size == 0) {
+        XMEMSET(&sensitive->sensitiveArea, 0, sizeof(sensitive->sensitiveArea));
         return;
     }
     /* Clamp outer size to remaining packet bytes so inner parses are bounded */
