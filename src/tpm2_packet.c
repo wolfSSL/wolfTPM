@@ -703,6 +703,13 @@ void TPM2_Packet_AppendEccScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
         TPM2_Packet_AppendU16(packet, scheme->details.ecdaa.hashAlg);
         TPM2_Packet_AppendU16(packet, scheme->details.ecdaa.count);
     }
+#ifdef WOLFTPM_PQC
+    else if (scheme->scheme == TPM_ALG_MLDSA ||
+             scheme->scheme == TPM_ALG_HASH_MLDSA) {
+        /* ML-DSA scheme union arms are TPMS_EMPTY (TCG v185 errata): the
+         * selector carries no trailing hash. */
+    }
+#endif
     else if (scheme->scheme != TPM_ALG_NULL) {
         TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
     }

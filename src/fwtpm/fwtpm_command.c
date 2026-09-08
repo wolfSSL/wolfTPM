@@ -14718,7 +14718,14 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, sigScheme);
         *sigHashAlg = TPM_ALG_NULL;
-        if (*sigScheme != TPM_ALG_NULL)
+        /* ML-DSA scheme arms are TPMS_EMPTY (TCG v185 errata): no trailing
+         * hash to consume. */
+        if (*sigScheme != TPM_ALG_NULL
+#ifdef WOLFTPM_PQC
+            && *sigScheme != TPM_ALG_MLDSA
+            && *sigScheme != TPM_ALG_HASH_MLDSA
+#endif
+            )
             TPM2_Packet_ParseU16(cmd, sigHashAlg);
         /* TPMS_SCHEME_ECDAA carries an additional UINT16 count after
          * hashAlg per Part 2 Sec. 11.2.1.5. */
@@ -14738,6 +14745,23 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
 #endif /* !FWTPM_NO_ATTESTATION */
 
 #ifndef FWTPM_NO_ATTESTATION
+/* Inner measurement digest (Quote pcrDigest, NV_Certify nvDigest) uses the
+ * signing key's nameAlg for ML-DSA keys (TCG v185 errata: both scheme arms are
+ * TPMS_EMPTY). Returns TPM_ALG_NULL for classical keys. */
+static UINT16 FwAttestMldsaHashAlg(const FWTPM_Object* obj)
+{
+#ifdef WOLFTPM_PQC
+    /* Hash-ML-DSA's hashAlg is the message pre-hash for the signature, not this
+     * inner digest, so both ML-DSA arms resolve to nameAlg here. */
+    if (obj->pub.type == TPM_ALG_MLDSA ||
+            obj->pub.type == TPM_ALG_HASH_MLDSA) {
+        return obj->pub.nameAlg;
+    }
+#endif
+    (void)obj;
+    return TPM_ALG_NULL;
+}
+
 /* --- TPM2_Quote (CC 0x0158) ---
  * signHandle authHandle | qualifyingData | inScheme | PCRselect
  * Response: TPM2B_ATTEST + TPMT_SIGNATURE */
@@ -14834,9 +14858,14 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     selections[s].pcrSelect[j]);
         }
 
-        /* pcrDigest = hash of concatenated selected PCR values */
-        pcrHashAlg = (sigHashAlg != TPM_ALG_NULL) ? sigHashAlg :
-            (numSel > 0 ? selections[0].hashAlg : (UINT16)TPM_ALG_SHA256);
+        /* pcrDigest = hash of the selected PCR values under the signature's
+         * hash so a verifier agrees. ML-DSA keys resolve to nameAlg (no scheme
+         * hash on the wire); classical keys honor the wire hash then PCR bank. */
+        pcrHashAlg = FwAttestMldsaHashAlg(sigObj);
+        if (pcrHashAlg == TPM_ALG_NULL) {
+            pcrHashAlg = (sigHashAlg != TPM_ALG_NULL) ? sigHashAlg :
+                (numSel > 0 ? selections[0].hashAlg : (UINT16)TPM_ALG_SHA256);
+        }
         wcH = FwGetWcHashType(pcrHashAlg);
         dSz = TPM2_GetHashDigestSize(pcrHashAlg);
         if (wcH != WC_HASH_TYPE_NONE && dSz > 0) {
@@ -15043,7 +15072,14 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &sigScheme);
         sigHashAlg = TPM_ALG_NULL;
-        if (sigScheme != TPM_ALG_NULL)
+        /* ML-DSA scheme arms are TPMS_EMPTY (TCG v185 errata): no trailing
+         * hash to consume. */
+        if (sigScheme != TPM_ALG_NULL
+#ifdef WOLFTPM_PQC
+            && sigScheme != TPM_ALG_MLDSA
+            && sigScheme != TPM_ALG_HASH_MLDSA
+#endif
+            )
             TPM2_Packet_ParseU16(cmd, &sigHashAlg);
         /* TPMS_SCHEME_ECDAA carries an additional UINT16 count after
          * hashAlg per Part 2 Sec. 11.2.1.5. */
@@ -15358,9 +15394,12 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             int hashSz;
             enum wc_HashType wcDigH;
 
-            /* Resolve hash from signing key when scheme/hash is NULL.
-             * keyScheme is filled in by the by-pointer interface but
-             * unused here - we only need the resolved hashAlg. */
+            /* ML-DSA keys have no scheme hash, so resolve nvDigest's hash from
+             * nameAlg (TCG v185 errata) before the classical
+             * FwResolveSignScheme fallback. */
+            if (hashAlg == TPM_ALG_NULL) {
+                hashAlg = FwAttestMldsaHashAlg(sigObj);
+            }
             if (hashAlg == TPM_ALG_NULL) {
                 UINT16 keyScheme = TPM_ALG_NULL;
                 FwResolveSignScheme(sigObj, &keyScheme, &hashAlg);
@@ -15410,6 +15449,37 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
 #ifndef FWTPM_NO_CREDENTIAL
 
+/* AES key size (bytes) for credential wrap from a Storage key's symmetric def.
+ * Requires AES-CFB (Part 1 Sec.24); returns 0 for any other cipher/mode. */
+static int FwCredentialAesKeyBytes(const FWTPM_Object* keyObj)
+{
+    const TPMT_SYM_DEF_OBJECT* sym;
+
+    switch (keyObj->pub.type) {
+#ifndef NO_RSA
+        case TPM_ALG_RSA:
+            sym = &keyObj->pub.parameters.rsaDetail.symmetric;
+            break;
+#endif
+#ifdef HAVE_ECC
+        case TPM_ALG_ECC:
+            sym = &keyObj->pub.parameters.eccDetail.symmetric;
+            break;
+#endif
+#ifdef WOLFTPM_MLKEM
+        case TPM_ALG_MLKEM:
+            sym = &keyObj->pub.parameters.mlkemDetail.symmetric;
+            break;
+#endif
+        default:
+            return 0;
+    }
+    if (sym->algorithm != TPM_ALG_AES || sym->mode.aes != TPM_ALG_CFB) {
+        return 0;
+    }
+    return (int)sym->keyBits.aes / 8;
+}
+
 /* --- TPM2_MakeCredential (CC 0x0168) ---
  * handle (AIK public key used to wrap seed) | credential | objectName
  * Response: TPM2B_ID_OBJECT + TPM2B_ENCRYPTED_SECRET
@@ -15434,11 +15504,13 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int seedSz = 0;
     FWTPM_DECLARE_BUF(encSeed, FWTPM_MAX_PUB_BUF);
     int encSeedSz = 0;
-    byte symKey[16];  /* AES-128 */
-    byte hmacKey[TPM_SHA256_DIGEST_SIZE];
+    byte symKey[32];  /* up to AES-256 */
+    byte hmacKey[TPM_MAX_DIGEST_SIZE];
+    int symKeySz = 0;
+    int hmacKeySz = 0;
     FWTPM_DECLARE_BUF(encCred, FWTPM_MAX_NV_DATA + 2);
     word32 encCredSz = 0;
-    byte outerHmac[TPM_SHA256_DIGEST_SIZE];
+    byte outerHmac[TPM_MAX_DIGEST_SIZE];
     byte oaepLabel[64];
     int oaepLabelSz = 0;
 
@@ -15461,10 +15533,25 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HANDLE;
         }
     }
-    /* Credential wrap/unwrap integrity is SHA-256 only; reject other
-     * nameAlgs rather than emit a mixed-hash (non-interoperable) blob. */
-    if (rc == 0 && keyObj->pub.nameAlg != TPM_ALG_SHA256) {
-        rc = TPM_RC_HASH;
+    /* Part 3 Sec.24: the credential key must be a restricted decryption
+     * (Storage) key, so a blob is never produced for a key that could leak the
+     * seed via Decapsulate. */
+    if (rc == 0 &&
+        (((keyObj->pub.objectAttributes & TPMA_OBJECT_restricted) == 0) ||
+         ((keyObj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0))) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
+    /* Credential protection derives the HMAC under the key's nameAlg and the
+     * symmetric key at its declared AES-CFB size (Part 1 Sec.24). Reject a key
+     * whose nameAlg or symmetric is unsupported. */
+    if (rc == 0) {
+        hmacKeySz = TPM2_GetHashDigestSize(keyObj->pub.nameAlg);
+        symKeySz = FwCredentialAesKeyBytes(keyObj);
+        if (FwGetWcHashType(keyObj->pub.nameAlg) == WC_HASH_TYPE_NONE ||
+                hmacKeySz <= 0 || hmacKeySz > (int)sizeof(hmacKey) ||
+                symKeySz <= 0 || symKeySz > (int)sizeof(symKey)) {
+            rc = TPM_RC_KEY;
+        }
     }
 
     /* MakeCredential has no auth area */
@@ -15536,15 +15623,15 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwCredentialDeriveKeys(keyObj->pub.nameAlg, seed, seedSz,
             objectName.name, objectName.size,
-            symKey, (int)sizeof(symKey),
-            hmacKey, (int)sizeof(hmacKey));
+            symKey, symKeySz,
+            hmacKey, hmacKeySz);
     }
 
     /* Encrypt credential and compute outer HMAC */
     if (rc == 0) {
         rc = FwCredentialWrap(
-            symKey, (int)sizeof(symKey),
-            hmacKey, (int)sizeof(hmacKey),
+            symKey, symKeySz,
+            hmacKey, hmacKeySz, keyObj->pub.nameAlg,
             credential.buffer, credential.size,
             objectName.name, objectName.size,
             encCred, &encCredSz, outerHmac);
@@ -15562,9 +15649,9 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         blobSzPos = rsp->pos;
         TPM2_Packet_AppendU16(rsp, 0); /* placeholder */
         blobStart = rsp->pos;
-        /* integrity HMAC as TPM2B */
-        TPM2_Packet_AppendU16(rsp, TPM_SHA256_DIGEST_SIZE);
-        TPM2_Packet_AppendBytes(rsp, outerHmac, TPM_SHA256_DIGEST_SIZE);
+        /* integrity HMAC as TPM2B (sized by the key's nameAlg) */
+        TPM2_Packet_AppendU16(rsp, (UINT16)hmacKeySz);
+        TPM2_Packet_AppendBytes(rsp, outerHmac, hmacKeySz);
         /* encIdentity as raw bytes (encCredential) */
         TPM2_Packet_AppendBytes(rsp, encCred, (int)encCredSz);
         /* patch blob size */
@@ -15615,8 +15702,10 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramSzPos, paramStart;
     byte seed[64];
     int seedSzInt = 0;
-    byte symKey[16];
-    byte hmacKey[TPM_SHA256_DIGEST_SIZE];
+    byte symKey[32];  /* up to AES-256 */
+    byte hmacKey[TPM_MAX_DIGEST_SIZE];
+    int symKeySz = 0;
+    int hmacKeySz = 0;
     byte oaepLabel[64];
     int oaepLabelSz = 0;
     byte credOut[sizeof(TPMU_HA)];
@@ -15644,10 +15733,6 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (keyObj == NULL) {
             rc = TPM_RC_HANDLE;
         }
-    }
-    /* Credential wrap/unwrap integrity is SHA-256 only (see MakeCredential) */
-    if (rc == 0 && keyObj->pub.nameAlg != TPM_ALG_SHA256) {
-        rc = TPM_RC_HASH;
     }
 
     /* Skip auth area */
@@ -15687,9 +15772,34 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, secretBuf, secretSz);
     }
 
+    /* keyHandle decrypts the credential seed, so any key type FwDecryptSeed
+     * can unwrap is valid, including an ML-KEM EK. */
     if (rc == 0) {
         if (keyObj->pub.type != TPM_ALG_RSA &&
+#ifdef WOLFTPM_MLKEM_DECAP
+            keyObj->pub.type != TPM_ALG_MLKEM &&
+#endif
             keyObj->pub.type != TPM_ALG_ECC) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    /* Part 3 Sec.24: keyHandle MUST be restricted decryption (Storage). An
+     * unrestricted decrypt key can be driven through TPM2_Decapsulate to
+     * recover the seed outside the TPM, bypassing activateHandle's auth. */
+    if (rc == 0 &&
+        (((keyObj->pub.objectAttributes & TPMA_OBJECT_restricted) == 0) ||
+         ((keyObj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0))) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
+    /* Credential protection derives the HMAC under the key's nameAlg and the
+     * symmetric key at its declared AES-CFB size (Part 1 Sec.24). Reject a key
+     * whose nameAlg or symmetric is unsupported. */
+    if (rc == 0) {
+        hmacKeySz = TPM2_GetHashDigestSize(keyObj->pub.nameAlg);
+        symKeySz = FwCredentialAesKeyBytes(keyObj);
+        if (FwGetWcHashType(keyObj->pub.nameAlg) == WC_HASH_TYPE_NONE ||
+                hmacKeySz <= 0 || hmacKeySz > (int)sizeof(hmacKey) ||
+                symKeySz <= 0 || symKeySz > (int)sizeof(symKey)) {
             rc = TPM_RC_KEY;
         }
     }
@@ -15736,16 +15846,16 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         objName = &activateObj->name;
         rc = FwCredentialDeriveKeys(keyObj->pub.nameAlg, seed, seedSzInt,
             objName->name, objName->size,
-            symKey, (int)sizeof(symKey),
-            hmacKey, (int)sizeof(hmacKey));
+            symKey, symKeySz,
+            hmacKey, hmacKeySz);
     }
 
     /* Verify HMAC and decrypt credential */
     if (rc == 0) {
         objName = &activateObj->name;
         rc = FwCredentialUnwrap(
-            symKey, (int)sizeof(symKey),
-            hmacKey, (int)sizeof(hmacKey),
+            symKey, symKeySz,
+            hmacKey, hmacKeySz, keyObj->pub.nameAlg,
             blobBuf, blobSz,
             objName->name, objName->size,
             credOut, (int)sizeof(credOut), &credSz);

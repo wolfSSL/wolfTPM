@@ -381,6 +381,7 @@ TPM_RC FwCredentialDeriveKeys(
 TPM_RC FwCredentialWrap(
     const byte* symKey, int symKeySz,
     const byte* hmacKey, int hmacKeySz,
+    TPMI_ALG_HASH nameAlg,
     const byte* credential, UINT16 credSz,
     const byte* name, int nameSz,
     byte* encCred, word32* encCredSz,
@@ -389,6 +390,7 @@ TPM_RC FwCredentialWrap(
 TPM_RC FwCredentialUnwrap(
     const byte* symKey, int symKeySz,
     const byte* hmacKey, int hmacKeySz,
+    TPMI_ALG_HASH nameAlg,
     const byte* blobBuf, UINT16 blobSz,
     const byte* name, int nameSz,
     byte* credOut, int credBufSz, UINT16* credSzOut);

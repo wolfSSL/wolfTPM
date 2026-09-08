@@ -4141,6 +4141,72 @@ TPM_RC FwBuildAttestResponse(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     return rc;
 }
 
+#ifdef WOLFTPM_MLDSA_SIGN
+/* Sign serialized TPMS_ATTEST bytes with an ML-DSA (or Hash-ML-DSA) key and
+ * append the TPMT_SIGNATURE. Split out of FwSignAttest so the large ML-DSA
+ * signature buffer only occupies the stack when an ML-DSA key is in use. */
+static TPM_RC FwSignAttestMldsa(FWTPM_CTX* ctx, FWTPM_Object* obj,
+    const byte* attestBuf, int attestSz, TPM2_Packet* rsp)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(sigOut, TPM2B_MLDSA_SIGNATURE);
+    byte digest[TPM_MAX_DIGEST_SIZE];
+
+    /* Reject a public-only object (privKeySize 0): its all-zero seed derives a
+     * universally reproducible key that would forge attestations. Mirrors the
+     * ML-KEM seed guard in FwDecryptSeed. */
+    if (obj->privKeySize != MAX_MLDSA_PRIV_SEED_SIZE) {
+        return TPM_RC_KEY;
+    }
+
+    FWTPM_CALLOC_VAR(sigOut, TPM2B_MLDSA_SIGNATURE);
+
+    if (rc == 0 && obj->pub.type == TPM_ALG_MLDSA) {
+        /* Pure ML-DSA: sign the message with an empty context. */
+        rc = FwSignMldsaMessage(&ctx->rng,
+            obj->pub.parameters.mldsaDetail.parameterSet,
+            obj->privKey, NULL, 0,
+            attestBuf, attestSz, sigOut);
+        if (rc == 0) {
+            TPM2_Packet_AppendU16(rsp, TPM_ALG_MLDSA);
+            TPM2_Packet_AppendU16(rsp, sigOut->size);
+            TPM2_Packet_AppendBytes(rsp, sigOut->buffer, sigOut->size);
+        }
+    }
+    else if (rc == 0) {
+        /* Hash-ML-DSA: pre-hash the message under the key's hashAlg, then
+         * sign the digest (FIPS 204 Algorithm 4). */
+        TPMI_ALG_HASH phAlg = obj->pub.parameters.hash_mldsaDetail.hashAlg;
+        enum wc_HashType phWc = FwGetWcHashType(phAlg);
+        int phSz = TPM2_GetHashDigestSize(phAlg);
+
+        if (phWc == WC_HASH_TYPE_NONE || phSz == 0) {
+            rc = TPM_RC_HASH;
+        }
+        if (rc == 0 &&
+                wc_Hash(phWc, attestBuf, attestSz, digest, phSz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc == 0) {
+            rc = FwSignMldsaHash(&ctx->rng,
+                obj->pub.parameters.hash_mldsaDetail.parameterSet,
+                obj->privKey, NULL, 0, phAlg,
+                digest, phSz, sigOut);
+        }
+        if (rc == 0) {
+            TPM2_Packet_AppendU16(rsp, TPM_ALG_HASH_MLDSA);
+            TPM2_Packet_AppendU16(rsp, phAlg);
+            TPM2_Packet_AppendU16(rsp, sigOut->size);
+            TPM2_Packet_AppendBytes(rsp, sigOut->buffer, sigOut->size);
+        }
+        TPM2_ForceZero(digest, sizeof(digest));
+    }
+
+    FWTPM_FREE_VAR(sigOut);
+    return rc;
+}
+#endif /* WOLFTPM_MLDSA_SIGN */
+
 /* Helper: sign attestation buffer with signing key.
  * attestBuf/attestSz: serialized TPMS_ATTEST bytes
  * obj: signing key object
@@ -4161,6 +4227,28 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
     if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
         return TPM_RC_KEY;
     }
+
+#ifdef WOLFTPM_PQC
+    /* An ML-DSA selector on a classical key is invalid (Part 3 Sec.18.1):
+     * reject so an ECDSA/RSA signature is not emitted under an ML-DSA tag. */
+    if ((sigScheme == TPM_ALG_MLDSA || sigScheme == TPM_ALG_HASH_MLDSA) &&
+            sigScheme != obj->pub.type) {
+        return TPM_RC_SCHEME;
+    }
+#endif
+
+#ifdef WOLFTPM_MLDSA_SIGN
+    /* ML-DSA keys sign TPMS_ATTEST bytes directly (FIPS 204); the key type
+     * fixes the scheme, so a non-null requested scheme must match it (Part 3
+     * Sec.18.1) or the sign is rejected with TPM_RC_SCHEME. */
+    if (obj->pub.type == TPM_ALG_MLDSA ||
+            obj->pub.type == TPM_ALG_HASH_MLDSA) {
+        if (sigScheme != TPM_ALG_NULL && sigScheme != obj->pub.type) {
+            return TPM_RC_SCHEME;
+        }
+        return FwSignAttestMldsa(ctx, obj, attestBuf, attestSz, rsp);
+    }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
     /* Resolve scheme/hash from key if NULL */
     FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
@@ -4222,11 +4310,12 @@ TPM_RC FwCredentialDeriveKeys(
 }
 
 /* Encrypt credential and compute outer HMAC (MakeCredential direction).
- * encCred = AES-128-CFB(symKey, 0-IV, size(2) || credential)
+ * encCred = AES-CFB(symKey, 0-IV, size(2) || credential)
  * outerHmac = HMAC(hmacKey, encCred || name) */
 TPM_RC FwCredentialWrap(
     const byte* symKey, int symKeySz,
     const byte* hmacKey, int hmacKeySz,
+    TPMI_ALG_HASH nameAlg,
     const byte* credential, UINT16 credSz,
     const byte* name, int nameSz,
     byte* encCred, word32* encCredSz,
@@ -4260,7 +4349,8 @@ TPM_RC FwCredentialWrap(
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
         if (rc == 0)
-            rc = wc_HmacSetKey(hmac, WC_SHA256, hmacKey, (word32)hmacKeySz);
+            rc = wc_HmacSetKey(hmac, FwGetWcHashType(nameAlg),
+                hmacKey, (word32)hmacKeySz);
         if (rc == 0)
             rc = wc_HmacUpdate(hmac, encCred, *encCredSz);
         if (rc == 0)
@@ -4283,6 +4373,7 @@ TPM_RC FwCredentialWrap(
 TPM_RC FwCredentialUnwrap(
     const byte* symKey, int symKeySz,
     const byte* hmacKey, int hmacKeySz,
+    TPMI_ALG_HASH nameAlg,
     const byte* blobBuf, UINT16 blobSz,
     const byte* name, int nameSz,
     byte* credOut, int credBufSz, UINT16* credSzOut)
@@ -4290,8 +4381,9 @@ TPM_RC FwCredentialUnwrap(
     TPM_RC rc = TPM_RC_SUCCESS;
     TPM2_Packet blobPkt;
     UINT16 integrityHmacSz = 0;
-    byte integrityHmac[TPM_SHA256_DIGEST_SIZE];
-    byte computedHmac[TPM_SHA256_DIGEST_SIZE];
+    int hmacDigestSz = TPM2_GetHashDigestSize(nameAlg);
+    byte integrityHmac[TPM_MAX_DIGEST_SIZE];
+    byte computedHmac[TPM_MAX_DIGEST_SIZE];
     const byte* encIdentity;
     int encIdentitySz;
     byte iv[AES_BLOCK_SIZE];
@@ -4314,7 +4406,10 @@ TPM_RC FwCredentialUnwrap(
         blobPkt.pos = 0;
         blobPkt.size = blobSz;
         TPM2_Packet_ParseU16(&blobPkt, &integrityHmacSz);
-        if (integrityHmacSz > TPM_SHA256_DIGEST_SIZE) {
+        if (hmacDigestSz <= 0 || hmacDigestSz > TPM_MAX_DIGEST_SIZE) {
+            rc = TPM_RC_HASH;
+        }
+        else if (integrityHmacSz > (UINT16)hmacDigestSz) {
             rc = TPM_RC_SIZE;
         }
     }
@@ -4331,7 +4426,8 @@ TPM_RC FwCredentialUnwrap(
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
         if (rc == 0)
-            rc = wc_HmacSetKey(hmac, WC_SHA256, hmacKey, (word32)hmacKeySz);
+            rc = wc_HmacSetKey(hmac, FwGetWcHashType(nameAlg),
+                hmacKey, (word32)hmacKeySz);
         if (rc == 0)
             rc = wc_HmacUpdate(hmac, encIdentity, encIdentitySz);
         if (rc == 0)
@@ -4345,9 +4441,9 @@ TPM_RC FwCredentialUnwrap(
     }
     if (rc == 0) {
         /* Always run TPM2_ConstantCompare so timing doesn't leak size match */
-        sizeMismatch = (integrityHmacSz != TPM_SHA256_DIGEST_SIZE);
+        sizeMismatch = (integrityHmacSz != (UINT16)hmacDigestSz);
         hmacDiff = TPM2_ConstantCompare(computedHmac, integrityHmac,
-            TPM_SHA256_DIGEST_SIZE);
+            (word32)hmacDigestSz);
         if (sizeMismatch | hmacDiff) {
             rc = TPM_RC_INTEGRITY;
         }

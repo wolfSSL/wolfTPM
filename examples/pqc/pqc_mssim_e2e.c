@@ -218,6 +218,157 @@ cleanup:
     return rc;
 }
 
+/* MakeCredential -> ActivateCredential with an ML-KEM EK, through the client
+ * library. Proves the client marshals both credential commands and that the
+ * fwTPM unwraps the ML-KEM-encapsulated seed end-to-end (recovered secret
+ * matches). The EK is also the activate object, so no second key is needed. */
+static int test_mlkem_credential_roundtrip(WOLFTPM2_DEV* dev)
+{
+    WOLFTPM2_KEY ek;
+    TPMT_PUBLIC tpl;
+    MakeCredential_In makeCredIn;
+    MakeCredential_Out makeCredOut;
+    ActivateCredential_In activCredIn;
+    ActivateCredential_Out activCredOut;
+    byte secret[16];
+    int rc;
+
+    XMEMSET(&ek, 0, sizeof(ek));
+    XMEMSET(&tpl, 0, sizeof(tpl));
+    XMEMSET(&makeCredIn, 0, sizeof(makeCredIn));
+    XMEMSET(&makeCredOut, 0, sizeof(makeCredOut));
+    XMEMSET(&activCredIn, 0, sizeof(activCredIn));
+    XMEMSET(&activCredOut, 0, sizeof(activCredOut));
+    XMEMSET(secret, 0xC7, sizeof(secret));
+
+    /* Credential key must be a restricted decryption (Storage) key per Part 3
+     * Sec.24; the template adds an AES symmetric for restricted. */
+    rc = wolfTPM2_GetKeyTemplate_MLKEM(&tpl,
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_restricted | TPMA_OBJECT_fixedTPM |
+        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+        TPMA_OBJECT_userWithAuth,
+        TPM_MLKEM_768);
+    if (rc != 0) {
+        printf("GetKeyTemplate_MLKEM rc=%d\n", rc);
+        return rc;
+    }
+
+    rc = wolfTPM2_CreatePrimaryKey(dev, &ek, TPM_RH_OWNER, &tpl, NULL, 0);
+    if (rc != 0) {
+        printf("CreatePrimary(MLKEM-768) rc=%d\n", rc);
+        return rc;
+    }
+
+    /* MakeCredential (no auth): encrypt the secret to the EK, bound to the
+     * EK's own Name. */
+    makeCredIn.handle = ek.handle.hndl;
+    makeCredIn.credential.size = sizeof(secret);
+    XMEMCPY(makeCredIn.credential.buffer, secret, sizeof(secret));
+    makeCredIn.objectName.size = ek.handle.name.size;
+    XMEMCPY(makeCredIn.objectName.name, ek.handle.name.name,
+        ek.handle.name.size);
+    rc = TPM2_MakeCredential(&makeCredIn, &makeCredOut);
+    if (rc != 0) {
+        printf("TPM2_MakeCredential rc=0x%x\n", rc);
+        goto cleanup;
+    }
+
+    /* ActivateCredential: EK decrypts the seed (ML-KEM decap) and unwraps.
+     * Two auth slots: activateHandle then keyHandle, both the EK. */
+    wolfTPM2_SetAuthHandle(dev, 0, &ek.handle);
+    wolfTPM2_SetAuthHandle(dev, 1, &ek.handle);
+    activCredIn.activateHandle = ek.handle.hndl;
+    activCredIn.keyHandle = ek.handle.hndl;
+    activCredIn.credentialBlob = makeCredOut.credentialBlob;
+    activCredIn.secret = makeCredOut.secret;
+    rc = TPM2_ActivateCredential(&activCredIn, &activCredOut);
+    if (rc != 0) {
+        printf("TPM2_ActivateCredential rc=0x%x\n", rc);
+        goto cleanup;
+    }
+
+    if (activCredOut.certInfo.size != sizeof(secret) ||
+            XMEMCMP(activCredOut.certInfo.buffer, secret,
+                sizeof(secret)) != 0) {
+        printf("Recovered credential mismatch: MLKEM activate path broken\n");
+        rc = -1;
+        goto cleanup;
+    }
+
+    printf("[E2E] MLKEM-768 MakeCredential/ActivateCredential over mssim: "
+           "recovered %u-byte secret matches\n", activCredOut.certInfo.size);
+
+cleanup:
+    wolfTPM2_UnloadHandle(dev, &ek.handle);
+    return rc;
+}
+
+/* TPM2_Quote with a restricted Pure ML-DSA signing key, through the client
+ * library. Proves the client marshals the quote and parses the Pure ML-DSA
+ * signature off the wire (sigAlg + expected size). */
+static int test_mldsa_quote(WOLFTPM2_DEV* dev)
+{
+    WOLFTPM2_KEY ak;
+    TPMT_PUBLIC tpl;
+    Quote_In quoteIn;
+    Quote_Out quoteOut;
+    int rc;
+
+    XMEMSET(&ak, 0, sizeof(ak));
+    XMEMSET(&tpl, 0, sizeof(tpl));
+    XMEMSET(&quoteIn, 0, sizeof(quoteIn));
+    XMEMSET(&quoteOut, 0, sizeof(quoteOut));
+
+    rc = wolfTPM2_GetKeyTemplate_MLDSA(&tpl,
+        TPMA_OBJECT_sign | TPMA_OBJECT_restricted | TPMA_OBJECT_fixedTPM |
+        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+        TPMA_OBJECT_userWithAuth,
+        TPM_MLDSA_65, NO);
+    if (rc != 0) {
+        printf("GetKeyTemplate_MLDSA rc=%d\n", rc);
+        return rc;
+    }
+
+    rc = wolfTPM2_CreatePrimaryKey(dev, &ak, TPM_RH_OWNER, &tpl, NULL, 0);
+    if (rc != 0) {
+        printf("CreatePrimary(MLDSA-65) rc=%d\n", rc);
+        return rc;
+    }
+
+    /* Quote PCR0 (SHA-256) with the key's own scheme (inScheme NULL). */
+    wolfTPM2_SetAuthHandle(dev, 0, &ak.handle);
+    quoteIn.signHandle = ak.handle.hndl;
+    quoteIn.inScheme.scheme = TPM_ALG_NULL;
+    TPM2_SetupPCRSel(&quoteIn.PCRselect, TPM_ALG_SHA256, 0);
+
+    rc = TPM2_Quote(&quoteIn, &quoteOut);
+    if (rc != 0) {
+        printf("TPM2_Quote rc=0x%x\n", rc);
+        goto cleanup;
+    }
+
+    if (quoteOut.signature.sigAlg != TPM_ALG_MLDSA) {
+        printf("Quote sigAlg=0x%x (expected MLDSA 0x%x)\n",
+            quoteOut.signature.sigAlg, TPM_ALG_MLDSA);
+        rc = -1;
+        goto cleanup;
+    }
+    if (quoteOut.signature.signature.mldsa.size != 3309) {
+        printf("MLDSA-65 quote sig size=%u (expected 3309)\n",
+            quoteOut.signature.signature.mldsa.size);
+        rc = -1;
+        goto cleanup;
+    }
+
+    printf("[E2E] MLDSA-65 Quote over mssim: attest=%u bytes, "
+           "sig=%u bytes (sigAlg=MLDSA)\n",
+           quoteOut.quoted.size, quoteOut.signature.signature.mldsa.size);
+
+cleanup:
+    wolfTPM2_UnloadHandle(dev, &ak.handle);
+    return rc;
+}
+
 int main(int argc, char** argv)
 {
     WOLFTPM2_DEV dev;
@@ -237,6 +388,12 @@ int main(int argc, char** argv)
     if (rc != 0) goto done;
 
     rc = test_hash_mldsa_digest_roundtrip(&dev);
+    if (rc != 0) goto done;
+
+    rc = test_mlkem_credential_roundtrip(&dev);
+    if (rc != 0) goto done;
+
+    rc = test_mldsa_quote(&dev);
 
 done:
     wolfTPM2_Cleanup(&dev);
