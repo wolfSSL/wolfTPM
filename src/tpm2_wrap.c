@@ -5178,6 +5178,7 @@ static int wolfTPM2_EccMakePubBlinded(ecc_key* key, ecc_point* point)
         wc_FreeRng(&rng);
     }
 
+    TPM2_ForceZero(&rng, sizeof(rng));
     return rc;
 #else
     (void)key;
