@@ -394,14 +394,21 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 XMEMSET(&hash, 0, sizeof(hash));
                 XMEMSET(&hmac, 0, sizeof(hmac));
 
-                if (expectedHmacSz == 0 || authRsp.hmac.size != expectedHmacSz) {
+                if (expectedHmacSz == 0) {
                 #ifdef DEBUG_WOLFTPM
-                    printf("Response HMAC size mismatch! expected=%u got=%u\n",
-                        expectedHmacSz, authRsp.hmac.size);
+                    printf("Response HMAC size invalid! expected=%u\n",
+                        expectedHmacSz);
                 #endif
                     TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return TPM_RC_HMAC;
                 }
+                sizeMismatch = (authRsp.hmac.size != expectedHmacSz);
+                #ifdef DEBUG_WOLFTPM
+                if (sizeMismatch) {
+                    printf("Response HMAC size mismatch! expected=%u got=%u\n",
+                        expectedHmacSz, authRsp.hmac.size);
+                }
+                #endif
 
                 /* calculate "rpHash" hash for command code and parameters */
                 rc = TPM2_CalcRpHash(session->authHash, cmdCode, param, paramSz,
@@ -429,11 +436,11 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
 
-                /* Verify HMAC using constant-time comparison. Wire-format
-                 * size is validated above; this is a branch-free tail check
-                 * (hmac.size and authRsp.hmac.size are both algorithm-derived
-                 * and equal to expectedHmacSz at this point). */
-                sizeMismatch = (hmac.size != authRsp.hmac.size);
+                /* Verify HMAC using constant-time comparison. A wire-size
+                 * mismatch captured above is combined here rather than
+                 * rejected early, so this always reads expectedHmacSz
+                 * bytes regardless of the attacker-supplied wire size. */
+                sizeMismatch |= (hmac.size != authRsp.hmac.size);
                 diff = TPM2_ConstantCompare(hmac.buffer, authRsp.hmac.buffer,
                     expectedHmacSz);
                 if (sizeMismatch | diff) {
