@@ -549,6 +549,7 @@ WOLFTPM2_DEV* wolfTPM2_New(void)
         sizeof(WOLFTPM2_DEV), NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (dev != NULL) {
         if (wolfTPM2_Init(dev, TPM2_IoCb, NULL) != TPM_RC_SUCCESS) {
+            TPM2_ForceZero(dev, sizeof(WOLFTPM2_DEV));
             XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             dev = NULL;
         }
