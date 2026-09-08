@@ -3601,6 +3601,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = FwDeriveEccPrimaryKey(inPublic->publicArea.nameAlg,
                     seed, hashUnique, hashUniqueSz,
                     inPublic->publicArea.parameters.eccDetail.curveID,
+                    &ctx->rng,
                     &obj->pub.unique.ecc,
                     obj->privKey, FWTPM_MAX_PRIVKEY_DER, &derSz);
                 if (rc == 0) {

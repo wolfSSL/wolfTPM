@@ -126,7 +126,7 @@ TPM_RC FwGenerateEccKey(WC_RNG* rng,
 #ifdef HAVE_ECC
 TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     const byte* seed, const byte* hashUnique, int hashUniqueSz,
-    UINT16 curveId, TPMS_ECC_POINT* pubOut,
+    UINT16 curveId, WC_RNG* rng, TPMS_ECC_POINT* pubOut,
     byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSz);
 #endif
 

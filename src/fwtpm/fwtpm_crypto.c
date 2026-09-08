@@ -670,7 +670,7 @@ static TPM_RC FwEccGetCurveOrder(int wcCurve, byte* orderBuf, int keySz,
  * The counter in contextV is incremented if d >= order or d == 0. */
 TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     const byte* seed, const byte* hashUnique, int hashUniqueSz,
-    UINT16 curveId,
+    UINT16 curveId, WC_RNG* rng,
     TPMS_ECC_POINT* pubOut,
     byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSz)
 {
@@ -745,8 +745,14 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     }
     if (rc == 0) {
     #ifdef ECC_TIMING_RESISTANT
-        rc = wc_ecc_make_pub_ex(eccKey, NULL, NULL);
+        if (rng != NULL) {
+            rc = wc_ecc_make_pub_ex(eccKey, NULL, rng);
+        }
+        else {
+            rc = wc_ecc_make_pub(eccKey, NULL);
+        }
     #else
+        (void)rng;
         rc = wc_ecc_make_pub(eccKey, NULL);
     #endif
     }
