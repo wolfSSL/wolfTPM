@@ -1110,6 +1110,10 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
     if ((int)pkcsBlockLen - hLen < saltLen + 2) {
         return PSS_SALTLEN_E;
     }
+    /* Ensure M' (padding || hLen || saltLen) fits the scratch buffer */
+    if ((int)pkcsBlockLen < RSA_PSS_PAD_SZ + hLen + saltLen) {
+        return PSS_SALTLEN_E;
+    }
 
     ret = wc_HashInit_ex(&hashCtx, hType, NULL, INVALID_DEVID);
     if (ret != 0) {
