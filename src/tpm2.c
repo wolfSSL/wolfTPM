@@ -1921,6 +1921,10 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
                 (UINT16)sizeof(out->outData.buffer));
         }
 
+        /* Wipe the shared buffer so the unsealed plaintext does not linger in
+         * the caller-owned context on any post-send path */
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
+
         TPM2_ReleaseLock(ctx);
     }
     return rc;
