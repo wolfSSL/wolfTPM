@@ -8040,6 +8040,10 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
         TPM2_ForceZero(&out, sizeof(out));
     }
     TPM2_ForceZero(&out, sizeof(out));
+    if (rc != TPM_RC_SUCCESS) {
+        /* Scrub any partial random material already written to the caller */
+        TPM2_ForceZero(buf, len);
+    }
     return rc;
 }
 
