@@ -1723,7 +1723,7 @@ TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
          * malicious or MITM responder could inflate respSz and cause
          * downstream parsers (bounded only by packet->size) to read
          * past the physical allocation. */
-        if (respSz > (UINT32)packet->size) {
+        if (respSz < TPM2_HEADER_SIZE || respSz > (UINT32)packet->size) {
             return TPM_RC_SIZE;
         }
         packet->size = respSz;

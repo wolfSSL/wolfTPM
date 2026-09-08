@@ -484,7 +484,8 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 int TPM2_TIS_ValidateRspSz(int rspSz, int packetSize)
 {
     int rc = TPM_RC_SUCCESS;
-    if (rspSz < 0 || rspSz >= MAX_RESPONSE_SIZE || rspSz > packetSize) {
+    if (rspSz < TPM2_HEADER_SIZE || rspSz > MAX_RESPONSE_SIZE ||
+            rspSz > packetSize) {
         rc = TPM_RC_FAILURE;
     }
     return rc;

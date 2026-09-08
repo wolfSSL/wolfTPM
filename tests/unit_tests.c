@@ -6110,6 +6110,10 @@ static void test_TPM2_TIS_ValidateRspSz(void)
     AssertIntEQ(TPM2_TIS_ValidateRspSz(packetSize + 1, packetSize),
         TPM_RC_FAILURE);
     AssertIntEQ(TPM2_TIS_ValidateRspSz(MAX_RESPONSE_SIZE, MAX_RESPONSE_SIZE),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(MAX_RESPONSE_SIZE + 1,
+        MAX_RESPONSE_SIZE), TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(TPM2_HEADER_SIZE - 1, packetSize),
         TPM_RC_FAILURE);
     AssertIntEQ(TPM2_TIS_ValidateRspSz(-1, packetSize),
         TPM_RC_FAILURE);
