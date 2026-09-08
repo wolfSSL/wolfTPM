@@ -573,8 +573,8 @@ void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
     TPM2_Packet_AppendU32(packet, count);
     for (i=0; i<(int)count; i++) {
         UINT8 selectSz = pcr->pcrSelections[i].sizeofSelect;
-        if (selectSz > PCR_SELECT_MIN)
-            selectSz = PCR_SELECT_MIN;
+        if (selectSz > PCR_SELECT_MAX)
+            selectSz = PCR_SELECT_MAX;
         TPM2_Packet_AppendU16(packet, pcr->pcrSelections[i].hash);
         TPM2_Packet_AppendU8(packet, selectSz);
         TPM2_Packet_AppendBytes(packet,
@@ -621,8 +621,8 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
         if (i < (int)pcr->count) {
             pcr->pcrSelections[i].hash = hash;
             pcr->pcrSelections[i].sizeofSelect = wireSizeofSelect;
-            if (pcr->pcrSelections[i].sizeofSelect > PCR_SELECT_MIN)
-                pcr->pcrSelections[i].sizeofSelect = PCR_SELECT_MIN;
+            if (pcr->pcrSelections[i].sizeofSelect > PCR_SELECT_MAX)
+                pcr->pcrSelections[i].sizeofSelect = PCR_SELECT_MAX;
             TPM2_Packet_ParseBytes(packet,
                 pcr->pcrSelections[i].pcrSelect,
                 pcr->pcrSelections[i].sizeofSelect);
