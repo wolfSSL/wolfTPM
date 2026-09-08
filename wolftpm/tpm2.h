@@ -412,6 +412,11 @@ typedef enum {
     TPM_RC_BINDING          = RC_FMT1 + 0x025,
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
+#ifdef WOLFTPM_V185
+    /* Part 2 v1.85 Sec.6.6.3 Table 17 firmware/SVN-limited codes */
+    TPM_RC_FW_LIMITED         = RC_FMT1 + 0x028,
+    TPM_RC_SVN_LIMITED        = RC_FMT1 + 0x029,
+#endif
     /* TCG Part 2 Sec.6.6.3 Table 17 -- present since v1.16, not v1.85 */
     TPM_RC_PARMS              = RC_FMT1 + 0x02A,
 #ifdef WOLFTPM_PQC
@@ -419,6 +424,11 @@ typedef enum {
     TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
     TPM_RC_ONE_SHOT_SIGNATURE = RC_FMT1 + 0x02C,
     TPM_RC_SIGN_CONTEXT_KEY   = RC_FMT1 + 0x02D,
+#endif
+#ifdef WOLFTPM_V185
+    /* Part 2 v1.85 Sec.6.6.3 Table 17 channel protocol codes */
+    TPM_RC_CHANNEL            = RC_FMT1 + 0x030,
+    TPM_RC_CHANNEL_KEY        = RC_FMT1 + 0x031,
 #endif
     RC_MAX_FMT1             = RC_FMT1 + 0x03F,
 
