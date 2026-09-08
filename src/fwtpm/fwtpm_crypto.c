@@ -2257,7 +2257,7 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     byte hmacDigest[WC_SHA256_DIGEST_SIZE];
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
-    int sensSz;
+    int sensSz = 0;
     int aesInit = 0;
     int pos = 0;
 
@@ -2266,10 +2266,13 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
     /* Marshal inner sensitive */
-    sensSz = FwMarshalSensitive(sensBuf, (int)(FWTPM_MAX_PRIVKEY_DER + 128),
-        sensitiveType, auth, privKeyDer, privKeyDerSz);
-    if (sensSz < 0) {
-        rc = TPM_RC_FAILURE;
+    if (rc == 0) {
+        sensSz = FwMarshalSensitive(sensBuf,
+            (int)(FWTPM_MAX_PRIVKEY_DER + 128),
+            sensitiveType, auth, privKeyDer, privKeyDerSz);
+        if (sensSz < 0) {
+            rc = TPM_RC_FAILURE;
+        }
     }
 
     /* Derive wrapping keys from parent and child Name, fresh IV per blob */
