@@ -479,16 +479,12 @@ static inline int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
     printf("\tSubject's domain name at %d is %s\n",
         store->error_depth, store->domain);
 
-    (void)preverify;
-
-    /* If error indicate we are overriding it for testing purposes */
     if (store->error != 0) {
-        printf("\tAllowing failed certificate check, testing only "
-            "(shouldn't do this in production)\n");
+        printf("\tCertificate verification failed\n");
     }
 
-    /* A non-zero return code indicates failure override */
-    return 1;
+    /* Honor the verification result instead of overriding failures */
+    return preverify;
 }
 
 #ifndef NO_DH
