@@ -221,6 +221,10 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId,
 
         XFCLOSE(pemFile);
     }
+    else {
+        printf("Failed to open %s for writing\n", outFile);
+        rc = -1; goto exit;
+    }
 #else
     (void)outFile;
 #endif
@@ -305,6 +309,10 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId,
         if (rc != outputSz) {
             rc = -1; goto exit;
         }
+    }
+    else {
+        printf("Failed to open %s for writing\n", outFile);
+        rc = -1; goto exit;
     }
 #else
     (void)outFile;
