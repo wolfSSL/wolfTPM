@@ -333,7 +333,6 @@ int wolfSPDM_CheckError(const byte* buf, word32 bufSz, int* errorCode)
 int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
 {
     word16 entryCount;
-    word16 maxEntries;
     word32 i;
     byte highestVersion = 0;  /* No version found yet */
     byte maxVer;
@@ -341,16 +340,18 @@ int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
     SPDM_CHECK_PARSE_ARGS(ctx, buf, bufSz, 6);
     SPDM_CHECK_RESPONSE(ctx, buf, bufSz, SPDM_VERSION, WOLFSPDM_E_VERSION_MISMATCH);
 
-    /* Parse VERSION response:
-     * Offset 4-5: VersionNumberEntryCount (LE)
+    /* VersionNumberEntryCount is the one-byte field at offset 5 (byte 4
+     * reserved) per DSP0274; older wolfTPM responders placed it at
+     * offset 4, so fall back to that when offset 5 is zero.
      * Offset 6+: VersionNumberEntry array (2 bytes each, LE) */
-    entryCount = SPDM_Get16LE(&buf[4]);
+    entryCount = buf[5];
+    if (entryCount == 0) {
+        entryCount = buf[4];
+    }
 
-    /* Cap entryCount to what actually fits in the buffer to prevent
-     * overflow on exotic compilers where i*2 could wrap */
-    maxEntries = (word16)((bufSz - 6) / 2);
-    if (entryCount > maxEntries) {
-        entryCount = maxEntries;
+    /* Reject a truncated entry list instead of negotiating from a subset */
+    if ((word32)6 + (word32)entryCount * 2 > bufSz) {
+        return WOLFSPDM_E_VERSION_MISMATCH;
     }
 
     /* Find highest mutually supported version.
