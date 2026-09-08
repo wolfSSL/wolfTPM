@@ -275,6 +275,9 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
+#ifdef WOLFTPM_SPDM
+    TPM_CC_PolicyTransportSPDM      = 0x000001A1,
+#endif
 #ifdef WOLFTPM_PQC
     /* Post-Quantum Cryptography Commands - TPM 2.0 Library v185 */
     TPM_CC_VerifySequenceComplete   = 0x000001A3,
@@ -286,6 +289,8 @@ typedef enum {
     TPM_CC_VerifySequenceStart      = 0x000001A9,
     TPM_CC_SignSequenceStart        = 0x000001AA,
     TPM_CC_LAST                     = TPM_CC_SignSequenceStart,
+#elif defined(WOLFTPM_SPDM)
+    TPM_CC_LAST                     = TPM_CC_PolicyTransportSPDM,
 #else
     TPM_CC_LAST                     = TPM_CC_EncryptDecrypt2,
 #endif
@@ -419,6 +424,8 @@ typedef enum {
 #endif
     /* TCG Part 2 Sec.6.6.3 Table 17 -- present since v1.16, not v1.85 */
     TPM_RC_PARMS              = RC_FMT1 + 0x02A,
+    TPM_RC_CHANNEL            = RC_FMT1 + 0x030,
+    TPM_RC_CHANNEL_KEY        = RC_FMT1 + 0x031,
 #ifdef WOLFTPM_PQC
     /* v185 rc4 Part 2 Sec.6.6.3 Table 17 additions */
     TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
@@ -575,7 +582,8 @@ typedef enum {
     TPM_CAP_ECC_CURVES      = 0x00000008,
     TPM_CAP_AUTH_POLICIES   = 0x00000009,
     TPM_CAP_ACT             = 0x0000000A,
-#if defined(WOLFTPM_NATIONS) || defined(WOLFTPM_AUTODETECT)
+#if defined(WOLFTPM_NATIONS) || defined(WOLFTPM_AUTODETECT) || \
+    defined(WOLFTPM_SPDM)
     TPM_CAP_PUB_KEYS        = 0x0000000B, /* TPM 184: SPDM identity keys */
     TPM_CAP_SPDM_SESSION_INFO = 0x0000000C, /* TPM 184: SPDM session info */
     TPM_CAP_LAST            = TPM_CAP_SPDM_SESSION_INFO,
@@ -1312,6 +1320,29 @@ typedef struct TPML_ACT_DATA {
     TPMS_ACT_DATA actData[MAX_ACT_DATA];
 } TPML_ACT_DATA;
 
+#ifdef WOLFTPM_SPDM
+/* SPDM session information (TPM 2.0 Library v1.84) */
+typedef struct TPMS_SPDM_SESSION_INFO {
+    TPM2B_NAME reqKeyName;
+    TPM2B_NAME tpmKeyName;
+} TPMS_SPDM_SESSION_INFO;
+
+/* Spec-derived list capacity (TPM 2.0 Library v1.84): as many entries as fit
+ * in the capability buffer. MAX_SPDM_SESS_INFO is kept as a compatibility
+ * alias for the spec name MAX_SPDM_SESSION_INFO. */
+#ifndef MAX_SPDM_SESSION_INFO
+#define MAX_SPDM_SESSION_INFO \
+    (MAX_CAP_DATA / (UINT32)sizeof(TPMS_SPDM_SESSION_INFO))
+#endif
+#ifndef MAX_SPDM_SESS_INFO
+#define MAX_SPDM_SESS_INFO MAX_SPDM_SESSION_INFO
+#endif
+typedef struct TPML_SPDM_SESSION_INFO {
+    UINT32 count;
+    TPMS_SPDM_SESSION_INFO spdmSessionInfo[MAX_SPDM_SESS_INFO];
+} TPML_SPDM_SESSION_INFO;
+#endif
+
 /* Capabilities Structures */
 
 typedef union TPMU_CAPABILITIES {
@@ -1326,6 +1357,9 @@ typedef union TPMU_CAPABILITIES {
     TPML_ECC_CURVE eccCurves; /* TPM_CAP_ECC_CURVES */
     TPML_TAGGED_POLICY authPolicies; /* TPM_CAP_AUTH_POLICIES */
     TPML_ACT_DATA actData; /* TPM_CAP_ACT - added v1.57 */
+#ifdef WOLFTPM_SPDM
+    TPML_SPDM_SESSION_INFO spdmSessionInfo; /* TPM_CAP_SPDM_SESSION_INFO - v1.84 */
+#endif
     TPM2B_MAX_BUFFER vendor;
 } TPMU_CAPABILITIES;
 
@@ -3037,6 +3071,15 @@ typedef struct {
     TPML_PCR_SELECTION pcrs;
 } PolicyPCR_In;
 WOLFTPM_API TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in);
+
+#ifdef WOLFTPM_SPDM
+typedef struct {
+    TPMI_SH_POLICY policySession;
+    TPM2B_NAME reqKeyName;
+    TPM2B_NAME tpmKeyName;
+} PolicyTransportSPDM_In;
+WOLFTPM_API TPM_RC TPM2_PolicyTransportSPDM(PolicyTransportSPDM_In* in);
+#endif
 
 typedef struct {
     TPMI_SH_POLICY policySession;

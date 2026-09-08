@@ -652,6 +652,27 @@ WOLFTPM_API word32 wolfTPM2_SpdmGetSessionId(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Read the TPM's view of the active SPDM session
+    (GetCapability TPM_CAP_SPDM_SESSION_INFO, TPM 2.0 Library v1.84).
+    \note The TPM returns an empty list unless the command itself arrived
+    inside an SPDM session. The names returned are the ones a
+    PolicyTransportSPDM policy can bind to.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_VALUE: the TPM does not implement the capability
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param spdmSessionInfo output list of requester / TPM key names
+
+    \sa wolfTPM2_PolicyTransportSPDM
+    \sa wolfTPM2_PolicyTransportSPDMMake
+*/
+WOLFTPM_API int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
+    TPML_SPDM_SESSION_INFO* spdmSessionInfo);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Disconnect the SPDM secure session.
     After this, TPM commands are sent in the clear.
 
@@ -4999,6 +5020,36 @@ WOLFTPM_API int wolfTPM2_GetPolicyDigest(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHa
 WOLFTPM_API int wolfTPM2_PolicyPCR(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz);
 
+#ifdef WOLFTPM_SPDM
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Add TPM2_PolicyTransportSPDM (TPM 2.0 Library v1.84) to a policy
+    session. An entity whose authPolicy contains this term can only be
+    authorized by a command that arrives inside an SPDM session. Optional
+    key names further restrict which SPDM session qualifies.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_VALUE: PolicyTransportSPDM already applied to this session
+    \return TPM_RC_HASH: a name uses an unsupported hash algorithm
+    \return TPM_RC_SIZE: a name is not the size its hash algorithm requires
+    \return BUFFER_E: a name is larger than TPM2B_NAME can hold
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param sessionHandle the handle of the current policy session
+    \param reqKeyName requester SPDM key name to bind, or NULL for any
+    \param tpmKeyName TPM SPDM key name to bind, or NULL for any
+
+    \sa wolfTPM2_PolicyTransportSPDMMake
+    \sa wolfTPM2_GetCapability_SPDMSessionInfo
+    \sa wolfTPM2_GetPolicyDigest
+*/
+WOLFTPM_API int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sessionHandle, const TPM2B_NAME* reqKeyName,
+    const TPM2B_NAME* tpmKeyName);
+#endif
+
 /*!
     \ingroup wolfTPM2_Wrappers
 
@@ -5103,6 +5154,35 @@ WOLFTPM_API int wolfTPM2_PolicyRefMake(TPM_ALG_ID pcrAlg, byte* digest, word32* 
 WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
     byte* pcrArray, word32 pcrArraySz, const byte* pcrDigest, word32 pcrDigestSz,
     byte* digest, word32* digestSz);
+
+#ifdef WOLFTPM_SPDM
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Compute the policy digest that TPM2_PolicyTransportSPDM produces,
+    without a TPM. Use it to build the authPolicy of an NV index or key that
+    must only be reachable over an SPDM session.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BUFFER_E: digestSz is too small for the selected hash
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param hashAlg the policy session hash algorithm
+    \param reqKeyName requester SPDM key name to bind, or NULL for any
+    \param tpmKeyName TPM SPDM key name to bind, or NULL for any
+    \param digest input/output: policyDigestOld in (zeros for a fresh
+        session), policyDigestNew out
+    \param digestSz input/output: current digest size and buffer capacity on
+        input, selected hash size on output
+
+    \sa wolfTPM2_PolicyTransportSPDM
+    \sa wolfTPM2_PolicyHash
+    \sa wolfTPM2_NVCreateAuthPolicy
+*/
+WOLFTPM_API int wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_ID hashAlg,
+    const TPM2B_NAME* reqKeyName, const TPM2B_NAME* tpmKeyName,
+    byte* digest, word32* digestSz);
+#endif
 
 /*!
     \ingroup wolfTPM2_Wrappers

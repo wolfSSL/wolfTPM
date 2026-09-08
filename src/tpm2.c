@@ -1285,6 +1285,51 @@ TPM_RC TPM2_GetTestResult(GetTestResult_Out* out)
     return rc;
 }
 
+#ifdef WOLFTPM_SPDM
+/* Parse a TPM2B_NAME from a capability response, rejecting truncated names
+ * and lengths that exceed the local buffer. */
+static int TPM2_ParseSpdmName(TPM2_Packet* packet, TPM2B_NAME* name)
+{
+    UINT16 wireSz = 0;
+    int avail;
+
+    TPM2_Packet_ParseU16(packet, &wireSz);
+    avail = packet->size - packet->pos;
+    /* A short size field, a declared length past the packet, or a length
+     * larger than the Name buffer is a malformed capability response. */
+    if (packet->overflow || avail < 0 || (int)wireSz > avail ||
+            (int)wireSz > (int)sizeof(name->name)) {
+        return TPM_RC_SIZE;
+    }
+    name->size = wireSz;
+    TPM2_Packet_ParseBytes(packet, name->name, (int)wireSz);
+    return TPM_RC_SUCCESS;
+}
+
+int TPM2_ParseSpdmSessionInfo(TPM2_Packet* packet,
+    TPML_SPDM_SESSION_INFO* sessInfo)
+{
+    int rc = TPM_RC_SUCCESS;
+    int i;
+
+    if (packet == NULL || sessInfo == NULL)
+        return BAD_FUNC_ARG;
+
+    TPM2_Packet_ParseU32(packet, &sessInfo->count);
+    if (packet->overflow)
+        return TPM_RC_SIZE;
+    if (sessInfo->count > MAX_SPDM_SESS_INFO)
+        sessInfo->count = MAX_SPDM_SESS_INFO;
+    for (i = 0; i < (int)sessInfo->count && rc == TPM_RC_SUCCESS; i++) {
+        TPMS_SPDM_SESSION_INFO* si = &sessInfo->spdmSessionInfo[i];
+        rc = TPM2_ParseSpdmName(packet, &si->reqKeyName);
+        if (rc == TPM_RC_SUCCESS)
+            rc = TPM2_ParseSpdmName(packet, &si->tpmKeyName);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_SPDM */
+
 TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
 {
     TPM_RC rc;
@@ -1474,6 +1519,15 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     }
                     break;
                 }
+            #ifdef WOLFTPM_SPDM
+                case TPM_CAP_SPDM_SESSION_INFO:
+                {
+                    TPML_SPDM_SESSION_INFO* sessInfo =
+                        &out->capabilityData.data.spdmSessionInfo;
+                    rc = TPM2_ParseSpdmSessionInfo(&packet, sessInfo);
+                    break;
+                }
+            #endif /* WOLFTPM_SPDM */
                 case TPM_CAP_VENDOR_PROPERTY:
                 {
                     out->capabilityData.data.vendor.size =
@@ -4626,6 +4680,51 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
     return rc;
 }
 
+#ifdef WOLFTPM_SPDM
+TPM_RC TPM2_PolicyTransportSPDM(PolicyTransportSPDM_In* in)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
+
+    if (ctx == NULL || in == NULL)
+        return BAD_FUNC_ARG;
+    if (in->reqKeyName.size > sizeof(in->reqKeyName.name) ||
+        in->tpmKeyName.size > sizeof(in->tpmKeyName.name))
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->policySession);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        TPM2_Packet_AppendU16(&packet, in->reqKeyName.size);
+        TPM2_Packet_AppendBytes(&packet, in->reqKeyName.name,
+            in->reqKeyName.size);
+
+        TPM2_Packet_AppendU16(&packet, in->tpmKeyName.size);
+        TPM2_Packet_AppendBytes(&packet, in->tpmKeyName.name,
+            in->tpmKeyName.size);
+
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTransportSPDM);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_SPDM */
+
 TPM_RC TPM2_PolicyLocality(PolicyLocality_In* in)
 {
     TPM_RC rc;
@@ -7160,6 +7259,8 @@ const char* TPM2_GetRCString(int rc)
             TPM_RC_STR(TPM_RC_BINDING,           "Public and sensitive portions of an object are not cryptographically bound");
             TPM_RC_STR(TPM_RC_CURVE,             "Curve not supported");
             TPM_RC_STR(TPM_RC_ECC_POINT,         "Point is not on the required curve");
+            TPM_RC_STR(TPM_RC_CHANNEL,           "Command is not protected by a secure channel required by the policy");
+            TPM_RC_STR(TPM_RC_CHANNEL_KEY,       "Secure channel key does not match the key required by the policy");
         default:
             break;
         }
