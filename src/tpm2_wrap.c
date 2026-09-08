@@ -1576,7 +1576,8 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
             return rc;
         }
     }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    defined(ECC_TIMING_RESISTANT)
     else {
         /* Auto-generate ephemeral P-384 key pair for mutual authentication */
         ecc_key hostKey;
@@ -1663,6 +1664,11 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
         rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
             tpmtPub, (word32)(p - tpmtPub));
         if (rc != 0) return rc;
+    }
+#elif !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    else {
+        /* Requester key auto-generation requires timing-resistant ECC */
+        return NOT_COMPILED_IN;
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
@@ -1762,7 +1768,8 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
             return rc;
         }
     }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    defined(ECC_TIMING_RESISTANT)
     else {
         /* Auto-generate ephemeral P-384 key pair for mutual authentication.
          * Nations: GIVE_PUB is not supported, but MUT_AUTH is still required.
@@ -1837,6 +1844,11 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
         rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
             tpmtPub, (word32)(p - tpmtPub));
         if (rc != 0) return rc;
+    }
+#elif !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    else {
+        /* Requester key auto-generation requires timing-resistant ECC */
+        return NOT_COMPILED_IN;
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
