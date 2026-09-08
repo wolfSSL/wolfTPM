@@ -2505,6 +2505,9 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     wc_ecc_free(&eccKeyPub);
     wc_ecc_free(&eccKeyPriv);
     wc_FreeRng(&rng);
+    TPM2_ForceZero(&eccKeyPub, sizeof(eccKeyPub));
+    TPM2_ForceZero(&eccKeyPriv, sizeof(eccKeyPriv));
+    TPM2_ForceZero(&rng, sizeof(rng));
     TPM2_ForceZero(&secretPoint, sizeof(secretPoint));
 
     if (rc >= 0) {
