@@ -2916,6 +2916,8 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             wolfTPM2_GetRCString(rc));
     #endif
         TPM2_ForceZero(&session->salt, sizeof(session->salt));
+        TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+        TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
         return rc;
     }
 
@@ -3021,6 +3023,8 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
 
     TPM2_ForceZero(keyIn, sizeof(keyIn));
+    TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+    TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
 
     return rc;
 }
