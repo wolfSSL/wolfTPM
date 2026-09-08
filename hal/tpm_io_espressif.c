@@ -645,9 +645,19 @@ int TPM2_IoCb_Espressif_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     }
 
     if (ret == ESP_OK) {
-        tpm_spi_acquire();
-        ret = tpm_spi_raw_transfer(txBuf, rxBuf, xferSz);
-        tpm_spi_release();
+        ret = tpm_spi_acquire();
+        if (ret == ESP_OK) {
+            ret = tpm_spi_raw_transfer(txBuf, rxBuf, xferSz);
+            tpm_spi_release();
+            ret = (ret == ESP_OK) ? TPM_RC_SUCCESS : TPM_RC_FAILURE;
+        }
+        else {
+            ESP_LOGE(TAG, "SPI Failed to acquire bus. Error: %d", ret);
+            /* acquire drove CS low before failing; raise it so the TPM is
+             * not left selected on a shared bus */
+            gpio_set_level(tpm_data->cs_pin, 1);
+            ret = TPM_RC_FAILURE;
+        }
     }
     else {
         ESP_LOGE(TAG, "SPI Failed to initialize. Error: %d", ret);
