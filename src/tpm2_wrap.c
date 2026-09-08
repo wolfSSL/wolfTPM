@@ -4692,6 +4692,10 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
         return BAD_FUNC_ARG;
     }
 
+    if (keyType != TPM_ALG_RSA && keyType != TPM_ALG_ECC) {
+        return BAD_FUNC_ARG;
+    }
+
     if (encodingType == ENCODING_TYPE_PEM) {
     #ifdef WOLFTPM2_PEM_DECODE
         /* der size is base 64 decode length */
