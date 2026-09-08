@@ -162,6 +162,10 @@ WOLFTPM_LOCAL void TPM2_Packet_ParseU64(TPM2_Packet* packet, UINT64* data);
 WOLFTPM_LOCAL void TPM2_Packet_AppendS32(TPM2_Packet* packet, INT32 data);
 WOLFTPM_LOCAL void TPM2_Packet_AppendBytes(TPM2_Packet* packet, byte* buf, int size);
 WOLFTPM_LOCAL void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size);
+#ifdef WOLFTPM_SPDM
+WOLFTPM_TEST_API int TPM2_ParseSpdmSessionInfo(TPM2_Packet* packet,
+    TPML_SPDM_SESSION_INFO* sessInfo);
+#endif /* WOLFTPM_SPDM */
 /*!
     \brief Parse a UINT16-prefixed buffer from a TPM2 packet. Reads a 16-bit
     size followed by that many bytes into buf, clamped to maxBufSz.
