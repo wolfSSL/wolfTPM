@@ -1620,6 +1620,8 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
                                        pubKeyY, &ySz);
         wc_ecc_free(&hostKey);
         wc_FreeRng(&rng);
+        TPM2_ForceZero(&hostKey, sizeof(hostKey));
+        TPM2_ForceZero(&rng, sizeof(rng));
         if (rc != 0) {
             wc_ForceZero(privKey, sizeof(privKey));
             return rc;
@@ -1806,6 +1808,8 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
                                        pubKeyY, &ySz);
         wc_ecc_free(&hostKey);
         wc_FreeRng(&rng);
+        TPM2_ForceZero(&hostKey, sizeof(hostKey));
+        TPM2_ForceZero(&rng, sizeof(rng));
         if (rc != 0) {
             wc_ForceZero(privKey, sizeof(privKey));
             return rc;
