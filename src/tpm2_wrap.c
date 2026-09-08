@@ -4868,7 +4868,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     int initRc = -1;
     RsaKey key[1];
     word32 idx = 0;
-    word32  e;
+    word32  e = 0;
     byte n[RSA_MAX_SIZE / 8];
     byte d[RSA_MAX_SIZE / 8];
     byte p[RSA_MAX_SIZE / 8];
@@ -4887,8 +4887,13 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     if (rc == 0)
         rc = initRc = wc_InitRsaKey(key, NULL);
 
-    if (rc == 0)
+    if (rc == 0) {
+    #ifdef HAVE_PKCS8
+        /* Skip a PKCS#8 wrapper if present (BEGIN PRIVATE KEY) */
+        (void)wc_GetPkcs8TraditionalOffset((byte*)input, &idx, inSz);
+    #endif
         rc = wc_RsaPrivateKeyDecode(input, &idx, key, inSz);
+    }
 
     if (rc == 0) {
         PRIVATE_KEY_UNLOCK();
@@ -4918,10 +4923,38 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const char* input, word32 inSz, char* pass,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
-    (void)scheme;
-    (void)hashAlg;
-    return wolfTPM2_ImportPrivateKeyBuffer(dev, parentKey, TPM_ALG_RSA, keyBlob,
-        ENCODING_TYPE_PEM, input, inSz, pass, 0, NULL, 0);
+    int rc;
+    byte* derBuf;
+    word32 derSz;
+    word32 derBufSz;
+
+    if (dev == NULL || parentKey == NULL || keyBlob == NULL ||
+            input == NULL || inSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* der size is base 64 decode length */
+    if (inSz > (0xFFFFFFFFU / 3))
+        return BAD_FUNC_ARG;
+    derSz = inSz * 3 / 4 + 1;
+    derBufSz = derSz;
+    derBuf = (byte*)XMALLOC(derBufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (derBuf == NULL)
+        return MEMORY_E;
+
+    /* Convert PEM to DER, then import through the DER path so the requested
+     * RSA scheme and hash are applied. The DER importer skips any PKCS#8
+     * wrapper wc_KeyPemToDer leaves in place. */
+    rc = wc_KeyPemToDer((byte*)input, inSz, derBuf, derBufSz, pass);
+    if (rc >= 0) {
+        derSz = (word32)rc;
+        rc = wolfTPM2_RsaPrivateKeyImportDer(dev, parentKey, keyBlob,
+            derBuf, derSz, scheme, hashAlg);
+    }
+
+    TPM2_ForceZero(derBuf, derBufSz);
+    XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    return rc;
 }
 #endif /* WOLFTPM2_PEM_DECODE */
 
