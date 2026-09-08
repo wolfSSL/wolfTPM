@@ -10460,6 +10460,294 @@ static void test_fwtpm_policy_locality_enforced(void)
     printf("Test fwTPM:\tPolicyLocality enforced:\tPassed\n");
 }
 
+#ifdef WOLFTPM_SPDM
+/* PolicyTransportSPDM(sessHandle, reqKeyName, tpmKeyName) */
+static TPM_RC SendPolicyTransportSPDM(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* req, UINT16 reqSz, const byte* tpm, UINT16 tpmSz)
+{
+    int pos = 0, rspSize = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyTransportSPDM); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, reqSz); pos += 2;
+    if (reqSz > 0) { memcpy(gCmd + pos, req, reqSz); pos += reqSz; }
+    PutU16BE(gCmd + pos, tpmSz); pos += 2;
+    if (tpmSz > 0) { memcpy(gCmd + pos, tpm, tpmSz); pos += tpmSz; }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+static void ReadPolicyDigest(FWTPM_CTX* ctx, UINT32 sessH, byte* digest,
+    UINT16* dSz)
+{
+    AssertIntEQ(SendPolicyCmd(ctx, TPM_CC_PolicyGetDigest, sessH),
+        TPM_RC_SUCCESS);
+    *dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    AssertIntEQ(*dSz, 32);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, *dSz);
+}
+
+/* Vectors: SHA-256 of (zeros[32] || 0x000001A1 || scKeyNameHash) where
+ * scKeyNameHash = SHA-256(reqSz || req || tpmSz || tpm) or absent. */
+static const byte kSpdmDigestNoNames[32] = {
+    0xf9,0x63,0xdc,0x07,0x41,0x29,0x97,0x27,0x0c,0xb4,0x3f,0xf9,0x3f,0x56,0xd3,0x58,
+    0x61,0xe1,0xc9,0x5c,0x3c,0x5d,0x07,0xc7,0x33,0x9b,0x5c,0xf5,0xbb,0xa1,0x58,0x2d
+};
+static const byte kSpdmDigestBothNames[32] = {
+    0x95,0x2f,0x41,0x84,0xb8,0x29,0x2a,0x66,0xa4,0x5e,0xb6,0x61,0xb9,0xfd,0xad,0x4c,
+    0x6d,0x7e,0x49,0x0a,0xe7,0x4b,0x0b,0x7c,0x0b,0x7f,0x12,0x54,0x1c,0x9d,0x4d,0x95
+};
+static const byte kSpdmDigestReqOnly[32] = {
+    0x1b,0x94,0xc1,0xb4,0x82,0x5a,0x35,0xd5,0x08,0x7e,0x75,0xba,0x0e,0xee,0x72,0xf8,
+    0xef,0xff,0x32,0xf1,0xc9,0x86,0x0c,0xbf,0xec,0x51,0x84,0x28,0xbd,0xc0,0x56,0x3c
+};
+
+static void FillSpdmTestName(byte* name, byte fill)
+{
+    PutU16BE(name, TPM_ALG_SHA256);
+    memset(name + 2, fill, 32);
+}
+
+static void test_fwtpm_policy_transport_spdm(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    UINT16 dSz;
+    int tpos, trspSize;
+    byte digest[64];
+    byte reqName[34];
+    byte tpmName[34];
+    byte badName[34];
+
+    FillSpdmTestName(reqName, 0x11);
+    FillSpdmTestName(tpmName, 0x22);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* No names: policyDigest = H(0 || CC) */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, NULL, 0, NULL, 0),
+        TPM_RC_SUCCESS);
+    ReadPolicyDigest(&ctx, sessH, digest, &dSz);
+    AssertIntEQ(memcmp(digest, kSpdmDigestNoNames, 32), 0);
+    /* Only once per session */
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, NULL, 0, NULL, 0),
+        TPM_RC_VALUE);
+    /* PolicyRestart clears the binding */
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyRestart, sessH),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, reqName, 34, tpmName, 34),
+        TPM_RC_SUCCESS);
+    ReadPolicyDigest(&ctx, sessH, digest, &dSz);
+    AssertIntEQ(memcmp(digest, kSpdmDigestBothNames, 32), 0);
+    FlushHandle(&ctx, sessH);
+
+    /* Requester name only */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, reqName, 34, NULL, 0),
+        TPM_RC_SUCCESS);
+    ReadPolicyDigest(&ctx, sessH, digest, &dSz);
+    AssertIntEQ(memcmp(digest, kSpdmDigestReqOnly, 32), 0);
+    FlushHandle(&ctx, sessH);
+
+    /* Malformed names are rejected and leave the session untouched */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, reqName, 1, NULL, 0),
+        TPM_RC_SIZE);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, reqName, 33, NULL, 0),
+        TPM_RC_SIZE);
+    memcpy(badName, reqName, sizeof(badName));
+    PutU16BE(badName, 0x1234);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, NULL, 0, badName, 34),
+        TPM_RC_HASH);
+    /* Truncated command with no name fields is rejected, not read as empty */
+    tpos = 0;
+    trspSize = 0;
+    PutU16BE(gCmd + tpos, TPM_ST_SESSIONS); tpos += 2;
+    PutU32BE(gCmd + tpos, 0); tpos += 4;
+    PutU32BE(gCmd + tpos, TPM_CC_PolicyTransportSPDM); tpos += 4;
+    PutU32BE(gCmd + tpos, sessH); tpos += 4;
+    tpos = AppendPwAuth(gCmd, tpos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)tpos);
+    FWTPM_ProcessCommand(&ctx, gCmd, tpos, gRsp, &trspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, NULL, 0, NULL, 0),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    /* Trial sessions accept it too */
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, NULL, 0, NULL, 0),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyTransportSPDM:", 0);
+}
+
+/* A policy carrying PolicyTransportSPDM must only authorize commands that
+ * arrived over an SPDM session; a bound key name must match the session. */
+static void test_fwtpm_policy_transport_spdm_enforced(void)
+{
+    FWTPM_CTX ctx;
+    int pos, cmdSz, rspSize = 0;
+    UINT32 sessH;
+    UINT16 dSz;
+    byte digest[64];
+    byte reqName[34];
+    UINT32 nvIdx = 0x01500081;
+    UINT32 nvAttrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA;
+
+    FillSpdmTestName(reqName, 0x11);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, NULL, 0, NULL, 0),
+        TPM_RC_SUCCESS);
+    ReadPolicyDigest(&ctx, sessH, digest, &dSz);
+
+    /* Bind that policy to the owner hierarchy */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SetPrimaryPolicy); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, dSz); pos += 2;
+    memcpy(gCmd + pos, digest, dSz); pos += dSz;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Plaintext command: digest matches but no SPDM session */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, nvAttrs);
+    PutU32BE(gCmd + 18, sessH); /* replace TPM_RS_PW with the policy session */
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_CHANNEL);
+
+    /* Same command marked as arriving inside an SPDM session */
+    ctx.activeCmdOverSpdm = 1;
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, nvAttrs);
+    PutU32BE(gCmd + 18, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    ctx.activeCmdOverSpdm = 0;
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    /* A requester-key binding cannot be satisfied without a responder
+     * reporting that key, even inside an SPDM session */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTransportSPDM(&ctx, sessH, reqName, 34, NULL, 0),
+        TPM_RC_SUCCESS);
+    ReadPolicyDigest(&ctx, sessH, digest, &dSz);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SetPrimaryPolicy); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, dSz); pos += 2;
+    memcpy(gCmd + pos, digest, dSz); pos += dSz;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    ctx.activeCmdOverSpdm = 1;
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx + 1, 8, nvAttrs);
+    PutU32BE(gCmd + 18, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    ctx.activeCmdOverSpdm = 0;
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_CHANNEL_KEY);
+    FlushHandle(&ctx, sessH);
+
+    /* Undefine the NV index created over the SPDM session */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_UndefineSpace); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tPolicyTransportSPDM enforced:\tPassed\n");
+}
+
+/* TPM_CAP_SPDM_SESSION_INFO is empty outside an SPDM session and lists one
+ * entry inside; property must be zero. */
+static void test_fwtpm_spdm_session_info_cap(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 22, TPM_CC_GetCapability);
+    PutU32BE(gCmd + pos, TPM_CAP_SPDM_SESSION_INFO); pos += 4;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, 1); pos += 4;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 1),
+        TPM_CAP_SPDM_SESSION_INFO);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 0);
+
+    ctx.activeCmdOverSpdm = 1;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    ctx.activeCmdOverSpdm = 0;
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1);
+    /* No responder context: names are reported empty */
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 9), 0);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 11), 0);
+
+    /* propertyCount 0 yields an empty list but moreData=YES when a session
+     * entry exists and could not be returned */
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 8, 0);
+    ctx.activeCmdOverSpdm = 1;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    ctx.activeCmdOverSpdm = 0;
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 1); /* moreData = YES */
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 0);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 8, 1); /* restore propertyCount */
+
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 4, 1); /* property must be 0 */
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SPDM session info capability:", 0);
+}
+#endif /* WOLFTPM_SPDM */
+
 /* PolicyCpHash binds a session to a specific command; a command whose real
  * cpHash differs must be rejected even when the policyDigest matches. */
 static void test_fwtpm_policy_cphash_enforced(void)
@@ -15837,6 +16125,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policyauthorizenv_owner_read_denied();
     test_fwtpm_policy_locality_enforced();
     test_fwtpm_policy_cphash_enforced();
+#ifdef WOLFTPM_SPDM
+    test_fwtpm_policy_transport_spdm();
+    test_fwtpm_policy_transport_spdm_enforced();
+    test_fwtpm_spdm_session_info_cap();
+#endif
 #endif
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_admin_authorization_requires_policy();

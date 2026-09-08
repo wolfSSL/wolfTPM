@@ -620,6 +620,12 @@ typedef struct FWTPM_Session {
     int nvWrittenState;             /* PolicyNvWritten writtenSet */
     UINT32 pcrUpdateCounter;        /* PCR update counter seen by PolicyPCR */
     int hasPcrUpdateCounter;        /* 1 once PolicyPCR has been evaluated */
+#ifdef WOLFTPM_SPDM
+    int checkSecureChannel;         /* 1 once PolicyTransportSPDM has been called */
+    int checkReqKey;                /* PolicyTransportSPDM bound reqKeyName */
+    int checkTpmKey;                /* PolicyTransportSPDM bound tpmKeyName */
+    TPM2B_DIGEST scKeyNameHash;     /* PolicyTransportSPDM key name hash */
+#endif
 } FWTPM_Session;
 
 /* NV index slot (user NV RAM) */
@@ -766,6 +772,10 @@ typedef struct FWTPM_CTX {
                                  * only when clockless or lockoutRecovery==0) */
 #endif
     int activeLocality;         /* locality of the command being processed */
+#ifdef WOLFTPM_SPDM
+    int activeCmdOverSpdm;      /* command being processed arrived inside an
+                                 * SPDM secured session */
+#endif
 #ifndef FWTPM_NO_PP
     int physicalPresence;       /* Platform-channel PP latch (volatile). Only
                                  * consulted when no PP HAL is registered. */

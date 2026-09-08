@@ -69,7 +69,9 @@ WOLFTPM_API int wolfSPDM_RespSetPSK(WOLFSPDM_RESP_CTX* ctx,
     const byte* psk, word32 pskSz,
     const byte* hint, word32 hintSz);
 
-/* privKey: 48 bytes (P-384 scalar). pubKey: 96 bytes (X||Y, big-endian). */
+/* privKey: 48 bytes (P-384 scalar). pubKey: 96 bytes (X||Y, big-endian).
+ * Rejected with WOLFSPDM_E_BAD_STATE while a session is negotiating or
+ * connected; reset the responder first. */
 WOLFTPM_API int wolfSPDM_RespSetIdentityKey(WOLFSPDM_RESP_CTX* ctx,
     const byte* privKey, word32 privSz,
     const byte* pubKey, word32 pubSz);
@@ -90,6 +92,16 @@ WOLFTPM_API void wolfSPDM_RespReset(WOLFSPDM_RESP_CTX* ctx);
 /* SPDMONLY lock: when 1, the transport must reject plaintext TPM frames.
  * Toggled by the requester via SPDMONLY vendor command. */
 WOLFTPM_API int wolfSPDM_RespIsLocked(const WOLFSPDM_RESP_CTX* ctx);
+
+/* Returns 1 when a secured SPDM session is established. */
+WOLFTPM_API int wolfSPDM_RespIsSessionActive(const WOLFSPDM_RESP_CTX* ctx);
+
+/* On success, points idPub at the responder's own SPDM identity key (raw
+ * P-384 X||Y) and returns its length. Returns 0 when there is no identity
+ * key or the active session did not authenticate with it (PSK sessions).
+ * The requester's key is never exposed: no requester mutual-auth is done. */
+WOLFTPM_API word32 wolfSPDM_RespGetIdentityKey(const WOLFSPDM_RESP_CTX* ctx,
+    const byte** idPub);
 
 #ifdef __cplusplus
 }

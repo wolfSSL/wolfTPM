@@ -111,7 +111,9 @@ static int fwtpmSpdmTpmDispatch(void* userCtx,
         return BAD_FUNC_ARG;
     }
     rspSize = (int)sizeof(stageBuf);
+    ctx->activeCmdOverSpdm = 1;
     rc = FWTPM_ProcessCommand(ctx, cmd, (int)cmdSz, stageBuf, &rspSize, 0);
+    ctx->activeCmdOverSpdm = 0;
     if (rc == TPM_RC_SUCCESS && rspSize >= TPM2_HEADER_SIZE) {
         if ((word32)rspSize <= respBufSz) {
             XMEMCPY(resp, stageBuf, (size_t)rspSize);

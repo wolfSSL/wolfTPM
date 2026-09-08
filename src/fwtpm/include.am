@@ -39,6 +39,8 @@ src_fwtpm_fwtpm_server_SOURCES += \
     src/spdm/spdm_secured.c \
     src/spdm/spdm_session.c \
     src/spdm/spdm_transcript.c
+src_fwtpm_fwtpm_server_CFLAGS  += -DFWTPM_SPDM_HAVE_RESPONDER
+src_fwtpm_fwtpm_server_CPPFLAGS += -DFWTPM_SPDM_HAVE_RESPONDER
 if BUILD_SPDM_TCG
 src_fwtpm_fwtpm_server_SOURCES += src/spdm/spdm_tcg.c
 endif
