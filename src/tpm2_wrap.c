@@ -10221,6 +10221,8 @@ static void wolfTPM2_CopyPub(TPM2B_PUBLIC* out, const TPM2B_PUBLIC* in)
 static void wolfTPM2_CopyPriv(TPM2B_PRIVATE* out, const TPM2B_PRIVATE* in)
 {
     if (out != NULL && in != NULL) {
+        /* Clear any longer prior blob so its tail does not remain resident */
+        TPM2_ForceZero(out->buffer, sizeof(out->buffer));
         out->size = in->size;
         if (out->size > (UINT16)sizeof(out->buffer))
             out->size = (UINT16)sizeof(out->buffer);
