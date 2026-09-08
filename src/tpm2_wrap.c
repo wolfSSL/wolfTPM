@@ -3543,6 +3543,11 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
     packet.buf = data.buffer;
     packet.size = sizeof(data.buffer);
     TPM2_Packet_AppendPublicArea(&packet, (TPMT_PUBLIC*)&pub->publicArea);
+    if (packet.overflow) {
+        /* A truncated public area would produce a wrong Name and corrupt
+         * authorization binding, so reject rather than hash a partial area */
+        return BUFFER_E;
+    }
     data.size = packet.pos;
 
     hashSz = TPM2_GetHashDigestSize(nameAlg);
