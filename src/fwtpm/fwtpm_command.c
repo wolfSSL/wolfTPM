@@ -38,6 +38,16 @@
 #include <wolftpm/fwtpm/fwtpm_command.h>
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 #include <wolftpm/fwtpm/fwtpm_crypto.h>
+/* Responder objects are linked into fwtpm_server (FWTPM_SPDM_HAVE_RESPONDER)
+ * and into libwolftpm. The fwTPM unit test and fuzz harness compile this file
+ * standalone against wolfSSL only, so they drive the SPDM flag directly. */
+#if defined(WOLFTPM_SPDM_RESPONDER) && \
+    (defined(FWTPM_SPDM_HAVE_RESPONDER) || defined(BUILDING_WOLFTPM))
+    #define FWTPM_SPDM_USE_RESPONDER
+#endif
+#ifdef FWTPM_SPDM_USE_RESPONDER
+#include <wolftpm/spdm/spdm_responder.h>
+#endif
 
 #include <limits.h>
 #include <stdio.h>
@@ -199,6 +209,180 @@ static TPM_RC FwSkipAuthArea(TPM2_Packet* cmd, int cmdSize)
     cmd->pos += (int)authAreaSize;
     return TPM_RC_SUCCESS;
 }
+
+#ifdef WOLFTPM_SPDM
+#ifdef FWTPM_SPDM_USE_RESPONDER
+#define FWTPM_SPDM_P384_SZ 48
+/* Name of a marshaled TPMT_PUBLIC: nameAlg || H_nameAlg(publicArea). The
+ * publicArea is marshaled type(2) || nameAlg(2) || ..., so nameAlg is at
+ * offset 2, not 0. */
+static TPM_RC FwNameFromPublicArea(const byte* pub, word32 pubSz,
+    TPM2B_NAME* name)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 nameAlg;
+    int digestSz;
+    enum wc_HashType wcHash;
+
+    name->size = 0;
+    if (pub == NULL || pubSz < 4) {
+        return TPM_RC_SUCCESS;
+    }
+    nameAlg = (UINT16)(((UINT16)pub[2] << 8) | pub[3]);
+    digestSz = TPM2_GetHashDigestSize(nameAlg);
+    wcHash = FwGetWcHashType(nameAlg);
+    if (digestSz <= 0 || wcHash == WC_HASH_TYPE_NONE ||
+            digestSz + 2 > (int)sizeof(name->name)) {
+        return TPM_RC_HASH;
+    }
+    name->name[0] = pub[2];
+    name->name[1] = pub[3];
+    if (wc_Hash(wcHash, pub, pubSz, name->name + 2, digestSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        name->size = (UINT16)(2 + digestSz);
+    }
+    return rc;
+}
+
+/* Compute the Name of the responder's own SPDM identity key (raw P-384
+ * X||Y) using the TCG SPDM key template. */
+static TPM_RC FwSpdmTpmKeyName(const byte* rawPub, word32 rawPubSz,
+    TPM2B_NAME* name)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPM2_Packet pkt;
+    FWTPM_DECLARE_VAR(pub, TPMT_PUBLIC);
+    FWTPM_DECLARE_BUF(buf, FWTPM_MAX_PUB_BUF);
+
+    name->size = 0;
+    if (rawPub == NULL || rawPubSz != 2 * FWTPM_SPDM_P384_SZ) {
+        return TPM_RC_SUCCESS;
+    }
+    FWTPM_ALLOC_VAR(pub, TPMT_PUBLIC);
+    FWTPM_ALLOC_BUF(buf, FWTPM_MAX_PUB_BUF);
+    if (rc == 0) {
+        XMEMSET(pub, 0, sizeof(TPMT_PUBLIC));
+        pub->type = TPM_ALG_ECC;
+        pub->nameAlg = TPM_ALG_SHA384;
+        pub->objectAttributes = TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_restricted |
+            TPMA_OBJECT_sign;
+        pub->parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+        pub->parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
+        pub->parameters.eccDetail.scheme.details.ecdsa.hashAlg = TPM_ALG_SHA384;
+        pub->parameters.eccDetail.curveID = TPM_ECC_NIST_P384;
+        pub->parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+        pub->unique.ecc.x.size = FWTPM_SPDM_P384_SZ;
+        XMEMCPY(pub->unique.ecc.x.buffer, rawPub, FWTPM_SPDM_P384_SZ);
+        pub->unique.ecc.y.size = FWTPM_SPDM_P384_SZ;
+        XMEMCPY(pub->unique.ecc.y.buffer, rawPub + FWTPM_SPDM_P384_SZ,
+            FWTPM_SPDM_P384_SZ);
+
+        XMEMSET(&pkt, 0, sizeof(pkt));
+        pkt.buf = buf;
+        pkt.size = (int)FWTPM_MAX_PUB_BUF;
+        TPM2_Packet_AppendPublicArea(&pkt, pub);
+        rc = FwNameFromPublicArea(buf, (word32)pkt.pos, name);
+    }
+    FWTPM_FREE_BUF(buf);
+    FWTPM_FREE_VAR(pub);
+    return rc;
+}
+#endif /* FWTPM_SPDM_USE_RESPONDER */
+
+/* Returns 1 when the command being processed arrived inside an established
+ * SPDM secure session. Any SPDM secure session qualifies, asymmetric (TCG
+ * binding) or vendor PSK, since wolfTPM supports both SPDM session types.
+ * reqKeyName is always empty: the responder performs no requester
+ * mutual-authentication, so a requester key is never trusted. tpmKeyName is
+ * the responder's own identity-key Name when one exists. */
+static int FwSpdmSessionNames(FWTPM_CTX* ctx, TPM2B_NAME* reqKeyName,
+    TPM2B_NAME* tpmKeyName)
+{
+#ifdef FWTPM_SPDM_USE_RESPONDER
+    const byte* idPub = NULL;
+    word32 idPubSz = 0;
+#endif
+
+    reqKeyName->size = 0;
+    tpmKeyName->size = 0;
+    if (!ctx->activeCmdOverSpdm) {
+        return 0;
+    }
+#ifdef FWTPM_SPDM_USE_RESPONDER
+    if (ctx->spdmRespCtx != NULL) {
+        if (!wolfSPDM_RespIsSessionActive(ctx->spdmRespCtx)) {
+            return 0;
+        }
+        idPubSz = wolfSPDM_RespGetIdentityKey(ctx->spdmRespCtx, &idPub);
+        if (FwSpdmTpmKeyName(idPub, idPubSz, tpmKeyName) != 0) {
+            tpmKeyName->size = 0;
+        }
+    }
+#endif
+    return 1;
+}
+
+#ifndef FWTPM_NO_POLICY
+/* scKeyNameHash = H(req.size || req.name || tpm.size || tpm.name). A name
+ * that is not checked contributes a zero size (Part 3 CompareScKeyNameHash). */
+static TPM_RC FwScKeyNameHash(TPMI_ALG_HASH hashAlg,
+    const TPM2B_NAME* reqKeyName, int inclReq,
+    const TPM2B_NAME* tpmKeyName, int inclTpm,
+    byte* out, int* outSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
+    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    int digestSz = TPM2_GetHashDigestSize(hashAlg);
+    byte szBuf[2];
+    UINT16 sz;
+
+    FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+    if (rc == 0 && (digestSz <= 0 || wcHash == WC_HASH_TYPE_NONE)) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0 && wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        sz = inclReq ? reqKeyName->size : 0;
+        szBuf[0] = (byte)(sz >> 8);
+        szBuf[1] = (byte)sz;
+        if (wc_HashUpdate(hashCtx, wcHash, szBuf, 2) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc == 0 && sz > 0 &&
+                wc_HashUpdate(hashCtx, wcHash, reqKeyName->name, sz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc == 0) {
+            sz = inclTpm ? tpmKeyName->size : 0;
+            szBuf[0] = (byte)(sz >> 8);
+            szBuf[1] = (byte)sz;
+            if (wc_HashUpdate(hashCtx, wcHash, szBuf, 2) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+        }
+        if (rc == 0 && sz > 0 &&
+                wc_HashUpdate(hashCtx, wcHash, tpmKeyName->name, sz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc == 0 && wc_HashFinal(hashCtx, wcHash, out) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        wc_HashFree(hashCtx, wcHash);
+        if (rc == 0) {
+            *outSz = digestSz;
+        }
+    }
+    FWTPM_FREE_VAR(hashCtx);
+    return rc;
+}
+#endif /* !FWTPM_NO_POLICY */
+#endif /* WOLFTPM_SPDM */
 
 /* Map hash alg to fwTPM PCR bank index */
 static int FwGetPcrBankIndex(UINT16 hashAlg)
@@ -1355,6 +1539,11 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     printf("fwTPM: GetCapability(cap=0x%x, prop=0x%x, count=%d)\n",
         capability, property, propertyCount);
 #endif
+#ifdef WOLFTPM_SPDM
+    if (capability == TPM_CAP_SPDM_SESSION_INFO && property != 0) {
+        return TPM_RC_VALUE;
+    }
+#endif
 
     paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
@@ -1892,6 +2081,30 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         case TPM_CAP_AUDIT_COMMANDS:
             TPM2_Packet_AppendU32(rsp, 0);
             break;
+
+    #ifdef WOLFTPM_SPDM
+        case TPM_CAP_SPDM_SESSION_INFO: {
+            TPM2B_NAME reqKeyName;
+            TPM2B_NAME tpmKeyName;
+            /* A session entry exists only when this command came over SPDM. */
+            int haveSession = FwSpdmSessionNames(ctx, &reqKeyName, &tpmKeyName);
+            if (haveSession && propertyCount > 0) {
+                TPM2_Packet_AppendU32(rsp, 1);
+                TPM2_Packet_AppendU16(rsp, reqKeyName.size);
+                TPM2_Packet_AppendBytes(rsp, reqKeyName.name, reqKeyName.size);
+                TPM2_Packet_AppendU16(rsp, tpmKeyName.size);
+                TPM2_Packet_AppendBytes(rsp, tpmKeyName.name, tpmKeyName.size);
+            }
+            else {
+                TPM2_Packet_AppendU32(rsp, 0);
+                /* Entry exists but was not returned (propertyCount 0): the
+                 * TPM must report moreData=YES per Part 3 GetCapability. */
+                if (haveSession)
+                    FwPatchMoreData(rsp, moreDataPos, 1);
+            }
+            break;
+        }
+    #endif /* WOLFTPM_SPDM */
 
         default:
             TPM2_Packet_AppendU32(rsp, 0);
@@ -10715,6 +10928,12 @@ static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         sess->nvWrittenState = 0;
         sess->pcrUpdateCounter = 0;
         sess->hasPcrUpdateCounter = 0;
+    #ifdef WOLFTPM_SPDM
+        sess->checkSecureChannel = 0;
+        sess->checkReqKey = 0;
+        sess->checkTpmKey = 0;
+        sess->scKeyNameHash.size = 0;
+    #endif
 
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
@@ -11822,6 +12041,111 @@ static TPM_RC FwCmd_PolicyLocality(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     return rc;
 }
+
+#ifdef WOLFTPM_SPDM
+/* A non-empty name is nameAlg || digest and must be exactly that long. */
+static TPM_RC FwSpdmCheckName(const TPM2B_NAME* name)
+{
+    UINT16 alg;
+    int digestSz;
+
+    if (name->size == 0) {
+        return TPM_RC_SUCCESS;
+    }
+    if (name->size < 2) {
+        return TPM_RC_SIZE;
+    }
+    alg = (UINT16)(((UINT16)name->name[0] << 8) | name->name[1]);
+    digestSz = TPM2_GetHashDigestSize(alg);
+    if (digestSz <= 0 || FwGetWcHashType(alg) == WC_HASH_TYPE_NONE) {
+        return TPM_RC_HASH;
+    }
+    if ((int)name->size - 2 != digestSz) {
+        return TPM_RC_SIZE;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+static TPM_RC FwSpdmParseName(TPM2_Packet* cmd, int cmdSize, TPM2B_NAME* name)
+{
+    /* A missing size prefix must be rejected, not read as an empty name. */
+    if (cmd->pos + (int)sizeof(UINT16) > cmdSize) {
+        return TPM_RC_COMMAND_SIZE;
+    }
+    TPM2_Packet_ParseU16(cmd, &name->size);
+    if (name->size > sizeof(name->name)) {
+        return TPM_RC_SIZE;
+    }
+    if (cmd->pos + (int)name->size > cmdSize) {
+        return TPM_RC_COMMAND_SIZE;
+    }
+    TPM2_Packet_ParseBytes(cmd, name->name, name->size);
+    return TPM_RC_SUCCESS;
+}
+
+/* --- TPM2_PolicyTransportSPDM (CC 0x01A1) --- */
+/* policyDigest = H(policyDigest || TPM_CC_PolicyTransportSPDM || scKeyNameHash)
+ * Wire: policySession (U32) -> reqKeyName (TPM2B_NAME) -> tpmKeyName. */
+static TPM_RC FwCmd_PolicyTransportSPDM(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 sessHandle;
+    FWTPM_Session* sess;
+    TPM2B_NAME reqKeyName;
+    TPM2B_NAME tpmKeyName;
+    byte scHash[TPM_MAX_DIGEST_SIZE];
+    int scHashSz = 0;
+
+    XMEMSET(&reqKeyName, 0, sizeof(reqKeyName));
+    XMEMSET(&tpmKeyName, 0, sizeof(tpmKeyName));
+
+    TPM2_Packet_ParseU32(cmd, &sessHandle);
+    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0) rc = FwSpdmParseName(cmd, cmdSize, &reqKeyName);
+    if (rc == 0) rc = FwSpdmParseName(cmd, cmdSize, &tpmKeyName);
+
+    sess = FwFindSession(ctx, sessHandle);
+    if (rc == 0 && sess == NULL) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 && sess->sessionType != TPM_SE_POLICY &&
+        sess->sessionType != TPM_SE_TRIAL) {
+        rc = TPM_RC_AUTH_TYPE;
+    }
+    /* Part 3: may only be applied once per session */
+    if (rc == 0 && sess->checkSecureChannel) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0) rc = FwSpdmCheckName(&reqKeyName);
+    if (rc == 0) rc = FwSpdmCheckName(&tpmKeyName);
+
+    if (rc == 0 && (reqKeyName.size > 0 || tpmKeyName.size > 0)) {
+        rc = FwScKeyNameHash(sess->authHash, &reqKeyName, 1, &tpmKeyName, 1,
+            scHash, &scHashSz);
+    }
+    if (rc == 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: PolicyTransportSPDM(session=0x%x, req=%d, tpm=%d)\n",
+            sessHandle, reqKeyName.size, tpmKeyName.size);
+    #endif
+        if (FwPolicyExtend(sess, TPM_CC_PolicyTransportSPDM,
+                (scHashSz > 0) ? scHash : NULL, scHashSz, NULL, 0, 0) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        sess->checkSecureChannel = 1;
+        sess->checkReqKey = (reqKeyName.size > 0);
+        sess->checkTpmKey = (tpmKeyName.size > 0);
+        sess->scKeyNameHash.size = (UINT16)scHashSz;
+        XMEMCPY(sess->scKeyNameHash.buffer, scHash, (size_t)scHashSz);
+        FwRspNoParams(rsp, cmdTag);
+    }
+
+    return rc;
+}
+#endif /* WOLFTPM_SPDM */
 
 /* --- TPM2_PolicySigned (CC 0x0160) --- */
 /* Simplified: verify signature and extend policyDigest with
@@ -18553,6 +18877,9 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_PolicySecret,       FwCmd_PolicySecret,         2, 1, 0, 0 },
     { TPM_CC_PolicyAuthorize,    FwCmd_PolicyAuthorize,      1, 0, 0, 0 },
     { TPM_CC_PolicyLocality,     FwCmd_PolicyLocality,       1, 0, 0, 0 },
+#ifdef WOLFTPM_SPDM
+    { TPM_CC_PolicyTransportSPDM, FwCmd_PolicyTransportSPDM, 1, 0, 0, FW_CMD_FLAG_ENC },
+#endif
     { TPM_CC_PolicySigned,       FwCmd_PolicySigned,         2, 0, 0, 0 },
 #ifndef FWTPM_NO_NV
     { TPM_CC_PolicyNV,           FwCmd_PolicyNV,             3, 1, 0, 0 },
@@ -19509,6 +19836,33 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                     return TPM_RC_SUCCESS;
                 }
+#if defined(WOLFTPM_SPDM) && !defined(FWTPM_NO_POLICY)
+                /* Enforce PolicyTransportSPDM: the command must have arrived
+                 * over an SPDM session, optionally under specific keys. */
+                if (pSess->checkSecureChannel) {
+                    TPM2B_NAME scReq;
+                    TPM2B_NAME scTpm;
+                    byte scHash[TPM_MAX_DIGEST_SIZE];
+                    int scHashSz = 0;
+                    if (!FwSpdmSessionNames(ctx, &scReq, &scTpm)) {
+                        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                            TPM_ST_NO_SESSIONS, TPM_RC_CHANNEL);
+                        return TPM_RC_SUCCESS;
+                    }
+                    if ((pSess->checkReqKey || pSess->checkTpmKey) &&
+                        (FwScKeyNameHash(pSess->authHash,
+                            &scReq, pSess->checkReqKey,
+                            &scTpm, pSess->checkTpmKey,
+                            scHash, &scHashSz) != 0 ||
+                         scHashSz != (int)pSess->scKeyNameHash.size ||
+                         TPM2_ConstantCompare(pSess->scKeyNameHash.buffer,
+                            scHash, (word32)scHashSz) != 0)) {
+                        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                            TPM_ST_NO_SESSIONS, TPM_RC_CHANNEL_KEY);
+                        return TPM_RC_SUCCESS;
+                    }
+                }
+#endif /* WOLFTPM_SPDM && !FWTPM_NO_POLICY */
 #ifndef FWTPM_NO_PP
                 /* Enforce PolicyPhysicalPresence: the platform PP signal must
                  * be asserted now (Part 1 Sec.23.2). */
