@@ -185,14 +185,23 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     fp = XFOPEN(output, "wb");
-    if (fp != XBADFILE) {
-        dataSize = (int)XFWRITE((BYTE*)&makeCredOut.credentialBlob, 1,
-                                 sizeof(makeCredOut.credentialBlob), fp);
-        if (dataSize > 0) {
-            dataSize += (int)XFWRITE((BYTE*)&makeCredOut.secret, 1,
-                                      sizeof(makeCredOut.secret), fp);
-        }
-        XFCLOSE(fp);
+    if (fp == XBADFILE) {
+        printf("Failed to open %s for writing\n", output);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+    dataSize = (int)XFWRITE((BYTE*)&makeCredOut.credentialBlob, 1,
+                             sizeof(makeCredOut.credentialBlob), fp);
+    if (dataSize == (int)sizeof(makeCredOut.credentialBlob)) {
+        dataSize += (int)XFWRITE((BYTE*)&makeCredOut.secret, 1,
+                                  sizeof(makeCredOut.secret), fp);
+    }
+    XFCLOSE(fp);
+    if (dataSize != (int)(sizeof(makeCredOut.credentialBlob) +
+                          sizeof(makeCredOut.secret))) {
+        printf("Failed to write credential blob and secret to %s\n", output);
+        rc = BAD_FUNC_ARG;
+        goto exit;
     }
     printf("Wrote credential blob and secret to %s, %d bytes\n",
         output, dataSize);
