@@ -527,7 +527,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     pos = 0;
     while (pos < packet->pos) {
         rc = TPM2_TIS_GetBurstCount(ctx, &burstCount);
-        if (rc < 0)
+        if (rc != TPM_RC_SUCCESS)
             goto exit;
 
         xferSz = packet->pos - pos;
@@ -590,7 +590,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         }
 
         rc = TPM2_TIS_GetBurstCount(ctx, &burstCount);
-        if (rc < 0)
+        if (rc != TPM_RC_SUCCESS)
             goto exit;
 
         xferSz = rspSz - pos;
