@@ -8725,7 +8725,9 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     }
 
     if (usageAuth != NULL) {
-        /* Capture usage auth */
+        /* Capture usage auth, clearing any longer prior value first */
+        TPM2_ForceZero(hmac->hash.handle.auth.buffer,
+            sizeof(hmac->hash.handle.auth.buffer));
         hmac->hash.handle.auth.size = usageAuthSz;
         XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
     }
