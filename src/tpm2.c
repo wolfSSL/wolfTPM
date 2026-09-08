@@ -7598,19 +7598,21 @@ int TPM2_AppendPublic(byte* buf, word32 size, int* sizeUsed, TPM2B_PUBLIC* pub)
     if (buf == NULL || pub == NULL || sizeUsed == NULL)
         return BAD_FUNC_ARG;
 
-    if (size < sizeof(TPM2B_PUBLIC)) {
+    /* Prepare temporary buffer. The append helpers bounds-check against
+     * packet.size and set packet.overflow, so an exact-fit buffer is
+     * accepted and only an actually-too-small buffer is rejected. */
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = (int)size;
+    packet.overflow = 0;
+
+    TPM2_Packet_AppendPublic(&packet, pub);
+    if (packet.overflow) {
     #ifdef DEBUG_WOLFTPM
         printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
     #endif
         return TPM_RC_FAILURE;
     }
-
-    /* Prepare temporary buffer */
-    packet.buf = buf;
-    packet.pos = 0;
-    packet.size = (int)size;
-
-    TPM2_Packet_AppendPublic(&packet, pub);
     *sizeUsed = packet.pos;
 
     return TPM_RC_SUCCESS;
