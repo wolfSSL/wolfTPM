@@ -902,6 +902,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
         printf("Extra data left in buffer (%d!=%d)\n",
             bufferSz, (word32)done_reading);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
