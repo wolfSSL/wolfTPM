@@ -46,17 +46,17 @@
  * selected, so the file compiles to nothing when built directly on a
  * platform that does not have wolfHAL available. */
 #include <wolfHAL/wolfHAL.h>
-#include "board.h"
+#include "wolfHAL_board.h"
 
 #ifdef WOLFTPM_I2C
-    /* board.h is supplied by the application, not by wolfTPM. It must
+    /* wolfHAL_board.h is supplied by the application, not by wolfTPM. It must
      * describe how this board reaches the TPM. */
     #ifndef BOARD_I2C_DEV
-    #error "wolfHAL: board.h must define BOARD_I2C_DEV (whal_I2c*)"
+    #error "wolfHAL: wolfHAL_board.h must define BOARD_I2C_DEV (whal_I2c*)"
     #endif
     /* Carries the TPM target address (typically 0x2e) and bus speed. */
     #ifndef BOARD_I2C_COM_CFG
-    #error "wolfHAL: board.h must define BOARD_I2C_COM_CFG (whal_I2c_ComCfg*)"
+    #error "wolfHAL: wolfHAL_board.h must define BOARD_I2C_COM_CFG (whal_I2c_ComCfg*)"
     #endif
     #ifdef TPM2_I2C_ADDR
     #error "wolfHAL: TPM2_I2C_ADDR is unused, set addr in BOARD_I2C_COM_CFG"
@@ -132,19 +132,19 @@
     }
 
 #else /* wolfHAL SPI */
-    /* board.h is supplied by the application, not by wolfTPM. It must
+    /* wolfHAL_board.h is supplied by the application, not by wolfTPM. It must
      * describe how this board reaches the TPM. */
     #ifndef BOARD_SPI_DEV
-    #error "wolfHAL: board.h must define BOARD_SPI_DEV (whal_Spi*)"
+    #error "wolfHAL: wolfHAL_board.h must define BOARD_SPI_DEV (whal_Spi*)"
     #endif
     #ifndef BOARD_SPI_COM_CFG
-    #error "wolfHAL: board.h must define BOARD_SPI_COM_CFG (whal_Spi_ComCfg*)"
+    #error "wolfHAL: wolfHAL_board.h must define BOARD_SPI_COM_CFG (whal_Spi_ComCfg*)"
     #endif
     #ifndef BOARD_GPIO_DEV
-    #error "wolfHAL: board.h must define BOARD_GPIO_DEV (whal_Gpio*) for chip select"
+    #error "wolfHAL: wolfHAL_board.h must define BOARD_GPIO_DEV (whal_Gpio*) for chip select"
     #endif
     #ifndef BOARD_CS_PIN
-    #error "wolfHAL: board.h must define BOARD_CS_PIN (chip select pin, active low)"
+    #error "wolfHAL: wolfHAL_board.h must define BOARD_CS_PIN (chip select pin, active low)"
     #endif
 
     int TPM2_IoCb_Wolfhal_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
