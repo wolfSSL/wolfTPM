@@ -171,6 +171,9 @@ cp ../wolfssl/certs/ca-cert.pem ./certs/wolf-ca-rsa-cert.pem
 cp ../wolfssl/certs/ca-ecc-cert.pem ./certs/wolf-ca-ecc-cert.pem
 ```
 
+Or run `./certs/refresh-wolf-ca.sh` (set `WOLFSSL_DIR` if wolfSSL is not
+at `../wolfssl`) to refresh them when they expire.
+
 ### TLS Client
 
 Examples show using a TPM key and certificate for TLS mutual authentication (client authentication).
