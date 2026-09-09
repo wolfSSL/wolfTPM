@@ -191,13 +191,13 @@
                 /* Check for SPI ready */
                 status = HAL_SPI_TransmitReceive(hspi, (byte*)txBuf, rxBuf, 1,
                     STM32_CUBEMX_SPI_TIMEOUT);
-                if (rxBuf[0] & TPM_TIS_READY_MASK)
+                if (status == HAL_OK && (rxBuf[0] & TPM_TIS_READY_MASK))
                     break;
             } while (status == HAL_OK && --timeout > 0);
         #ifdef WOLFTPM_DEBUG_TIMEOUT
             printf("SPI Ready Wait %d\n", TPM_SPI_WAIT_RETRY - timeout);
         #endif
-            if (timeout <= 0) {
+            if (status != HAL_OK || timeout <= 0) {
             #ifndef USE_HW_SPI_CS
                 HAL_GPIO_WritePin(USE_SPI_CS_PORT, (1 << USE_SPI_CS_PIN), GPIO_PIN_SET);
             #endif

@@ -200,7 +200,7 @@
         #ifdef WOLFTPM_DEBUG_TIMEOUT
             printf("SPI Ready Wait %d\n", TPM_SPI_WAIT_RETRY - timeout);
         #endif
-            if (timeout <= 0) {
+            if (status != XST_SUCCESS || timeout <= 0) {
                 XSpiPs_SetSlaveSelect(&SpiInstance, 0xF); /* deselect CS (set high) */
                 XSpiPs_Disable(&SpiInstance);
                 return TPM_RC_FAILURE;
