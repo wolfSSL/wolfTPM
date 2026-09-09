@@ -382,7 +382,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                         sigRS, keySz*2,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
                     if (info->pk.eccverify.res) {
-                        if ((rc & TPM_RC_SIGNATURE) == TPM_RC_SIGNATURE) {
+                        if ((rc & RC_MAX_FMT1) == TPM_RC_SIGNATURE) {
                             /* mark invalid signature */
                             *info->pk.eccverify.res = 0;
                             rc = 0;
@@ -1108,6 +1108,10 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
     #endif
     }
     if ((int)pkcsBlockLen - hLen < saltLen + 2) {
+        return PSS_SALTLEN_E;
+    }
+    /* Ensure M' (padding || hLen || saltLen) fits the scratch buffer */
+    if ((int)pkcsBlockLen < RSA_PSS_PAD_SZ + hLen + saltLen) {
         return PSS_SALTLEN_E;
     }
 

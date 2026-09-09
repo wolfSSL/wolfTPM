@@ -611,11 +611,12 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         tss_word = TPM2_Packet_SwapU32(tss_word);
-        #ifdef WOLFTPM_DEBUG
-        if (tss_word != 0) {
+        if (rc == TPM_RC_SUCCESS && tss_word != 0) {
+            #ifdef WOLFTPM_DEBUG
             printf("SWTPM ack %d\n", tss_word);
+            #endif
+            rc = TPM_RC_FAILURE;
         }
-        #endif
     }
 
 

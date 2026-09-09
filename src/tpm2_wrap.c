@@ -903,6 +903,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
         printf("Extra data left in buffer (%d!=%d)\n",
             bufferSz, (word32)done_reading);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -1622,6 +1623,8 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
                                        pubKeyY, &ySz);
         wc_ecc_free(&hostKey);
         wc_FreeRng(&rng);
+        TPM2_ForceZero(&hostKey, sizeof(hostKey));
+        TPM2_ForceZero(&rng, sizeof(rng));
         if (rc != 0) {
             wc_ForceZero(privKey, sizeof(privKey));
             return rc;
@@ -1814,6 +1817,8 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
                                        pubKeyY, &ySz);
         wc_ecc_free(&hostKey);
         wc_FreeRng(&rng);
+        TPM2_ForceZero(&hostKey, sizeof(hostKey));
+        TPM2_ForceZero(&rng, sizeof(rng));
         if (rc != 0) {
             wc_ForceZero(privKey, sizeof(privKey));
             return rc;
@@ -2518,6 +2523,9 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     wc_ecc_free(&eccKeyPub);
     wc_ecc_free(&eccKeyPriv);
     wc_FreeRng(&rng);
+    TPM2_ForceZero(&eccKeyPub, sizeof(eccKeyPub));
+    TPM2_ForceZero(&eccKeyPriv, sizeof(eccKeyPriv));
+    TPM2_ForceZero(&rng, sizeof(rng));
     TPM2_ForceZero(&secretPoint, sizeof(secretPoint));
 
     if (rc >= 0) {
@@ -2612,6 +2620,12 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 
     if (rc > 0) {
         rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
+    }
+
+    if (rc != 0) {
+        /* Do not leave the plaintext salt or seed in the caller buffer */
+        TPM2_ForceZero(data->buffer, sizeof(data->buffer));
+        data->size = 0;
     }
 
     return rc;
@@ -2922,6 +2936,8 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             wolfTPM2_GetRCString(rc));
     #endif
         TPM2_ForceZero(&session->salt, sizeof(session->salt));
+        TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+        TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
         return rc;
     }
 
@@ -3027,6 +3043,8 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
 
     TPM2_ForceZero(keyIn, sizeof(keyIn));
+    TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+    TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
 
     return rc;
 }
@@ -3367,14 +3385,19 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (dev == NULL || key == NULL)
         return BAD_FUNC_ARG;
 
+    XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
+
     rc = wolfTPM2_CreateKey(dev, &keyBlob, parent, publicTemplate,
         auth, authSz);
     if (rc == TPM_RC_SUCCESS) {
         rc = wolfTPM2_LoadKey(dev, &keyBlob, parent);
     }
 
-    /* return loaded key */
-    XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
+    if (rc == TPM_RC_SUCCESS) {
+        /* return loaded key */
+        XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
+    }
 
     TPM2_ForceZero(&keyBlob, sizeof(keyBlob));
     return rc;
@@ -3533,6 +3556,11 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
     packet.buf = data.buffer;
     packet.size = sizeof(data.buffer);
     TPM2_Packet_AppendPublicArea(&packet, (TPMT_PUBLIC*)&pub->publicArea);
+    if (packet.overflow) {
+        /* A truncated public area would produce a wrong Name and corrupt
+         * authorization binding, so reject rather than hash a partial area */
+        return BUFFER_E;
+    }
     data.size = packet.pos;
 
     hashSz = TPM2_GetHashDigestSize(nameAlg);
@@ -4434,6 +4462,7 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             }
         }
         wc_FreeRsaKey(key);
+        TPM2_ForceZero(key, sizeof(RsaKey));
     }
 
     TPM2_ForceZero(d, sizeof(d));
@@ -4559,6 +4588,7 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
         }
 
         wc_ecc_free(key);
+        TPM2_ForceZero(key, sizeof(ecc_key));
     }
 
     TPM2_ForceZero(d, sizeof(d));
@@ -4689,6 +4719,10 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
         return BAD_FUNC_ARG;
     }
 
+    if (keyType != TPM_ALG_RSA && keyType != TPM_ALG_ECC) {
+        return BAD_FUNC_ARG;
+    }
+
     if (encodingType == ENCODING_TYPE_PEM) {
     #ifdef WOLFTPM2_PEM_DECODE
         /* der size is base 64 decode length */
@@ -4752,6 +4786,10 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     word32 digestSz;
 
     if (dev == NULL || keyBlob == NULL || input == NULL || inSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (keyType != TPM_ALG_RSA && keyType != TPM_ALG_ECC) {
         return BAD_FUNC_ARG;
     }
 
@@ -4907,8 +4945,10 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
             qSz, scheme, hashAlg);
     }
 
-    if (initRc == 0)
+    if (initRc == 0) {
         wc_FreeRsaKey(key);
+        TPM2_ForceZero(key, sizeof(RsaKey));
+    }
 
     TPM2_ForceZero(d, sizeof(d));
     TPM2_ForceZero(p, sizeof(p));
@@ -5233,6 +5273,7 @@ static int wolfTPM2_EccMakePubBlinded(ecc_key* key, ecc_point* point)
         wc_FreeRng(&rng);
     }
 
+    TPM2_ForceZero(&rng, sizeof(rng));
     return rc;
 #else
     (void)key;
@@ -5555,6 +5596,11 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL ||
                                                                 sigSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (key->pub.publicArea.type != TPM_ALG_ECC &&
+            key->pub.publicArea.type != TPM_ALG_RSA) {
         return BAD_FUNC_ARG;
     }
 
@@ -5894,6 +5940,8 @@ int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         *sequenceHandle = signSeqStartOut.sequenceHandle;
     }
 
+    TPM2_ForceZero(&signSeqStartIn, sizeof(signSeqStartIn));
+
     return rc;
 }
 
@@ -6083,6 +6131,8 @@ int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (rc == TPM_RC_SUCCESS) {
         *sequenceHandle = verifySeqStartOut.sequenceHandle;
     }
+
+    TPM2_ForceZero(&verifySeqStartIn, sizeof(verifySeqStartIn));
 
     return rc;
 }
@@ -8079,6 +8129,10 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
         TPM2_ForceZero(&out, sizeof(out));
     }
     TPM2_ForceZero(&out, sizeof(out));
+    if (rc != TPM_RC_SUCCESS) {
+        /* Scrub any partial random material already written to the caller */
+        TPM2_ForceZero(buf, len);
+    }
     return rc;
 }
 
@@ -8760,7 +8814,9 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     }
 
     if (usageAuth != NULL) {
-        /* Capture usage auth */
+        /* Capture usage auth, clearing any longer prior value first */
+        TPM2_ForceZero(hmac->hash.handle.auth.buffer,
+            sizeof(hmac->hash.handle.auth.buffer));
         hmac->hash.handle.auth.size = usageAuthSz;
         XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
     }
@@ -10254,6 +10310,8 @@ static void wolfTPM2_CopyPub(TPM2B_PUBLIC* out, const TPM2B_PUBLIC* in)
 static void wolfTPM2_CopyPriv(TPM2B_PRIVATE* out, const TPM2B_PRIVATE* in)
 {
     if (out != NULL && in != NULL) {
+        /* Clear any longer prior blob so its tail does not remain resident */
+        TPM2_ForceZero(out->buffer, sizeof(out->buffer));
         out->size = in->size;
         if (out->size > (UINT16)sizeof(out->buffer))
             out->size = (UINT16)sizeof(out->buffer);

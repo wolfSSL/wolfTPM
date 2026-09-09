@@ -1169,7 +1169,7 @@ typedef struct TPMS_PCR_SELECT {
 typedef struct TPMS_PCR_SELECTION {
     TPMI_ALG_HASH hash;
     BYTE sizeofSelect;
-    BYTE pcrSelect[PCR_SELECT_MIN];
+    BYTE pcrSelect[PCR_SELECT_MAX];
 } TPMS_PCR_SELECTION;
 
 

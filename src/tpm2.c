@@ -235,6 +235,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                     printf("Command parameter encryption failed\n");
             #endif
+                    TPM2_ForceZero(&authCmd, sizeof(authCmd));
                     return rc;
                 }
             }
@@ -249,6 +250,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                 printf("Error getting names for cpHash!\n");
             #endif
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return BAD_FUNC_ARG;
             }
 
@@ -259,6 +261,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating cpHash!\n");
             #endif
+                TPM2_ForceZero(&hash, sizeof(hash));
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return rc;
             }
             /* Calculate HMAC for policy, hmac or salted sessions */
@@ -270,6 +274,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating command HMAC!\n");
             #endif
+                TPM2_ForceZero(&hash, sizeof(hash));
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return rc;
             }
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
@@ -388,14 +394,21 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 XMEMSET(&hash, 0, sizeof(hash));
                 XMEMSET(&hmac, 0, sizeof(hmac));
 
-                if (expectedHmacSz == 0 || authRsp.hmac.size != expectedHmacSz) {
+                if (expectedHmacSz == 0) {
                 #ifdef DEBUG_WOLFTPM
-                    printf("Response HMAC size mismatch! expected=%u got=%u\n",
-                        expectedHmacSz, authRsp.hmac.size);
+                    printf("Response HMAC size invalid! expected=%u\n",
+                        expectedHmacSz);
                 #endif
                     TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return TPM_RC_HMAC;
                 }
+                sizeMismatch = (authRsp.hmac.size != expectedHmacSz);
+                #ifdef DEBUG_WOLFTPM
+                if (sizeMismatch) {
+                    printf("Response HMAC size mismatch! expected=%u got=%u\n",
+                        expectedHmacSz, authRsp.hmac.size);
+                }
+                #endif
 
                 /* calculate "rpHash" hash for command code and parameters */
                 rc = TPM2_CalcRpHash(session->authHash, cmdCode, param, paramSz,
@@ -423,11 +436,11 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
 
-                /* Verify HMAC using constant-time comparison. Wire-format
-                 * size is validated above; this is a branch-free tail check
-                 * (hmac.size and authRsp.hmac.size are both algorithm-derived
-                 * and equal to expectedHmacSz at this point). */
-                sizeMismatch = (hmac.size != authRsp.hmac.size);
+                /* Verify HMAC using constant-time comparison. A wire-size
+                 * mismatch captured above is combined here rather than
+                 * rejected early, so this always reads expectedHmacSz
+                 * bytes regardless of the attacker-supplied wire size. */
+                sizeMismatch |= (hmac.size != authRsp.hmac.size);
                 diff = TPM2_ConstantCompare(hmac.buffer, authRsp.hmac.buffer,
                     expectedHmacSz);
                 if (sizeMismatch | diff) {
@@ -466,6 +479,15 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return rc;
                 }
+            }
+
+            /* Retire a one-shot session: when the TPM clears
+             * continueSession the session is consumed, so clear the local
+             * slot to prevent reuse of a stale handle. */
+            if ((authRsp.sessionAttributes & TPMA_SESSION_continueSession)
+                    == 0) {
+                TPM2_ForceZero(session, sizeof(TPM2_AUTH_SESSION));
+                session->sessionHandle = TPM_RS_PW;
             }
         }
 
@@ -6826,6 +6848,10 @@ int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
     }
     /* response buffer held freshly generated random; wipe before return */
     TPM2_ForceZero(buffer, sizeof(buffer));
+    if (rc != TPM_RC_SUCCESS && randSz > 0) {
+        /* wipe partial nonce bytes already written from earlier chunks */
+        TPM2_ForceZero(nonceBuf, (word32)randSz);
+    }
 #endif
 
     return rc;
@@ -7516,6 +7542,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int rc;
     int hashSize, nameAlgSize;
+    int hashInitialized = 0;
     UINT16 nameAlgValue;
     wc_HashAlg hash;
     enum wc_HashType hashType;
@@ -7551,6 +7578,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 
     rc = wc_HashInit(&hash, hashType);
     if (rc == 0) {
+        hashInitialized = 1;
         rc = wc_HashUpdate(&hash, hashType, packet.buf, packet.pos);
     }
     if (rc == 0) {
@@ -7567,7 +7595,11 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
         rc = TPM_RC_SUCCESS;
     }
 
-    wc_HashFree(&hash, hashType);
+    if (hashInitialized) {
+        wc_HashFree(&hash, hashType);
+    }
+    TPM2_ForceZero(&hash, sizeof(hash));
+    TPM2_ForceZero(appending, sizeof(appending));
 
     return rc;
 #else
@@ -7585,19 +7617,21 @@ int TPM2_AppendPublic(byte* buf, word32 size, int* sizeUsed, TPM2B_PUBLIC* pub)
     if (buf == NULL || pub == NULL || sizeUsed == NULL)
         return BAD_FUNC_ARG;
 
-    if (size < sizeof(TPM2B_PUBLIC)) {
+    /* Prepare temporary buffer. The append helpers bounds-check against
+     * packet.size and set packet.overflow, so an exact-fit buffer is
+     * accepted and only an actually-too-small buffer is rejected. */
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = (int)size;
+    packet.overflow = 0;
+
+    TPM2_Packet_AppendPublic(&packet, pub);
+    if (packet.overflow) {
     #ifdef DEBUG_WOLFTPM
         printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
     #endif
         return TPM_RC_FAILURE;
     }
-
-    /* Prepare temporary buffer */
-    packet.buf = buf;
-    packet.pos = 0;
-    packet.size = (int)size;
-
-    TPM2_Packet_AppendPublic(&packet, pub);
     *sizeUsed = packet.pos;
 
     return TPM_RC_SUCCESS;

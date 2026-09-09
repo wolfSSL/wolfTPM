@@ -979,11 +979,11 @@ WOLFTPM_API const char* FWTPM_GetVersionString(void);
     FWTPM_Clock_GetMs returns ctx->clockOffset only.
 
     \return 0 on success
-    \return BAD_FUNC_ARG if ctx is NULL
+    \return BAD_FUNC_ARG if ctx or get_ms is NULL
 
     \param ctx pointer to an initialized FWTPM_CTX
-    \param get_ms callback returning milliseconds-since-boot; may be NULL
-        to clear a previously registered HAL
+    \param get_ms callback returning milliseconds-since-boot; must be
+        non-NULL, or the call returns BAD_FUNC_ARG
     \param halCtx opaque context passed back to get_ms
 
     \sa FWTPM_Clock_GetMs
