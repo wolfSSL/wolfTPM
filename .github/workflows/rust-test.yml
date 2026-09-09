@@ -1,0 +1,136 @@
+name: WolfTPM Rust Wrapper Tests
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '**' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  repository_dispatch:
+    types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Resolve the latest wolfSSL -stable tag so we also test the shipped release.
+  discover:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
+  rust:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: master
+            wolfssl_ref: master
+          - name: latest-stable
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # Build + install wolfSSL with the crypto-callback support the wrapper
+      # (and the TPM-backed TLS bridge) needs; installs to /usr/local so
+      # pkg-config finds it for both wolfTPM configure and the Rust build.rs.
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          ref: ${{ matrix.wolfssl_ref || 'master' }}
+          configure-flags: --enable-wolftpm --enable-pkcallbacks
+
+      # Use the runner's preinstalled rustup rather than a mutable third-party
+      # action, so no external action code runs with the job token.
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+          rustup default stable
+
+      - name: Generate TPM port
+        run: |
+          MATRIX_HASH=$(echo -n "rust-${{ matrix.name }}" | cksum | cut -d' ' -f1)
+          TPM_PORT=$((40000 + (MATRIX_HASH % 1000) * 2))
+          echo "TPM_PORT=$TPM_PORT" >> $GITHUB_ENV
+          echo "TPM2_SWTPM_PORT=$TPM_PORT" >> $GITHUB_ENV
+          echo "TPM2_SWTPM_HOST=localhost" >> $GITHUB_ENV
+
+      # Build wolfTPM with our in-tree firmware TPM (fwtpm_server) as the
+      # software TPM the Rust tests run against — no external simulator.
+      - name: Build wolfTPM (swtpm + fwtpm)
+        run: |
+          ./autogen.sh
+          ./configure --enable-swtpm --enable-fwtpm --with-swtpm-port=$TPM_PORT
+          make -j"$(nproc)"
+
+      - name: Start fwTPM server
+        run: |
+          ./src/fwtpm/fwtpm_server --clear --port "$TPM_PORT" \
+            --platform-port "$((TPM_PORT + 1))" &
+          sleep 1
+
+      - name: Build Rust wrapper
+        working-directory: ./wrapper/rust/wolftpm
+        run: cargo build --all-targets --features swtpm-tests
+
+      # Style gates are advisory on the first runs (annotate, don't fail the
+      # pipeline); flip continue-on-error off once a `cargo fmt` pass is landed.
+      - name: Clippy
+        working-directory: ./wrapper/rust/wolftpm
+        continue-on-error: true
+        run: cargo clippy --all-targets --features swtpm-tests -- -D warnings
+
+      - name: Rustfmt check
+        working-directory: ./wrapper/rust/wolftpm
+        continue-on-error: true
+        run: cargo fmt --check
+
+      - name: Test against fwTPM
+        working-directory: ./wrapper/rust/wolftpm
+        run: cargo test --features swtpm-tests -- --test-threads=1
+
+      - name: Docs
+        working-directory: ./wrapper/rust/wolftpm
+        run: cargo doc --no-deps
+
+  # Compile-only against the Linux kernel-device transport, so the non-swtpm
+  # cfg paths and the callback-free open() build are exercised too.
+  rust-devtpm-compile:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          ref: master
+          configure-flags: --enable-wolftpm --enable-pkcallbacks
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build wolfTPM (devtpm)
+        run: |
+          ./autogen.sh
+          ./configure --enable-devtpm
+          make -j"$(nproc)"
+      - name: Compile Rust wrapper (no swtpm)
+        working-directory: ./wrapper/rust/wolftpm
+        run: cargo build --all-targets
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolftpm-rust-devtpm-logs
+          path: |
+            wrapper/rust/wolftpm/target/debug/build/*/output
+          retention-days: 5
