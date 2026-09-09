@@ -412,6 +412,11 @@ typedef enum {
     TPM_RC_BINDING          = RC_FMT1 + 0x025,
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
+#ifdef WOLFTPM_V185
+    /* Part 2 v1.85 Sec.6.6.3 Table 17 firmware/SVN-limited codes */
+    TPM_RC_FW_LIMITED         = RC_FMT1 + 0x028,
+    TPM_RC_SVN_LIMITED        = RC_FMT1 + 0x029,
+#endif
     /* TCG Part 2 Sec.6.6.3 Table 17 -- present since v1.16, not v1.85 */
     TPM_RC_PARMS              = RC_FMT1 + 0x02A,
 #ifdef WOLFTPM_PQC
@@ -419,6 +424,11 @@ typedef enum {
     TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
     TPM_RC_ONE_SHOT_SIGNATURE = RC_FMT1 + 0x02C,
     TPM_RC_SIGN_CONTEXT_KEY   = RC_FMT1 + 0x02D,
+#endif
+#ifdef WOLFTPM_V185
+    /* Part 2 v1.85 Sec.6.6.3 Table 17 channel protocol codes */
+    TPM_RC_CHANNEL            = RC_FMT1 + 0x030,
+    TPM_RC_CHANNEL_KEY        = RC_FMT1 + 0x031,
 #endif
     RC_MAX_FMT1             = RC_FMT1 + 0x03F,
 
@@ -873,11 +883,12 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_restricted          = 0x00010000,
     TPMA_OBJECT_decrypt             = 0x00020000,
     TPMA_OBJECT_sign                = 0x00040000,
+#ifndef WOLFTPM_V185
     /* Deprecated alias. Earlier versions of this header labeled bit 9
      * as derivedDataOrigin, which does not appear in the TCG spec.
-     * Retained at the same bit value (now svnLimited per Part 2 v1.85)
-     * for source compatibility with downstream code. */
+     * In v1.85 builds bit 9 is exposed only as svnLimited. */
     TPMA_OBJECT_derivedDataOrigin   = 0x00000200,
+#endif
 #ifdef WOLFTPM_V185
     /* Part 2 v1.85 Sec.8.3.2 Table 36 bits 8 and 9: firmwareLimited /
      * svnLimited mark keys whose lifetime is bound to the firmware

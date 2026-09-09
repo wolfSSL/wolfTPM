@@ -549,6 +549,7 @@ WOLFTPM2_DEV* wolfTPM2_New(void)
         sizeof(WOLFTPM2_DEV), NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (dev != NULL) {
         if (wolfTPM2_Init(dev, TPM2_IoCb, NULL) != TPM_RC_SUCCESS) {
+            TPM2_ForceZero(dev, sizeof(WOLFTPM2_DEV));
             XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             dev = NULL;
         }
@@ -1576,7 +1577,8 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
             return rc;
         }
     }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    defined(ECC_TIMING_RESISTANT)
     else {
         /* Auto-generate ephemeral P-384 key pair for mutual authentication */
         ecc_key hostKey;
@@ -1663,6 +1665,11 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
         rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
             tpmtPub, (word32)(p - tpmtPub));
         if (rc != 0) return rc;
+    }
+#elif !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    else {
+        /* Requester key auto-generation requires timing-resistant ECC */
+        return NOT_COMPILED_IN;
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
@@ -1762,7 +1769,8 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
             return rc;
         }
     }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    defined(ECC_TIMING_RESISTANT)
     else {
         /* Auto-generate ephemeral P-384 key pair for mutual authentication.
          * Nations: GIVE_PUB is not supported, but MUT_AUTH is still required.
@@ -1837,6 +1845,11 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
         rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
             tpmtPub, (word32)(p - tpmtPub));
         if (rc != 0) return rc;
+    }
+#elif !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    else {
+        /* Requester key auto-generation requires timing-resistant ECC */
+        return NOT_COMPILED_IN;
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
@@ -3624,19 +3637,28 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     if (parentKey != NULL) {
         symKey.size = parentKey->handle.symmetric.keyBits.sym;
     }
-    else {
+    else if (sym != NULL) {
         symKey.size = sym->keyBits.sym;
     }
-    /* convert from bit to byte and round up */
-    symKey.size = (symKey.size + 7) / 8;
-    /* check for invalid value */
-    if (symKey.size > sizeof(symKey.buffer)) {
-        rc = BUFFER_E;
+    else {
+        rc = BAD_FUNC_ARG;
+    }
+    if (rc == 0) {
+        /* convert from bit to byte and round up */
+        symKey.size = (symKey.size + 7) / 8;
+        /* check for invalid value */
+        if (symKey.size > sizeof(symKey.buffer)) {
+            rc = BUFFER_E;
+        }
     }
 #endif
 
-    if (innerWrap) {
-        /* TODO: Inner wrap support */
+    if (innerWrap && !outerWrap) {
+        /* A symmetric definition without an outer wrap seed would emit the
+         * sensitive unprotected (inner-wrap-only is not implemented); reject
+         * rather than return success with plaintext. When an outer wrap is
+         * present it applies this symmetric encryption. */
+        rc = NOT_COMPILED_IN;
     }
 
     if (rc == 0 && outerWrap) {
@@ -4846,7 +4868,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     int initRc = -1;
     RsaKey key[1];
     word32 idx = 0;
-    word32  e;
+    word32  e = 0;
     byte n[RSA_MAX_SIZE / 8];
     byte d[RSA_MAX_SIZE / 8];
     byte p[RSA_MAX_SIZE / 8];
@@ -4865,8 +4887,13 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     if (rc == 0)
         rc = initRc = wc_InitRsaKey(key, NULL);
 
-    if (rc == 0)
+    if (rc == 0) {
+    #ifdef HAVE_PKCS8
+        /* Skip a PKCS#8 wrapper if present (BEGIN PRIVATE KEY) */
+        (void)wc_GetPkcs8TraditionalOffset((byte*)input, &idx, inSz);
+    #endif
         rc = wc_RsaPrivateKeyDecode(input, &idx, key, inSz);
+    }
 
     if (rc == 0) {
         PRIVATE_KEY_UNLOCK();
@@ -4896,10 +4923,38 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const char* input, word32 inSz, char* pass,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
-    (void)scheme;
-    (void)hashAlg;
-    return wolfTPM2_ImportPrivateKeyBuffer(dev, parentKey, TPM_ALG_RSA, keyBlob,
-        ENCODING_TYPE_PEM, input, inSz, pass, 0, NULL, 0);
+    int rc;
+    byte* derBuf;
+    word32 derSz;
+    word32 derBufSz;
+
+    if (dev == NULL || parentKey == NULL || keyBlob == NULL ||
+            input == NULL || inSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* der size is base 64 decode length */
+    if (inSz > (0xFFFFFFFFU / 3))
+        return BAD_FUNC_ARG;
+    derSz = inSz * 3 / 4 + 1;
+    derBufSz = derSz;
+    derBuf = (byte*)XMALLOC(derBufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (derBuf == NULL)
+        return MEMORY_E;
+
+    /* Convert PEM to DER, then import through the DER path so the requested
+     * RSA scheme and hash are applied. The DER importer skips any PKCS#8
+     * wrapper wc_KeyPemToDer leaves in place. */
+    rc = wc_KeyPemToDer((byte*)input, inSz, derBuf, derBufSz, pass);
+    if (rc >= 0) {
+        derSz = (word32)rc;
+        rc = wolfTPM2_RsaPrivateKeyImportDer(dev, parentKey, keyBlob,
+            derBuf, derSz, scheme, hashAlg);
+    }
+
+    TPM2_ForceZero(derBuf, derBufSz);
+    XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    return rc;
 }
 #endif /* WOLFTPM2_PEM_DECODE */
 
