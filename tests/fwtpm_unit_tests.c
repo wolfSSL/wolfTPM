@@ -84,6 +84,11 @@
     Assert(_x > _y, ("%s > %s", #x, #y),                                     \
         ("%d <= %d", _x, _y));                                                \
 } while(0)
+#define AssertIntLE(x, y) do {                                                \
+    int _x = (int)(x); int _y = (int)(y);                                    \
+    Assert(_x <= _y, ("%s <= %s", #x, #y),                                   \
+        ("%d > %d", _x, _y));                                                 \
+} while(0)
 
 /* ================================================================== */
 /* Packet building helpers                                             */
@@ -10533,11 +10538,17 @@ static void CreateChildBlobs(FWTPM_CTX* ctx, UINT32 parent,
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     pos = TPM2_HEADER_SIZE + 4;                       /* skip parameterSize */
+    AssertIntLE(pos + 2, rspSize);                    /* size field present */
     *privSz = GetU16BE(gRsp + pos); pos += 2;
     AssertIntGT(*privSz, 0);
+    AssertIntLE(*privSz, sizeof(TPM2B_PRIVATE));      /* fits caller's buffer */
+    AssertIntLE(pos + *privSz, rspSize);             /* payload present */
     memcpy(priv, gRsp + pos, *privSz); pos += *privSz;
+    AssertIntLE(pos + 2, rspSize);                    /* size field present */
     *pubSz = GetU16BE(gRsp + pos);
     AssertIntGT(*pubSz, 0);
+    AssertIntLE(2 + *pubSz, sizeof(TPM2B_PUBLIC));    /* fits caller's buffer */
+    AssertIntLE(pos + 2 + *pubSz, rspSize);          /* payload present */
     memcpy(pub, gRsp + pos, 2 + *pubSz);              /* keep the size prefix */
 }
 
