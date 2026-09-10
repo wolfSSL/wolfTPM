@@ -253,6 +253,7 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
     if (manifest_file == NULL || firmware_file == NULL) {
         if (argc > 1) {
             printf("Manifest file or firmware file arguments missing!\n");
+            rc = BAD_FUNC_ARG;
         }
         goto exit;
     }
