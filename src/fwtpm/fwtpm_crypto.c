@@ -192,6 +192,9 @@ int FwComputePublicName(TPMT_PUBLIC* pub, TPM2B_NAME* name)
     int digestSz;
 
     FWTPM_ALLOC_BUF(pubBuf, FWTPM_MAX_PUB_BUF);
+    if (rc != 0) {
+        return rc;
+    }
 
     /* Marshal public area into temp buffer */
     tmpPkt.buf = pubBuf;
@@ -670,7 +673,7 @@ static TPM_RC FwEccGetCurveOrder(int wcCurve, byte* orderBuf, int keySz,
  * The counter in contextV is incremented if d >= order or d == 0. */
 TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     const byte* seed, const byte* hashUnique, int hashUniqueSz,
-    UINT16 curveId,
+    UINT16 curveId, WC_RNG* rng,
     TPMS_ECC_POINT* pubOut,
     byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSz)
 {
@@ -745,8 +748,14 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     }
     if (rc == 0) {
     #ifdef ECC_TIMING_RESISTANT
-        rc = wc_ecc_make_pub_ex(eccKey, NULL, NULL);
+        if (rng != NULL) {
+            rc = wc_ecc_make_pub_ex(eccKey, NULL, rng);
+        }
+        else {
+            rc = wc_ecc_make_pub(eccKey, NULL);
+        }
     #else
+        (void)rng;
         rc = wc_ecc_make_pub(eccKey, NULL);
     #endif
     }
@@ -2248,7 +2257,7 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     byte hmacDigest[WC_SHA256_DIGEST_SIZE];
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
-    int sensSz;
+    int sensSz = 0;
     int aesInit = 0;
     int pos = 0;
 
@@ -2257,10 +2266,13 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
     /* Marshal inner sensitive */
-    sensSz = FwMarshalSensitive(sensBuf, (int)(FWTPM_MAX_PRIVKEY_DER + 128),
-        sensitiveType, auth, privKeyDer, privKeyDerSz);
-    if (sensSz < 0) {
-        rc = TPM_RC_FAILURE;
+    if (rc == 0) {
+        sensSz = FwMarshalSensitive(sensBuf,
+            (int)(FWTPM_MAX_PRIVKEY_DER + 128),
+            sensitiveType, auth, privKeyDer, privKeyDerSz);
+        if (sensSz < 0) {
+            rc = TPM_RC_FAILURE;
+        }
     }
 
     /* Derive wrapping keys from parent and child Name, fresh IV per blob */
@@ -3582,15 +3594,15 @@ int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key)
  * coordinates. wc_ecc_shared_secret only returns x; ZGen_2Phase marshals a
  * full TPM2B_ECC_POINT and TPM_ALG_ECMQV requires y as well.
  * xBuf/yBuf must each hold at least curve byte length. */
-int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
+int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     byte* xBuf, word32* xSz, byte* yBuf, word32* ySz)
 {
     int rc;
     int curveIdx;
     ecc_point* R = NULL;
-    mp_int prime, a;
+    mp_int prime, a, order;
     const ecc_set_type* dp;
-    int primeInit = 0, aInit = 0;
+    int primeInit = 0, aInit = 0, orderInit = 0;
 
     if (priv == NULL || peer == NULL || xBuf == NULL || xSz == NULL ||
         yBuf == NULL || ySz == NULL) {
@@ -3615,12 +3627,36 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
     }
     if (rc == 0) {
         aInit = 1;
+        rc = mp_init(&order);
+    }
+    if (rc == 0) {
+        orderInit = 1;
         rc = mp_read_radix(&prime, dp->prime, MP_RADIX_HEX);
     }
     if (rc == 0)
         rc = mp_read_radix(&a, dp->Af, MP_RADIX_HEX);
     if (rc == 0)
+        rc = mp_read_radix(&order, dp->order, MP_RADIX_HEX);
+    if (rc == 0) {
+    #ifdef WOLFSSL_PUBLIC_ECC_ADD_DBL
+        /* RNG-blinded scalar multiply bound to the curve order. Fall back to
+         * the base multiply if no RNG is available so a NULL rng cannot be
+         * dereferenced. */
+        if (rng != NULL) {
+            rc = wc_ecc_mulmod_ex2(ecc_get_k(priv), &peer->pubkey, R, &a,
+                &prime, &order, rng, 1, NULL);
+        }
+        else {
+            rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a,
+                &prime, 1);
+        }
+    #else
+        /* wc_ecc_mulmod_ex2 is public only with WOLFSSL_PUBLIC_ECC_ADD_DBL;
+         * fall back to the base multiply when it is unavailable */
+        (void)rng;
         rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a, &prime, 1);
+    #endif
+    }
 
     /* Export x and y with fixed-size left-zero padding to the curve byte
      * length. Using mp_unsigned_bin_size/mp_to_unsigned_bin here would drop
@@ -3636,6 +3672,8 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
         rc = mp_to_unsigned_bin_len(R->y, yBuf, dp->size);
     }
 
+    if (orderInit)
+        mp_clear(&order);
     if (aInit)
         mp_clear(&a);
     if (primeInit)
@@ -3661,21 +3699,26 @@ int FwGetRsaPadding(UINT16 scheme)
 int FwRsaComputeCRT(RsaKey* rsaKey)
 {
     int rc;
+    int pm1Init = 0, qm1Init = 0, phiInit = 0;
     mp_int pm1, qm1, phi;
 
     rc = mp_init(&pm1);
     if (rc == 0) {
+        pm1Init = 1;
         rc = mp_init(&qm1);
     }
     if (rc == 0) {
+        qm1Init = 1;
         rc = mp_init(&phi);
     }
-    if (rc != 0) {
-        return TPM_RC_FAILURE;
+    if (rc == 0) {
+        phiInit = 1;
     }
 
     /* phi = (p-1)(q-1) */
-    rc = mp_sub_d(&rsaKey->p, 1, &pm1);
+    if (rc == 0) {
+        rc = mp_sub_d(&rsaKey->p, 1, &pm1);
+    }
     if (rc == 0) {
         rc = mp_sub_d(&rsaKey->q, 1, &qm1);
     }
@@ -3697,12 +3740,18 @@ int FwRsaComputeCRT(RsaKey* rsaKey)
         rc = mp_invmod(&rsaKey->q, &rsaKey->p, &rsaKey->u);
     }
 
-    mp_forcezero(&pm1);
-    mp_forcezero(&qm1);
-    mp_forcezero(&phi);
-    mp_clear(&pm1);
-    mp_clear(&qm1);
-    mp_clear(&phi);
+    if (pm1Init) {
+        mp_forcezero(&pm1);
+        mp_clear(&pm1);
+    }
+    if (qm1Init) {
+        mp_forcezero(&qm1);
+        mp_clear(&qm1);
+    }
+    if (phiInit) {
+        mp_forcezero(&phi);
+        mp_clear(&phi);
+    }
 
     if (rc != 0) {
         rc = TPM_RC_FAILURE;

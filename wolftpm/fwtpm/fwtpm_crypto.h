@@ -126,7 +126,7 @@ TPM_RC FwGenerateEccKey(WC_RNG* rng,
 #ifdef HAVE_ECC
 TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     const byte* seed, const byte* hashUnique, int hashUniqueSz,
-    UINT16 curveId, TPMS_ECC_POINT* pubOut,
+    UINT16 curveId, WC_RNG* rng, TPMS_ECC_POINT* pubOut,
     byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSz);
 #endif
 
@@ -333,7 +333,7 @@ int FwGetRsaHashOid(UINT16 hashAlg);
 int FwImportEccKeyFromDer(const FWTPM_Object* obj, ecc_key* key);
 int FwImportEccPubFromPublic(const TPMT_PUBLIC* pub, ecc_key* key);
 int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key);
-int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
+int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     byte* xBuf, word32* xSz, byte* yBuf, word32* ySz);
 #endif /* HAVE_ECC */
 

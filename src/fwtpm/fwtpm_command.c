@@ -1795,19 +1795,41 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         case TPM_CAP_PCRS: {
-            TPM2_Packet_AppendU32(rsp, FWTPM_PCR_BANKS);
-            TPM2_Packet_AppendU16(rsp, TPM_ALG_SHA256);
-            TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
+            UINT16 pcrBankAlg[FWTPM_PCR_BANKS];
+            byte pcrBankBit[FWTPM_PCR_BANKS];
+            int b, pIdx, bitsThisByte;
+            byte sel;
+
+            pcrBankAlg[FWTPM_PCR_BANK_SHA256] = TPM_ALG_SHA256;
+            pcrBankBit[FWTPM_PCR_BANK_SHA256] =
+                (byte)(1 << FWTPM_PCR_BANK_SHA256);
         #ifdef WOLFSSL_SHA384
-            TPM2_Packet_AppendU16(rsp, TPM_ALG_SHA384);
-            TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
-            TPM2_Packet_AppendU8(rsp, 0xFF);
+            pcrBankAlg[FWTPM_PCR_BANK_SHA384] = TPM_ALG_SHA384;
+            pcrBankBit[FWTPM_PCR_BANK_SHA384] =
+                (byte)(1 << FWTPM_PCR_BANK_SHA384);
         #endif
+        #ifndef NO_SHA
+            pcrBankAlg[FWTPM_PCR_BANK_SHA1] = TPM_ALG_SHA1;
+            pcrBankBit[FWTPM_PCR_BANK_SHA1] =
+                (byte)(1 << FWTPM_PCR_BANK_SHA1);
+        #endif
+
+            TPM2_Packet_AppendU32(rsp, FWTPM_PCR_BANKS);
+            for (b = 0; b < FWTPM_PCR_BANKS; b++) {
+                TPM2_Packet_AppendU16(rsp, pcrBankAlg[b]);
+                TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
+                for (pIdx = 0; pIdx < PCR_SELECT_MAX; pIdx++) {
+                    sel = 0x00;
+                    if (ctx->pcrAllocatedBanks & pcrBankBit[b]) {
+                        bitsThisByte = IMPLEMENTATION_PCR - (pIdx * 8);
+                        if (bitsThisByte >= 8)
+                            sel = 0xFF;
+                        else if (bitsThisByte > 0)
+                            sel = (byte)((1u << bitsThisByte) - 1u);
+                    }
+                    TPM2_Packet_AppendU8(rsp, sel);
+                }
+            }
             break;
         }
 
@@ -3381,7 +3403,16 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &primaryHandle);
         seed = FwGetHierarchySeed(ctx, primaryHandle);
         if (seed == NULL) {
-            rc = TPM_RC_HIERARCHY;
+            /* A permanent handle is a recognized hierarchy selector this
+             * fwTPM does not support (includes the v1.85 firmware- and
+             * SVN-limited hierarchies); any other value is not a valid
+             * TPMI_RH_HIERARCHY and is rejected as a malformed value. */
+            if ((primaryHandle & HR_RANGE_MASK) == HR_PERMANENT) {
+                rc = TPM_RC_HIERARCHY;
+            }
+            else {
+                rc = TPM_RC_VALUE;
+            }
         }
     }
 
@@ -3601,6 +3632,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = FwDeriveEccPrimaryKey(inPublic->publicArea.nameAlg,
                     seed, hashUnique, hashUniqueSz,
                     inPublic->publicArea.parameters.eccDetail.curveID,
+                    &ctx->rng,
                     &obj->pub.unique.ecc,
                     obj->privKey, FWTPM_MAX_PRIVKEY_DER, &derSz);
                 if (rc == 0) {
@@ -16276,7 +16308,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc != 0) rc = TPM_RC_ECC_POINT;
     }
     if (rc == 0) {
-        rc = FwEccSharedPoint(privKeyA, peerPub,
+        rc = FwEccSharedPoint(privKeyA, peerPub, &ctx->rng,
             z1xBuf, &z1xSz, z1yBuf, &z1ySz);
         if (rc != 0) rc = TPM_RC_FAILURE;
     }
@@ -16312,7 +16344,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc != 0) rc = TPM_RC_ECC_POINT;
     }
     if (rc == 0) {
-        rc = FwEccSharedPoint(privEph, peerPub,
+        rc = FwEccSharedPoint(privEph, peerPub, &ctx->rng,
             z2xBuf, &z2xSz, z2yBuf, &z2ySz);
         if (rc != 0) rc = TPM_RC_FAILURE;
     }
@@ -18839,7 +18871,13 @@ static int FwPhysicalPresenceAsserted(FWTPM_CTX* ctx)
     if (ctx->ppHal.get_pp != NULL) {
         return ctx->ppHal.get_pp(ctx->ppHal.ctx) != 0;
     }
+#ifdef FWTPM_ALLOW_PLATFORM_PP
+    /* Trust the unauthenticated platform-channel latch only when the
+     * integrator has explicitly opted in (simulator/bring-up use). */
     return ctx->physicalPresence != 0;
+#else
+    return 0;
+#endif
 }
 #endif /* !FWTPM_NO_PP */
 
