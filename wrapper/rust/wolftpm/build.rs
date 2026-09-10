@@ -180,6 +180,16 @@ fn bindings_path() -> String {
 fn generate_bindings() -> Result<()> {
     let mut builder = bindgen::Builder::default()
         .header("headers.h")
+        // The raw FFI layer needs neither libc decls nor the C doxygen text;
+        // both only produce warnings (libc memcpy/etc. trip the runtime-symbol
+        // lint, and doxygen [in,out]/[0] markers become broken rustdoc links).
+        .blocklist_function("memcpy")
+        .blocklist_function("memmove")
+        .blocklist_function("memset")
+        .blocklist_function("memcmp")
+        .blocklist_function("bcmp")
+        .blocklist_function("strlen")
+        .generate_comments(false)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
 
     // Preprocess for the actual target, not the build host: wolfTPM headers
