@@ -75,6 +75,11 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
     enum wc_HashType hashType;
     wc_HashAlg dig;
     int hashInitialized = 0;
+#elif !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+    defined(WOLFTPM2_NO_WOLFCRYPT)
+    XFILE fp = NULL;
+    size_t len;
+    BYTE extra;
 #endif
 
     union {
@@ -157,10 +162,18 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         rc = wc_HashInit(&dig, hashType);
         if (rc == 0)
             hashInitialized = 1;
-        while (rc == 0 && !XFEOF(fp)) {
+        while (rc == 0) {
             len = XFREAD(dataBuffer, 1, sizeof(dataBuffer), fp);
             if (len > 0) {
                 rc = wc_HashUpdate(&dig, hashType, dataBuffer, (int)len);
+            }
+            if (len < sizeof(dataBuffer)) {
+                /* Short read: end of file, or an input error to report */
+                if (!XFEOF(fp)) {
+                    printf("Error reading file %s\n", filename);
+                    rc = BAD_FUNC_ARG;
+                }
+                break;
             }
         }
         XFCLOSE(fp);
@@ -177,7 +190,26 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
                 hash, hashSz);
     }
     else
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_FILESYSTEM */
+#elif !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+    defined(WOLFTPM2_NO_WOLFCRYPT)
+    /* Crypto disabled: the file must contain a precomputed digest */
+    fp = XFOPEN(filename, "rb");
+    if (fp != XBADFILE) {
+        len = XFREAD(cmdIn.pcrExtend.digests.digests[0].digest.H, 1,
+            hashSz, fp);
+        if ((int)len == hashSz && XFREAD(&extra, 1, 1, fp) != 0) {
+            len = 0; /* trailing bytes mean this is not a bare digest */
+        }
+        XFCLOSE(fp);
+        if ((int)len != hashSz) {
+            printf("Expected exactly %d digest bytes in %s\n",
+                hashSz, filename);
+            rc = BAD_FUNC_ARG;
+            goto exit;
+        }
+    }
+    else
+#endif /* !NO_FILESYSTEM */
     {
         printf("Error loading file %s, using test data\n", filename);
         for (i=0; i<hashSz; i++) {

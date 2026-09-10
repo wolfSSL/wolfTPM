@@ -153,8 +153,13 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&makeCredIn, 0, sizeof(makeCredIn));
     XMEMSET(&makeCredOut, 0, sizeof(makeCredOut));
     makeCredIn.credential.size = CRED_SECRET_SIZE;
-    wolfTPM2_GetRandom(&dev, makeCredIn.credential.buffer,
+    rc = wolfTPM2_GetRandom(&dev, makeCredIn.credential.buffer,
                              makeCredIn.credential.size);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_GetRandom failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
     /* Set the object name */
     if (name.size > sizeof(makeCredIn.objectName.name)) {
         printf("Name size %d exceeds buffer\n", name.size);
@@ -180,14 +185,23 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     fp = XFOPEN(output, "wb");
-    if (fp != XBADFILE) {
-        dataSize = (int)XFWRITE((BYTE*)&makeCredOut.credentialBlob, 1,
-                                 sizeof(makeCredOut.credentialBlob), fp);
-        if (dataSize > 0) {
-            dataSize += (int)XFWRITE((BYTE*)&makeCredOut.secret, 1,
-                                      sizeof(makeCredOut.secret), fp);
-        }
-        XFCLOSE(fp);
+    if (fp == XBADFILE) {
+        printf("Failed to open %s for writing\n", output);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+    dataSize = (int)XFWRITE((BYTE*)&makeCredOut.credentialBlob, 1,
+                             sizeof(makeCredOut.credentialBlob), fp);
+    if (dataSize == (int)sizeof(makeCredOut.credentialBlob)) {
+        dataSize += (int)XFWRITE((BYTE*)&makeCredOut.secret, 1,
+                                  sizeof(makeCredOut.secret), fp);
+    }
+    XFCLOSE(fp);
+    if (dataSize != (int)(sizeof(makeCredOut.credentialBlob) +
+                          sizeof(makeCredOut.secret))) {
+        printf("Failed to write credential blob and secret to %s\n", output);
+        rc = BAD_FUNC_ARG;
+        goto exit;
     }
     printf("Wrote credential blob and secret to %s, %d bytes\n",
         output, dataSize);

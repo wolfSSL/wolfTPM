@@ -652,9 +652,18 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
     generate_port
     READY_FILE="/tmp/wolftpm_tls_ready_$$"
     rm -f "$READY_FILE"
+    # The TPM client verifies the peer, so the wolfSSL server presents a cert
+    # for this key type and the client trusts the CA that issued it
+    if [ "$1" = "ecc" ]; then
+        PEER_CERT_ARGS="-c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
+        PEER_CA_FILE="$WOLFSSL_PATH/certs/ca-ecc-cert.pem"
+    else
+        PEER_CERT_ARGS="-c ./certs/server-cert.pem -k ./certs/server-key.pem"
+        PEER_CA_FILE="$WOLFSSL_PATH/certs/ca-cert.pem"
+    fi
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
-    echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem -R $READY_FILE"
-    ./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem -R "$READY_FILE" >> $TPMPWD/run.out 2>&1 &
+    echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $PEER_CERT_ARGS -R $READY_FILE"
+    ./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $PEER_CERT_ARGS -R "$READY_FILE" >> $TPMPWD/run.out 2>&1 &
     SERVER_PID=$!
     popd >> $TPMPWD/run.out 2>&1
     if ! wait_for_ready "$READY_FILE" 500; then
@@ -665,8 +674,8 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
     fi
     rm -f "$READY_FILE"
 
-    echo -e "./examples/tls/tls_client -p=$port -$1 $2"
-    ./examples/tls/tls_client -p=$port -$1 $2 >> $TPMPWD/run.out 2>&1
+    echo -e "./examples/tls/tls_client -p=$port -A=$PEER_CA_FILE -$1 $2"
+    ./examples/tls/tls_client -p=$port "-A=$PEER_CA_FILE" -$1 $2 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
 }
@@ -674,9 +683,18 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
 run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversion] [extraargs]
     echo -e "TLS test (TPM as server) $1 $2 $3"
     generate_port
+    # The TPM server verifies the peer, so the wolfSSL client presents a
+    # client-auth cert for this key type and the server trusts its issuer
+    if [ "$1" = "ecc" ]; then
+        PEER_CERT_ARGS="-c ./certs/client-ecc-ca-cert.pem -k ./certs/ecc-client-key.pem"
+        PEER_CA_FILE="$WOLFSSL_PATH/certs/ca-ecc-cert.pem"
+    else
+        PEER_CERT_ARGS="-c ./certs/client-ca-cert.pem -k ./certs/client-key.pem"
+        PEER_CA_FILE="$WOLFSSL_PATH/certs/ca-cert.pem"
+    fi
 
-    echo -e "./examples/tls/tls_server -p=$port -$1 $2"
-    ./examples/tls/tls_server -p=$port -$1 $2 >> $TPMPWD/run.out 2>&1 &
+    echo -e "./examples/tls/tls_server -p=$port -A=$PEER_CA_FILE -$1 $2"
+    ./examples/tls/tls_server -p=$port "-A=$PEER_CA_FILE" -$1 $2 >> $TPMPWD/run.out 2>&1 &
     SERVER_PID=$!
     if ! wait_for_port "$port" 500; then
         echo -e "TPM TLS server failed to start on port $port for $1 $2"
@@ -685,8 +703,8 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
     fi
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
 
-    echo -e "./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4"
-    ./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4 >> $TPMPWD/run.out 2>&1
+    echo -e "./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $PEER_CERT_ARGS $4"
+    ./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $PEER_CERT_ARGS $4 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls client $1 $2 failed! $RESULT" && exit 1
     popd >> $TPMPWD/run.out 2>&1
@@ -877,8 +895,15 @@ echo -e "PCR Quote tests"
 ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "pcr reset failed! $RESULT" && exit 1
-./examples/pcr/extend 16 /usr/bin/zip >> $TPMPWD/run.out 2>&1
+PCR_EXTEND_FILE=/usr/bin/zip
+if [ $WOLFCRYPT_ENABLE -eq 0 ]; then
+    # Without wolfCrypt, extend expects a raw, precomputed SHA-256 digest.
+    PCR_EXTEND_FILE="$TPMPWD/pcr-extend.digest"
+    printf '%s' '0123456789abcdef0123456789abcdef' > "$PCR_EXTEND_FILE"
+fi
+./examples/pcr/extend 16 "$PCR_EXTEND_FILE" >> $TPMPWD/run.out 2>&1
 RESULT=$?
+[ $WOLFCRYPT_ENABLE -eq 0 ] && rm -f "$PCR_EXTEND_FILE"
 [ $RESULT -ne 0 ] && echo -e "pcr extend file failed! $RESULT" && exit 1
 ./examples/pcr/quote 16 zip.quote >> $TPMPWD/run.out 2>&1
 RESULT=$?

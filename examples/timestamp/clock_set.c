@@ -112,8 +112,14 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
 
     /* Set the TPM clock forward */
     cmdIn.clockSet.auth = TPM_RH_OWNER;
-    if (newClock)
-        cmdIn.clockSet.newTime = newClock;
+    if (newClock) {
+        if (newClock > (UINT64)0xFFFFFFFFFFFFFFFFULL - oldClock) {
+            printf("Clock increment out of range\n");
+            rc = BAD_FUNC_ARG;
+            goto exit;
+        }
+        cmdIn.clockSet.newTime = oldClock + newClock;
+    }
     else
         cmdIn.clockSet.newTime = oldClock + 50000;
     rc = TPM2_ClockSet(&cmdIn.clockSet);

@@ -300,9 +300,17 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     dataSz = cmdOut.quoteResult.quoted.size;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     f = XFOPEN(outputFile, "wb");
-    if (f != XBADFILE) {
-        dataSz = (int)XFWRITE(data, 1, dataSz, f);
-        XFCLOSE(f);
+    if (f == XBADFILE) {
+        printf("Failed to open %s for writing\n", outputFile);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+    dataSz = (int)XFWRITE(data, 1, dataSz, f);
+    XFCLOSE(f);
+    if (dataSz != (int)cmdOut.quoteResult.quoted.size) {
+        printf("Failed to write quote to %s\n", outputFile);
+        rc = BAD_FUNC_ARG;
+        goto exit;
     }
     printf("Wrote %d bytes to %s\n", dataSz, outputFile);
 #else

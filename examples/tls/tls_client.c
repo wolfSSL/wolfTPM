@@ -101,6 +101,9 @@ static void usage(void)
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -h=host: Server hostname (default %s)\n", TLS_HOST);
     printf("* -p=port: Supply a custom port number (default %d)\n", TLS_PORT);
+#ifndef NO_FILESYSTEM
+    printf("* -A=file: CA certificate file to trust\n");
+#endif
 #if defined(WOLFTPM_CRYPTOCB) && defined(HAVE_PK_CALLBACKS)
     printf("* -pk: Use PK callbacks, not crypto callbacks\n");
 #endif
@@ -142,6 +145,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 #endif
     const char* host = TLS_HOST;
     int hostGiven = 0;
+#ifndef NO_FILESYSTEM
+    const char* caFile = NULL;
+#endif
     int useECC = 0;
     int usePK = 0;
 #ifdef WOLFTPM_TLS_PQC
@@ -226,6 +232,11 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
             const char* portStr = argv[argc-1] + XSTRLEN("-p=");
             port = (word32)XATOI(portStr);
         }
+    #ifndef NO_FILESYSTEM
+        else if (XSTRNCMP(argv[argc-1], "-A=", XSTRLEN("-A=")) == 0) {
+            caFile = argv[argc-1] + XSTRLEN("-A=");
+        }
+    #endif
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
@@ -479,7 +490,15 @@ tls_setup:
     }
 #else
     /* Load CA Certificates */
-    if (!useECC) {
+    if (caFile != NULL) {
+        if (wolfSSL_CTX_load_verify_locations(ctx, caFile,
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading %s cert\n", caFile);
+            rc = -1;
+            goto exit;
+        }
+    }
+    else if (!useECC) {
     #ifndef NO_RSA
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
