@@ -1013,9 +1013,64 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
     ./examples/seal/seal sealedkeyblob.bin mySecretMessage >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "seal failed! $RESULT" && exit 1
-    ./examples/seal/unseal message.raw sealedkeyblob.bin >> $TPMPWD/run.out 2>&1
+    rm -f message.raw
+    for FILE_STATE in new existing; do
+        if [ "$FILE_STATE" = "existing" ]; then
+            chmod 666 message.raw
+            RESULT=$?
+            [ $RESULT -ne 0 ] && \
+                echo -e "chmod unseal output failed! $RESULT" && exit 1
+        fi
+        # Unsealed data must stay owner-only even under a permissive umask.
+        (umask 000 && ./examples/seal/unseal message.raw sealedkeyblob.bin) \
+            >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && \
+            echo -e "unseal to $FILE_STATE file failed! $RESULT" && exit 1
+        grep -qx "mySecretMessage" message.raw
+        RESULT=$?
+        [ $RESULT -ne 0 ] && \
+            echo -e "unsealed data did not match! $RESULT" && exit 1
+        FILE_MODE=$(stat -c %a message.raw 2>/dev/null)
+        if [ -z "$FILE_MODE" ]; then
+            FILE_MODE=$(stat -f %Lp message.raw 2>/dev/null)
+        fi
+        [ "$FILE_MODE" != "600" ] && \
+            echo -e "$FILE_STATE unseal output permissions were $FILE_MODE," \
+                "expected 600" && exit 1
+    done
+
+    rm -f unseal-target.raw unseal-symlink.raw unseal-hardlink.raw
+    printf '%s\n' "doNotOverwrite" > unseal-target.raw
+    ln -s unseal-target.raw unseal-symlink.raw
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "unseal failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "create unseal symlink failed! $RESULT" && \
+        exit 1
+    ./examples/seal/unseal unseal-symlink.raw sealedkeyblob.bin \
+        >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -eq 0 ] && echo -e "unseal to symlink should fail!" && exit 1
+    grep -qx "doNotOverwrite" unseal-target.raw
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "unseal followed symlink! $RESULT" && exit 1
+    rm -f unseal-symlink.raw
+
+    ln unseal-target.raw unseal-hardlink.raw
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create unseal hardlink failed! $RESULT" && \
+        exit 1
+    ./examples/seal/unseal unseal-hardlink.raw sealedkeyblob.bin \
+        >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -eq 0 ] && echo -e "unseal to hardlink should fail!" && exit 1
+    grep -qx "doNotOverwrite" unseal-target.raw
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "unseal followed hardlink! $RESULT" && exit 1
+    rm -f unseal-target.raw unseal-hardlink.raw
+
+    ./examples/seal/unseal . sealedkeyblob.bin >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -eq 0 ] && echo -e "unseal to directory should fail!" && exit 1
     rm -f sealedkeyblob.bin
 
     if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_RSA -eq 1 ]; then
