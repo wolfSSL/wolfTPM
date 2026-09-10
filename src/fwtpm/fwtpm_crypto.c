@@ -2259,6 +2259,7 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     FWTPM_DECLARE_VAR(hmac, Hmac);
     int sensSz = 0;
     int aesInit = 0;
+    int hmacInit = 0;
     int pos = 0;
 
     FWTPM_ALLOC_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 128);
@@ -2304,6 +2305,9 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     /* HMAC integrity over IV and encrypted data */
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            hmacInit = 1;
+        }
     }
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, WC_SHA256, macKey, sizeof(macKey));
@@ -2317,7 +2321,9 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, hmacDigest);
     }
-    wc_HmacFree(hmac);
+    if (hmacInit) {
+        wc_HmacFree(hmac);
+    }
 
     /* Pack into TPM2B_PRIVATE */
     if (rc == 0) {
