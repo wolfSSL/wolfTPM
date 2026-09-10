@@ -18986,17 +18986,28 @@ static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
     TPM_RC rc = TPM_RC_SUCCESS;
     byte digest[TPM_MAX_DIGEST_SIZE];
     int digestSz = 0;
+    int sizeMismatch;
+    word32 cmpSz;
 
     if (sess->commandCode != 0 && sess->commandCode != cmdCode) {
         rc = TPM_RC_POLICY_CC;
     }
     if (rc == 0 && sess->nameHash.size > 0) {
         if (FwComputeNameHash(ctx, sess->authHash, handles, handleCnt,
-                digest, &digestSz) != 0 ||
-            (int)sess->nameHash.size != digestSz ||
-            TPM2_ConstantCompare(sess->nameHash.buffer, digest,
-                (word32)digestSz) != 0) {
+                digest, &digestSz) != 0) {
             rc = TPM_RC_POLICY_FAIL;
+        }
+        else {
+            /* Always run the compare so a size mismatch cannot short-circuit
+             * the constant-time path */
+            sizeMismatch = ((int)sess->nameHash.size != digestSz);
+            cmpSz = (sess->nameHash.size < (word32)digestSz) ?
+                sess->nameHash.size : (word32)digestSz;
+            if (sizeMismatch |
+                (TPM2_ConstantCompare(sess->nameHash.buffer, digest,
+                    cmpSz) != 0)) {
+                rc = TPM_RC_POLICY_FAIL;
+            }
         }
     }
     /* PolicyTemplate binds only the creation template (Part 3 Sec.23.19);
@@ -19005,11 +19016,18 @@ static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
         (cmdCode == TPM_CC_Create || cmdCode == TPM_CC_CreatePrimary ||
          cmdCode == TPM_CC_CreateLoaded)) {
         if (FwComputeTemplateHash(sess->authHash, cmdBuf, cmdSize, cpStart,
-                digest, &digestSz) != 0 ||
-            (int)sess->templateHash.size != digestSz ||
-            TPM2_ConstantCompare(sess->templateHash.buffer, digest,
-                (word32)digestSz) != 0) {
+                digest, &digestSz) != 0) {
             rc = TPM_RC_POLICY_FAIL;
+        }
+        else {
+            sizeMismatch = ((int)sess->templateHash.size != digestSz);
+            cmpSz = (sess->templateHash.size < (word32)digestSz) ?
+                sess->templateHash.size : (word32)digestSz;
+            if (sizeMismatch |
+                (TPM2_ConstantCompare(sess->templateHash.buffer, digest,
+                    cmpSz) != 0)) {
+                rc = TPM_RC_POLICY_FAIL;
+            }
         }
     }
     if (rc == 0 && sess->checkNvWritten) {
