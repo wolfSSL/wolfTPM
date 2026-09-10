@@ -3565,8 +3565,8 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         for (cacheIdx = 0; cacheIdx < FWTPM_MAX_PRIMARY_CACHE; cacheIdx++) {
             if (ctx->primaryCache[cacheIdx].used &&
                 ctx->primaryCache[cacheIdx].hierarchy == primaryHandle &&
-                XMEMCMP(ctx->primaryCache[cacheIdx].templateHash, templateHash,
-                    WC_SHA256_DIGEST_SIZE) == 0) {
+                TPM2_ConstantCompare(ctx->primaryCache[cacheIdx].templateHash,
+                    templateHash, WC_SHA256_DIGEST_SIZE) == 0) {
                 cached = &ctx->primaryCache[cacheIdx];
                 break;
             }
