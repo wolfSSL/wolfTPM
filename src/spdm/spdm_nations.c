@@ -75,6 +75,9 @@ int wolfSPDM_Nations_GetStatus(WOLFSPDM_CTX* ctx,
             status->pskProvisioned ? "YES" : "NO",
             rsp.payload[3]);
     }
+    else {
+        return WOLFSPDM_E_FRAMING;
+    }
 
     return WOLFSPDM_SUCCESS;
 }
