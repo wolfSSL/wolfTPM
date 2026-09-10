@@ -82,6 +82,9 @@ int wolfSPDM_Nuvoton_GetStatus(
         wolfSPDM_DebugPrint(ctx, "GET_STS_: SPDMOnly=%s (minimal response)\n",
             status->spdmOnlyLocked ? "LOCKED" : "unlocked");
     }
+    else {
+        return WOLFSPDM_E_FRAMING;
+    }
     return WOLFSPDM_SUCCESS;
 }
 
