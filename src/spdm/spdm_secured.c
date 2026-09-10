@@ -278,10 +278,6 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
         wolfSPDM_BuildIV(iv, ctx->rspDataIv, (word64)rspSeqNum);
     }
 
-    /* response consumed and seq validated; advance to stay in lockstep with
-     * the peer even if AEAD/parse below fails */
-    ctx->rspSeqNum++;
-
     /* ----- AES-GCM decrypt (shared for both transports) ----- */
 
     ret = WOLFSPDM_E_CRYPTO_FAIL;
@@ -340,6 +336,9 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
     }
 
     if (ret == WOLFSPDM_SUCCESS) {
+        /* Advance the receive counter only after authentication and payload
+         * validation succeed, so a forged record cannot desync the sequence */
+        ctx->rspSeqNum++;
         wolfSPDM_DebugPrint(ctx, "Decrypted %u bytes -> %u bytes\n",
             encSz, *plainSz);
     }
