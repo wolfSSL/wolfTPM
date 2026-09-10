@@ -108,13 +108,13 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
                 digestLen > sizeof(digest)*2) {
                 printf("Invalid digest! Must be 16 or 32 bytes of hex like 01020304050607080910111213141516\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
             hexRet = hexToByte(digestStr, digest, digestLen);
             if (hexRet < 0) {
                 printf("Invalid hex digest string\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
             digestLen = (word32)hexRet;
         }
@@ -124,7 +124,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
             if (pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
         }
         else {
