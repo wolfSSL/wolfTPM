@@ -120,6 +120,12 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
         word16 appDataLen = (word16)(1 + plainSz);
         word16 encDataLen = (word16)(2 + appDataLen);
 
+        /* MCTP carries a 16-bit sequence number; fail rather than let the wire
+         * value and the 64-bit IV counter diverge past 0xFFFF */
+        if (ctx->reqSeqNum > 0xFFFF) {
+            return WOLFSPDM_E_BAD_STATE;
+        }
+
         plainBufSz = encDataLen;
         recordLen = (word16)(encDataLen + WOLFSPDM_AEAD_TAG_SIZE);
         hdrSz = 8;  /* 4 + 2 + 2 */
