@@ -152,11 +152,18 @@ int wolfSPDM_RespSetPSK(WOLFSPDM_RESP_CTX* ctx,
     (void)hintSz;
     return WOLFSPDM_E_NOT_AVAILABLE;
 #else
+    int rc;
     if (ctx == NULL || !ctx->flags.initialized) {
         return WOLFSPDM_E_INVALID_ARG;
     }
     if (psk == NULL || pskSz == 0 || pskSz > sizeof(ctx->pskStore)) {
         return WOLFSPDM_E_INVALID_ARG;
+    }
+    /* Commit the inner context first so a rejected PSK leaves no partially
+     * provisioned responder state */
+    rc = wolfSPDM_SetPSK(&ctx->ctx, psk, pskSz, hint, hintSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        return rc;
     }
     XMEMCPY(ctx->pskStore, psk, pskSz);
     ctx->pskStoreSz = pskSz;
@@ -168,7 +175,7 @@ int wolfSPDM_RespSetPSK(WOLFSPDM_RESP_CTX* ctx,
         ctx->pskHintStoreSz = 0;
     }
     ctx->flags.pskProvisioned = 1;
-    return wolfSPDM_SetPSK(&ctx->ctx, psk, pskSz, hint, hintSz);
+    return WOLFSPDM_SUCCESS;
 #endif
 }
 
