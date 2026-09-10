@@ -1934,6 +1934,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
                     rc = TPM_RC_MEMORY;
                     break;
                 }
+                TPM2_ForceZero(valueBuf, valueBufSz);
                 XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 valueBuf = newBuf;
                 valueBufSz = len;
@@ -1971,6 +1972,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         rc = FwNvGenFreshState(ctx);
     }
 
+    TPM2_ForceZero(valueBuf, valueBufSz);
     XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }
