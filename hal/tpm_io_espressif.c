@@ -187,6 +187,7 @@ static esp_err_t show_binary(byte* theVar, size_t dataSz) {
     hex_buffer[maxSz * 2] = '\0';
     ESP_LOGI("TAG", "%s", hex_buffer);
     ESP_LOGI(TAG, "*********************************************************");
+    TPM2_ForceZero(hex_buffer, sizeof(hex_buffer));
     return ESP_OK;
 }
 #endif
