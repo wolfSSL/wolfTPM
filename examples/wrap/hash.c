@@ -146,6 +146,7 @@ int TPM2_Hash_Example(void* userCtx, int argc, char* argv[])
 
 exit:
 
+    wolfTPM2_UnloadHandle(&dev, &hash.handle);
     wolfTPM2_Cleanup(&dev);
 
     return rc;
