@@ -516,19 +516,19 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     /* SHA1 */
     rc = bench_sym_hash(&dev, "SHA1", TPM_ALG_SHA1, message.buffer,
         sizeof(message.buffer), cipher.buffer, TPM_SHA_DIGEST_SIZE, maxDuration);
-    if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
+    if (rc != 0 && (rc & RC_MAX_FMT1) != TPM_RC_HASH) goto exit;
     /* SHA256 */
     rc = bench_sym_hash(&dev, "SHA256", TPM_ALG_SHA256, message.buffer,
         sizeof(message.buffer), cipher.buffer, TPM_SHA256_DIGEST_SIZE, maxDuration);
-    if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
+    if (rc != 0 && (rc & RC_MAX_FMT1) != TPM_RC_HASH) goto exit;
     /* SHA384 */
     rc = bench_sym_hash(&dev, "SHA384", TPM_ALG_SHA384, message.buffer,
         sizeof(message.buffer), cipher.buffer, TPM_SHA384_DIGEST_SIZE, maxDuration);
-    if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
+    if (rc != 0 && (rc & RC_MAX_FMT1) != TPM_RC_HASH) goto exit;
     /* SHA512 */
     rc = bench_sym_hash(&dev, "SHA512", TPM_ALG_SHA512, message.buffer,
         sizeof(message.buffer), cipher.buffer, TPM_SHA512_DIGEST_SIZE, maxDuration);
-    if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
+    if (rc != 0 && (rc & RC_MAX_FMT1) != TPM_RC_HASH) goto exit;
 
 
     /* Create RSA key for encrypt/decrypt */
