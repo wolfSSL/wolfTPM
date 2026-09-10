@@ -2401,6 +2401,14 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         printf("fwTPM: PCR_Read(selCount=%d)\n", pcrSelCount);
     #endif
 
+        /* Reject more banks than the implementation supports rather than
+         * echoing a count that exceeds the emitted selections */
+        if (pcrSelCount > HASH_COUNT) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+
+    if (rc == 0) {
         /* pcrUpdateCounter */
         TPM2_Packet_AppendU32(rsp, ctx->pcrUpdateCounter);
 
@@ -2408,9 +2416,6 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_AppendU32(rsp, pcrSelCount);
 
         numSel = pcrSelCount;
-        if (numSel > HASH_COUNT) {
-            numSel = HASH_COUNT;
-        }
 
         for (s = 0; s < numSel && rc == 0; s++) {
             int j;
@@ -2422,7 +2427,8 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             TPM2_Packet_ParseU16(cmd, &selections[s].hashAlg);
             TPM2_Packet_ParseU8(cmd, &selections[s].sizeOfSelect);
             if (selections[s].sizeOfSelect > PCR_SELECT_MAX) {
-                selections[s].sizeOfSelect = PCR_SELECT_MAX;
+                rc = TPM_RC_SIZE;
+                break;
             }
             for (j = 0; j < selections[s].sizeOfSelect; j++) {
                 if (cmd->pos >= cmdSize) {
