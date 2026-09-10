@@ -2433,6 +2433,7 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH, buf, (UINT16)pos);
 
+    TPM2_ForceZero(buf, bufSz);
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }
