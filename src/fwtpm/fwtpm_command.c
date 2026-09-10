@@ -6457,18 +6457,21 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Compute object name from public area for creation ticket */
         nameDigSz = TPM2_GetHashDigestSize(inPublic->publicArea.nameAlg);
         FWTPM_ALLOC_BUF(pubBuf2, FWTPM_MAX_PUB_BUF);
-        tmpPkt2.buf = pubBuf2;
-        tmpPkt2.pos = 0;
-        tmpPkt2.size = (int)FWTPM_MAX_PUB_BUF;
-        TPM2_Packet_AppendPublicArea(&tmpPkt2, &inPublic->publicArea);
-        FwStoreU16BE(objName, inPublic->publicArea.nameAlg);
-        if (nameDigSz > 0) {
-            int hashRc = wc_Hash(FwGetWcHashType(inPublic->publicArea.nameAlg),
-                pubBuf2, tmpPkt2.pos, objName + 2, nameDigSz);
-            if (hashRc == 0)
-                objNameSz = 2 + nameDigSz;
+        if (rc == 0) {
+            tmpPkt2.buf = pubBuf2;
+            tmpPkt2.pos = 0;
+            tmpPkt2.size = (int)FWTPM_MAX_PUB_BUF;
+            TPM2_Packet_AppendPublicArea(&tmpPkt2, &inPublic->publicArea);
+            FwStoreU16BE(objName, inPublic->publicArea.nameAlg);
+            if (nameDigSz > 0) {
+                int hashRc = wc_Hash(
+                    FwGetWcHashType(inPublic->publicArea.nameAlg),
+                    pubBuf2, tmpPkt2.pos, objName + 2, nameDigSz);
+                if (hashRc == 0)
+                    objNameSz = 2 + nameDigSz;
+            }
+            FWTPM_FREE_BUF(pubBuf2);
         }
-        FWTPM_FREE_BUF(pubBuf2);
 
         /* Creation ticket hierarchy = parent's hierarchy per Part 2
          * Sec.10.6.5 Table 112. */
