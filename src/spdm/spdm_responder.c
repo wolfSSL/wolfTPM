@@ -1159,7 +1159,7 @@ static int RespDispatchSecured(WOLFSPDM_RESP_CTX* rctx,
         rc = wolfSPDM_DeriveAppDataKeys(ctx);
     }
 
-    if (sessionEnded) {
+    if (sessionEnded && rc == WOLFSPDM_SUCCESS) {
         wolfSPDM_RespReset(rctx);
     }
     return rc;
