@@ -2378,6 +2378,7 @@ int FWTPM_NV_SaveAuth(FWTPM_CTX* ctx, UINT32 hierarchy)
     if (rc == 0) {
         rc = FwNvAppendEntry(ctx, tag, buf, (UINT16)pos);
     }
+    TPM2_ForceZero(buf, sizeof(buf));
     return rc;
 }
 
