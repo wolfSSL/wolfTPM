@@ -55,6 +55,18 @@ static int wolfSPDM_BuildSimpleMsg(WOLFSPDM_CTX* ctx, byte msgCode,
     return WOLFSPDM_SUCCESS;
 }
 
+/* KEY_EXCHANGE request size: 8-byte header, 32-byte RandomData, and two ECC
+ * coordinates, plus a config-specific OpaqueData block. Keep
+ * WOLFSPDM_KEYEX_OPAQUE_SZ in sync with the OpaqueData written below. */
+#define WOLFSPDM_KEYEX_FIXED_SZ  (40 + 2 * WOLFSPDM_ECC_KEY_SIZE)
+#ifdef WOLFSPDM_NUVOTON
+    #define WOLFSPDM_KEYEX_OPAQUE_SZ 14
+#elif defined(WOLFSPDM_NATIONS)
+    #define WOLFSPDM_KEYEX_OPAQUE_SZ 2
+#else
+    #define WOLFSPDM_KEYEX_OPAQUE_SZ 22
+#endif
+
 int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
 {
     word32 offset = 0;
@@ -64,15 +76,9 @@ int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     word32 pubKeyYSz = sizeof(pubKeyY);
     int rc;
 
-    /* Require exactly the encoded request size: 40-byte fixed header, two ECC
-     * coordinates, and the config-specific OpaqueData block */
-#ifdef WOLFSPDM_NUVOTON
-    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 40 + 2 * WOLFSPDM_ECC_KEY_SIZE + 14);
-#elif defined(WOLFSPDM_NATIONS)
-    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 40 + 2 * WOLFSPDM_ECC_KEY_SIZE + 2);
-#else
-    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 40 + 2 * WOLFSPDM_ECC_KEY_SIZE + 22);
-#endif
+    /* Require exactly the encoded request size */
+    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz,
+        WOLFSPDM_KEYEX_FIXED_SZ + WOLFSPDM_KEYEX_OPAQUE_SZ);
 
     rc = wolfSPDM_GenerateEphemeralKey(ctx);
     if (rc == WOLFSPDM_SUCCESS)

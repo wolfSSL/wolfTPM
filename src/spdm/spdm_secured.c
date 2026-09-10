@@ -294,6 +294,13 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
             wolfSPDM_DebugPrint(ctx, "AES-GCM decrypt failed: %d\n", rc);
             ret = WOLFSPDM_E_DECRYPT_FAIL;
         }
+        else {
+            /* Record is authenticated (tag verified) so the peer has advanced;
+             * advance now. A forged record fails the tag and never reaches
+             * here, and a later payload parse error stays fatal without
+             * desyncing the sequence. */
+            ctx->rspSeqNum++;
+        }
     }
     if (aesInit) {
         wc_AesFree(&aes);
@@ -336,9 +343,6 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
     }
 
     if (ret == WOLFSPDM_SUCCESS) {
-        /* Advance the receive counter only after authentication and payload
-         * validation succeed, so a forged record cannot desync the sequence */
-        ctx->rspSeqNum++;
         wolfSPDM_DebugPrint(ctx, "Decrypted %u bytes -> %u bytes\n",
             encSz, *plainSz);
     }

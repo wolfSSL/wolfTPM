@@ -183,7 +183,8 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
         (void)userCtx;
     #endif
 #else
-    if (buf == NULL || size == 0 || size > MAX_SPI_FRAMESIZE) {
+    if (buf == NULL || size == 0 ||
+            size > (UINT16)(sizeof(txBuf) - TPM_TIS_HEADER_SZ)) {
         ret = BAD_FUNC_ARG;
     }
     else {
