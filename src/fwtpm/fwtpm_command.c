@@ -10596,7 +10596,13 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwFreeSession(sess);
     }
     TPM2_ForceZero(salt, sizeof(salt));
+#ifdef WOLFTPM_SMALL_STACK
+    if (encSalt != NULL) {
+        TPM2_ForceZero(encSalt, FWTPM_MAX_PUB_BUF);
+    }
+#else
     TPM2_ForceZero(encSalt, FWTPM_MAX_PUB_BUF);
+#endif
     FWTPM_FREE_BUF(encSalt);
     return rc;
 }
