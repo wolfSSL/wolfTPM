@@ -14422,7 +14422,13 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_VAR(aes, Aes);
 
     XMEMSET(ivBuf, 0, sizeof(ivBuf));
+#ifdef WOLFTPM_SMALL_STACK
+    if (inData != NULL) {
+        XMEMSET(inData, 0, FWTPM_MAX_COMMAND_SIZE / 2);
+    }
+#else
     XMEMSET(inData, 0, FWTPM_MAX_COMMAND_SIZE / 2);
+#endif
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -14668,7 +14674,13 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
+#ifdef WOLFTPM_SMALL_STACK
+    if (inData != NULL) {
+        TPM2_ForceZero(inData, FWTPM_MAX_COMMAND_SIZE / 2);
+    }
+#else
     TPM2_ForceZero(inData, FWTPM_MAX_COMMAND_SIZE / 2);
+#endif
     FWTPM_FREE_BUF(inData);
     FWTPM_FREE_VAR(aes);
     return rc;
