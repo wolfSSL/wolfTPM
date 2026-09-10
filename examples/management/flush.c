@@ -101,7 +101,7 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
     else {
         flushCtx.flushHandle = handle;
         printf("Freeing %X object\n", handle);
-        TPM2_FlushContext(&flushCtx);
+        rc = TPM2_FlushContext(&flushCtx);
     }
 
     wolfTPM2_Cleanup(&dev);
