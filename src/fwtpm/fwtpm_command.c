@@ -10377,17 +10377,22 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     FWTPM_ALLOC_BUF(encSalt, FWTPM_MAX_PUB_BUF);
 
-    (void)cmdTag;
-    (void)cmdSize;
-
     /* Parse: tpmKey(U32), bind(U32) */
     TPM2_Packet_ParseU32(cmd, &tpmKey);
     TPM2_Packet_ParseU32(cmd, &bind);
 
+    /* A session-tagged command with no auth handles still carries an auth
+     * area between the handles and parameters; skip it before parsing */
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
     /* Parse: nonceCaller (TPM2B) */
-    TPM2_Packet_ParseU16(cmd, &nonceCallerSize);
-    if (nonceCallerSize > sizeof(nonceCaller)) {
-        rc = TPM_RC_SIZE;
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &nonceCallerSize);
+        if (nonceCallerSize > sizeof(nonceCaller)) {
+            rc = TPM_RC_SIZE;
+        }
     }
     if (rc == 0 && nonceCallerSize > 0) {
         TPM2_Packet_ParseBytes(cmd, nonceCaller, nonceCallerSize);
@@ -15619,7 +15624,11 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* MakeCredential has no auth area */
+    /* A session-tagged command with no auth handles still carries an auth
+     * area between the handle and parameters; skip it before parsing */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
 
     /* credential (TPM2B_DIGEST) */
     if (rc == 0) {
