@@ -491,9 +491,10 @@ static int RespBuildPskExchangeRsp(WOLFSPDM_RESP_CTX* rctx,
     reqHintLen = SPDM_Get16LE(&in[6]);
     reqContextLen = SPDM_Get16LE(&in[8]);
     reqOpaqueLen = SPDM_Get16LE(&in[10]);
-    (void)reqHintLen;
-    (void)reqContextLen;
-    (void)reqOpaqueLen;
+    /* Every declared variable-length field must fit within the request */
+    if ((word32)12 + reqHintLen + reqContextLen + reqOpaqueLen > inSz) {
+        return WOLFSPDM_E_FRAMING;
+    }
 
     ctx->rspSessionId = 0xFFFE;
     ctx->sessionId = (word32)ctx->reqSessionId |
