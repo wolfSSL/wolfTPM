@@ -369,7 +369,8 @@ int wolfSPDM_Disconnect(WOLFSPDM_CTX* ctx)
         }
     }
 
-    /* Reset state and zero ALL key material */
+    /* Reset session state and wipe session-scoped keys; configured identity
+     * keys remain for a later connection */
     ctx->state = WOLFSPDM_STATE_INIT;
     ctx->sessionId = 0;
     ctx->reqSeqNum = 0;
