@@ -45,7 +45,11 @@ jobs:
         uses: ./.github/actions/setup-wolfssl
         with:
           ref: ${{ matrix.wolfssl_ref || 'master' }}
-          configure-flags: --enable-wolftpm --enable-pkcallbacks
+          # fwTPM RSA object creation needs WOLFSSL_KEY_GEN and the raw-RSA
+          # padding path, or TPM2_Create returns TPM_RC_COMMAND_CODE for RSA
+          # keys (see src/fwtpm/README.md).
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+          cflags: -DWC_RSA_NO_PADDING
 
       # Use the runner's preinstalled rustup rather than a mutable third-party
       # action, so no external action code runs with the job token.
