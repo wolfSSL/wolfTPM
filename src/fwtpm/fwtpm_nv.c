@@ -1759,6 +1759,7 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
                     rc = TPM_RC_MEMORY;
                     break;
                 }
+                TPM2_ForceZero(valueBuf, valueBufSz);
                 XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 valueBuf = newBuf;
                 valueBufSz = len;
