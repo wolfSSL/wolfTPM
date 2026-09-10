@@ -94,7 +94,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        else if (XMEMCMP(argv[argc-1], "-digest=", XSTRLEN("-digest=")) == 0) {
+        else if (XSTRNCMP(argv[argc-1], "-digest=", XSTRLEN("-digest=")) == 0) {
             const char *digestStr, *end;
             digestStr = argv[argc-1] + XSTRLEN("-digest=");
             end = XSTRSTR(digestStr, " ");
