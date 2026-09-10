@@ -129,6 +129,7 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_GetHandles(PERSISTENT_FIRST, NULL);
     if (rc >= 0) {
         printf("Found %d persistent handles\n", rc);
+        rc = TPM_RC_SUCCESS;
     }
 
     /* Print the available PCR's */
