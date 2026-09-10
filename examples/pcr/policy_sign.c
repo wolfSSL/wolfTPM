@@ -196,17 +196,17 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 rc = mp_init_multi(&r, &s, NULL, NULL, NULL, NULL);
                 if (rc == 0) {
                     rc = wc_ecc_sign_hash_ex(hash, hashSz, &rng, &key.ecc, &r, &s);
-                }
-                if (rc == 0) {
-                    word32 keySz = key.ecc.dp->size;
-                    *sigSz = keySz * 2;
-                    /* Pre-zero in case mp export fails and leaves the buffer
-                     * partially written. Fixed-width export of r and s
-                     * removes the data-dependent wire offset that previously
-                     * leaked the leading-zero count. */
-                    XMEMSET(sig, 0, *sigSz);
-                    mp_to_unsigned_bin_len(&r, &sig[0], keySz);
-                    mp_to_unsigned_bin_len(&s, &sig[keySz], keySz);
+                    if (rc == 0) {
+                        word32 keySz = key.ecc.dp->size;
+                        *sigSz = keySz * 2;
+                        /* Pre-zero in case mp export fails and leaves the buffer
+                         * partially written. Fixed-width export of r and s
+                         * removes the data-dependent wire offset that previously
+                         * leaked the leading-zero count. */
+                        XMEMSET(sig, 0, *sigSz);
+                        mp_to_unsigned_bin_len(&r, &sig[0], keySz);
+                        mp_to_unsigned_bin_len(&s, &sig[keySz], keySz);
+                    }
                     mp_clear(&r);
                     mp_clear(&s);
                 }
