@@ -143,9 +143,18 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     fp = XFOPEN("ak.name", "rb");
     if (fp != XBADFILE) {
         size_t nameReadSz = XFREAD((BYTE*)&name, 1, sizeof(name), fp);
-        printf("Read AK Name digest %s\n",
-            nameReadSz == sizeof(name) ? "success" : "failed");
         XFCLOSE(fp);
+        if (nameReadSz != sizeof(name)) {
+            printf("Read AK Name digest failed\n");
+            rc = BUFFER_E;
+            goto exit;
+        }
+        printf("Read AK Name digest success\n");
+    }
+    else {
+        printf("Failed to open ak.name\n");
+        rc = BAD_FUNC_ARG;
+        goto exit;
     }
 #endif
 
