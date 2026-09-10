@@ -12408,11 +12408,17 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (sess->cpHashA.size > 0 || sess->nameHash.size > 0) {
             rc = TPM_RC_CPHASH;
         }
-        else if (sess->templateHash.size > 0 &&
-            (sess->templateHash.size != templateHashSz ||
-             TPM2_ConstantCompare(sess->templateHash.buffer, templateHash,
-                templateHashSz) != 0)) {
-            rc = TPM_RC_VALUE;
+        else if (sess->templateHash.size > 0) {
+            /* Always run the compare so a size mismatch cannot short-circuit
+             * the constant-time path */
+            int sizeMismatch = (sess->templateHash.size != templateHashSz);
+            word32 cmpSz = (sess->templateHash.size < templateHashSz) ?
+                sess->templateHash.size : templateHashSz;
+            if (sizeMismatch |
+                (TPM2_ConstantCompare(sess->templateHash.buffer, templateHash,
+                    cmpSz) != 0)) {
+                rc = TPM_RC_VALUE;
+            }
         }
     }
     if (rc == 0) {
