@@ -102,7 +102,7 @@ static void usage(void)
     printf("* -h=host: Server hostname (default %s)\n", TLS_HOST);
     printf("* -p=port: Supply a custom port number (default %d)\n", TLS_PORT);
 #ifndef NO_FILESYSTEM
-    printf("* -A=file: Additional CA certificate file to trust\n");
+    printf("* -A=file: CA certificate file to trust\n");
 #endif
 #if defined(WOLFTPM_CRYPTOCB) && defined(HAVE_PK_CALLBACKS)
     printf("* -pk: Use PK callbacks, not crypto callbacks\n");
@@ -490,7 +490,15 @@ tls_setup:
     }
 #else
     /* Load CA Certificates */
-    if (!useECC) {
+    if (caFile != NULL) {
+        if (wolfSSL_CTX_load_verify_locations(ctx, caFile,
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading %s cert\n", caFile);
+            rc = -1;
+            goto exit;
+        }
+    }
+    else if (!useECC) {
     #ifndef NO_RSA
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
@@ -527,14 +535,6 @@ tls_setup:
         rc = -1;
         goto exit;
     #endif /* HAVE_ECC */
-    }
-    if (caFile != NULL) {
-        if (wolfSSL_CTX_load_verify_locations(ctx, caFile,
-                                              0) != WOLFSSL_SUCCESS) {
-            printf("Error loading %s cert\n", caFile);
-            rc = -1;
-            goto exit;
-        }
     }
 #endif /* !NO_FILESYSTEM */
 

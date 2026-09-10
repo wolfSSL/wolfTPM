@@ -895,8 +895,15 @@ echo -e "PCR Quote tests"
 ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "pcr reset failed! $RESULT" && exit 1
-./examples/pcr/extend 16 /usr/bin/zip >> $TPMPWD/run.out 2>&1
+PCR_EXTEND_FILE=/usr/bin/zip
+if [ $WOLFCRYPT_ENABLE -eq 0 ]; then
+    # Without wolfCrypt, extend expects a raw, precomputed SHA-256 digest.
+    PCR_EXTEND_FILE="$TPMPWD/pcr-extend.digest"
+    printf '%s' '0123456789abcdef0123456789abcdef' > "$PCR_EXTEND_FILE"
+fi
+./examples/pcr/extend 16 "$PCR_EXTEND_FILE" >> $TPMPWD/run.out 2>&1
 RESULT=$?
+[ $WOLFCRYPT_ENABLE -eq 0 ] && rm -f "$PCR_EXTEND_FILE"
 [ $RESULT -ne 0 ] && echo -e "pcr extend file failed! $RESULT" && exit 1
 ./examples/pcr/quote 16 zip.quote >> $TPMPWD/run.out 2>&1
 RESULT=$?
