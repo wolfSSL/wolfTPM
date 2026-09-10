@@ -64,7 +64,15 @@ int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     word32 pubKeyYSz = sizeof(pubKeyY);
     int rc;
 
-    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 180);
+    /* Require exactly the encoded request size: 40-byte fixed header, two ECC
+     * coordinates, and the config-specific OpaqueData block */
+#ifdef WOLFSPDM_NUVOTON
+    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 40 + 2 * WOLFSPDM_ECC_KEY_SIZE + 14);
+#elif defined(WOLFSPDM_NATIONS)
+    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 40 + 2 * WOLFSPDM_ECC_KEY_SIZE + 2);
+#else
+    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 40 + 2 * WOLFSPDM_ECC_KEY_SIZE + 22);
+#endif
 
     rc = wolfSPDM_GenerateEphemeralKey(ctx);
     if (rc == WOLFSPDM_SUCCESS)
