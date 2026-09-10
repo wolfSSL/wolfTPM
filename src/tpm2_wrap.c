@@ -2904,6 +2904,8 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_GetNonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+        TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
         return rc;
     }
 
@@ -2913,6 +2915,8 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         rc = TPM2_GetNonceNoLock(session->salt.buffer, session->salt.size);
         if (rc != 0) {
             TPM2_ForceZero(&session->salt, sizeof(session->salt));
+            TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+            TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
             return rc;
         }
 
@@ -2925,6 +2929,8 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
                 wolfTPM2_GetRCString(rc));
         #endif
             TPM2_ForceZero(&session->salt, sizeof(session->salt));
+            TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+            TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
             return rc;
         }
     }
