@@ -2523,7 +2523,9 @@ int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
     /* Generate random IV */
-    rc = wc_RNG_GenerateBlock(&ctx->rng, iv, AES_BLOCK_SIZE);
+    if (rc == 0) {
+        rc = wc_RNG_GenerateBlock(&ctx->rng, iv, AES_BLOCK_SIZE);
+    }
 
     /* AES-CFB encrypt */
     if (rc == 0) {
