@@ -58,6 +58,7 @@ int TPM2_GetRandom_Example(void* userCtx, int argc, char* argv[])
     byte buf[GETRANDOM_MAX_BYTES];
     word32 len = GETRANDOM_DEFAULT_BYTES;
     word32 i;
+    int lenArg;
 
     if (argc > 1) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -66,7 +67,12 @@ int TPM2_GetRandom_Example(void* userCtx, int argc, char* argv[])
             usage();
             return 0;
         }
-        len = (word32)XATOI(argv[1]);
+        lenArg = XATOI(argv[1]);
+        if (lenArg < 0) {
+            printf("Invalid length %d\n", lenArg);
+            return BAD_FUNC_ARG;
+        }
+        len = (word32)lenArg;
         if (len == 0) {
             len = GETRANDOM_DEFAULT_BYTES;
         }

@@ -152,11 +152,18 @@ int wolfSPDM_RespSetPSK(WOLFSPDM_RESP_CTX* ctx,
     (void)hintSz;
     return WOLFSPDM_E_NOT_AVAILABLE;
 #else
+    int rc;
     if (ctx == NULL || !ctx->flags.initialized) {
         return WOLFSPDM_E_INVALID_ARG;
     }
     if (psk == NULL || pskSz == 0 || pskSz > sizeof(ctx->pskStore)) {
         return WOLFSPDM_E_INVALID_ARG;
+    }
+    /* Commit the inner context first so a rejected PSK leaves no partially
+     * provisioned responder state */
+    rc = wolfSPDM_SetPSK(&ctx->ctx, psk, pskSz, hint, hintSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        return rc;
     }
     XMEMCPY(ctx->pskStore, psk, pskSz);
     ctx->pskStoreSz = pskSz;
@@ -168,7 +175,7 @@ int wolfSPDM_RespSetPSK(WOLFSPDM_RESP_CTX* ctx,
         ctx->pskHintStoreSz = 0;
     }
     ctx->flags.pskProvisioned = 1;
-    return wolfSPDM_SetPSK(&ctx->ctx, psk, pskSz, hint, hintSz);
+    return WOLFSPDM_SUCCESS;
 #endif
 }
 
@@ -484,9 +491,10 @@ static int RespBuildPskExchangeRsp(WOLFSPDM_RESP_CTX* rctx,
     reqHintLen = SPDM_Get16LE(&in[6]);
     reqContextLen = SPDM_Get16LE(&in[8]);
     reqOpaqueLen = SPDM_Get16LE(&in[10]);
-    (void)reqHintLen;
-    (void)reqContextLen;
-    (void)reqOpaqueLen;
+    /* Every declared variable-length field must fit within the request */
+    if ((word32)12 + reqHintLen + reqContextLen + reqOpaqueLen > inSz) {
+        return WOLFSPDM_E_FRAMING;
+    }
 
     ctx->rspSessionId = 0xFFFE;
     ctx->sessionId = (word32)ctx->reqSessionId |
@@ -1152,7 +1160,7 @@ static int RespDispatchSecured(WOLFSPDM_RESP_CTX* rctx,
         rc = wolfSPDM_DeriveAppDataKeys(ctx);
     }
 
-    if (sessionEnded) {
+    if (sessionEnded && rc == WOLFSPDM_SUCCESS) {
         wolfSPDM_RespReset(rctx);
     }
     return rc;

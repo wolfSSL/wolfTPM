@@ -51,6 +51,11 @@
  * VID = "WF" (0x4657), DID = "TP" (0x5054) */
 #define FWTPM_TIS_DID_VID_VAL  0x50544657UL
 
+/* The TIS response FIFO must hold a full dispatched response; a mismatched
+ * FWTPM_TIS_FIFO_SIZE override must fail the build, not overflow at runtime */
+typedef char fwtpm_tis_fifo_fits_max_cmd[
+    (FWTPM_TIS_FIFO_SIZE >= FWTPM_MAX_COMMAND_SIZE) ? 1 : -1];
+
 /* --- Static helpers --- */
 
 /* Extract register offset from a full TIS address.

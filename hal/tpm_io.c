@@ -183,27 +183,33 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
         (void)userCtx;
     #endif
 #else
-    /* Build TPM header */
-    txBuf[1] = (addr>>16) & 0xFF;
-    txBuf[2] = (addr>>8)  & 0xFF;
-    txBuf[3] = (addr)     & 0xFF;
-    if (isRead) {
-        txBuf[0] = TPM_TIS_READ | ((size & 0xFF) - 1);
-        XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0,
-            sizeof(txBuf) - TPM_TIS_HEADER_SZ);
+    if (buf == NULL || size == 0 ||
+            size > (UINT16)(sizeof(txBuf) - TPM_TIS_HEADER_SZ)) {
+        ret = BAD_FUNC_ARG;
     }
     else {
-        txBuf[0] = TPM_TIS_WRITE | ((size & 0xFF) - 1);
-        XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], buf, size);
-        XMEMSET(&txBuf[TPM_TIS_HEADER_SZ + size], 0,
-            sizeof(txBuf) - TPM_TIS_HEADER_SZ - size);
-    }
-    XMEMSET(rxBuf, 0, sizeof(rxBuf));
+        /* Build TPM header */
+        txBuf[1] = (addr>>16) & 0xFF;
+        txBuf[2] = (addr>>8)  & 0xFF;
+        txBuf[3] = (addr)     & 0xFF;
+        if (isRead) {
+            txBuf[0] = TPM_TIS_READ | ((size & 0xFF) - 1);
+            XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0,
+                sizeof(txBuf) - TPM_TIS_HEADER_SZ);
+        }
+        else {
+            txBuf[0] = TPM_TIS_WRITE | ((size & 0xFF) - 1);
+            XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], buf, size);
+            XMEMSET(&txBuf[TPM_TIS_HEADER_SZ + size], 0,
+                sizeof(txBuf) - TPM_TIS_HEADER_SZ - size);
+        }
+        XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
-    ret = TPM2_IoCb_SPI(ctx, txBuf, rxBuf, size + TPM_TIS_HEADER_SZ, userCtx);
+        ret = TPM2_IoCb_SPI(ctx, txBuf, rxBuf, size + TPM_TIS_HEADER_SZ, userCtx);
 
-    if (isRead) {
-        XMEMCPY(buf, &rxBuf[TPM_TIS_HEADER_SZ], size);
+        if (isRead) {
+            XMEMCPY(buf, &rxBuf[TPM_TIS_HEADER_SZ], size);
+        }
     }
 #endif
 

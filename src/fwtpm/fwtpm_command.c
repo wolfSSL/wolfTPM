@@ -2401,6 +2401,14 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         printf("fwTPM: PCR_Read(selCount=%d)\n", pcrSelCount);
     #endif
 
+        /* Reject more banks than the implementation supports rather than
+         * echoing a count that exceeds the emitted selections */
+        if (pcrSelCount > HASH_COUNT) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+
+    if (rc == 0) {
         /* pcrUpdateCounter */
         TPM2_Packet_AppendU32(rsp, ctx->pcrUpdateCounter);
 
@@ -2408,9 +2416,6 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_AppendU32(rsp, pcrSelCount);
 
         numSel = pcrSelCount;
-        if (numSel > HASH_COUNT) {
-            numSel = HASH_COUNT;
-        }
 
         for (s = 0; s < numSel && rc == 0; s++) {
             int j;
@@ -2422,7 +2427,8 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             TPM2_Packet_ParseU16(cmd, &selections[s].hashAlg);
             TPM2_Packet_ParseU8(cmd, &selections[s].sizeOfSelect);
             if (selections[s].sizeOfSelect > PCR_SELECT_MAX) {
-                selections[s].sizeOfSelect = PCR_SELECT_MAX;
+                rc = TPM_RC_SIZE;
+                break;
             }
             for (j = 0; j < selections[s].sizeOfSelect; j++) {
                 if (cmd->pos >= cmdSize) {
@@ -3565,8 +3571,8 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         for (cacheIdx = 0; cacheIdx < FWTPM_MAX_PRIMARY_CACHE; cacheIdx++) {
             if (ctx->primaryCache[cacheIdx].used &&
                 ctx->primaryCache[cacheIdx].hierarchy == primaryHandle &&
-                XMEMCMP(ctx->primaryCache[cacheIdx].templateHash, templateHash,
-                    WC_SHA256_DIGEST_SIZE) == 0) {
+                TPM2_ConstantCompare(ctx->primaryCache[cacheIdx].templateHash,
+                    templateHash, WC_SHA256_DIGEST_SIZE) == 0) {
                 cached = &ctx->primaryCache[cacheIdx];
                 break;
             }
@@ -6457,18 +6463,21 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Compute object name from public area for creation ticket */
         nameDigSz = TPM2_GetHashDigestSize(inPublic->publicArea.nameAlg);
         FWTPM_ALLOC_BUF(pubBuf2, FWTPM_MAX_PUB_BUF);
-        tmpPkt2.buf = pubBuf2;
-        tmpPkt2.pos = 0;
-        tmpPkt2.size = (int)FWTPM_MAX_PUB_BUF;
-        TPM2_Packet_AppendPublicArea(&tmpPkt2, &inPublic->publicArea);
-        FwStoreU16BE(objName, inPublic->publicArea.nameAlg);
-        if (nameDigSz > 0) {
-            int hashRc = wc_Hash(FwGetWcHashType(inPublic->publicArea.nameAlg),
-                pubBuf2, tmpPkt2.pos, objName + 2, nameDigSz);
-            if (hashRc == 0)
-                objNameSz = 2 + nameDigSz;
+        if (rc == 0) {
+            tmpPkt2.buf = pubBuf2;
+            tmpPkt2.pos = 0;
+            tmpPkt2.size = (int)FWTPM_MAX_PUB_BUF;
+            TPM2_Packet_AppendPublicArea(&tmpPkt2, &inPublic->publicArea);
+            FwStoreU16BE(objName, inPublic->publicArea.nameAlg);
+            if (nameDigSz > 0) {
+                int hashRc = wc_Hash(
+                    FwGetWcHashType(inPublic->publicArea.nameAlg),
+                    pubBuf2, tmpPkt2.pos, objName + 2, nameDigSz);
+                if (hashRc == 0)
+                    objNameSz = 2 + nameDigSz;
+            }
+            FWTPM_FREE_BUF(pubBuf2);
         }
-        FWTPM_FREE_BUF(pubBuf2);
 
         /* Creation ticket hierarchy = parent's hierarchy per Part 2
          * Sec.10.6.5 Table 112. */
@@ -10368,17 +10377,22 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     FWTPM_ALLOC_BUF(encSalt, FWTPM_MAX_PUB_BUF);
 
-    (void)cmdTag;
-    (void)cmdSize;
-
     /* Parse: tpmKey(U32), bind(U32) */
     TPM2_Packet_ParseU32(cmd, &tpmKey);
     TPM2_Packet_ParseU32(cmd, &bind);
 
+    /* A session-tagged command with no auth handles still carries an auth
+     * area between the handles and parameters; skip it before parsing */
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
     /* Parse: nonceCaller (TPM2B) */
-    TPM2_Packet_ParseU16(cmd, &nonceCallerSize);
-    if (nonceCallerSize > sizeof(nonceCaller)) {
-        rc = TPM_RC_SIZE;
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &nonceCallerSize);
+        if (nonceCallerSize > sizeof(nonceCaller)) {
+            rc = TPM_RC_SIZE;
+        }
     }
     if (rc == 0 && nonceCallerSize > 0) {
         TPM2_Packet_ParseBytes(cmd, nonceCaller, nonceCallerSize);
@@ -10593,7 +10607,13 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwFreeSession(sess);
     }
     TPM2_ForceZero(salt, sizeof(salt));
+#ifdef WOLFTPM_SMALL_STACK
+    if (encSalt != NULL) {
+        TPM2_ForceZero(encSalt, FWTPM_MAX_PUB_BUF);
+    }
+#else
     TPM2_ForceZero(encSalt, FWTPM_MAX_PUB_BUF);
+#endif
     FWTPM_FREE_BUF(encSalt);
     return rc;
 }
@@ -12393,11 +12413,17 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (sess->cpHashA.size > 0 || sess->nameHash.size > 0) {
             rc = TPM_RC_CPHASH;
         }
-        else if (sess->templateHash.size > 0 &&
-            (sess->templateHash.size != templateHashSz ||
-             TPM2_ConstantCompare(sess->templateHash.buffer, templateHash,
-                templateHashSz) != 0)) {
-            rc = TPM_RC_VALUE;
+        else if (sess->templateHash.size > 0) {
+            /* Always run the compare so a size mismatch cannot short-circuit
+             * the constant-time path */
+            int sizeMismatch = (sess->templateHash.size != templateHashSz);
+            word32 cmpSz = (sess->templateHash.size < templateHashSz) ?
+                sess->templateHash.size : templateHashSz;
+            if (sizeMismatch |
+                (TPM2_ConstantCompare(sess->templateHash.buffer, templateHash,
+                    cmpSz) != 0)) {
+                rc = TPM_RC_VALUE;
+            }
         }
     }
     if (rc == 0) {
@@ -14413,7 +14439,13 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_VAR(aes, Aes);
 
     XMEMSET(ivBuf, 0, sizeof(ivBuf));
+#ifdef WOLFTPM_SMALL_STACK
+    if (inData != NULL) {
+        XMEMSET(inData, 0, FWTPM_MAX_COMMAND_SIZE / 2);
+    }
+#else
     XMEMSET(inData, 0, FWTPM_MAX_COMMAND_SIZE / 2);
+#endif
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -14659,7 +14691,13 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
+#ifdef WOLFTPM_SMALL_STACK
+    if (inData != NULL) {
+        TPM2_ForceZero(inData, FWTPM_MAX_COMMAND_SIZE / 2);
+    }
+#else
     TPM2_ForceZero(inData, FWTPM_MAX_COMMAND_SIZE / 2);
+#endif
     FWTPM_FREE_BUF(inData);
     FWTPM_FREE_VAR(aes);
     return rc;
@@ -15586,7 +15624,11 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* MakeCredential has no auth area */
+    /* A session-tagged command with no auth handles still carries an auth
+     * area between the handle and parameters; skip it before parsing */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
 
     /* credential (TPM2B_DIGEST) */
     if (rc == 0) {
@@ -18959,17 +19001,28 @@ static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
     TPM_RC rc = TPM_RC_SUCCESS;
     byte digest[TPM_MAX_DIGEST_SIZE];
     int digestSz = 0;
+    int sizeMismatch;
+    word32 cmpSz;
 
     if (sess->commandCode != 0 && sess->commandCode != cmdCode) {
         rc = TPM_RC_POLICY_CC;
     }
     if (rc == 0 && sess->nameHash.size > 0) {
         if (FwComputeNameHash(ctx, sess->authHash, handles, handleCnt,
-                digest, &digestSz) != 0 ||
-            (int)sess->nameHash.size != digestSz ||
-            TPM2_ConstantCompare(sess->nameHash.buffer, digest,
-                (word32)digestSz) != 0) {
+                digest, &digestSz) != 0) {
             rc = TPM_RC_POLICY_FAIL;
+        }
+        else {
+            /* Always run the compare so a size mismatch cannot short-circuit
+             * the constant-time path */
+            sizeMismatch = ((int)sess->nameHash.size != digestSz);
+            cmpSz = (sess->nameHash.size < (word32)digestSz) ?
+                sess->nameHash.size : (word32)digestSz;
+            if (sizeMismatch |
+                (TPM2_ConstantCompare(sess->nameHash.buffer, digest,
+                    cmpSz) != 0)) {
+                rc = TPM_RC_POLICY_FAIL;
+            }
         }
     }
     /* PolicyTemplate binds only the creation template (Part 3 Sec.23.19);
@@ -18978,11 +19031,18 @@ static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
         (cmdCode == TPM_CC_Create || cmdCode == TPM_CC_CreatePrimary ||
          cmdCode == TPM_CC_CreateLoaded)) {
         if (FwComputeTemplateHash(sess->authHash, cmdBuf, cmdSize, cpStart,
-                digest, &digestSz) != 0 ||
-            (int)sess->templateHash.size != digestSz ||
-            TPM2_ConstantCompare(sess->templateHash.buffer, digest,
-                (word32)digestSz) != 0) {
+                digest, &digestSz) != 0) {
             rc = TPM_RC_POLICY_FAIL;
+        }
+        else {
+            sizeMismatch = ((int)sess->templateHash.size != digestSz);
+            cmpSz = (sess->templateHash.size < (word32)digestSz) ?
+                sess->templateHash.size : (word32)digestSz;
+            if (sizeMismatch |
+                (TPM2_ConstantCompare(sess->templateHash.buffer, digest,
+                    cmpSz) != 0)) {
+                rc = TPM_RC_POLICY_FAIL;
+            }
         }
     }
     if (rc == 0 && sess->checkNvWritten) {
@@ -19181,6 +19241,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_AUTHSIZE);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
             cpStart = cmdPkt.pos + (int)authAreaSz;
@@ -19324,6 +19385,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     if (rc != TPM_RC_SUCCESS) {
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
             TPM_ST_NO_SESSIONS, rc);
+        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
         return TPM_RC_SUCCESS;
     }
 
@@ -19332,6 +19394,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     if (entry->authHandleCnt > 0 && cmdAuthCnt < (int)entry->authHandleCnt) {
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
             TPM_ST_NO_SESSIONS, TPM_RC_AUTH_MISSING);
+        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
         return TPM_RC_SUCCESS;
     }
 
@@ -19342,6 +19405,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             cmdAuths[pj].sess->sessionType == TPM_SE_TRIAL) {
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         }
     }
@@ -19369,6 +19433,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_PCR_CHANGED);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
 
@@ -19432,6 +19497,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 #endif
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                     return TPM_RC_SUCCESS;
                 }
                 /* Enforce any PolicyLocality constraint bound to the session */
@@ -19440,6 +19506,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                      !((1u << ctx->activeLocality) & pSess->requiredLocality))) {
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
+                    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                     return TPM_RC_SUCCESS;
                 }
 #ifndef FWTPM_NO_PP
@@ -19449,6 +19516,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         !FwPhysicalPresenceAsserted(ctx)) {
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_PP);
+                    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                     return TPM_RC_SUCCESS;
                 }
 #endif /* !FWTPM_NO_PP */
@@ -19465,6 +19533,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             ccpHash, (word32)ccpHashSz) != 0) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                         return TPM_RC_SUCCESS;
                     }
                 }
@@ -19483,6 +19552,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
             else if (authPolicy == NULL) {
@@ -19495,6 +19565,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
 
@@ -19509,6 +19580,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, rc);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
         }
@@ -19535,6 +19607,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     NULL) & FW_AUTH_USES_LOCKOUT) != 0) {
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
         }
@@ -19572,6 +19645,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             hasDaAuth) {
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         }
     }
@@ -19620,6 +19694,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         #ifdef FWTPM_DA_USED_RETRY
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_RETRY);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         #endif
         }
@@ -19640,6 +19715,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     #endif
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
             TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
         return TPM_RC_SUCCESS;
     }
 
@@ -19684,6 +19760,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         #endif
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         }
         if (adminSess != NULL && adminSess->sessionType == TPM_SE_POLICY &&
@@ -19694,6 +19771,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         #endif
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_POLICY_CC);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         }
     }
@@ -19720,6 +19798,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_AUTH_UNAVAILABLE);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
         }
@@ -19756,12 +19835,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     if (FwDaRegisterFailure(ctx, daHandle)) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                         return TPM_RC_SUCCESS;
                     }
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, authRc);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
         }
@@ -19789,6 +19870,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     ctx, cpStart, cpHash, &cpHashSz) != 0) {
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_FAILURE);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
 
@@ -19820,12 +19902,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         if (FwDaRegisterFailure(ctx, daHandle)) {
                             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                                 TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                             return TPM_RC_SUCCESS;
                         }
                     }
                 #endif
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, authRc);
+                    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                     return TPM_RC_SUCCESS;
                 }
                 TPM2_ForceZero(cpHash, sizeof(cpHash));
@@ -19868,12 +19952,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     if (FwDaRegisterFailure(ctx, daHandle)) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                         return TPM_RC_SUCCESS;
                     }
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, authRc);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
 
@@ -19898,6 +19984,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_FAILURE);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                 return TPM_RC_SUCCESS;
             }
         }
@@ -20151,10 +20238,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         FwFlushAllObjects(ctx);
         nvRc = FWTPM_NV_Save(ctx);
         if (nvRc != TPM_RC_SUCCESS) {
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return nvRc;
         }
     }
 
+    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
     return TPM_RC_SUCCESS;
 }
 

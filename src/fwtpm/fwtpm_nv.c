@@ -1759,6 +1759,7 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
                     rc = TPM_RC_MEMORY;
                     break;
                 }
+                TPM2_ForceZero(valueBuf, valueBufSz);
                 XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 valueBuf = newBuf;
                 valueBufSz = len;
@@ -1933,6 +1934,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
                     rc = TPM_RC_MEMORY;
                     break;
                 }
+                TPM2_ForceZero(valueBuf, valueBufSz);
                 XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 valueBuf = newBuf;
                 valueBufSz = len;
@@ -1970,6 +1972,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         rc = FwNvGenFreshState(ctx);
     }
 
+    TPM2_ForceZero(valueBuf, valueBufSz);
     XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }
@@ -2097,6 +2100,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
                     rc = TPM_RC_MEMORY;
                 }
                 else {
+                    TPM2_ForceZero(buf, bufSz);
                     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                     buf = newBuf;
                     bufSz = needed;
@@ -2214,6 +2218,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
                     rc = TPM_RC_MEMORY;
                     break;
                 }
+                TPM2_ForceZero(buf, bufSz);
                 XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 buf = newBuf;
                 bufSz = needed;
@@ -2242,6 +2247,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
                     rc = TPM_RC_MEMORY;
                     break;
                 }
+                TPM2_ForceZero(buf, bufSz);
                 XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 buf = newBuf;
                 bufSz = needed;
@@ -2269,6 +2275,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
                     rc = TPM_RC_MEMORY;
                     break;
                 }
+                TPM2_ForceZero(buf, bufSz);
                 XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 buf = newBuf;
                 bufSz = needed;
@@ -2371,6 +2378,7 @@ int FWTPM_NV_SaveAuth(FWTPM_CTX* ctx, UINT32 hierarchy)
     if (rc == 0) {
         rc = FwNvAppendEntry(ctx, tag, buf, (UINT16)pos);
     }
+    TPM2_ForceZero(buf, sizeof(buf));
     return rc;
 }
 
@@ -2426,6 +2434,7 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH, buf, (UINT16)pos);
 
+    TPM2_ForceZero(buf, bufSz);
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }

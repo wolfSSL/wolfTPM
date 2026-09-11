@@ -120,6 +120,12 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
         word16 appDataLen = (word16)(1 + plainSz);
         word16 encDataLen = (word16)(2 + appDataLen);
 
+        /* MCTP carries a 16-bit sequence number; fail rather than let the wire
+         * value and the 64-bit IV counter diverge past 0xFFFF */
+        if (ctx->reqSeqNum > 0xFFFF) {
+            return WOLFSPDM_E_BAD_STATE;
+        }
+
         plainBufSz = encDataLen;
         recordLen = (word16)(encDataLen + WOLFSPDM_AEAD_TAG_SIZE);
         hdrSz = 8;  /* 4 + 2 + 2 */
@@ -272,10 +278,6 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
         wolfSPDM_BuildIV(iv, ctx->rspDataIv, (word64)rspSeqNum);
     }
 
-    /* response consumed and seq validated; advance to stay in lockstep with
-     * the peer even if AEAD/parse below fails */
-    ctx->rspSeqNum++;
-
     /* ----- AES-GCM decrypt (shared for both transports) ----- */
 
     ret = WOLFSPDM_E_CRYPTO_FAIL;
@@ -291,6 +293,13 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
         if (rc != 0) {
             wolfSPDM_DebugPrint(ctx, "AES-GCM decrypt failed: %d\n", rc);
             ret = WOLFSPDM_E_DECRYPT_FAIL;
+        }
+        else {
+            /* Record is authenticated (tag verified) so the peer has advanced;
+             * advance now. A forged record fails the tag and never reaches
+             * here, and a later payload parse error stays fatal without
+             * desyncing the sequence. */
+            ctx->rspSeqNum++;
         }
     }
     if (aesInit) {

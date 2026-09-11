@@ -40,6 +40,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
 {
     int rc;
     int rngInit = 0;
+    int wcInit = 0;
     FWTPM_NV_HAL savedNvHal;
     struct FWTPM_CLOCK_HAL_S savedClockHal;
 #ifndef FWTPM_NO_PP
@@ -96,6 +97,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     /* Initialize wolfCrypt RNG */
     rc = wolfCrypt_Init();
     if (rc == 0) {
+        wcInit = 1;
         rc = wc_InitRng(&ctx->rng);
         if (rc == 0) {
             rngInit = 1;
@@ -141,7 +143,9 @@ int FWTPM_Init(FWTPM_CTX* ctx)
         if (rngInit) {
             wc_FreeRng(&ctx->rng);
         }
-        wolfCrypt_Cleanup();
+        if (wcInit) {
+            wolfCrypt_Cleanup();
+        }
     }
 
     return rc;

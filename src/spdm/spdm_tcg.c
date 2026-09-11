@@ -204,6 +204,14 @@ int wolfSPDM_BuildVendorDefined(
     if (vdCode == NULL || outBuf == NULL) {
         return WOLFSPDM_E_INVALID_ARG;
     }
+    if (payload == NULL && payloadSz != 0) {
+        return WOLFSPDM_E_INVALID_ARG;
+    }
+
+    /* Reject a payload that would overflow the 16-bit request-length field */
+    if (payloadSz > (word32)(0xFFFF - WOLFSPDM_VDCODE_LEN)) {
+        return WOLFSPDM_E_INVALID_ARG;
+    }
 
     /* SPDM VENDOR_DEFINED_REQUEST format:
      * SPDMVersion(1) + reqRspCode(1) + param1(1) + param2(1) +
