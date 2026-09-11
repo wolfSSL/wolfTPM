@@ -1,0 +1,20 @@
+[package]
+name = "wolftpm"
+version = "0.4.0"
+edition = "2021"
+description = "Rust wrapper for the wolfTPM TPM 2.0 library"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/wolfSSL/wolfTPM"
+documentation = "https://github.com/wolfSSL/wolfTPM/tree/master/wrapper/rust"
+keywords = ["wolftpm", "tpm", "tpm2", "security", "api-bindings"]
+categories = ["cryptography", "hardware-support", "api-bindings"]
+readme = "README.md"
+
+[features]
+default = []
+# Gate the socket integration tests that need a running swtpm/fwtpm server.
+swtpm-tests = []
+
+[build-dependencies]
+bindgen = "0.72"
+regex = "1.5"
