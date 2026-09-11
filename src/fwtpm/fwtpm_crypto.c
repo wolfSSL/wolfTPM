@@ -192,21 +192,20 @@ int FwComputePublicName(TPMT_PUBLIC* pub, TPM2B_NAME* name)
     int digestSz;
 
     FWTPM_ALLOC_BUF(pubBuf, FWTPM_MAX_PUB_BUF);
-    if (rc != 0) {
-        return rc;
-    }
 
-    /* Marshal public area into temp buffer */
-    tmpPkt.buf = pubBuf;
-    tmpPkt.pos = 0;
-    tmpPkt.size = (int)FWTPM_MAX_PUB_BUF;
-    TPM2_Packet_AppendPublicArea(&tmpPkt, pub);
-    pubSz = tmpPkt.pos;
+    if (rc == 0) {
+        /* Marshal public area into temp buffer */
+        tmpPkt.buf = pubBuf;
+        tmpPkt.pos = 0;
+        tmpPkt.size = (int)FWTPM_MAX_PUB_BUF;
+        TPM2_Packet_AppendPublicArea(&tmpPkt, pub);
+        pubSz = tmpPkt.pos;
 
-    wcHash = FwGetWcHashType(pub->nameAlg);
-    digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
-    if (wcHash == WC_HASH_TYPE_NONE || digestSz == 0) {
-        rc = TPM_RC_HASH;
+        wcHash = FwGetWcHashType(pub->nameAlg);
+        digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+        if (wcHash == WC_HASH_TYPE_NONE || digestSz == 0) {
+            rc = TPM_RC_HASH;
+        }
     }
 
     if (rc == 0) {
