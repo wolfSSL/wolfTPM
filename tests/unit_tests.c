@@ -32,7 +32,7 @@
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_spdm.h>
-#ifdef WOLFTPM_MLDSA_SIGN
+#if defined(WOLFTPM_MLDSA_SIGN) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 #include <wolfssl/wolfcrypt/wc_mldsa.h>
 #endif
 

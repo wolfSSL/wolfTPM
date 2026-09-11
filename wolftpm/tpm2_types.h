@@ -279,6 +279,15 @@ typedef int64_t  INT64;
     #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
     #define LENGTH_ONLY_E         -202  /* Returning output length only */
 
+    /* wolfCrypt is not compiled in, so wolfssl/wolfcrypt/memory.h is not
+     * available. Mirror the upstream volatile byte wipe so callers can
+     * still zero secrets without the compiler eliding the store. */
+    static inline void wc_ForceZero(void* mem, size_t len)
+    {
+        volatile byte* z = (volatile byte*)mem;
+        while (len--) *z++ = 0;
+    }
+
     #define ENCODING_TYPE_PEM  CTC_FILETYPE_PEM
     #define ENCODING_TYPE_ASN1 CTC_FILETYPE_ASN1
 

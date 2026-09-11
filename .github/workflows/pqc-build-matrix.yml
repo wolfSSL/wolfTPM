@@ -18,7 +18,10 @@ concurrency:
 # prove each per-operation gate compiles and links (lib + server + unit tests).
 # The (mldsa=no, mlkem=no) combo is intentionally absent: it is a configure
 # error (no PQC algorithm) verified by the reject-no-pqc job below. Runtime
-# make check on the full op set is covered by pqc-examples.yml.
+# make check on the full op set is covered by pqc-examples.yml. The
+# standalone-pqc job below covers PQC with --disable-wolfcrypt, and is the
+# only PQC job that builds the examples and unit tests (every row above uses
+# --disable-examples, so example/test compile breaks escape them).
 jobs:
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -130,6 +133,48 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pqc-build-${{ matrix.name }}-logs
+          path: |
+            config.log
+          retention-days: 5
+
+  standalone-pqc:
+    # PQC command marshaling is pure wire format, so it must build with
+    # --disable-wolfcrypt (embedded client driving a v1.85 TPM, no host
+    # crypto). Deliberately no setup-wolfssl step: this config links no
+    # wolfSSL at all, which is exactly what the job proves. Deliberately no
+    # --disable-examples: a plain `make` compiles examples/pqc/* and
+    # tests/unit.test, which is where the breakage showed up.
+    # Build-only -- no TPM is reachable over the SPI HAL on a runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pqc-spi-nowolfcrypt
+            wolftpm_config: --enable-pqc --enable-spi --disable-wolfcrypt
+          - name: v185-nowolfcrypt
+            wolftpm_config: --enable-v185 --disable-wolfcrypt --disable-autodetect --disable-fwtpm
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Build wolfTPM standalone (${{ matrix.name }})
+        run: |
+          ./autogen.sh
+          ./configure ${{ matrix.wolftpm_config }}
+          make -j"$(nproc)"
+
+      - name: Show resolved PQC options
+        run: grep -E "WOLFTPM_(V185|PQC|NO_ML|NO_HASH|MLDSA|MLKEM)" wolftpm/options.h || true
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-pqc-${{ matrix.name }}-logs
           path: |
             config.log
           retention-days: 5

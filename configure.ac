@@ -963,35 +963,45 @@ fi
 
 if test "x$ENABLED_PQC_MODE" != "xno"
 then
-    # Explicit opt-in: re-probe so we fail at configure time (with a
-    # clear hint about wolfSSL flags) rather than deep inside the compile
-    # with a cryptic error. Header existence alone is not enough -- the
-    # actual functions must be declared (gated by WOLFSSL_HAVE_MLDSA /
-    # HAVE_MLKEM in wolfssl/options.h). The probed symbol
-    # `wc_MlDsaKey_Init` is the canonical FIPS 204 entry point introduced
-    # by wolfSSL PR #10436 (post-v5.9.1-stable): wolfTPM consumes
-    # <wolfssl/wolfcrypt/wc_mldsa.h> directly, so older wolfSSL that
-    # only ships <wolfssl/wolfcrypt/dilithium.h> is not supported here.
-    AC_CHECK_DECL([wc_MlDsaKey_Init], [],
-        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mldsa (or alias --enable-dilithium) and --enable-experimental, ships post-v5.9.1-stable])],
-        [[#include <wolfssl/options.h>
-          #include <wolfssl/wolfcrypt/wc_mldsa.h>]])
-    AC_CHECK_DECL([wc_MlKemKey_Init], [],
-        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL >= v5.8.0-stable built with --enable-mlkem --enable-experimental])],
-        [[#include <wolfssl/options.h>
-          #include <wolfssl/wolfcrypt/wc_mlkem.h>]])
+    # The PQC command set is pure marshaling, so it stands on its own with
+    # --disable-wolfcrypt (an embedded client driving a v1.85 TPM with no
+    # host-side crypto). Only probe wolfSSL when it is actually linked --
+    # otherwise no -I/-l is added and the probe would test headers this
+    # build never sees.
+    if test "x$ENABLED_WOLFCRYPT" = "xyes"
+    then
+        # Explicit opt-in: re-probe so we fail at configure time (with a
+        # clear hint about wolfSSL flags) rather than deep inside the compile
+        # with a cryptic error. Header existence alone is not enough -- the
+        # actual functions must be declared (gated by WOLFSSL_HAVE_MLDSA /
+        # HAVE_MLKEM in wolfssl/options.h). The probed symbol
+        # `wc_MlDsaKey_Init` is the canonical FIPS 204 entry point introduced
+        # by wolfSSL PR #10436 (post-v5.9.1-stable): wolfTPM consumes
+        # <wolfssl/wolfcrypt/wc_mldsa.h> directly, so older wolfSSL that
+        # only ships <wolfssl/wolfcrypt/dilithium.h> is not supported here.
+        AC_CHECK_DECL([wc_MlDsaKey_Init], [],
+            [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mldsa (or alias --enable-dilithium) and --enable-experimental, ships post-v5.9.1-stable])],
+            [[#include <wolfssl/options.h>
+              #include <wolfssl/wolfcrypt/wc_mldsa.h>]])
+        AC_CHECK_DECL([wc_MlKemKey_Init], [],
+            [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL >= v5.8.0-stable built with --enable-mlkem --enable-experimental])],
+            [[#include <wolfssl/options.h>
+              #include <wolfssl/wolfcrypt/wc_mlkem.h>]])
 
-    AC_MSG_CHECKING([wolfSSL version >= v5.8.0 for PQC])
-    AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
-        #include <wolfssl/version.h>
-        #if LIBWOLFSSL_VERSION_HEX < 0x05008000
-        #error "wolfSSL < v5.8.0"
-        #endif
-        int main(void) { return 0; }
-    ]])],
-    [AC_MSG_RESULT([yes])],
-    [AC_MSG_RESULT([no])
-     AC_MSG_ERROR([wolfTPM PQC requires wolfSSL >= v5.8.0-stable. Please upgrade wolfSSL.])])
+        AC_MSG_CHECKING([wolfSSL version >= v5.8.0 for PQC])
+        AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+            #include <wolfssl/version.h>
+            #if LIBWOLFSSL_VERSION_HEX < 0x05008000
+            #error "wolfSSL < v5.8.0"
+            #endif
+            int main(void) { return 0; }
+        ]])],
+        [AC_MSG_RESULT([yes])],
+        [AC_MSG_RESULT([no])
+         AC_MSG_ERROR([wolfTPM PQC requires wolfSSL >= v5.8.0-stable. Please upgrade wolfSSL.])])
+    else
+        AC_MSG_NOTICE([--disable-wolfcrypt: PQC is command marshaling only (no host-side ML-DSA/ML-KEM)])
+    fi
 
     if test "x$ENABLED_PQC_MODE" = "xv185"
     then
