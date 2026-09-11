@@ -5752,6 +5752,55 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 }
 
+/* A signature travels into TPM2_VerifySignature as a buffer parameter, whose
+ * size the TPM caps at TPM_PT_INPUT_BUFFER. Post-quantum signatures routinely
+ * exceed that cap - an ML-DSA-87 signature is 4627 bytes against a cap as low
+ * as 1024 on some parts - and not every TPM rejects the oversized parameter
+ * cleanly. At least one stops responding entirely until a hardware reset, so
+ * the size is checked here rather than left for the TPM to discover.
+ *
+ * TPM_PT_INPUT_BUFFER is never below 1024 (TCG Part 2), so any signature at or
+ * under that always fits and the capability read is skipped. That covers every
+ * RSA and ECC signature, leaving the extra round trip to the post-quantum
+ * paths that actually need it.
+ *
+ * Returns TPM_RC_SUCCESS when the signature fits or the limit cannot be
+ * determined, and BUFFER_E when it provably does not fit. */
+static int wolfTPM2_CheckSigInputBuffer(int sigSz)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+    UINT32 inputBuffer;
+
+    if (sigSz <= TPM_MIN_INPUT_BUFFER) {
+        return TPM_RC_SUCCESS;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_INPUT_BUFFER;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS ||
+            out.capabilityData.data.tpmProperties.count == 0) {
+        /* Limit is unknown, so let the TPM make the call. */
+        return TPM_RC_SUCCESS;
+    }
+
+    inputBuffer = out.capabilityData.data.tpmProperties.tpmProperty[0].value;
+    if (inputBuffer > 0 && (UINT32)sigSz > inputBuffer) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_VerifySignature: signature %d bytes exceeds the TPM's "
+            "%u byte input buffer\n", sigSz, (unsigned int)inputBuffer);
+    #endif
+        return BUFFER_E;
+    }
+
+    return TPM_RC_SUCCESS;
+}
+
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
 /* hashAlg: TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384 or TPM_ALG_SHA512 */
 int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
@@ -5767,6 +5816,11 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
@@ -6483,6 +6537,11 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
     if (contextSz > 0 && context == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     XMEMSET(&verifyDigestSigIn, 0, sizeof(verifyDigestSigIn));
