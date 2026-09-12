@@ -738,6 +738,11 @@ typedef enum {
 } TPM_PT_T;
 typedef UINT32 TPM_PT;
 
+/* Smallest TPM_PT_INPUT_BUFFER a conformant TPM may report (TCG Part 2).
+ * A command parameter at or below this size always fits, so the capability
+ * need not be read to know it will. */
+#define TPM_MIN_INPUT_BUFFER 1024
+
 /* PCR Property Tag */
 typedef enum {
     TPM_PT_PCR_FIRST        = 0x00000000,

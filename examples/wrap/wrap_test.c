@@ -70,6 +70,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 {
     int rc, i;
+    int isSupported = 0;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
     WOLFTPM2_KEY ekKey;
@@ -683,19 +684,29 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     printf("ECC DH Test %s\n", rc == 0 ? "Passed" : "Failed");
 
     /* ECC Public Key Signature Verify Test/Example */
-    rc = wolfTPM2_LoadEccPublicKey(&dev, &publicKey, TPM_ECC_NIST_P256,
-        kEccTestPubQX, sizeof(kEccTestPubQX),
-        kEccTestPubQY, sizeof(kEccTestPubQY));
+    /* The test vector below is signed over a SHA-1 digest. Many current TPMs
+     * no longer implement SHA-1, so ask before using it rather than aborting
+     * the whole test run on TPM_RC_HASH. */
+    rc = wolfTPM2_IsAlgSupported(&dev, TPM_ALG_SHA1, &isSupported);
     if (rc != 0) goto exit;
+    if (!isSupported) {
+        printf("ECC Verify Test Skipped (TPM does not implement SHA-1)\n");
+    }
+    else {
+        rc = wolfTPM2_LoadEccPublicKey(&dev, &publicKey, TPM_ECC_NIST_P256,
+            kEccTestPubQX, sizeof(kEccTestPubQX),
+            kEccTestPubQY, sizeof(kEccTestPubQY));
+        if (rc != 0) goto exit;
 
-    rc = wolfTPM2_VerifyHashScheme(&dev, &publicKey,
-        kEccTestSigRS, sizeof(kEccTestSigRS),
-        kEccTestMsg, sizeof(kEccTestMsg), TPM_ALG_ECDSA, TPM_ALG_SHA1);
-    if (rc != 0) goto exit;
+        rc = wolfTPM2_VerifyHashScheme(&dev, &publicKey,
+            kEccTestSigRS, sizeof(kEccTestSigRS),
+            kEccTestMsg, sizeof(kEccTestMsg), TPM_ALG_ECDSA, TPM_ALG_SHA1);
+        if (rc != 0) goto exit;
 
-    rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
-    if (rc != 0) goto exit;
-    printf("ECC Verify Test Passed\n");
+        rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
+        if (rc != 0) goto exit;
+        printf("ECC Verify Test Passed\n");
+    }
 
     /*------------------------------------------------------------------------*/
     /* ECC KEY LOADING TESTS */
