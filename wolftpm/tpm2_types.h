@@ -716,6 +716,51 @@ typedef int64_t  INT64;
     #endif
 #endif
 
+/* Monotonic millisecond tick, used to bound the TIS wait loops by real time
+ * rather than by an iteration count (see TPM_TIMEOUT_MS below). Returns a
+ * word32 that wraps roughly every 49 days; callers must compare elapsed time
+ * with unsigned subtraction so the wrap is handled correctly.
+ *
+ * WOLFTPM_HAVE_MONOTONIC_MS is defined only where a clock is actually
+ * available. Ports without one keep the iteration counter they use today, so
+ * no existing target gains a new porting requirement. */
+#if !defined(XTPM_GET_TIMEMS) && !defined(WOLFTPM_NO_MONOTONIC_MS) && \
+    !defined(WOLFTPM_NO_STD_HEADERS)
+    #if defined(WOLFTPM_ZEPHYR)
+        #include <zephyr/kernel.h>
+        #define XTPM_GET_TIMEMS() ((word32)k_uptime_get())
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #elif defined(WOLFSSL_ESPIDF) || defined(FREERTOS)
+        #define XTPM_GET_TIMEMS() \
+            ((word32)xTaskGetTickCount() * (word32)portTICK_PERIOD_MS)
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #elif defined(_WIN32)
+        #include <windows.h>
+        #define XTPM_GET_TIMEMS() ((word32)GetTickCount64())
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #elif defined(CLOCK_MONOTONIC) || defined(__linux__)
+        #include <time.h>
+        static inline word32 XTPM_GET_TIMEMS(void)
+        {
+            struct timespec ts;
+            if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+                return 0;
+            }
+            return (word32)((word32)ts.tv_sec * 1000u +
+                (word32)(ts.tv_nsec / 1000000L));
+        }
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #endif
+#endif
+
+/* Real-time budget for the TIS wait loops, used when a monotonic clock is
+ * available. Generous on purpose: it has to cover the slowest single command a
+ * TPM can be asked to run, and RSA key generation takes above 20 seconds on
+ * some parts. Override for a tighter bound. */
+#ifndef TPM_TIMEOUT_MS
+#define TPM_TIMEOUT_MS 60000
+#endif
+
 #ifndef BUFFER_ALIGNMENT
 #define BUFFER_ALIGNMENT 4
 #endif
