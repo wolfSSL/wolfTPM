@@ -80,6 +80,37 @@ static int is_curve_or_cmd_unsupported(TPM_RC rc, int curveMayBeUnsupported)
     return 0;
 }
 
+/* Report whether the TPM implements a given algorithm, by asking it rather
+ * than assuming. TPM_CAP_ALGS returns algorithms with ID >= property, so a
+ * match at index 0 of a single-property query means it is implemented.
+ * Returns 1 when supported, 0 when it is not or the query fails, so a caller
+ * skips rather than proceeding on an unanswered question. */
+static int native_is_alg_supported(TPM_ALG_ID alg)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+    TPML_ALG_PROPERTY* algs;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_ALGS;
+    in.property = alg;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        return 0;
+    }
+    if (out.capabilityData.capability != TPM_CAP_ALGS) {
+        return 0;
+    }
+    algs = &out.capabilityData.data.algorithms;
+    if (algs->count >= 1 && algs->algProperties[0].alg == alg) {
+        return 1;
+    }
+    return 0;
+}
+
 /* Run the ECDH / ECDH_ZGen / EC_Ephemeral / ZGen_2Phase sequence against a
  * single curve. Creates a transient ECDH key under `parentHandle`, exercises
  * the two-phase key-exchange path, and validates that the returned
@@ -863,22 +894,28 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     TPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
         cmdOut.policyGetDigest.policyDigest.size);
 
-    /* Read PCR[0] SHA1 */
-    pcrIndex = 0;
-    XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
-    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA1, pcrIndex);
-    rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PCR_Read failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
+    /* Read PCR[0] SHA1. Many current TPMs no longer implement SHA-1 and have
+     * no SHA-1 PCR bank, so ask first instead of failing on TPM_RC_HASH. */
+    if (!native_is_alg_supported(TPM_ALG_SHA1)) {
+        printf("TPM2_PCR_Read: SHA-1 skipped (not implemented by this TPM)\n");
     }
-    printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-        pcrIndex,
-        (int)cmdOut.pcrRead.pcrValues.digests[0].size,
-        (int)cmdOut.pcrRead.pcrUpdateCounter);
-    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                  cmdOut.pcrRead.pcrValues.digests[0].size);
+    else {
+        pcrIndex = 0;
+        XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
+        TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA1, pcrIndex);
+        rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_PCR_Read failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+        printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
+            pcrIndex,
+            (int)cmdOut.pcrRead.pcrValues.digests[0].size,
+            (int)cmdOut.pcrRead.pcrUpdateCounter);
+        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                      cmdOut.pcrRead.pcrValues.digests[0].size);
+    }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Set Auth Session index 0 */
@@ -892,20 +929,26 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     session[0].nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
     session[0].auth = sessionAuth;
 
-    /* Policy PCR (Get) */
-    pcrIndex = 0;
-    XMEMSET(&cmdIn.policyPCR, 0, sizeof(cmdIn.policyPCR));
-    cmdIn.policyPCR.policySession = sessionHandle;
-    cmdIn.policyPCR.pcrDigest.size = 0;
-    TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
-    rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
+    /* Policy PCR (Get). Uses the SHA-1 PCR bank, so skip it on a TPM that
+     * does not implement SHA-1. */
+    if (!native_is_alg_supported(TPM_ALG_SHA1)) {
+        printf("TPM2_PolicyPCR: SHA-1 skipped (not implemented by this TPM)\n");
     }
     else {
-        printf("TPM2_PolicyPCR: Updated\n");
+        pcrIndex = 0;
+        XMEMSET(&cmdIn.policyPCR, 0, sizeof(cmdIn.policyPCR));
+        cmdIn.policyPCR.policySession = sessionHandle;
+        cmdIn.policyPCR.pcrDigest.size = 0;
+        TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
+        rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+        else {
+            printf("TPM2_PolicyPCR: Updated\n");
+        }
     }
     XMEMSET(&session[0], 0, sizeof(TPM2_AUTH_SESSION));
     session[0].sessionHandle = TPM_RS_PW;
