@@ -80,6 +80,22 @@ static int is_curve_or_cmd_unsupported(TPM_RC rc, int curveMayBeUnsupported)
     return 0;
 }
 
+/* TPM2_EncryptDecrypt(2) is commonly shipped switched off for export-control
+ * reasons. A TPM that does not implement it at all answers TPM_RC_COMMAND_CODE,
+ * while one that implements it but leaves it disabled answers TPM_RC_DISABLED,
+ * which can persist even after TPM2_SetCommandSet. Both mean the same thing to
+ * this example: skip the test rather than fail the run. */
+static int native_is_cmd_unavailable_or_disabled(TPM_RC rc)
+{
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+        return 1;
+    }
+    if (rc >= 0 && (((UINT32)rc) & 0xFFFFu) == (UINT32)TPM_RC_DISABLED) {
+        return 1;
+    }
+    return 0;
+}
+
 /* Report whether the TPM implements a given algorithm, by asking it rather
  * than assuming. TPM_CAP_ALGS returns algorithms with ID >= property, so a
  * match at index 0 of a single-property query means it is implemented.
@@ -1678,7 +1694,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     cmdIn.encDec.decrypt = NO;
     cmdIn.encDec.mode = TEST_AES_MODE;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
-    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) { /* some TPM's may not support command */
+    if (native_is_cmd_unavailable_or_disabled(rc)) { /* unsupported or disabled */
         printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
         perform_EncryptDecrypt2 = 0;
         rc = 0;
@@ -1700,8 +1716,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         cmdIn.encDec.decrypt = YES;
         cmdIn.encDec.mode = TEST_AES_MODE;
         rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
-        if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+        if (native_is_cmd_unavailable_or_disabled(rc)) { /* unsupported or disabled */
             printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
+            rc = 0;
         }
         else if (rc != TPM_RC_SUCCESS) {
             printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
