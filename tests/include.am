@@ -54,3 +54,5 @@ if BUILD_FWTPM
 dist_noinst_SCRIPTS += tests/fwtpm_check.sh \
                        tests/fwtpm_da_retry.sh
 endif
+
+EXTRA_DIST += tests/pqc_kat_vectors.h
