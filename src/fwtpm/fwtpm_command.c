@@ -6375,7 +6375,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 if (rc == 0) {
                     inPublic->publicArea.unique.keyedHash.size = (UINT16)
                         FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, keySz,
+                            privKeyDer, privKeyDerSz,
                             inPublic->publicArea.unique.keyedHash.buffer);
                 }
                 break;
