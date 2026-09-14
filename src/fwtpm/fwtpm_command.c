@@ -7995,6 +7995,10 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_BUF(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_ALLOC_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
 
+    /* The dispatcher leaves the command packet overflow flag as-is, so clear it
+     * before parsing to measure only this command's reads. */
+    cmd->overflow = 0;
+
     /* Parse handles */
     TPM2_Packet_ParseU32(cmd, &oldParentH);
     TPM2_Packet_ParseU32(cmd, &newParentH);
@@ -8029,6 +8033,12 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0 && symSeedSz > 0) {
         TPM2_Packet_ParseBytes(cmd, symSeedBuf, symSeedSz);
+    }
+
+    /* Reject a command that declared more bytes than it carried; the missing
+     * duplicate suffix would otherwise be re-wrapped and disclosed. */
+    if (rc == 0 && cmd->overflow) {
+        rc = TPM_RC_SIZE;
     }
 
     /* Look up oldParent (TPM_RH_NULL means no outer protection) */
