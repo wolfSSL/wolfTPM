@@ -7648,8 +7648,14 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
     packet.buf = buf;
     packet.pos = 0;
     packet.size = (int)size;
+    packet.overflow = 0;
 
     TPM2_Packet_ParsePublic(&packet, pub);
+
+    if (packet.overflow) {
+        *sizeUsed = 0;
+        return TPM_RC_SIZE;
+    }
     *sizeUsed = packet.pos;
 
     return TPM_RC_SUCCESS;
