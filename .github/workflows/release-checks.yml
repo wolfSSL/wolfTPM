@@ -3,7 +3,8 @@ name: Release Checks
 # Gates intended to mirror the wolfTPM release procedure:
 #   - C++ build with CC=g++ (proves headers are C++-safe for consumers)
 #   - scan-build --status-bugs (Clang static analysis)
-# Both run on every PR and every push to release branches so regressions are
+#   - source tarball completeness (pack minimal, rebuild with every feature)
+# These run on every PR and every push to release branches so regressions are
 # caught at PR time instead of during release prep.
 
 on:
@@ -155,3 +156,46 @@ jobs:
             scan-results-default/
             scan-results-fwtpm/
           retention-days: 7
+
+  dist_tarball:
+    name: Source distribution build
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      # PQC-enabled wolfSSL is a superset of what fwTPM and SPDM need, so one
+      # install covers the maximal rebuild below.
+      - name: Setup wolfSSL with PQC
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: >-
+            --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            --enable-aescfb
+          cflags: -DWC_RSA_NO_PADDING
+
+      # Pack from a minimal config on purpose: EXTRA_DIST nested in a conditional
+      # is dropped from the tarball unless that conditional was on at pack time,
+      # so packing minimal and rebuilding maximal is what exposes a missing file.
+      - name: Create source tarball (minimal config)
+        run: |
+          ./autogen.sh
+          ./configure --disable-fwtpm
+          make dist
+
+      - name: Rebuild tarball via autotools (fwtpm + spdm + pqc)
+        run: |
+          tar xzf wolftpm-*.tar.gz
+          cd wolftpm-*/
+          ./configure --enable-fwtpm --enable-spdm --enable-pqc
+          make -j"$(nproc)"
+
+      - name: Rebuild tarball via CMake
+        run: |
+          cd "$(ls -d wolftpm-*/ | head -1)"
+          mkdir build && cd build
+          cmake -DWOLFTPM_FWTPM=yes -DWITH_WOLFSSL=/usr/local ..
+          cmake --build . --parallel
