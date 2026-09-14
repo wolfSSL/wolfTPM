@@ -590,6 +590,15 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* parse response header and extract the TPM response code */
     rc = TPM2_Packet_Parse(rc, packet);
 
+    /* Wipe request-tail bytes a shorter response did not overwrite, so
+     * plaintext auth values do not linger in the shared command buffer. Only
+     * on success: the command must survive a transport error for inspection. */
+    if (rc == TPM_RC_SUCCESS && packet->size >= 0 &&
+            (UINT32)packet->size < cmdSz) {
+        TPM2_ForceZero(packet->buf + packet->size,
+            cmdSz - (UINT32)packet->size);
+    }
+
     return rc;
 }
 #else
@@ -628,6 +637,16 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
             continue;
         }
         break;
+    }
+
+    /* Wipe request-tail bytes a shorter response did not overwrite, so
+     * plaintext auth values do not linger in the shared command buffer. Only
+     * after the final attempt, and only on success so the command survives a
+     * transport error for retry and inspection. */
+    if (rc == TPM_RC_SUCCESS && packet->size >= 0 &&
+            (UINT32)packet->size < cmdSz) {
+        TPM2_ForceZero(packet->buf + packet->size,
+            cmdSz - (UINT32)packet->size);
     }
 
     return rc;
