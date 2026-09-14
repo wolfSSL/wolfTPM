@@ -335,6 +335,7 @@ int TPM2_TIS_RequestLocalityEx(TPM2_CTX* ctx, int locality, int timeout)
 
 int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
 {
+    int rc;
     int locality = WOLFTPM_LOCALITY_DEFAULT;
 #ifdef WOLFTPM_TIS_RESET_STALE_LOCALITY
     int l;
@@ -359,7 +360,12 @@ int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
     }
 #endif /* WOLFTPM_TIS_RESET_STALE_LOCALITY */
 
-    return TPM2_TIS_RequestLocalityEx(ctx, locality, timeout);
+    rc = TPM2_TIS_RequestLocalityEx(ctx, locality, timeout);
+    /* RequestLocalityEx returns the granted locality (0-4) on success; status
+     * callers expect TPM_RC_SUCCESS, so map any granted locality onto it. */
+    if (rc >= 0 && rc <= WOLFTPM_LOCALITY_MAX)
+        rc = TPM_RC_SUCCESS;
+    return rc;
 }
 
 int TPM2_TIS_ReleaseLocality(TPM2_CTX* ctx, int locality)

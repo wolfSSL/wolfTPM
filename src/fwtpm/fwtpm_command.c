@@ -6375,7 +6375,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 if (rc == 0) {
                     inPublic->publicArea.unique.keyedHash.size = (UINT16)
                         FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, keySz,
+                            privKeyDer, privKeyDerSz,
                             inPublic->publicArea.unique.keyedHash.buffer);
                 }
                 break;
@@ -7995,6 +7995,10 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_BUF(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_ALLOC_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
 
+    /* The dispatcher leaves the command packet overflow flag as-is, so clear it
+     * before parsing to measure only this command's reads. */
+    cmd->overflow = 0;
+
     /* Parse handles */
     TPM2_Packet_ParseU32(cmd, &oldParentH);
     TPM2_Packet_ParseU32(cmd, &newParentH);
@@ -8029,6 +8033,12 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0 && symSeedSz > 0) {
         TPM2_Packet_ParseBytes(cmd, symSeedBuf, symSeedSz);
+    }
+
+    /* Reject a command that declared more bytes than it carried; the missing
+     * duplicate suffix would otherwise be re-wrapped and disclosed. */
+    if (rc == 0 && cmd->overflow) {
+        rc = TPM_RC_SIZE;
     }
 
     /* Look up oldParent (TPM_RH_NULL means no outer protection) */
@@ -19539,12 +19549,11 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 }
             }
             else if (authPolicy != NULL && authPolicy->size == 0 &&
-                    cmdAuths[pj].cmdHmacSize == 0) {
-                /* Per TPM 2.0 Part 1 Sec.19.7, a policy session can only
-                 * authorize an entity whose authPolicy is non-empty.
-                 * When the entity has no authPolicy AND the session
-                 * supplied no HMAC, every downstream auth check would
-                 * be skipped — reject up front. */
+                    (cmdAuths[pj].cmdHmacSize == 0 ||
+                     (!pSess->isPasswordPolicy && !pSess->isAuthValuePolicy))) {
+                /* A policy session authorizes an empty-authPolicy entity only
+                 * via PolicyPassword or PolicyAuthValue; otherwise the entity
+                 * auth is excluded and an unbound/empty HMAC would authorize. */
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: Policy session empty-HMAC rejected for "
                     "handle 0x%x without authPolicy (CC=0x%x)\n",
