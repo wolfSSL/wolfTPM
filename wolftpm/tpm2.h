@@ -424,13 +424,16 @@ typedef enum {
 #endif
     /* TCG Part 2 Sec.6.6.3 Table 17 -- present since v1.16, not v1.85 */
     TPM_RC_PARMS              = RC_FMT1 + 0x02A,
-    TPM_RC_CHANNEL            = RC_FMT1 + 0x030,
-    TPM_RC_CHANNEL_KEY        = RC_FMT1 + 0x031,
 #ifdef WOLFTPM_PQC
     /* v185 rc4 Part 2 Sec.6.6.3 Table 17 additions */
     TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
     TPM_RC_ONE_SHOT_SIGNATURE = RC_FMT1 + 0x02C,
     TPM_RC_SIGN_CONTEXT_KEY   = RC_FMT1 + 0x02D,
+#endif
+#if defined(WOLFTPM_V185) || defined(WOLFTPM_SPDM)
+    /* Part 2 v1.85 Sec.6.6.3 Table 17 channel protocol codes */
+    TPM_RC_CHANNEL            = RC_FMT1 + 0x030,
+    TPM_RC_CHANNEL_KEY        = RC_FMT1 + 0x031,
 #endif
     RC_MAX_FMT1             = RC_FMT1 + 0x03F,
 

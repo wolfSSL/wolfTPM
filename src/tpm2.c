@@ -7278,8 +7278,10 @@ const char* TPM2_GetRCString(int rc)
             TPM_RC_STR(TPM_RC_BINDING,           "Public and sensitive portions of an object are not cryptographically bound");
             TPM_RC_STR(TPM_RC_CURVE,             "Curve not supported");
             TPM_RC_STR(TPM_RC_ECC_POINT,         "Point is not on the required curve");
+        #if defined(WOLFTPM_V185) || defined(WOLFTPM_SPDM)
             TPM_RC_STR(TPM_RC_CHANNEL,           "Command is not protected by a secure channel required by the policy");
             TPM_RC_STR(TPM_RC_CHANNEL_KEY,       "Secure channel key does not match the key required by the policy");
+        #endif
         default:
             break;
         }
