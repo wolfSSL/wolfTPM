@@ -469,6 +469,7 @@ static int FwNvUnmarshalName(const byte* buf, word32* pos, word32 maxSz,
     return rc;
 }
 
+#ifndef FWTPM_NO_NV
 /* Marshal TPMS_NV_PUBLIC manually (no packet function exists) */
 static int FwNvMarshalNvPublic(byte* buf, word32* pos, word32 maxSz,
     const TPMS_NV_PUBLIC* nvPub)
@@ -603,6 +604,7 @@ static int FwNvUnmarshalNvIndex(const byte* buf, word32* pos, word32 maxSz,
     }
     return rc;
 }
+#endif /* !FWTPM_NO_NV */
 
 /* Marshal FWTPM_Object → value bytes */
 static int FwNvMarshalObject(byte* buf, word32* pos, word32 maxSz,
@@ -1115,21 +1117,24 @@ static int FwNvTagIsDelete(UINT16 tag)
 static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
     const byte* value, UINT16 valueLen)
 {
-    FWTPM_NV_HAL* hal = &ctx->nvHal;
+    FWTPM_NV_HAL* hal;
     word32 entrySize = TLV_HDR_SIZE + valueLen;
     word32 reserve = FWTPM_NV_MAC_SIZE;
     byte tlvHdr[TLV_HDR_SIZE];
     word32 savedWritePos;
     int rc;
 
-    if (hal->write == NULL) {
 #ifdef FWTPM_NO_NV
-        /* Volatile-only build: there is no backing store, so a state change
-         * succeeds without being persisted rather than reporting a failure. */
-        return TPM_RC_SUCCESS;
-#else
-        return TPM_RC_FAILURE;
+    (void)ctx;
+    (void)tag;
+    (void)value;
+    (void)valueLen;
+    return TPM_RC_SUCCESS;
 #endif
+
+    hal = &ctx->nvHal;
+    if (hal->write == NULL) {
+        return TPM_RC_FAILURE;
     }
 
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
@@ -1218,6 +1223,7 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
 /* Journal Load (Init)                                                       */
 /* ========================================================================= */
 
+#ifndef FWTPM_NO_NV
 /* Find NV index slot by handle, or allocate empty slot */
 static int FwNvFindOrAllocNvSlot(FWTPM_CTX* ctx, UINT32 nvHandle)
 {
@@ -1235,6 +1241,7 @@ static int FwNvFindOrAllocNvSlot(FWTPM_CTX* ctx, UINT32 nvHandle)
     }
     return freeSlot;
 }
+#endif /* !FWTPM_NO_NV */
 
 /* Find persistent object slot by handle, or allocate empty slot */
 static int FwNvFindOrAllocPersSlot(FWTPM_CTX* ctx, UINT32 handle)
@@ -1440,6 +1447,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             break;
         }
 
+    #ifndef FWTPM_NO_NV
         case FWTPM_NV_TAG_NV_INDEX: {
             FWTPM_NvIndex nv;
             int slot;
@@ -1469,6 +1477,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             }
             break;
         }
+    #endif /* !FWTPM_NO_NV */
 
         case FWTPM_NV_TAG_PERSISTENT: {
             FWTPM_Object obj;
@@ -1996,6 +2005,10 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         return BAD_FUNC_ARG;
     }
 
+#ifdef FWTPM_NO_NV
+    return TPM_RC_SUCCESS;
+#endif
+
     hal = &ctx->nvHal;
     if (hal->write == NULL) {
         return TPM_RC_FAILURE;
@@ -2200,6 +2213,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
     }
 
+    #ifndef FWTPM_NO_NV
     /* --- NV indices (only used slots, minus a pending deletion) --- */
     for (i = 0; i < FWTPM_MAX_NV_INDICES && rc == 0; i++) {
         if (ctx->nvIndices[i].inUse &&
@@ -2230,6 +2244,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             }
         }
     }
+    #endif /* !FWTPM_NO_NV */
 
     /* --- Persistent objects (only used slots, minus a pending deletion) --- */
     for (i = 0; i < FWTPM_MAX_PERSISTENT && rc == 0; i++) {
@@ -2546,6 +2561,11 @@ int FWTPM_NV_SaveHierarchyPolicy(FWTPM_CTX* ctx, UINT32 hierarchy)
 
 int FWTPM_NV_SaveNvIndex(FWTPM_CTX* ctx, int slot)
 {
+#ifdef FWTPM_NO_NV
+    (void)ctx;
+    (void)slot;
+    return NOT_COMPILED_IN;
+#else
     int rc;
     byte* buf;
     word32 pos = 0;
@@ -2580,10 +2600,16 @@ int FWTPM_NV_SaveNvIndex(FWTPM_CTX* ctx, int slot)
     TPM2_ForceZero(buf, bufSz);
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
+#endif /* FWTPM_NO_NV */
 }
 
 int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle)
 {
+#ifdef FWTPM_NO_NV
+    (void)ctx;
+    (void)nvHandle;
+    return NOT_COMPILED_IN;
+#else
     int rc;
     byte buf[4];
     word32 pos = 0;
@@ -2597,6 +2623,7 @@ int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle)
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_NV_INDEX_DEL, buf, (UINT16)pos);
     ctx->nvDeleteHandle = 0;
     return rc;
+#endif /* FWTPM_NO_NV */
 }
 
 int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)

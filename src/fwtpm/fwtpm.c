@@ -137,6 +137,14 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     if (rc == 0) {
         ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
     }
+#ifndef FWTPM_NO_DA
+    if (rc == 0) {
+        ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
+        ctx->daRecoveryTime = FWTPM_DA_DEFAULT_RECOVERY;
+        ctx->daLockoutRecovery = FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY;
+        ctx->orderly = 1;
+    }
+#endif
 #endif
 
     if (rc != 0) {

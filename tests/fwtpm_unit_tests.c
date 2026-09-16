@@ -227,6 +227,84 @@ static int fwtpm_test_startup(FWTPM_CTX* ctx)
 /* 1. Core Lifecycle Tests                                             */
 /* ================================================================== */
 
+#ifdef FWTPM_NO_NV
+static int gNoNvHalCalls;
+
+static int test_no_nv_hal_read(void* userCtx, word32 offset, byte* data,
+    word32 dataSz)
+{
+    (void)userCtx;
+    (void)offset;
+    (void)data;
+    (void)dataSz;
+    gNoNvHalCalls++;
+    return TPM_RC_FAILURE;
+}
+
+static int test_no_nv_hal_write(void* userCtx, word32 offset,
+    const byte* data, word32 dataSz)
+{
+    (void)userCtx;
+    (void)offset;
+    (void)data;
+    (void)dataSz;
+    gNoNvHalCalls++;
+    return TPM_RC_FAILURE;
+}
+
+static int test_no_nv_hal_erase(void* userCtx, word32 offset, word32 dataSz)
+{
+    (void)userCtx;
+    (void)offset;
+    (void)dataSz;
+    gNoNvHalCalls++;
+    return TPM_RC_FAILURE;
+}
+
+static void test_fwtpm_no_nv_volatile(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = test_no_nv_hal_read;
+    hal.write = test_no_nv_hal_write;
+    hal.erase = test_no_nv_hal_erase;
+    hal.maxSize = 4096;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), TPM_RC_SUCCESS);
+
+    gNoNvHalCalls = 0;
+    AssertIntEQ(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
+#ifndef FWTPM_NO_DA
+    AssertIntEQ((int)ctx.daMaxTries, FWTPM_DA_DEFAULT_MAX_TRIES);
+    AssertIntEQ((int)ctx.daRecoveryTime, FWTPM_DA_DEFAULT_RECOVERY);
+    AssertIntEQ((int)ctx.daLockoutRecovery,
+        FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY);
+    AssertIntEQ(ctx.orderly, 1);
+#endif
+    AssertIntEQ(FWTPM_NV_Save(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SaveSeeds(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SaveAuth(&ctx, TPM_RH_OWNER), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SavePcrState(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SavePcrAuth(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SaveFlags(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SaveClock(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SaveHierarchyPolicy(&ctx, TPM_RH_OWNER),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_SaveNvIndex(&ctx, 0), NOT_COMPILED_IN);
+    AssertIntEQ(FWTPM_NV_SaveNvIndex(NULL, -1), NOT_COMPILED_IN);
+    AssertIntEQ(FWTPM_NV_DeleteNvIndex(&ctx, NV_INDEX_FIRST),
+        NOT_COMPILED_IN);
+    AssertIntEQ(FWTPM_NV_DeleteNvIndex(NULL, 0), NOT_COMPILED_IN);
+    AssertIntEQ(gNoNvHalCalls, 0);
+    AssertIntEQ(FWTPM_Cleanup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(gNoNvHalCalls, 0);
+
+    fwtpm_pass("No-NV volatile state:", 0);
+}
+#endif /* FWTPM_NO_NV */
+
 static void test_fwtpm_init_cleanup(void)
 {
     FWTPM_CTX ctx;
@@ -15496,6 +15574,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     (void)remove(FWTPM_NV_FILE);
 
     /* Lifecycle */
+#ifdef FWTPM_NO_NV
+    test_fwtpm_no_nv_volatile();
+#endif
     test_fwtpm_init_cleanup();
     test_fwtpm_startup_clear();
     test_fwtpm_double_startup();

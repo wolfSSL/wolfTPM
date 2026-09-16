@@ -559,7 +559,7 @@ All macros are compile-time overridable (e.g., `-DFWTPM_MAX_OBJECTS=8`).
 | `FWTPM_MAX_HASH_SEQ` | 4 | Maximum concurrent hash/HMAC sequences |
 | `FWTPM_MAX_PRIMARY_CACHE` | 16 | Cached primary keys per hierarchy+template |
 | `FWTPM_MAX_SESSIONS` | 8 | Maximum concurrent auth sessions |
-| `FWTPM_MAX_NV_INDICES` | 16 | Maximum NV RAM index slots |
+| `FWTPM_MAX_NV_INDICES` | 16 | Maximum NV RAM index slots; omitted from `FWTPM_CTX` with `FWTPM_NO_NV` |
 | `FWTPM_MAX_NV_DATA` | 2048 | Maximum data per NV index (bytes) |
 | `FWTPM_DA_DEFAULT_MAX_TRIES` | 32 | DA failed-auth count before lockout |
 | `FWTPM_DA_DEFAULT_RECOVERY` | 600 | DA self-heal interval (seconds per try) |
@@ -665,7 +665,7 @@ to reduce code size on constrained targets.
 | Macro | Default | Commands Excluded |
 |-------|---------|-------------------|
 | `FWTPM_NO_ATTESTATION` | not defined | `Quote`, `Certify`, `CertifyCreation`, `GetTime`, `NV_Certify` |
-| `FWTPM_NO_NV` | not defined | `NV_DefineSpace`, `NV_UndefineSpace`, `NV_ReadPublic`, `NV_Write`, `NV_Read`, `NV_Extend`, `NV_Increment`, `NV_WriteLock`, `NV_ReadLock`, `NV_Certify` |
+| `FWTPM_NO_NV` | not defined | `NV_DefineSpace`, `NV_UndefineSpace`, `NV_ReadPublic`, `NV_Write`, `NV_Read`, `NV_Extend`, `NV_Increment`, `NV_WriteLock`, `NV_ReadLock`, `NV_Certify`; also removes the in-memory NV index slots from `FWTPM_CTX` |
 | `FWTPM_NO_POLICY` | not defined | `PolicyGetDigest`, `PolicyRestart`, `PolicyPCR`, `PolicyPassword`, `PolicyAuthValue`, `PolicyCommandCode`, `PolicyOR`, `PolicySecret`, `PolicyAuthorize`, `PolicyNV` |
 | `FWTPM_NO_CREDENTIAL` | not defined | `MakeCredential`, `ActivateCredential` |
 | `FWTPM_NO_DA` | not defined | `DictionaryAttackParameters`, `DictionaryAttackLockReset`, and all lockout accounting |

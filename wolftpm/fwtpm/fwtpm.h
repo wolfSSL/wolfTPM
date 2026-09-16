@@ -128,7 +128,7 @@
  *   FWTPM_NO_CREDENTIAL    - MakeCredential/ActivateCredential
  *   FWTPM_NO_DA            - dictionary-attack lockout protection (see below)
  *   FWTPM_NO_PARAM_ENC     - command/response parameter encryption
- *   FWTPM_NO_NV            - all NV_* commands
+ *   FWTPM_NO_NV            - all NV_* commands and in-memory NV index slots
  *   FWTPM_NO_KEY_MIGRATION - Import/Duplicate/Rewrap
  *   FWTPM_NO_ECDH          - ECDH_KeyGen/ECDH_ZGen/EC_Ephemeral/ZGen_2Phase/
  *                            ECC_Parameters (ECDSA sign/verify are retained)
@@ -795,8 +795,11 @@ typedef struct FWTPM_CTX {
     /* Persistent object slots (0x81xxxxxx handles via EvictControl) */
     FWTPM_Object persistent[FWTPM_MAX_PERSISTENT];
 
-    /* NV index slots (0x01xxxxxx handles) */
+    /* NV index slots (0x01xxxxxx handles). They are the dominant fixed RAM
+     * cost of the NV command group, so omit them when that group is disabled. */
+#ifndef FWTPM_NO_NV
     FWTPM_NvIndex nvIndices[FWTPM_MAX_NV_INDICES];
+#endif
 
     /* Hash sequence slots */
 #ifndef FWTPM_NO_HASH_CMDS

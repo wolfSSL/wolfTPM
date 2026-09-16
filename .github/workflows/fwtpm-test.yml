@@ -439,6 +439,13 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             extra_cflags: -DIMPLEMENTATION_PCR=8 -DPLATFORM_PCR=8
 
+          # FWTPM_NO_NV has distinct volatile-only initialization and context
+          # layout, so run the handler suite in addition to the build-only leg.
+          - name: no-nv
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            extra_cflags: -DFWTPM_NO_NV
+
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
