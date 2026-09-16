@@ -250,7 +250,8 @@ EncryptDecrypt, EncryptDecrypt2
 - `FWTPM_NO_NV`: NV\_DefineSpace, NV\_UndefineSpace, NV\_UndefineSpaceSpecial,
   NV\_ReadPublic, NV\_Write, NV\_Read, NV\_Extend, NV\_Increment, NV\_WriteLock,
   NV\_ReadLock, NV\_SetBits, NV\_ChangeAuth, NV\_GlobalWriteLock (13 commands).
-  Also gates PolicyNV and PolicyAuthorizeNV when policy is enabled.
+  Also gates PolicyNV and PolicyAuthorizeNV when policy is enabled and removes
+  the `FWTPM_CTX` in-memory NV index slots.
 - `FWTPM_NO_ATTESTATION`: Quote, Certify, CertifyCreation, GetTime, NV\_Certify
 - `FWTPM_NO_CREDENTIAL`: MakeCredential, ActivateCredential
 - `FWTPM_NO_DA`: DictionaryAttackLockReset, DictionaryAttackParameters (2 commands)
