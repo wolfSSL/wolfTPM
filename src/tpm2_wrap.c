@@ -8744,7 +8744,7 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
      * it with TPM_RC_VALUE / TPM_RC_KEY per TPM 2.0 Part 3. */
 
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
-    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) { /* some TPM's lack the command */
         /* try to enable support */
         rc = wolfTPM2_SetCommand(dev, TPM_CC_EncryptDecrypt2, YES);
         if (rc == TPM_RC_SUCCESS) {

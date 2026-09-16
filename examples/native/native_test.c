@@ -339,6 +339,7 @@ int TPM2_Native_Test(void* userCtx)
 int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
+    int isAllocated = 0;
     TPM2_CTX tpm2Ctx;
 
     union {
@@ -709,6 +710,19 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     }
     printf("TPM2_ReadClock: success\n");
 
+    /* TEST_WRAP_DIGEST is SHA-1 on some targets, and a TPM that allocates no
+     * SHA-1 bank would abort every PCR step below. Check once, up front. */
+    rc = TPM2_IsPcrBankAllocated(TEST_WRAP_DIGEST, 0, &isAllocated);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_IsPcrBankAllocated failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    if (!isAllocated) {
+        printf("PCR tests skipped (no 0x%x PCR bank allocated)\n",
+            (unsigned int)TEST_WRAP_DIGEST);
+        goto pcr_tests_done;
+    }
 
     /* PCR Read */
     for (i=0; i<pcrCount; i++) {
@@ -804,6 +818,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     }
 #endif /* !WOLFTPM_WINAPI */
 
+pcr_tests_done:
+
     /* Start Auth Session */
     XMEMSET(&cmdIn.authSes, 0, sizeof(cmdIn.authSes));
     cmdIn.authSes.tpmKey = TPM_RH_NULL;
@@ -863,22 +879,34 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     TPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
         cmdOut.policyGetDigest.policyDigest.size);
 
-    /* Read PCR[0] SHA1 */
+    /* Many current TPMs allocate no SHA-1 bank; ask before selecting it. A
+     * query failure is reported, not silently treated as "no bank". */
     pcrIndex = 0;
-    XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
-    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA1, pcrIndex);
-    rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
+    rc = TPM2_IsPcrBankAllocated(TPM_ALG_SHA1, pcrIndex, &isAllocated);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PCR_Read failed 0x%x: %s\n", rc,
+        printf("TPM2_IsPcrBankAllocated failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-        pcrIndex,
-        (int)cmdOut.pcrRead.pcrValues.digests[0].size,
-        (int)cmdOut.pcrRead.pcrUpdateCounter);
-    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                  cmdOut.pcrRead.pcrValues.digests[0].size);
+    if (!isAllocated) {
+        printf("TPM2_PCR_Read: SHA-1 skipped (no SHA-1 PCR bank allocated)\n");
+    }
+    else {
+        XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
+        TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA1, pcrIndex);
+        rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_PCR_Read failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+        printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
+            pcrIndex,
+            (int)cmdOut.pcrRead.pcrValues.digests[0].size,
+            (int)cmdOut.pcrRead.pcrUpdateCounter);
+        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                      cmdOut.pcrRead.pcrValues.digests[0].size);
+    }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Set Auth Session index 0 */
@@ -892,20 +920,31 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     session[0].nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
     session[0].auth = sessionAuth;
 
-    /* Policy PCR (Get) */
+    /* Policy PCR (Get). Selects the SHA-1 bank, so skip when unallocated. */
     pcrIndex = 0;
-    XMEMSET(&cmdIn.policyPCR, 0, sizeof(cmdIn.policyPCR));
-    cmdIn.policyPCR.policySession = sessionHandle;
-    cmdIn.policyPCR.pcrDigest.size = 0;
-    TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
-    rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
+    rc = TPM2_IsPcrBankAllocated(TPM_ALG_SHA1, pcrIndex, &isAllocated);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,
+        printf("TPM2_IsPcrBankAllocated failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
+    if (!isAllocated) {
+        printf("TPM2_PolicyPCR: SHA-1 skipped (no SHA-1 PCR bank allocated)\n");
+    }
     else {
-        printf("TPM2_PolicyPCR: Updated\n");
+        XMEMSET(&cmdIn.policyPCR, 0, sizeof(cmdIn.policyPCR));
+        cmdIn.policyPCR.policySession = sessionHandle;
+        cmdIn.policyPCR.pcrDigest.size = 0;
+        TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
+        rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+        else {
+            printf("TPM2_PolicyPCR: Updated\n");
+        }
     }
     XMEMSET(&session[0], 0, sizeof(TPM2_AUTH_SESSION));
     session[0].sessionHandle = TPM_RS_PW;
@@ -1635,7 +1674,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     cmdIn.encDec.decrypt = NO;
     cmdIn.encDec.mode = TEST_AES_MODE;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
-    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) { /* some TPM's may not support command */
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
         printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
         perform_EncryptDecrypt2 = 0;
         rc = 0;
@@ -1657,7 +1696,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         cmdIn.encDec.decrypt = YES;
         cmdIn.encDec.mode = TEST_AES_MODE;
         rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
-        if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+        if (WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
+            /* Leave rc set: the check below inspects it to tell a real
+             * result from a skip, and cmdOut holds stale output. */
             printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
         }
         else if (rc != TPM_RC_SUCCESS) {
@@ -1673,7 +1714,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
                     cmdOut.encDec.outData.size) == 0) {
             printf("Encrypt/Decrypt test success\n");
         }
-        else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+        else if (WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
             printf("Encrypt/Decrypt test result allowed as pass since hardware doesn't support.\n");
             rc = TPM_RC_SUCCESS;
         }
