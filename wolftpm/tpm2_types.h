@@ -716,6 +716,63 @@ typedef int64_t  INT64;
     #endif
 #endif
 
+/* Monotonic ms tick for the TIS wait loops. Wraps ~49 days, so compare with
+ * unsigned subtraction. WOLFTPM_HAVE_MONOTONIC_MS is set only where a clock
+ * exists, port-supplied included; otherwise the iteration counter is kept.
+ * WOLFTPM_NO_MONOTONIC_MS forces the counter. */
+#ifndef WOLFTPM_NO_MONOTONIC_MS
+
+/* Without this a port-supplied hook would be silently ignored. */
+#ifdef XTPM_GET_TIMEMS
+    #define WOLFTPM_HAVE_MONOTONIC_MS
+#elif !defined(WOLFTPM_NO_STD_HEADERS)
+    #if defined(WOLFTPM_ZEPHYR)
+        #include <zephyr/kernel.h>
+        #define XTPM_GET_TIMEMS() ((word32)k_uptime_get())
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #elif defined(WOLFSSL_ESPIDF) || defined(FREERTOS)
+        #define XTPM_GET_TIMEMS() \
+            ((word32)xTaskGetTickCount() * (word32)portTICK_PERIOD_MS)
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #elif defined(_WIN32)
+        #include <windows.h>
+        #define XTPM_GET_TIMEMS() ((word32)GetTickCount64())
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #else
+        /* Include first, then feature-test: strict C99 may not expose
+         * CLOCK_MONOTONIC, and __linux__ alone would fail to compile. */
+        #include <time.h>
+        #if defined(CLOCK_MONOTONIC) && \
+            (!defined(_POSIX_TIMERS) || _POSIX_TIMERS > 0)
+            static inline word32 XTPM_GET_TIMEMS(void)
+            {
+                struct timespec ts;
+                if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+                    return 0;
+                }
+                return (word32)((word32)ts.tv_sec * 1000u +
+                    (word32)(ts.tv_nsec / 1000000L));
+            }
+            #define WOLFTPM_HAVE_MONOTONIC_MS
+        #endif
+    #endif
+#endif /* XTPM_GET_TIMEMS */
+
+#endif /* !WOLFTPM_NO_MONOTONIC_MS */
+
+/* Must cover the slowest single command. RSA-2048 key generation is an
+ * unbounded prime search: repeated runs on a current part ranged from 26 s to
+ * over 180 s for the same command, so this is a tail, not an average. */
+#ifndef TPM_TIMEOUT_MS
+#define TPM_TIMEOUT_MS 300000
+#endif
+
+/* Bound for a tick source that stops advancing part way through a wait. Only a
+ * stopped or broken clock reaches this: a working one advances long before. */
+#ifndef TPM_TIMEOUT_STAGNANT_POLLS
+#define TPM_TIMEOUT_STAGNANT_POLLS 1000000
+#endif
+
 #ifndef BUFFER_ALIGNMENT
 #define BUFFER_ALIGNMENT 4
 #endif
