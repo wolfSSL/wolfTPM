@@ -1408,6 +1408,55 @@ static void test_wolfTPM2_IsAlgSupported(void)
 #endif /* WOLFTPM_SWTPM */
 }
 
+/* TPM2_IsPcrBankAllocated: argument validation always, plus a live query on
+ * the simulator. Mirrors test_wolfTPM2_IsAlgSupported. */
+static void test_TPM2_IsPcrBankAllocated(void)
+{
+    int isAllocated = 1; /* seeded true to prove the error paths clear it */
+#if defined(WOLFTPM_SWTPM)
+    int rc;
+    WOLFTPM2_DEV dev;
+#endif
+
+    /* NULL out-param */
+    AssertIntEQ(TPM2_IsPcrBankAllocated(TPM_ALG_SHA256, 0, NULL),
+        BAD_FUNC_ARG);
+    /* negative index must fail and must not leave the out-param set */
+    AssertIntEQ(TPM2_IsPcrBankAllocated(TPM_ALG_SHA256, -1, &isAllocated),
+        BAD_FUNC_ARG);
+    AssertIntEQ(isAllocated, 0);
+
+#if defined(WOLFTPM_SWTPM)
+    XMEMSET(&dev, 0, sizeof(dev));
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Every TPM 2.0 part allocates a SHA2-256 bank covering PCR 0 */
+    isAllocated = 0;
+    AssertIntEQ(TPM2_IsPcrBankAllocated(TPM_ALG_SHA256, 0, &isAllocated),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(isAllocated, 1);
+
+    /* A hash no bank uses reports not-allocated, with a success rc because
+     * the query itself worked - the distinction this API exists to make. */
+    isAllocated = 1;
+    AssertIntEQ(TPM2_IsPcrBankAllocated((TPM_ALG_ID)0x7FFF, 0, &isAllocated),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(isAllocated, 0);
+
+    /* An index beyond the PCR count is not allocated in any bank */
+    isAllocated = 1;
+    AssertIntEQ(TPM2_IsPcrBankAllocated(TPM_ALG_SHA256, 250, &isAllocated),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(isAllocated, 0);
+
+    wolfTPM2_Cleanup(&dev);
+    printf("Test PcrBank:     %-40s Passed\n", "Args + Query:");
+#else
+    printf("Test PcrBank:     %-40s Passed\n", "Arg Validation:");
+#endif /* WOLFTPM_SWTPM */
+}
+
 /* Success path for wolfTPM2_PolicyOR: satisfy one branch of a real two-branch
  * OR on a live policy session and confirm the TPM's running policy digest
  * matches the offline computation. Simulator only. */
@@ -9527,6 +9576,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_FirmwareUpgrade_ex_session();
     #endif
     test_wolfTPM2_IsAlgSupported();
+    test_TPM2_IsPcrBankAllocated();
     test_wolfTPM2_PolicyOR_success();
     #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
     /* Run non-TPM-dependent tests first */

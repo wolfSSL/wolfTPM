@@ -7919,6 +7919,94 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
 }
 #endif /* DEBUG_WOLFTPM */
 
+/* TPM_CAP_ALGS returns algorithms with ID >= property, so a match at index 0
+ * means implemented. Fails closed: *isSupported is 0 on any error. */
+int TPM2_IsAlgSupported(TPM_ALG_ID alg, int* isSupported)
+{
+    int rc;
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_ALG_PROPERTY* algs;
+
+    if (isSupported == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    *isSupported = 0;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_ALGS;
+    in.property = alg;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc; /* query failure, distinct from "not supported" */
+    }
+    /* union - confirm the capability asked for */
+    if (out.capabilityData.capability != TPM_CAP_ALGS) {
+        return TPM_RC_VALUE;
+    }
+
+    algs = &out.capabilityData.data.algorithms;
+    if (algs->count >= 1 && algs->algProperties[0].alg == alg) {
+        *isSupported = 1;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* Implementing a hash and allocating a bank for it are separate: a TPM may
+ * offer SHA-1 while allocating no SHA-1 bank, and a selection naming an
+ * unallocated bank is rejected. Ask before TPM2_SetupPCRSel(). Fails closed. */
+int TPM2_IsPcrBankAllocated(TPM_ALG_ID hashAlg, int pcrIndex, int* isAllocated)
+{
+    int rc;
+    word32 i;
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_PCR_SELECTION* banks;
+
+    if (isAllocated == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    *isAllocated = 0;
+    if (pcrIndex < 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_PCRS;
+    in.property = 0;
+    in.propertyCount = HASH_COUNT; /* all assigned banks */
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+    if (out.capabilityData.capability != TPM_CAP_PCRS) {
+        return TPM_RC_VALUE;
+    }
+
+    banks = &out.capabilityData.data.assignedPCR;
+    /* HASH_COUNT is this build's TPML capacity, not the TPM's bank count, so a
+     * TPM with more banks returns a partial page. Reporting "not allocated"
+     * from a truncated list would be a false negative. */
+    if (out.moreData == YES) {
+        return TPM_RC_SIZE;
+    }
+    for (i = 0; i < banks->count; i++) {
+        if (banks->pcrSelections[i].hash != hashAlg) {
+            continue;
+        }
+        if ((pcrIndex / 8) < (int)banks->pcrSelections[i].sizeofSelect &&
+                (banks->pcrSelections[i].pcrSelect[pcrIndex / 8] &
+                    (1 << (pcrIndex % 8))) != 0) {
+            *isAllocated = 1;
+            break;
+        }
+    }
+    return TPM_RC_SUCCESS;
+}
+
 /******************************************************************************/
 /* --- END Helpful API's -- */
 /******************************************************************************/

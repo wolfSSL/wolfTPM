@@ -4137,6 +4137,46 @@ WOLFTPM_API void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
 
 /*!
     \ingroup TPM2_Proprietary
+    \brief Report whether the TPM implements a given algorithm
+
+    \note Queries TPM_CAP_ALGS. Fails closed: *isSupported is 0 on any error,
+          so a query failure cannot be mistaken for "supported".
+
+    \return TPM_RC_SUCCESS: query completed; *isSupported is 1 or 0
+    \return BAD_FUNC_ARG: isSupported is NULL
+
+    \param alg the algorithm identifier to test (for example TPM_ALG_SHA512)
+    \param isSupported output, set to 1 if implemented by the TPM, else 0
+
+    \sa TPM2_IsPcrBankAllocated
+*/
+WOLFTPM_API int TPM2_IsAlgSupported(TPM_ALG_ID alg, int* isSupported);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Report whether a PCR index is allocated in a bank of a given hash
+
+    \note Queries TPM_CAP_PCRS. Implementing a hash and allocating a bank for
+          it are separate: a TPM may offer SHA-1 while allocating no SHA-1
+          bank, and a selection naming an unallocated bank is rejected. Ask
+          before building a selection with TPM2_SetupPCRSel(). Fails closed:
+          *isAllocated is 0 on any error.
+
+    \return TPM_RC_SUCCESS: query completed; *isAllocated is 1 or 0
+    \return BAD_FUNC_ARG: isAllocated is NULL or pcrIndex is negative
+
+    \param hashAlg the PCR bank hash algorithm (for example TPM_ALG_SHA256)
+    \param pcrIndex the PCR index to test
+    \param isAllocated output, set to 1 if allocated in that bank, else 0
+
+    \sa TPM2_SetupPCRSel
+    \sa TPM2_IsAlgSupported
+*/
+WOLFTPM_API int TPM2_IsPcrBankAllocated(TPM_ALG_ID hashAlg, int pcrIndex,
+    int* isAllocated);
+
+/*!
+    \ingroup TPM2_Proprietary
     \brief Get a human readable string for any TPM 2.0 return code
 
     \return pointer to a string constant
