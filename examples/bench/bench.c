@@ -129,7 +129,8 @@ static void bench_stats_asym_finish(const char* algo, int strength,
  * can skip it instead of aborting). Masks parameter bits on FMT1 codes. */
 static int bench_unsupported(int rc)
 {
-    return ((rc & 0xBF) == TPM_RC_SCHEME) || WOLFTPM_IS_COMMAND_UNAVAILABLE(rc);
+    return ((rc & 0xBF) == TPM_RC_SCHEME) ||
+        WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc);
 }
 
 /* Print timing on success, "Skipped" if the op was not implemented. Returns
@@ -203,9 +204,10 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
         XMEMSET(iv, 0, sizeof(iv));
         rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, iv,
             sizeof(iv), isDecrypt);
-        if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
-            printf("Encrypt/Decrypt unavailable\n");
-            break;
+        if (bench_unsupported(rc)) {
+            printf("%-16s Skipped (not supported)\n", desc);
+            rc = 0;
+            goto exit;
         }
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count, maxDuration));

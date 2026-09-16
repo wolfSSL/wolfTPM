@@ -2896,6 +2896,31 @@ static void test_WOLFTPM_IS_COMMAND_UNAVAILABLE(void)
     AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE(0x00000343)); /* layer bits */
     AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE(0x000b0142)); /* vendor, non-cc */
 
+    /* A command that exists but is switched off answers TPM_RC_DISABLED, which
+     * must not be confused with an absent one. Same masking and >= 0 gate. */
+    AssertIntNE(0, WOLFTPM_IS_COMMAND_DISABLED((int)TPM_RC_DISABLED));
+    AssertIntNE(0, WOLFTPM_IS_COMMAND_DISABLED(0x000b0120)); /* vendor bits */
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_DISABLED((int)TPM_RC_COMMAND_CODE));
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_DISABLED((int)TPM_RC_SUCCESS));
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_DISABLED(-189));
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_DISABLED(-1));
+
+    /* The combined form accepts either, and nothing else. */
+    AssertIntNE(0,
+        WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED((int)TPM_RC_COMMAND_CODE));
+    AssertIntNE(0,
+        WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED((int)TPM_RC_DISABLED));
+    AssertIntEQ(0,
+        WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED((int)TPM_RC_SUCCESS));
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(-189));
+
+    /* The shared base macro underlying all three. Note TPM_RC_VALUE is not
+     * usable here: tpm2_asn.h defines it as an ASN error (-203), shadowing the
+     * response code of the same name from tpm2.h in this translation unit. */
+    AssertIntNE(0, WOLFTPM_RC_IS((int)TPM_RC_DISABLED, TPM_RC_DISABLED));
+    AssertIntEQ(0, WOLFTPM_RC_IS((int)TPM_RC_DISABLED, TPM_RC_COMMAND_CODE));
+    AssertIntEQ(0, WOLFTPM_RC_IS(-189, TPM_RC_DISABLED));
+
     printf("Test TPM Wrapper: %-40s Passed\n", "IsCommandUnavailable:");
 }
 

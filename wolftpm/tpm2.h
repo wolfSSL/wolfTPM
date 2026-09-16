@@ -2205,20 +2205,34 @@ struct wolfTPM_winContext {
 #define TPM_E_COMMAND_BLOCKED (0x80280400)
 #endif
 
-/* Mask off vendor/layer high bits so a vendor-decorated TPM_RC_COMMAND_CODE
- * (e.g. NS350 returns 0x000b0143 for 0x143) still matches. Gate on >= 0 so a
- * propagated negative wolfCrypt error (e.g. -189) is never misread as an
- * unavailable command. TPM_E_COMMAND_BLOCKED is a Windows HRESULT (negative),
- * matched exactly. */
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
-    (((code) >= 0 && \
-      (((UINT32)(code)) & 0xFFFFu) == (UINT32)TPM_RC_COMMAND_CODE) || \
-     (code) == (int)TPM_E_COMMAND_BLOCKED)
-#else
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
-    ((code) >= 0 && \
-     (((UINT32)(code)) & 0xFFFFu) == (UINT32)TPM_RC_COMMAND_CODE)
 #endif /* WOLFTPM_WINAPI */
+
+/* Compare a return code against a TPM_RC, masking off vendor/layer high bits
+ * so a vendor-decorated code (NS350 returns 0x000b0143 for 0x143) still
+ * matches. Gate on >= 0 so a propagated negative wolfCrypt error (e.g. -189)
+ * is never misread as a TPM response code. */
+#define WOLFTPM_RC_IS(code, rc) \
+    ((code) >= 0 && (((UINT32)(code)) & 0xFFFFu) == (UINT32)(rc))
+
+/* The TPM does not implement this command. TPM_E_COMMAND_BLOCKED is a Windows
+ * HRESULT (negative), so it is matched exactly rather than masked. */
+#ifdef WOLFTPM_WINAPI
+    #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
+        (WOLFTPM_RC_IS(code, TPM_RC_COMMAND_CODE) || \
+         (code) == (int)TPM_E_COMMAND_BLOCKED)
+#else
+    #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
+        WOLFTPM_RC_IS(code, TPM_RC_COMMAND_CODE)
+#endif
+
+/* Implemented but switched off, commonly TPM2_EncryptDecrypt for export
+ * controls; answers TPM_RC_DISABLED not TPM_RC_COMMAND_CODE. */
+#define WOLFTPM_IS_COMMAND_DISABLED(code) \
+    WOLFTPM_RC_IS(code, TPM_RC_DISABLED)
+
+/* Either form of "the TPM will not run this command". */
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(code) \
+    (WOLFTPM_IS_COMMAND_UNAVAILABLE(code) || WOLFTPM_IS_COMMAND_DISABLED(code))
 
 /* make sure advanced IO is enabled for I2C */
 #ifdef WOLFTPM_I2C

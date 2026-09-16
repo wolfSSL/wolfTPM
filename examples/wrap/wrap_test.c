@@ -70,6 +70,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 {
     int rc, i;
+    int isSupported = 0;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
     WOLFTPM2_KEY ekKey;
@@ -683,19 +684,27 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     printf("ECC DH Test %s\n", rc == 0 ? "Passed" : "Failed");
 
     /* ECC Public Key Signature Verify Test/Example */
-    rc = wolfTPM2_LoadEccPublicKey(&dev, &publicKey, TPM_ECC_NIST_P256,
-        kEccTestPubQX, sizeof(kEccTestPubQX),
-        kEccTestPubQY, sizeof(kEccTestPubQY));
+    /* Vector below uses a SHA-1 digest, which many current TPMs lack. */
+    rc = wolfTPM2_IsAlgSupported(&dev, TPM_ALG_SHA1, &isSupported);
     if (rc != 0) goto exit;
+    if (!isSupported) {
+        printf("ECC Verify Test Skipped (TPM does not implement SHA-1)\n");
+    }
+    else {
+        rc = wolfTPM2_LoadEccPublicKey(&dev, &publicKey, TPM_ECC_NIST_P256,
+            kEccTestPubQX, sizeof(kEccTestPubQX),
+            kEccTestPubQY, sizeof(kEccTestPubQY));
+        if (rc != 0) goto exit;
 
-    rc = wolfTPM2_VerifyHashScheme(&dev, &publicKey,
-        kEccTestSigRS, sizeof(kEccTestSigRS),
-        kEccTestMsg, sizeof(kEccTestMsg), TPM_ALG_ECDSA, TPM_ALG_SHA1);
-    if (rc != 0) goto exit;
+        rc = wolfTPM2_VerifyHashScheme(&dev, &publicKey,
+            kEccTestSigRS, sizeof(kEccTestSigRS),
+            kEccTestMsg, sizeof(kEccTestMsg), TPM_ALG_ECDSA, TPM_ALG_SHA1);
+        if (rc != 0) goto exit;
 
-    rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
-    if (rc != 0) goto exit;
-    printf("ECC Verify Test Passed\n");
+        rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
+        if (rc != 0) goto exit;
+        printf("ECC Verify Test Passed\n");
+    }
 
     /*------------------------------------------------------------------------*/
     /* ECC KEY LOADING TESTS */
@@ -973,7 +982,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMCPY(aesIv, TEST_AES_IV, (word32)sizeof(TEST_AES_IV));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
         message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
@@ -990,7 +999,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
          XMEMCMP(cipher.buffer, TEST_AES_VERIFY, cipher.size) == 0) {
         printf("Encrypt/Decrypt (known key) test success\n");
     }
-    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
         printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
     }
     else {
@@ -1020,7 +1029,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(aesIv, 0, sizeof(aesIv));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
         message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
@@ -1035,7 +1044,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
          XMEMCMP(message.buffer, plain.buffer, message.size) == 0) {
         printf("Encrypt/Decrypt test success\n");
     }
-    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
         printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
     }
     else {
