@@ -1250,15 +1250,9 @@ int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
  * Returns TPM_RC_SUCCESS with *isSupported set to 1 (supported) or 0 (not
  * supported); on any failure a non-zero rc is returned and *isSupported is set
  * to 0 so a caller that ignores the rc fails closed.
- * Queries TPM_CAP_ALGS: the TPM returns algorithms with ID >= property, so a
- * match at index 0 for a single-property query means it is implemented. */
+ * Delegates to TPM2_IsAlgSupported(); dev is validated but unused. */
 int wolfTPM2_IsAlgSupported(WOLFTPM2_DEV* dev, TPM_ALG_ID alg, int* isSupported)
 {
-    int rc;
-    GetCapability_In in;
-    GetCapability_Out out;
-    TPML_ALG_PROPERTY* algs;
-
     if (isSupported == NULL) {
         return BAD_FUNC_ARG;
     }
@@ -1267,29 +1261,7 @@ int wolfTPM2_IsAlgSupported(WOLFTPM2_DEV* dev, TPM_ALG_ID alg, int* isSupported)
     if (dev == NULL) {
         return BAD_FUNC_ARG;
     }
-    XMEMSET(&in, 0, sizeof(in));
-    XMEMSET(&out, 0, sizeof(out));
-    in.capability = TPM_CAP_ALGS;
-    in.property = alg;
-    in.propertyCount = 1;
-    rc = TPM2_GetCapability(&in, &out);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc; /* query failure, distinct from "not supported" */
-    }
-    /* capabilityData.data is a union - confirm the TPM answered with the
-     * capability we asked for before reading the algorithm member, so a
-     * non-conforming response cannot be reinterpreted as an algorithm
-     * property. */
-    if (out.capabilityData.capability != TPM_CAP_ALGS) {
-        return TPM_RC_VALUE;
-    }
-    /* The TPM returns algorithms with ID >= property; a match at index 0
-     * means the requested algorithm is implemented. */
-    algs = &out.capabilityData.data.algorithms;
-    if (algs->count >= 1 && algs->algProperties[0].alg == alg) {
-        *isSupported = 1;
-    }
-    return TPM_RC_SUCCESS;
+    return TPM2_IsAlgSupported(alg, isSupported);
 }
 
 int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
