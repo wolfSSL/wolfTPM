@@ -50,7 +50,7 @@ int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
     *len = 0;    /* default length */
 
     if ((idx + 1) > maxIdx) {
-        return TPM_RC_INSUFFICIENT;
+        return TPM_RC_ASN_INSUFFICIENT;
     }
 
     b = input[idx++];
@@ -58,7 +58,7 @@ int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
         word32 bytes = b & 0x7F;
         /* DER does not allow BER indefinite-length (0x80 => bytes == 0) */
         if (bytes == 0 || bytes > 3 || (idx + bytes) > maxIdx) {
-            return TPM_RC_INSUFFICIENT;
+            return TPM_RC_ASN_INSUFFICIENT;
         }
         while (bytes--) {
             b = input[idx++];
@@ -69,7 +69,7 @@ int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
         length = b;
 
     if (check && (idx + length) > maxIdx) {
-        return TPM_RC_INSUFFICIENT;
+        return TPM_RC_ASN_INSUFFICIENT;
     }
 
     *inOutIdx = idx;
@@ -93,7 +93,7 @@ int TPM2_ASN_GetLength(const uint8_t* input, word32* inOutIdx, int* len,
     \param inOutIdx Current position in buffer, updated to new position
     \param len Decoded length value
     \param maxIdx Maximum allowed index in buffer
-    \return Length on success, TPM_RC_VALUE on tag mismatch, TPM_RC_INSUFFICIENT on buffer error
+    \return Length on success, TPM_RC_ASN_VALUE on tag mismatch, TPM_RC_ASN_INSUFFICIENT on buffer error
 */
 static int TPM2_ASN_GetHeader(const uint8_t* input, byte tag, word32* inOutIdx, int* len,
                         word32 maxIdx)
@@ -103,14 +103,14 @@ static int TPM2_ASN_GetHeader(const uint8_t* input, byte tag, word32* inOutIdx, 
     int    length;
 
     if ((idx + 1) > maxIdx)
-        return TPM_RC_INSUFFICIENT;
+        return TPM_RC_ASN_INSUFFICIENT;
 
     b = input[idx++];
     if (b != tag)
-        return TPM_RC_VALUE;
+        return TPM_RC_ASN_VALUE;
 
     if (TPM2_ASN_GetLength(input, &idx, &length, maxIdx) < 0)
-        return TPM_RC_VALUE;
+        return TPM_RC_ASN_VALUE;
 
     *len      = length;
     *inOutIdx = idx;
@@ -164,7 +164,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     byte sigParamTag = 0;
 
     if (input == NULL || x509 == NULL) {
-        rc = TPM_RC_VALUE;
+        rc = TPM_RC_ASN_VALUE;
     }
 
     /* Decode outer SEQUENCE */
@@ -193,14 +193,14 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
 
     if (rc >= 0) {
         if (len <= 0 || idx >= (word32)inputSz) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_ASN_VALUE;
         }
     }
 
     if (rc >= 0) {
         /* check version tag is INTEGER */
         if (input[idx] != TPM2_ASN_INTEGER) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_ASN_VALUE;
         }
     }
 
@@ -282,7 +282,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
             if (outerSigAlgSz != tbsSigAlgSz ||
                     XMEMCMP(input + outerSigAlgBegin,
                         input + tbsSigAlgBegin, outerSigAlgSz) != 0) {
-                rc = TPM_RC_VALUE;
+                rc = TPM_RC_ASN_VALUE;
             }
         }
     }
@@ -299,13 +299,13 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
             if (sigParamTag != TPM2_ASN_TAG_NULL &&
                     sigParamTag !=
                         (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED)) {
-                rc = TPM_RC_VALUE;
+                rc = TPM_RC_ASN_VALUE;
             }
             else {
                 rc = TPM2_ASN_GetHeader(input, sigParamTag, &idx, &len,
                     sigAlgEnd);
                 if (rc >= 0 && sigParamTag == TPM2_ASN_TAG_NULL && len != 0) {
-                    rc = TPM_RC_VALUE;
+                    rc = TPM_RC_ASN_VALUE;
                 }
                 if (rc >= 0) {
                     idx += len;
@@ -313,7 +313,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
             }
         }
         if (rc >= 0 && idx != sigAlgEnd) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_ASN_VALUE;
         }
     }
 
