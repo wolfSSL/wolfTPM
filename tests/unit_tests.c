@@ -8619,6 +8619,49 @@ static void test_TPM2_GetHashDigestSize_AllAlgs(void)
  * only when both families are present (a WOLFTPM_NO_MLDSA or WOLFTPM_NO_MLKEM
  * build excludes the matching wrapper definitions). CI always builds full
  * PQC, so coverage is unchanged there. */
+/* The signature-size gate is static, so reach it through wolfTPM2_VerifyHashTicket:
+ * that caller is built in every configuration and passes sigSz straight to the
+ * gate, so the gate's own checks are what answer here. */
+static void test_wolfTPM2_SigInputBufferGate(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    byte digest[32];
+    byte sig[64];
+#if defined(WOLFTPM_SWTPM)
+    int rc;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(digest, 0, sizeof(digest));
+    XMEMSET(sig, 0, sizeof(sig));
+
+    /* A negative size must be refused as a size problem, not read as huge */
+    AssertIntEQ(wolfTPM2_VerifyHashTicket(&dev, &key, sig, -1, digest,
+        (int)sizeof(digest), TPM_ALG_NULL, TPM_ALG_SHA256, NULL), BUFFER_E);
+
+#if defined(WOLFTPM_SWTPM)
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Below the parameter floor the gate short-circuits without a TPM query,
+     * so this gets past it and fails later on the empty key instead */
+    AssertIntNE(wolfTPM2_VerifyHashTicket(&dev, &key, sig, (int)sizeof(sig),
+        digest, (int)sizeof(digest), TPM_ALG_NULL, TPM_ALG_SHA256, NULL),
+        BUFFER_E);
+
+    /* Larger than any TPM input buffer must be refused up front */
+    AssertIntEQ(wolfTPM2_VerifyHashTicket(&dev, &key, sig, 0x7FFFFFFF, digest,
+        (int)sizeof(digest), TPM_ALG_NULL, TPM_ALG_SHA256, NULL), BUFFER_E);
+
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "SigInputBuffer gate:");
+#else
+    printf("Test TPM Wrapper: %-40s Passed\n", "SigInputBuffer args:");
+#endif
+}
+
 #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
 /* Post-Quantum Cryptography (PQC) Unit Tests - TPM 2.0 v185 */
 
@@ -9586,6 +9629,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PQC();
     test_wolfTPM2_VerifySequence_NoLeak();
     #endif
+    /* The gate guards classical RSA/ECC verifies too, so it must not sit
+     * behind the post-quantum guard */
+    test_wolfTPM2_SigInputBufferGate();
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_Reset_contract();
     test_wolfTPM2_thread_local_storage();
