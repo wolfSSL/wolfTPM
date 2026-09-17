@@ -1915,6 +1915,181 @@ static void test_fwtpm_pcr_read(void)
     fwtpm_pass("PCR_Read(0):", 0);
 }
 
+/* One TPMS_PCR_SELECTION per algs[] entry; selectAll=0 sends an all-zero
+ * bitmap, which deallocates that bank */
+static int BuildPcrAllocateCmd(byte* buf, UINT32 authHandle,
+    const UINT16* algs, UINT32 count, int selectAll)
+{
+    int pos, i;
+    UINT32 c;
+
+    pos = BuildCmdHeader(buf, TPM_ST_SESSIONS, 0, TPM_CC_PCR_Allocate);
+    PutU32BE(buf + pos, authHandle); pos += 4;
+    /* Auth area: size(4) + sessionHandle(4) + nonce(2) + attrs(1) + hmac(2) */
+    PutU32BE(buf + pos, 9); pos += 4;
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2;
+    buf[pos++] = 0;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU32BE(buf + pos, count); pos += 4;
+    for (c = 0; c < count; c++) {
+        PutU16BE(buf + pos, algs[c]); pos += 2;
+        buf[pos++] = (byte)PCR_SELECT_MAX;
+        for (i = 0; i < PCR_SELECT_MAX; i++) {
+            buf[pos + i] = selectAll ? 0xFF : 0x00;
+        }
+        pos += PCR_SELECT_MAX;
+    }
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* 1 if hashAlg has any PCR bits set in TPM_CAP_PCRS */
+static int fwtpm_bank_allocated(FWTPM_CTX* ctx, UINT16 hashAlg)
+{
+    int rc, rspSize, cmdSz, pos, b, i, found = 0;
+    UINT32 bankCount;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_PCRS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, HASH_COUNT); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS || GetRspRC(gRsp) != TPM_RC_SUCCESS) {
+        return -1;
+    }
+
+    /* header + moreData(1) + capability(4) + count(4) */
+    pos = TPM2_HEADER_SIZE + 1 + 4;
+    bankCount = GetU32BE(gRsp + pos); pos += 4;
+    for (b = 0; b < (int)bankCount && pos + 3 <= rspSize; b++) {
+        UINT16 alg = (UINT16)GetU16BE(gRsp + pos); pos += 2;
+        int sizeOfSelect = gRsp[pos++];
+        if (pos + sizeOfSelect > rspSize) {
+            break;
+        }
+        if (alg == hashAlg) {
+            for (i = 0; i < sizeOfSelect; i++) {
+                if (gRsp[pos + i] != 0) {
+                    found = 1;
+                }
+            }
+        }
+        pos += sizeOfSelect;
+    }
+    return found;
+}
+
+static void test_fwtpm_pcr_allocate(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT16 algs[2];
+    /* A TPM_ST_SESSIONS response prefixes the parameters with paramSize(4),
+     * so allocationSuccess sits 4 bytes past the header. */
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    algs[0] = TPM_ALG_SHA256;
+    algs[1] = TPM_ALG_SHA384;
+
+    /* Only the platform hierarchy may re-provision the banks */
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_OWNER, algs, 1, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
+
+    /* Oversized selection count is rejected before parsing */
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 1);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 4 + 13, FWTPM_PCR_BANKS * 4 + 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    /* Both banks selected. Per spec 22.5 the change is staged, so the live
+     * allocation must not move until the next Startup(CLEAR). */
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 2, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 1); /* allocationSuccess */
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 1);
+
+    /* SHA-256 only: staged, so SHA-384 is still allocated right now */
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 1);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 1);
+
+    /* The restart performs the _TPM_Init and Startup(CLEAR) that apply it.
+     * Replace, not add: the bank left out of the selection is now gone.
+     * Without NV nothing survives the restart - the TPM comes back with the
+     * default banks - so the applied state is only observable with NV. */
+#ifndef FWTPM_NO_NV
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 0);
+#endif
+
+    /* An all-zero bitmap deallocates, but must not leave zero banks */
+    algs[0] = TPM_ALG_SHA256;
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 0); /* allocationSuccess = NO */
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1); /* unchanged */
+
+    /* Same trap: an unimplemented bank must not store "no banks" */
+    algs[0] = (UINT16)0x7FFF;
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
+
+    /* Restore both banks, applied by the restart below */
+    algs[0] = TPM_ALG_SHA256;
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 2, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+
+    /* Restarting applies the staged change and must not lose the banks. With
+     * NV the journal carries no PCR_AUTH record while the allocation is the
+     * default, so a replay that does not seed the default reports no banks at
+     * all; without NV the defaults are regenerated. Both must end up here. */
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Allocate:", 0);
+}
+
 static void test_fwtpm_pcr_extend_and_read(void)
 {
     FWTPM_CTX ctx;
@@ -15900,6 +16075,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getcap_flushcontext_chandles();
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
+    test_fwtpm_pcr_allocate();
     test_fwtpm_getcap_paging();
     test_fwtpm_getcap_ecc_curves();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH) && \

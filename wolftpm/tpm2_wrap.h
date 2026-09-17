@@ -3021,6 +3021,82 @@ WOLFTPM_API int wolfTPM2_SetLocality(WOLFTPM2_DEV* dev, int locality);
 WOLFTPM_API int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     const byte* digest, int digestLen);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Re-provision which PCR banks the TPM has allocated
+    \note This REPLACES the allocation: hashAlgs is the complete new set and
+        every bank not named in it is deallocated. Allocating SHA-384 alone on a
+        SHA-256 TPM removes the SHA-256 bank. Many parts (Infineon SLB9672 and
+        later) support only one active bank at a time and reject a multi-bank
+        request outright with TPM_RC_PCR. A TPM that answers but lacks the
+        space reports it in allocOut instead, which maps to BUFFER_E.
+    \note Changing banks invalidates every PolicyPCR digest and makes every blob
+        sealed to PCR values unsealable. The PCR contents are zeroed at the
+        Startup(CLEAR) and re-allocating the old bank does not bring them back.
+    \note Success means the change is STAGED. The TPM applies it at the next
+        Startup(CLEAR) following a _TPM_Init, so the caller must power cycle
+        the TPM (or restart the simulator process) and re-read the banks with
+        TPM2_IsPcrBankAllocated to confirm. No TPM command performs that reset.
+    \note Requires the platform hierarchy. Under an OS the platform firmware has
+        usually cleared phEnable, in which case the TPM answers TPM_RC_HIERARCHY
+        no matter what auth is supplied.
+
+    \return TPM_RC_SUCCESS: the new allocation is staged for the next reset
+    \return BUFFER_E: the TPM has no room for the requested bank set; see
+        allocOut->sizeNeeded and allocOut->sizeAvailable
+    \return TPM_RC_HASH: the TPM does not implement one of the requested algs;
+        nothing was sent and the allocation is unchanged
+    \return TPM_RC_PCR: the TPM refused the selection, typically because it
+        keeps a single bank active and more than one was requested
+    \return TPM_RC_HIERARCHY: the platform hierarchy is disabled
+    \return TPM_RC_BAD_AUTH: platform auth is not the empty password; use
+        wolfTPM2_AllocatePCRBanks_ex with a session
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param hashAlgs array of TPM_ALG_ID hash algorithms naming the complete new
+        bank set
+    \param hashAlgCount number of entries in hashAlgs, 1 to HASH_COUNT; zero is
+        rejected because it would leave the TPM with no PCR banks
+    \param allocOut optional, receives the TPM's allocationSuccess, maxPCR,
+        sizeNeeded and sizeAvailable; zeroed on entry
+
+    \sa wolfTPM2_AllocatePCRBanks_ex
+    \sa TPM2_IsPcrBankAllocated
+    \sa wolfTPM2_ExtendPCR
+*/
+WOLFTPM_API int wolfTPM2_AllocatePCRBanks(WOLFTPM2_DEV* dev,
+    const TPM_ALG_ID* hashAlgs, int hashAlgCount, PCR_Allocate_Out* allocOut);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Re-provision the TPM's PCR banks using a caller supplied session
+    \note Same as wolfTPM2_AllocatePCRBanks, but takes a session for a platform
+        hierarchy that carries an authPolicy. This must be a POLICY session:
+        slot 0 authorization is a password or a policy session, so an HMAC
+        session there is not an authorization session and the TPM answers
+        TPM_RC_AUTH_MISSING. Passing NULL is identical to
+        wolfTPM2_AllocatePCRBanks.
+    \note Session slot 0 is saved and restored around the command, and the
+        response nonce is copied back into the caller's session so it stays
+        usable for a following command.
+
+    \return TPM_RC_SUCCESS: the new allocation is staged for the next reset
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param session pointer to a WOLFTPM2_SESSION for platform auth, or NULL
+    \param hashAlgs array of TPM_ALG_ID hash algorithms naming the complete new
+        bank set
+    \param hashAlgCount number of entries in hashAlgs, 1 to HASH_COUNT
+    \param allocOut optional, receives the TPM's allocation result
+
+    \sa wolfTPM2_AllocatePCRBanks
+*/
+WOLFTPM_API int wolfTPM2_AllocatePCRBanks_ex(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* session, const TPM_ALG_ID* hashAlgs, int hashAlgCount,
+    PCR_Allocate_Out* allocOut);
+
 /* Newer API's that use WOLFTPM2_NV context and support auth */
 
 /*!

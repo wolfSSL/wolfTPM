@@ -55,6 +55,7 @@ More information about how to test and use PCR attestation can be found in the i
 `./examples/pcr/quote`
 `./examples/pcr/extend`
 `./examples/pcr/reset`
+`./examples/pcr/allocate`
 
 ### Remote Attestation challenge
 
