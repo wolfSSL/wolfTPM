@@ -3011,6 +3011,31 @@ typedef struct {
     UINT32 sizeNeeded;
     UINT32 sizeAvailable;
 } PCR_Allocate_Out;
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Set which PCR banks the TPM allocates
+    \note The selection REPLACES the current allocation - banks not named in it
+        are deallocated. Algorithms the TPM does not implement are silently
+        ignored (TPM 2.0 Part 3 22.5), so a selection naming only unimplemented
+        algorithms can leave the TPM with no PCR banks at all. Prefer
+        wolfTPM2_AllocatePCRBanks, which pre-checks each algorithm and refuses
+        an empty result.
+    \note The change takes effect at the next Startup(CLEAR), not on return.
+    \note Requires an active session (TPM2_SetAuthPassword or
+        wolfTPM2_SetAuthSession on slot 0) and the platform hierarchy; without
+        one this returns BAD_FUNC_ARG rather than a TPM response code.
+
+    \return TPM_RC_SUCCESS: the TPM processed the request - check
+        out->allocationSuccess, which is NO when the TPM lacks the space
+    \return TPM_RC_HIERARCHY: the platform hierarchy is disabled
+    \return BAD_FUNC_ARG: check the provided arguments, or no session is set
+
+    \param in pointer to a PCR_Allocate_In struct
+    \param out pointer to a PCR_Allocate_Out struct
+
+    \sa wolfTPM2_AllocatePCRBanks
+    \sa TPM2_IsPcrBankAllocated
+*/
 WOLFTPM_API TPM_RC TPM2_PCR_Allocate(PCR_Allocate_In* in,
     PCR_Allocate_Out* out);
 

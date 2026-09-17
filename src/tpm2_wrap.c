@@ -7522,6 +7522,172 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     return rc;
 }
 
+int wolfTPM2_AllocatePCRBanks_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
+    const TPM_ALG_ID* hashAlgs, int hashAlgCount, PCR_Allocate_Out* allocOut)
+{
+    int rc;
+    int i, wanted;
+    word32 j, selIdx;
+    byte pcrArray[PCR_LAST - PCR_FIRST + 1];
+    GetCapability_In capIn;
+    GetCapability_Out capOut;
+    TPML_PCR_SELECTION* banks;
+    PCR_Allocate_In in;
+    PCR_Allocate_Out out;
+    TPM2_AUTH_SESSION saveSess;
+
+    if (allocOut != NULL) {
+        XMEMSET(allocOut, 0, sizeof(*allocOut));
+    }
+    if (dev == NULL || hashAlgs == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    /* A zero-length selection is legal and leaves the TPM with no PCR banks */
+    if (hashAlgCount <= 0 || hashAlgCount > (int)HASH_COUNT) {
+        return BAD_FUNC_ARG;
+    }
+
+    for (i = 0; i < hashAlgCount; i++) {
+        if (hashAlgs[i] == TPM_ALG_NULL || hashAlgs[i] == TPM_ALG_ERROR) {
+            return BAD_FUNC_ARG;
+        }
+        for (j = 0; j < (word32)i; j++) {
+            if (hashAlgs[j] == hashAlgs[i]) {
+                return BAD_FUNC_ARG;
+            }
+        }
+    }
+
+    /* The bank list is the authority on what can be allocated, not
+     * TPM_CAP_ALGS - parts advertise hashes there that have no PCR bank */
+    XMEMSET(&capIn, 0, sizeof(capIn));
+    XMEMSET(&capOut, 0, sizeof(capOut));
+    capIn.capability = TPM_CAP_PCRS;
+    capIn.property = 0;
+    capIn.propertyCount = HASH_COUNT;
+    rc = TPM2_GetCapability(&capIn, &capOut);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+    if (capOut.capabilityData.capability != TPM_CAP_PCRS) {
+        return TPM_RC_VALUE;
+    }
+    /* A truncated list would mean mirroring an incomplete selection, which
+     * silently deallocates the banks that did not fit the page. */
+    if (capOut.moreData == YES) {
+        return TPM_RC_SIZE;
+    }
+    banks = &capOut.capabilityData.data.assignedPCR;
+
+    /* An unimplemented bank is silently ignored (Part 3 22.5), which would
+     * allocate nothing and still report success */
+    for (i = 0; i < hashAlgCount; i++) {
+        wanted = 0;
+        for (j = 0; j < banks->count; j++) {
+            if (banks->pcrSelections[j].hash == hashAlgs[i]) {
+                wanted = 1;
+                break;
+            }
+        }
+        if (!wanted) {
+            return TPM_RC_HASH;
+        }
+    }
+
+    for (i = 0; i < (int)sizeof(pcrArray); i++) {
+        pcrArray[i] = (byte)(PCR_FIRST + i);
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.authHandle = TPM_RH_PLATFORM;
+
+    /* Mirror the bank list, giving dropped banks an all-zero bitmap. Part 3
+     * 22.5 says an omitted bank is deallocated, but Infineon parts answer
+     * TPM_RC_PCR unless each deallocation is spelled out. */
+    for (j = 0; j < banks->count; j++) {
+        wanted = 0;
+        for (i = 0; i < hashAlgCount; i++) {
+            if (hashAlgs[i] == banks->pcrSelections[j].hash) {
+                wanted = 1;
+                break;
+            }
+        }
+        if (wanted) {
+            TPM2_SetupPCRSelArray(&in.pcrAllocation,
+                banks->pcrSelections[j].hash, pcrArray,
+                (word32)sizeof(pcrArray));
+        }
+        else {
+            selIdx = in.pcrAllocation.count;
+            if (selIdx >= HASH_COUNT) {
+                return TPM_RC_VALUE; /* the TPM reported more banks than fit */
+            }
+            in.pcrAllocation.pcrSelections[selIdx].hash =
+                banks->pcrSelections[j].hash;
+            in.pcrAllocation.pcrSelections[selIdx].sizeofSelect =
+                banks->pcrSelections[j].sizeofSelect;
+            in.pcrAllocation.count++;
+        }
+    }
+
+    /* Platform auth setup below overwrites session[0] */
+    XMEMCPY(&saveSess, &dev->session[0], sizeof(saveSess));
+
+    if (session == NULL) {
+        rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
+        if (rc == TPM_RC_SUCCESS) {
+            dev->session[0].sessionAttributes = 0;
+        }
+    }
+    else {
+        rc = wolfTPM2_SetAuthSession(dev, 0, session,
+            (TPMA_SESSION_continueSession));
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TPM2_PCR_Allocate(&in, &out);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_PCR_Allocate failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+        #endif
+        }
+    }
+
+    /* A continuing session gets a fresh nonceTPM from the response; hand it
+     * back before slot 0 is overwritten or the caller's next use of the
+     * session computes an invalid HMAC (see wolfTPM2_UnsetAuthSession). */
+    if (session != NULL) {
+        XMEMCPY(&session->nonceTPM, &dev->session[0].nonceTPM,
+            sizeof(TPM2B_NONCE));
+    }
+
+    /* Restore previous session[0] state and clear the stack copy */
+    XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
+    TPM2_ForceZero(&saveSess, sizeof(saveSess));
+
+    if (allocOut != NULL) {
+        XMEMCPY(allocOut, &out, sizeof(*allocOut));
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+    /* No room for the set - fail rather than make the caller check a field */
+    if (out.allocationSuccess != YES) {
+        return BUFFER_E;
+    }
+    /* Staged: applied at the next Startup(CLEAR), which needs a _TPM_Init
+     * only a power cycle provides - no command does it */
+    return TPM_RC_SUCCESS;
+}
+
+int wolfTPM2_AllocatePCRBanks(WOLFTPM2_DEV* dev, const TPM_ALG_ID* hashAlgs,
+    int hashAlgCount, PCR_Allocate_Out* allocOut)
+{
+    return wolfTPM2_AllocatePCRBanks_ex(dev, NULL, hashAlgs, hashAlgCount,
+        allocOut);
+}
+
 int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
 {
     int rc;

@@ -29,6 +29,7 @@
 int TPM2_PCR_Read_Test(void* userCtx, int argc, char *argv[]);
 int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[]);
 int TPM2_PCR_Reset_Test(void* userCtx, int argc, char *argv[]);
+int TPM2_PCR_Allocate_Test(void* userCtx, int argc, char *argv[]);
 int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[]);
 int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[]);
 

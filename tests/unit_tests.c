@@ -1457,6 +1457,141 @@ static void test_TPM2_IsPcrBankAllocated(void)
 #endif /* WOLFTPM_SWTPM */
 }
 
+static void test_wolfTPM2_AllocatePCRBanks(void)
+{
+    WOLFTPM2_DEV dev;
+    PCR_Allocate_Out allocOut;
+    TPM_ALG_ID algs[4];
+#if defined(WOLFTPM_SWTPM)
+    TPM_ALG_ID origAlgs[4];
+    WOLFTPM2_SESSION sess;
+    int origCount = 0;
+    int isAllocated;
+    int i;
+    int rc;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    algs[0] = TPM_ALG_SHA256;
+    algs[1] = TPM_ALG_SHA384;
+
+    /* Seeded non-zero to prove a rejection still clears the out-param */
+    XMEMSET(&allocOut, 0xFF, sizeof(allocOut));
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(NULL, algs, 1, &allocOut),
+        BAD_FUNC_ARG);
+    AssertIntEQ(allocOut.allocationSuccess, 0);
+    AssertIntEQ((int)allocOut.maxPCR, 0);
+    AssertIntEQ((int)allocOut.sizeNeeded, 0);
+    AssertIntEQ((int)allocOut.sizeAvailable, 0);
+
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, NULL, 1, &allocOut),
+        BAD_FUNC_ARG);
+    /* Zero banks is legal at the TPM; the wrapper must make it unreachable */
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, algs, 0, &allocOut),
+        BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, algs, -1, &allocOut),
+        BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, algs, HASH_COUNT + 1,
+        &allocOut), BAD_FUNC_ARG);
+
+    algs[0] = TPM_ALG_NULL;
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, algs, 1, &allocOut),
+        BAD_FUNC_ARG);
+    algs[0] = TPM_ALG_SHA256;
+
+    /* Duplicates would silently halve the requested set */
+    algs[1] = TPM_ALG_SHA256;
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, algs, 2, &allocOut),
+        BAD_FUNC_ARG);
+    algs[1] = TPM_ALG_SHA384;
+
+    /* _ex applies the same checks before touching session[0] */
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks_ex(NULL, NULL, algs, 1, &allocOut),
+        BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks_ex(&dev, NULL, NULL, 1, &allocOut),
+        BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks_ex(&dev, NULL, algs, 0, &allocOut),
+        BAD_FUNC_ARG);
+
+#if defined(WOLFTPM_SWTPM)
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Record the current set to restore later - the fwTPM persists this to
+     * NV, so a leaked change breaks later PCR tests and subsequent runs */
+    algs[0] = TPM_ALG_SHA256;
+    algs[1] = TPM_ALG_SHA384;
+    for (i = 0; i < 2; i++) {
+        isAllocated = 0;
+        AssertIntEQ(TPM2_IsPcrBankAllocated(algs[i], (int)PCR_FIRST,
+            &isAllocated), TPM_RC_SUCCESS);
+        if (isAllocated) {
+            origAlgs[origCount++] = algs[i];
+        }
+    }
+    AssertIntGT(origCount, 0);
+
+    /* Refused before sending: the TPM would silently ignore it */
+    algs[0] = (TPM_ALG_ID)0x7FFF;
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, algs, 1, &allocOut),
+        TPM_RC_HASH);
+    isAllocated = 0;
+    AssertIntEQ(TPM2_IsPcrBankAllocated(origAlgs[0], (int)PCR_FIRST,
+        &isAllocated), TPM_RC_SUCCESS);
+    AssertIntEQ(isAllocated, 1); /* unchanged - no command was sent */
+
+    /* The TPM accepts the request and reports sensible sizing. The resulting
+     * allocation is deliberately not asserted: it takes effect at the next
+     * Startup(CLEAR) following a _TPM_Init, which no command can trigger, so
+     * a correct TPM still reports the old banks here. Replace semantics are
+     * covered by tests/fwtpm_unit_tests.c across a restart. */
+    algs[0] = TPM_ALG_SHA256;
+    XMEMSET(&allocOut, 0, sizeof(allocOut));
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, algs, 1, &allocOut),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(allocOut.allocationSuccess, YES);
+    AssertIntGT((int)allocOut.maxPCR, 0);
+    AssertIntLE((int)allocOut.sizeNeeded, (int)allocOut.sizeAvailable);
+
+    /* Stage the original set again so nothing is left pending for the next
+     * reset, whichever way this TPM applies the change */
+    XMEMSET(&allocOut, 0, sizeof(allocOut));
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, origAlgs, origCount,
+        &allocOut), TPM_RC_SUCCESS);
+    AssertIntEQ(allocOut.allocationSuccess, YES);
+
+    /* allocOut is optional */
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks(&dev, origAlgs, origCount, NULL),
+        TPM_RC_SUCCESS);
+
+    /* _ex with a NULL session is the path the base function takes */
+    AssertIntEQ(wolfTPM2_AllocatePCRBanks_ex(&dev, NULL, origAlgs, origCount,
+        NULL), TPM_RC_SUCCESS);
+
+    /* Slot 0 authorization is a password or a policy session (see
+     * TPM2_GetCmdAuthCount); an HMAC session there is not an auth session.
+     * Prove the policy session is wired into the auth area: the TPM must
+     * evaluate it and answer, not reject the command as unauthorized.
+     * Authorizing for real needs a platform authPolicy this TPM has not been
+     * provisioned with, so the result itself is not asserted. */
+    XMEMSET(&sess, 0, sizeof(sess));
+    rc = wolfTPM2_StartSession(&dev, &sess, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_AllocatePCRBanks_ex(&dev, &sess, origAlgs, origCount,
+            NULL);
+        AssertIntNE(rc, BAD_FUNC_ARG);
+        AssertIntNE(rc, TPM_RC_AUTH_MISSING);
+        wolfTPM2_UnloadHandle(&dev, &sess.handle);
+    }
+
+    wolfTPM2_Cleanup(&dev);
+    printf("Test PcrAlloc:    %-40s Passed\n", "Args + Allocate:");
+#else
+    printf("Test PcrAlloc:    %-40s Passed\n", "Arg Validation:");
+#endif /* WOLFTPM_SWTPM */
+}
+
 /* Success path for wolfTPM2_PolicyOR: satisfy one branch of a real two-branch
  * OR on a live policy session and confirm the TPM's running policy digest
  * matches the offline computation. Simulator only. */
@@ -9645,6 +9780,7 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_IsAlgSupported();
     test_TPM2_IsPcrBankAllocated();
+    test_wolfTPM2_AllocatePCRBanks();
     test_wolfTPM2_PolicyOR_success();
     #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
     /* Run non-TPM-dependent tests first */
