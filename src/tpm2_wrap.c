@@ -1394,6 +1394,42 @@ word32 wolfTPM2_SpdmGetSessionId(WOLFTPM2_DEV* dev)
     return wolfSPDM_GetSessionId(dev->spdmCtx->spdmCtx);
 }
 
+int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
+    TPML_SPDM_SESSION_INFO* spdmSessionInfo)
+{
+    int rc;
+    GetCapability_In in;
+    GetCapability_Out out;
+
+    if (dev == NULL || spdmSessionInfo == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_SPDM_SESSION_INFO;
+    in.property = 0; /* must be 0 per Part 3 */
+    in.propertyCount = MAX_SPDM_SESS_INFO;
+
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc == TPM_RC_SUCCESS) {
+        if (out.capabilityData.capability == TPM_CAP_SPDM_SESSION_INFO) {
+            XMEMCPY(spdmSessionInfo, &out.capabilityData.data.spdmSessionInfo,
+                sizeof(*spdmSessionInfo));
+        }
+        else {
+            rc = TPM_RC_VALUE;
+        }
+    }
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_GetCapability_SPDMSessionInfo failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
 int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev)
 {
     WOLFTPM2_SPDM_CHECK_CTX(dev);
@@ -11181,6 +11217,42 @@ int wolfTPM2_PolicyPCR(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     return rc;
 }
 
+#ifdef WOLFTPM_SPDM
+int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
+    const TPM2B_NAME* reqKeyName, const TPM2B_NAME* tpmKeyName)
+{
+    int rc;
+    PolicyTransportSPDM_In in;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.policySession = sessionHandle;
+    if (reqKeyName != NULL) {
+        if (reqKeyName->size > sizeof(in.reqKeyName.name))
+            return BUFFER_E;
+        in.reqKeyName.size = reqKeyName->size;
+        XMEMCPY(in.reqKeyName.name, reqKeyName->name, reqKeyName->size);
+    }
+    if (tpmKeyName != NULL) {
+        if (tpmKeyName->size > sizeof(in.tpmKeyName.name))
+            return BUFFER_E;
+        in.tpmKeyName.size = tpmKeyName->size;
+        XMEMCPY(in.tpmKeyName.name, tpmKeyName->name, tpmKeyName->size);
+    }
+
+    rc = TPM2_PolicyTransportSPDM(&in);
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_PolicyTransportSPDM failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+#endif /* WOLFTPM_SPDM */
+
 /* Use this password (in clear) for the policy session instead of the HMAC */
 int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     const byte* auth, int authSz)
@@ -11593,6 +11665,93 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
 #endif
     return rc;
 }
+
+#ifdef WOLFTPM_SPDM
+/* A non-empty SPDM key name is nameAlg(2) || digest and must match the hash
+ * the TPM would require; empty names are allowed. Mirrors the TPM-side check
+ * so an offline authPolicy cannot be built from a name the TPM rejects. */
+static int wolfTPM2_CheckSpdmName(const TPM2B_NAME* name)
+{
+    UINT16 alg;
+    int digestSz;
+
+    if (name == NULL || name->size == 0) {
+        return TPM_RC_SUCCESS;
+    }
+    if (name->size < 2 || name->size > sizeof(name->name)) {
+        return BAD_FUNC_ARG;
+    }
+    alg = (UINT16)(((UINT16)name->name[0] << 8) | name->name[1]);
+    digestSz = TPM2_GetHashDigestSize(alg);
+    if (digestSz <= 0 || (int)name->size - 2 != digestSz) {
+        return BAD_FUNC_ARG;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* Part 3 PolicyTransportSPDM: when either name is present the policy binds
+ * scKeyNameHash = H(req.size || req.name || tpm.size || tpm.name), else an
+ * empty buffer. digest is policyDigestOld in and policyDigestNew out. */
+int wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_ID hashAlg,
+    const TPM2B_NAME* reqKeyName, const TPM2B_NAME* tpmKeyName,
+    byte* digest, word32* digestSz)
+{
+    int rc;
+    int hashSz;
+    word32 pos = 0;
+    word32 scSz = 0;
+    byte sc[TPM_MAX_DIGEST_SIZE];
+    byte buf[2 * (sizeof(UINT16) + sizeof(TPM2B_NAME))];
+    UINT16 reqSz = (reqKeyName != NULL) ? reqKeyName->size : 0;
+    UINT16 tpmSz = (tpmKeyName != NULL) ? tpmKeyName->size : 0;
+
+    if (digest == NULL || digestSz == NULL ||
+        reqSz > sizeof(reqKeyName->name) || tpmSz > sizeof(tpmKeyName->name)) {
+        return BAD_FUNC_ARG;
+    }
+    if (wolfTPM2_CheckSpdmName(reqKeyName) != TPM_RC_SUCCESS ||
+        wolfTPM2_CheckSpdmName(tpmKeyName) != TPM_RC_SUCCESS) {
+        return BAD_FUNC_ARG;
+    }
+    hashSz = TPM2_GetHashDigestSize(hashAlg);
+    if (hashSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    if (*digestSz < (word32)hashSz) {
+        return BUFFER_E;
+    }
+
+    rc = TPM_RC_SUCCESS;
+    if (reqSz > 0 || tpmSz > 0) {
+        buf[pos++] = (byte)(reqSz >> 8);
+        buf[pos++] = (byte)reqSz;
+        if (reqSz > 0) {
+            XMEMCPY(buf + pos, reqKeyName->name, reqSz);
+            pos += reqSz;
+        }
+        buf[pos++] = (byte)(tpmSz >> 8);
+        buf[pos++] = (byte)tpmSz;
+        if (tpmSz > 0) {
+            XMEMCPY(buf + pos, tpmKeyName->name, tpmSz);
+            pos += tpmSz;
+        }
+        scSz = 0; /* no policyDigestOld for the key name hash */
+        rc = wolfTPM2_PolicyHash(hashAlg, sc, &scSz, 0, buf, pos);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_PolicyHash(hashAlg, digest, digestSz,
+            TPM_CC_PolicyTransportSPDM, sc, scSz);
+    }
+
+#ifdef DEBUG_WOLFTPM
+    if (rc != 0) {
+        printf("wolfTPM2_PolicyTransportSPDMMake failed %d: %s\n",
+            rc, wolfTPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+#endif /* WOLFTPM_SPDM */
 
 /* Assemble a PCR policy ref - optional */
 /* aHash = hash(approvedPolicy || policyRef) */

@@ -1,5 +1,11 @@
 # Release Notes
 
+## Unreleased
+
+* Added SPDM transport-bound TPM policies (PR #594).
+  - Added `TPM2_PolicyTransportSPDM` client support and fwTPM enforcement.
+  - Added SPDM-bound NV policy examples and tests.
+
 ## wolfTPM Release 4.2.0 (Sep 14, 2026)
 
 **Summary**

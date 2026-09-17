@@ -9,8 +9,8 @@ The `spdm_ctrl` tool establishes SPDM secure sessions between the host and a
 TPM over SPI, enabling AES-256-GCM encrypted bus communication. Identity mode
 requires the responder key from a trusted provisioning source.
 
-`spdm_ctrl` is the only example that accepts SPDM credentials. Other wolfTPM
-examples use uncredentialed `wolfTPM2_Init()` and intentionally return
+`spdm_ctrl` and `nv_bind` are the examples that accept SPDM credentials. Other
+wolfTPM examples use uncredentialed `wolfTPM2_Init()` and intentionally return
 `WOLFSPDM_E_BAD_STATE` while a TPM is locked in SPDM-only mode; unlock it with
 `spdm_ctrl` before running those examples.
 
@@ -64,12 +64,29 @@ make
 | `--responder-pubkey <hex>` | Pin a trusted raw P-384 X\|\|Y key (192 hex characters) |
 | `--connect` | Establish SPDM session (ECDH P-384 handshake) |
 | `--caps` | Read TPM capabilities over the current transport |
+| `--session-info` | Show the TPM's view of the SPDM session (`TPM_CAP_SPDM_SESSION_INFO`) |
+| `--policy-nv` | Define an NV index guarded by `TPM2_PolicyTransportSPDM`, then write and read it over the session |
 | `--psk <hex>` | Start a PSK session |
 | `--psk-set <psk> <clearauth>` | Provision a 64-byte PSK and 32-byte ClearAuth |
 | `--psk-clear <clearauth>` | Clear a provisioned PSK |
 | `--lock` | Lock SPDM-only mode (use with `--connect`) |
 | `--unlock` | Unlock SPDM-only mode (use with `--connect`) |
 | `--tpm-clear` | Send `TPM2_Clear` over the current transport |
+
+The `nv_bind` example is a focused, self-contained version of the same idea: it
+provisions an NV index whose `authPolicy` is `TPM2_PolicyTransportSPDM`, stores a
+secret over an SPDM-PSK session, then shows that the identical read over a plain
+(non-SPDM) connection is refused with `TPM_RC_CHANNEL`.
+
+```sh
+./src/fwtpm/fwtpm_server --spdm-psk --spdm-psk-hex <psk> --clear &
+./examples/spdm/nv_bind --psk <psk>
+```
+
+The fwTPM generates a fresh SPDM identity key each time it starts, so on the
+fwTPM a policy bound to `tpmKeyName` is only valid for that server lifetime; a
+hardware TPM holds a persistent identity key, where such a binding is durable.
+PSK sessions report empty key names, since no asymmetric key authenticated them.
 
 ## Usage Examples
 

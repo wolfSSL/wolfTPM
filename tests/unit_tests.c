@@ -216,6 +216,10 @@ static void test_wolfTPM2_SpdmModeFromDidVid(void)
 }
 #endif
 
+#ifdef WOLFTPM_SPDM
+static void test_wolfTPM2_PolicyTransportSPDM_live(WOLFTPM2_DEV* dev);
+#endif
+
 #if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK) && \
     !defined(NO_GETENV)
 static void test_wolfTPM2_InitWithSpdmPsk_success(void)
@@ -250,10 +254,168 @@ static void test_wolfTPM2_InitWithSpdmPsk_success(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(wolfTPM2_SpdmIsConnected(&dev), 1);
     AssertIntNE(wolfTPM2_SpdmGetSessionId(&dev), 0);
+    test_wolfTPM2_PolicyTransportSPDM_live(&dev);
     AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
     AssertNull(dev.spdmCtx);
 }
 #endif
+
+#ifdef WOLFTPM_SPDM
+static void test_wolfTPM2_PolicyTransportSPDMMake(void)
+{
+    /* SHA-256 of (zeros[32] || 0x000001A1 || scKeyNameHash), scKeyNameHash =
+     * SHA-256(reqSz || req || tpmSz || tpm) or absent when both are empty */
+    static const byte noNames[TPM_SHA256_DIGEST_SIZE] = {
+        0xf9,0x63,0xdc,0x07,0x41,0x29,0x97,0x27,0x0c,0xb4,0x3f,0xf9,0x3f,0x56,0xd3,0x58,
+        0x61,0xe1,0xc9,0x5c,0x3c,0x5d,0x07,0xc7,0x33,0x9b,0x5c,0xf5,0xbb,0xa1,0x58,0x2d
+    };
+    static const byte bothNames[TPM_SHA256_DIGEST_SIZE] = {
+        0x95,0x2f,0x41,0x84,0xb8,0x29,0x2a,0x66,0xa4,0x5e,0xb6,0x61,0xb9,0xfd,0xad,0x4c,
+        0x6d,0x7e,0x49,0x0a,0xe7,0x4b,0x0b,0x7c,0x0b,0x7f,0x12,0x54,0x1c,0x9d,0x4d,0x95
+    };
+    static const byte reqOnly[TPM_SHA256_DIGEST_SIZE] = {
+        0x1b,0x94,0xc1,0xb4,0x82,0x5a,0x35,0xd5,0x08,0x7e,0x75,0xba,0x0e,0xee,0x72,0xf8,
+        0xef,0xff,0x32,0xf1,0xc9,0x86,0x0c,0xbf,0xec,0x51,0x84,0x28,0xbd,0xc0,0x56,0x3c
+    };
+    int rc;
+    TPM2B_NAME reqName;
+    TPM2B_NAME tpmName;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+
+    XMEMSET(&reqName, 0, sizeof(reqName));
+    XMEMSET(&tpmName, 0, sizeof(tpmName));
+    reqName.size = 2 + TPM_SHA256_DIGEST_SIZE;
+    reqName.name[0] = 0x00; reqName.name[1] = TPM_ALG_SHA256;
+    XMEMSET(reqName.name + 2, 0x11, TPM_SHA256_DIGEST_SIZE);
+    tpmName.size = 2 + TPM_SHA256_DIGEST_SIZE;
+    tpmName.name[0] = 0x00; tpmName.name[1] = TPM_ALG_SHA256;
+    XMEMSET(tpmName.name + 2, 0x22, TPM_SHA256_DIGEST_SIZE);
+
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = 0;
+    rc = wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, NULL, NULL,
+        digest, &digestSz);
+    AssertIntEQ(rc, BUFFER_E);
+
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, NULL, NULL,
+        NULL, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, NULL, NULL,
+        digest, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_NULL, NULL, NULL,
+        digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, NULL, NULL,
+        digest, &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(digestSz, TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(XMEMCMP(digest, noNames, sizeof(noNames)), 0);
+
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, &reqName, &tpmName,
+        digest, &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(XMEMCMP(digest, bothNames, sizeof(bothNames)), 0);
+
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, &reqName, NULL,
+        digest, &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(XMEMCMP(digest, reqOnly, sizeof(reqOnly)), 0);
+
+    /* Malformed names the TPM would reject must also be rejected offline */
+    digestSz = (word32)sizeof(digest);
+    reqName.size = 1; /* too short for a nameAlg */
+    AssertIntEQ(wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, &reqName,
+        NULL, digest, &digestSz), BAD_FUNC_ARG);
+    reqName.size = 2 + TPM_SHA256_DIGEST_SIZE;
+    reqName.name[0] = 0x00; reqName.name[1] = 0x99; /* unsupported nameAlg */
+    AssertIntEQ(wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, &reqName,
+        NULL, digest, &digestSz), BAD_FUNC_ARG);
+    reqName.name[1] = TPM_ALG_SHA256;
+    reqName.size = 2 + TPM_SHA256_DIGEST_SIZE - 1; /* digest length mismatch */
+    AssertIntEQ(wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_SHA256, &reqName,
+        NULL, digest, &digestSz), BAD_FUNC_ARG);
+
+    /* Wrapper NULL handling */
+    rc = wolfTPM2_PolicyTransportSPDM(NULL, 0, NULL, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_GetCapability_SPDMSessionInfo(NULL, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = TPM2_PolicyTransportSPDM(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "PolicyTransportSPDM make:");
+}
+
+/* Inside a live SPDM session the TPM reports the session's key names and
+ * extends a policy exactly as the offline helper predicts. */
+static void test_wolfTPM2_PolicyTransportSPDM_live(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    TPML_SPDM_SESSION_INFO info;
+    TPMS_SPDM_SESSION_INFO* si;
+    WOLFTPM2_SESSION session;
+    byte expected[TPM_MAX_DIGEST_SIZE];
+    word32 expectedSz;
+    byte actual[TPM_MAX_DIGEST_SIZE];
+    word32 actualSz;
+
+    AssertIntEQ(wolfTPM2_SpdmIsConnected(dev), 1);
+
+    XMEMSET(&info, 0, sizeof(info));
+    rc = wolfTPM2_GetCapability_SPDMSessionInfo(dev, &info);
+    /* PolicyTransportSPDM and its capability are optional (TPM 2.0 v1.84).
+     * A connected SPDM TPM that does not implement them is not a failure. */
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_COMMAND_CODE) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "PolicyTransportSPDM live:");
+        return;
+    }
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(info.count, 1);
+    si = &info.spdmSessionInfo[0];
+
+    XMEMSET(&session, 0, sizeof(session));
+    rc = wolfTPM2_StartSession(dev, &session, NULL, NULL, TPM_SE_TRIAL,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_PolicyTransportSPDM(dev, session.handle.hndl,
+        &si->reqKeyName, &si->tpmKeyName);
+    if (rc == TPM_RC_COMMAND_CODE) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "PolicyTransportSPDM live:");
+        wolfTPM2_UnloadHandle(dev, &session.handle);
+        return;
+    }
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    actualSz = (word32)sizeof(actual);
+    rc = wolfTPM2_GetPolicyDigest(dev, session.handle.hndl, actual,
+        &actualSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(expected, 0, sizeof(expected));
+    expectedSz = (word32)sizeof(expected);
+    rc = wolfTPM2_PolicyTransportSPDMMake(session.authHash, &si->reqKeyName,
+        &si->tpmKeyName, expected, &expectedSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(actualSz, expectedSz);
+    AssertIntEQ(XMEMCMP(actual, expected, actualSz), 0);
+
+    wolfTPM2_UnloadHandle(dev, &session.handle);
+    printf("Test TPM Wrapper: %-40s Passed\n", "PolicyTransportSPDM live:");
+}
+#endif /* WOLFTPM_SPDM */
 
 static void test_wolfTPM2_Init(void)
 {
@@ -344,6 +506,11 @@ static void test_wolfTPM2_Init(void)
     /* Test success */
     rc = TestWolfTPM2_InitConfigured(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
+#ifdef WOLFTPM_SPDM
+    if (wolfTPM2_SpdmIsConnected(&dev)) {
+        test_wolfTPM2_PolicyTransportSPDM_live(&dev);
+    }
+#endif
 
     wolfTPM2_Cleanup(&dev);
 
@@ -3863,6 +4030,53 @@ static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
 #endif /* WOLFTPM_SWTPM && !NO_GETENV */
 }
 #endif /* WOLFTPM_MLDSA_VERIFY */
+
+#ifdef WOLFTPM_SPDM
+/* PR #594 must reject SPDM session-info capability responses truncated in the
+ * count or either TPM2B_NAME size field. */
+static void test_TPM2_ParseSpdmSessionInfo_Truncated(void)
+{
+    byte emptySession[] = {
+        0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00,
+        0x00, 0x00
+    };
+    TPM2_Packet packet;
+    TPML_SPDM_SESSION_INFO info;
+    int rc;
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&info, 0, sizeof(info));
+    packet.buf = emptySession;
+    packet.size = (int)sizeof(emptySession);
+    rc = TPM2_ParseSpdmSessionInfo(&packet, &info);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(info.count, 1);
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&info, 0, sizeof(info));
+    packet.buf = emptySession;
+    packet.size = 5;
+    rc = TPM2_ParseSpdmSessionInfo(&packet, &info);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&info, 0, sizeof(info));
+    packet.buf = emptySession;
+    packet.size = 3;
+    rc = TPM2_ParseSpdmSessionInfo(&packet, &info);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&info, 0, sizeof(info));
+    packet.buf = emptySession;
+    packet.size = 7;
+    rc = TPM2_ParseSpdmSessionInfo(&packet, &info);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    printf("Test TPM Wrapper:\tSPDM session info truncation:\tPassed\n");
+}
+#endif /* WOLFTPM_SPDM */
 
 /* TPM2_Packet_ParsePoint must resync to outerStart + point->size so a
  * malformed wire blob with inner x.size / y.size disagreement can't
@@ -9140,6 +9354,10 @@ int unit_tests(int argc, char *argv[])
 #if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG) && \
     defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
     test_wolfTPM2_SpdmModeFromDidVid();
+#endif
+#ifdef WOLFTPM_SPDM
+    test_wolfTPM2_PolicyTransportSPDMMake();
+    test_TPM2_ParseSpdmSessionInfo_Truncated();
 #endif
     test_wolfTPM2_Init();
     test_wolfTPM2_OpenExisting();

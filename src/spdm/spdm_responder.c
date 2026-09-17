@@ -44,6 +44,8 @@ struct WOLFSPDM_RESP_CTX {
                                             * rejected with TPM_RC_DISABLED */
         unsigned int pskProvisioned  : 1;  /* PSK_SET / PSK_CLR vendor state */
         unsigned int clearAuthSet    : 1;  /* a ClearAuth digest is stored */
+        unsigned int sessionAsym     : 1;  /* session came from KEY_EXCHANGE */
+        unsigned int pendingAsym     : 1;  /* KEY_EX reached via KEY_EXCHANGE */
     } flags;
 
     /* SHA-384(ClearAuth) stored on PSK_SET, verified on PSK_CLR. */
@@ -191,6 +193,11 @@ int wolfSPDM_RespSetIdentityKey(WOLFSPDM_RESP_CTX* ctx,
         pubSz != WOLFSPDM_ECC_POINT_SIZE) {
         return WOLFSPDM_E_INVALID_ARG;
     }
+    /* Rotating the key mid-session would attribute that session to a key it
+     * never negotiated with. */
+    if (ctx->ctx.state != WOLFSPDM_STATE_INIT) {
+        return WOLFSPDM_E_BAD_STATE;
+    }
     XMEMCPY(ctx->idPrivKey, privKey, privSz);
     ctx->idPrivKeyLen = privSz;
     XMEMCPY(ctx->idPubKey, pubKey, pubSz);
@@ -223,6 +230,26 @@ int wolfSPDM_RespIsLocked(const WOLFSPDM_RESP_CTX* ctx)
     return (ctx != NULL && ctx->flags.spdmOnlyLock) ? 1 : 0;
 }
 
+int wolfSPDM_RespIsSessionActive(const WOLFSPDM_RESP_CTX* ctx)
+{
+    if (ctx == NULL) {
+        return 0;
+    }
+    return (ctx->ctx.state == WOLFSPDM_STATE_CONNECTED &&
+            ctx->ctx.sessionId != 0) ? 1 : 0;
+}
+
+word32 wolfSPDM_RespGetIdentityKey(const WOLFSPDM_RESP_CTX* ctx,
+    const byte** idPub)
+{
+    if (ctx == NULL || idPub == NULL || !ctx->flags.hasIdKey ||
+            !ctx->flags.sessionAsym) {
+        return 0;
+    }
+    *idPub = ctx->idPubKey;
+    return ctx->idPubKeyLen;
+}
+
 void wolfSPDM_RespReset(WOLFSPDM_RESP_CTX* ctx)
 {
     if (ctx == NULL) {
@@ -248,6 +275,8 @@ void wolfSPDM_RespReset(WOLFSPDM_RESP_CTX* ctx)
     ctx->ctx.rspSeqNum = 0;
     ctx->ctx.sessionId = 0;
     ctx->ctx.state = WOLFSPDM_STATE_INIT;
+    ctx->flags.sessionAsym = 0;
+    ctx->flags.pendingAsym = 0;
 }
 
 #ifdef WOLFTPM_SPDM_TCG
@@ -537,6 +566,7 @@ static int RespBuildPskExchangeRsp(WOLFSPDM_RESP_CTX* rctx,
     if (rc == WOLFSPDM_SUCCESS) {
         *outSz = off;
         ctx->state = WOLFSPDM_STATE_KEY_EX;
+        rctx->flags.pendingAsym = 0;
     }
 
     wc_ForceZero(verifyData, sizeof(verifyData));
@@ -768,6 +798,7 @@ static int RespBuildKeyExchangeRsp(WOLFSPDM_RESP_CTX* rctx,
     if (rc == WOLFSPDM_SUCCESS) {
         *outSz = off;
         ctx->state = WOLFSPDM_STATE_KEY_EX;
+        rctx->flags.pendingAsym = 1;
     }
 
     wc_ForceZero(savedReqPriv, sizeof(savedReqPriv));
@@ -827,6 +858,7 @@ static int RespHandleFinish(WOLFSPDM_RESP_CTX* rctx,
     }
     if (rc == WOLFSPDM_SUCCESS) {
         ctx->state = WOLFSPDM_STATE_CONNECTED;
+        rctx->flags.sessionAsym = 1;
     }
 
     wc_ForceZero(expectedHmac, sizeof(expectedHmac));
@@ -885,6 +917,7 @@ static int RespHandlePskFinish(WOLFSPDM_RESP_CTX* rctx,
      * requester decrypts with handshake keys but we wrote with app keys). */
     if (rc == WOLFSPDM_SUCCESS) {
         ctx->state = WOLFSPDM_STATE_CONNECTED;
+        rctx->flags.sessionAsym = 0;
     }
 
     wc_ForceZero(expectedHmac, sizeof(expectedHmac));
@@ -1124,14 +1157,25 @@ static int RespDispatchSecured(WOLFSPDM_RESP_CTX* rctx,
 
     respPlainSz = WOLFSPDM_MAX_MSG_SIZE;
     switch (code) {
+        /* A finish must match the exchange that opened KEY_EX and cannot run
+         * again once connected, or a PSK peer could relabel its session as
+         * identity-key authenticated with a plain FINISH. */
 #ifdef WOLFTPM_SPDM_PSK
         case SPDM_PSK_FINISH:
+            if (ctx->state != WOLFSPDM_STATE_KEY_EX ||
+                    rctx->flags.pendingAsym) {
+                return WOLFSPDM_E_BAD_STATE;
+            }
             rc = RespHandlePskFinish(rctx, plain, plainSz,
                 respPlain, &respPlainSz);
             derivedAppKeys = (rc == WOLFSPDM_SUCCESS) ? 1 : 0;
             break;
 #endif
         case SPDM_FINISH:
+            if (ctx->state != WOLFSPDM_STATE_KEY_EX ||
+                    !rctx->flags.pendingAsym) {
+                return WOLFSPDM_E_BAD_STATE;
+            }
             rc = RespHandleFinish(rctx, plain, plainSz,
                 respPlain, &respPlainSz);
             derivedAppKeys = (rc == WOLFSPDM_SUCCESS) ? 1 : 0;
