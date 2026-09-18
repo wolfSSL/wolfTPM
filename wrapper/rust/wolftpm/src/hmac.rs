@@ -3,6 +3,8 @@
 use crate::device::Device;
 use crate::key::{HashAlg, Key};
 use crate::{check_rc, sys, Result, TpmError};
+use alloc::vec;
+use alloc::vec::Vec;
 
 impl<'d> Key<'d> {
     /// Compute HMAC over `data` using this loaded keyed-hash key, whose secret
@@ -18,7 +20,7 @@ impl<'d> Key<'d> {
         if data.len() > cin.buffer.buffer.len() {
             return Err(TpmError(crate::BUFFER_E));
         }
-        // SAFETY: self.dev() is live and self.handle_ptr() addresses this Key's own pinned handle.
+        // SAFETY: self.dev() is live and self.handle_ptr() remains valid for this call.
         unsafe { sys::wolfTPM2_SetAuthHandle(self.dev(), 0, self.handle_ptr()) };
         cin.handle = self.handle();
         cin.hashAlg = hash.alg_id() as sys::TPMI_ALG_HASH;
@@ -72,15 +74,15 @@ impl Device {
         check_rc(rc)?;
 
         // SAFETY: ctx was just initialized by HmacStart above, and data ptr+len bound its slice.
-        let rc_update = unsafe {
-            sys::wolfTPM2_HmacUpdate(self.ptr(), &mut ctx, data.as_ptr(), data_len)
-        };
+        let rc_update =
+            unsafe { sys::wolfTPM2_HmacUpdate(self.ptr(), &mut ctx, data.as_ptr(), data_len) };
 
         let mut out = vec![0u8; 64];
         let mut out_sz = out.len() as sys::word32;
         // SAFETY: ctx is still the live HMAC context, and out.as_mut_ptr()/&mut out_sz describe the full out capacity.
-        let rc_finish =
-            unsafe { sys::wolfTPM2_HmacFinish(self.ptr(), &mut ctx, out.as_mut_ptr(), &mut out_sz) };
+        let rc_finish = unsafe {
+            sys::wolfTPM2_HmacFinish(self.ptr(), &mut ctx, out.as_mut_ptr(), &mut out_sz)
+        };
 
         // Free the transient keyed-hash key if the finish left it loaded.
         if ctx.key.handle.hndl != 0 {

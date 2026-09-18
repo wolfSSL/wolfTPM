@@ -8,10 +8,9 @@ see its [README](wolftpm/README.md) for the full API, build, and test details.
 cd ../..                       # wolfTPM repo root
 ./autogen.sh && ./configure --enable-swtpm --enable-fwtpm && make
 
-# 2. build the Rust crate against it
-cd wrapper/rust/wolftpm
-cargo build
+# 2. build, lint, and document the Rust crate against it
+make -C wrapper/rust
 
 # 3. test (needs a running software TPM on localhost:2321)
-cargo test --features swtpm-tests -- --test-threads=1
+make -C wrapper/rust test
 ```

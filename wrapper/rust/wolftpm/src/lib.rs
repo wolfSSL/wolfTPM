@@ -1,3 +1,5 @@
+#![no_std]
+
 //! Safe Rust bindings for [wolfTPM](https://github.com/wolfSSL/wolfTPM), the
 //! portable TPM 2.0 library.
 //!
@@ -11,72 +13,75 @@
 //!
 //! # Safety
 //!
-//! `Device` boxes its `WOLFTPM2_DEV` in an `UnsafeCell` so it is heap-pinned
-//! and self-referential-safe; `Device::ptr()` is therefore a stable pointer
-//! for the whole `Device` lifetime, and every wolfTPM2 C call in this crate
-//! takes it. `Key`/`KeyBlob` borrow `&Device` and hold their own
-//! `UnsafeCell`-wrapped, pinned C struct plus the dev pointer, so their
-//! `kptr()`/`handle_ptr()` accessors are likewise stable for as long as the
-//! borrow lives. C structs passed to FFI are zero-initialized with
+//! `Device` boxes its `WOLFTPM2_DEV` in an `UnsafeCell`, so the C struct stays
+//! at a stable heap address even when the Rust `Device` value moves. This is
+//! required because `WOLFTPM2_DEV` can contain a pointer to one of its own
+//! fields. `Key` and `KeyBlob` may move; pointers to their `UnsafeCell`-wrapped
+//! C structs are borrowed only for individual FFI calls and are not retained
+//! by wolfTPM. C structs passed to FFI are zero-initialized with
 //! `core::mem::zeroed()` first — valid for these C plain-old-data types — and
 //! then filled by the callee; buffer copies into fixed C arrays are bounds-
 //! checked beforehand so they cannot overflow. Union fields are read only
 //! after the code that set the matching selector (an `is_ecc`/scheme flag) ran
-//! immediately before. `zeroize_raw` and volatile-write scrubbing always
-//! operate on a live, correctly-sized, exclusively-owned local.
+//! immediately before. Zeroization always receives live, initialized storage
+//! through an exclusive mutable borrow.
+
+extern crate alloc;
 
 pub mod sys;
 
+#[cfg(all(wrapper, caps))]
+mod caps;
+#[cfg(wrapper)]
+mod certify;
+#[cfg(all(wrapper, ek_policy))]
+mod credential;
 #[cfg(wrapper)]
 mod device;
+#[cfg(all(wrapper, ecdh))]
+mod ecdh;
+#[cfg(all(wrapper, hmac))]
+mod hmac;
 #[cfg(wrapper)]
 mod key;
-#[cfg(wrapper)]
-mod sign;
-#[cfg(all(wrapper, seal))]
-mod seal;
 #[cfg(all(wrapper, nv))]
 mod nv;
 #[cfg(all(wrapper, pcr))]
 mod pcr;
-#[cfg(wrapper)]
-mod certify;
-#[cfg(all(wrapper, rsa))]
-mod rsa;
 #[cfg(all(wrapper, persist))]
 mod persist;
-#[cfg(all(wrapper, hmac))]
-mod hmac;
+#[cfg(all(wrapper, rsa))]
+mod rsa;
+#[cfg(all(wrapper, seal))]
+mod seal;
 #[cfg(wrapper)]
 mod session;
-#[cfg(all(wrapper, caps))]
-mod caps;
+#[cfg(wrapper)]
+mod sign;
 #[cfg(all(wrapper, symmetric))]
 mod symmetric;
-#[cfg(all(wrapper, ecdh))]
-mod ecdh;
-#[cfg(all(wrapper, ek_policy))]
-mod credential;
 
+#[cfg(all(wrapper, caps))]
+pub use caps::Caps;
+#[cfg(wrapper)]
+pub use certify::Attestation;
+#[cfg(all(wrapper, ek_policy))]
+pub use credential::Credential;
 #[cfg(wrapper)]
 pub use device::Device;
-#[cfg(wrapper)]
-pub use session::Session;
+#[cfg(all(wrapper, ecdh))]
+pub use ecdh::EcdhResult;
 #[cfg(wrapper)]
 pub use key::{HashAlg, Hierarchy, Key, KeyAlg, KeyBlob, Template};
 #[cfg(all(wrapper, nv))]
 pub use nv::NvSlot;
 #[cfg(wrapper)]
-pub use certify::Attestation;
-#[cfg(all(wrapper, caps))]
-pub use caps::Caps;
-#[cfg(all(wrapper, ecdh))]
-pub use ecdh::EcdhResult;
-#[cfg(all(wrapper, ek_policy))]
-pub use credential::Credential;
+pub use session::Session;
 
+use alloc::vec::Vec;
+use core::ffi::{c_int, CStr};
 use core::fmt;
-use std::os::raw::c_int;
+use zeroize::Zeroize;
 
 /// A wolfTPM operation that failed, carrying the raw TPM return code.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -94,7 +99,10 @@ impl fmt::Display for TpmError {
         match self.0 {
             E_DEVICE_IN_USE => return write!(f, "another wolfTPM Device is already open"),
             E_SESSION_IN_USE => {
-                return write!(f, "an encrypted session is active and conflicts with this operation")
+                return write!(
+                    f,
+                    "an encrypted session is active and conflicts with this two-authorization operation"
+                );
             }
             BUFFER_E => return write!(f, "buffer size error (BUFFER_E)"),
             _ => {}
@@ -106,7 +114,7 @@ impl fmt::Display for TpmError {
             let p = unsafe { sys::TPM2_GetRCString(self.0) };
             if !p.is_null() {
                 // SAFETY: p was just checked non-null and points at TPM2_GetRCString's static NUL-terminated string.
-                let s = unsafe { std::ffi::CStr::from_ptr(p) };
+                let s = unsafe { CStr::from_ptr(p) };
                 return write!(f, "{} (0x{:x})", s.to_string_lossy(), self.0);
             }
         }
@@ -120,7 +128,7 @@ impl fmt::Debug for TpmError {
     }
 }
 
-impl std::error::Error for TpmError {}
+impl core::error::Error for TpmError {}
 
 /// Result of a wolfTPM operation.
 pub type Result<T> = core::result::Result<T, TpmError>;
@@ -160,11 +168,7 @@ impl core::ops::Deref for Secret {
 
 impl Drop for Secret {
     fn drop(&mut self) {
-        for b in self.0.iter_mut() {
-            // SAFETY: b is a valid &mut u8 into the live Vec; the volatile write scrubs the secret byte from the compiler's view.
-            unsafe { core::ptr::write_volatile(b, 0u8) };
-        }
-        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        self.0.zeroize();
     }
 }
 
@@ -200,23 +204,18 @@ pub(crate) const BUFFER_E: c_int = -132;
 pub(crate) const E_DEVICE_IN_USE: c_int = -900;
 
 /// Sentinel: an encrypted [`Session`] is active. Only one is allowed at a time,
-/// and the attestation commands are refused while one holds the auth slot.
+/// and two-authorization commands are refused while one holds the second slot.
 pub(crate) const E_SESSION_IN_USE: c_int = -901;
 
 /// Zeroize an arbitrary FFI struct by raw bytes.
 ///
-/// `Drop` impls that hold secret material scrub the backing bytes with volatile
-/// writes so the compiler cannot elide them (the Rust equivalent of wolfSSL's
-/// `ForceZero`).
-#[inline]
-#[allow(dead_code)] /* used by the sealed-secret modules landing next */
-pub(crate) unsafe fn zeroize_raw<T>(v: &mut T) {
-    let p = v as *mut T as *mut u8;
-    let n = core::mem::size_of::<T>();
-    let mut i = 0;
-    while i < n {
-        core::ptr::write_volatile(p.add(i), 0u8);
-        i += 1;
+/// # Safety
+///
+/// `value` must be initialized, and its entire byte representation must be safe
+/// to overwrite with zeroes.
+pub(crate) unsafe fn zeroize_raw<T>(value: &mut T) {
+    unsafe {
+        core::slice::from_raw_parts_mut(value as *mut T as *mut u8, core::mem::size_of_val(value))
+            .zeroize();
     }
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }

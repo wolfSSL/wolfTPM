@@ -2,6 +2,9 @@
 
 use crate::key::Key;
 use crate::{check_rc, sys, Result, Secret};
+use alloc::vec;
+use alloc::vec::Vec;
+use zeroize::Zeroize;
 
 impl<'d> Key<'d> {
     /// Encrypt `data` with this loaded AES key (see
@@ -44,9 +47,7 @@ impl<'d> Key<'d> {
         if rc != 0 {
             // The C side decrypts in chunks, so a mid-stream failure can leave
             // partial plaintext in `out`; scrub it before discarding.
-            for b in out.iter_mut() {
-                unsafe { core::ptr::write_volatile(b, 0) };
-            }
+            out.zeroize();
             check_rc(rc)?;
         }
         Ok(out)

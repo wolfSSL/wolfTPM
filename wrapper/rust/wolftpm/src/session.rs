@@ -14,17 +14,18 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// after a command's own object authorization at slot 0. wolfTPM's command
 /// builder (`TPM2_GetCmdAuthCount`) then includes it as an encrypt/decrypt
 /// session for every parameter-encryption-capable command, with no gap that
-/// would drop it. The 2-auth attestation commands (certify, quote, activate)
-/// need slot 1 for their second handle, so they are refused while a session is
-/// live rather than silently displacing it.
+/// would drop it. The two-auth attestation commands (certify and credential
+/// activation) need slot 1 for their second authorization, so they are refused
+/// while a session is live rather than silently displacing it. Quote uses one
+/// authorization and can use the encryption session in slot 1.
 const SESSION_SLOT: c_int = 1;
 
 /// Only one encryption session may be live at a time; it holds slot 1 for its
 /// whole lifetime so wolfTPM can roll its nonce across commands.
 static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Whether an encryption session currently holds the auth slot. Used by the
-/// attestation commands to refuse rather than clobber it.
+/// Whether an encryption session currently holds the second auth slot. Used by
+/// two-authorization commands to refuse rather than clobber it.
 pub(crate) fn is_active() -> bool {
     SESSION_ACTIVE.load(Ordering::Acquire)
 }
@@ -45,10 +46,11 @@ impl Device {
     /// secret-bearing commands are encrypted. Returns an error if a session is
     /// already active.
     ///
-    /// While it is alive, the attestation commands [`certify`](Device::certify),
-    /// [`quote`](Device::quote), and
+    /// While it is alive, the two-authorization commands
+    /// [`certify`](Device::certify) and
     /// [`activate_credential`](Device::activate_credential) are refused, since
-    /// they need the same auth slot; drop the session before calling them.
+    /// they need the same auth slot. [`quote`](Device::quote) uses only one
+    /// object authorization and remains available.
     pub fn start_encrypted_session(&self, salt: &Key<'_>) -> Result<Session<'_>> {
         if SESSION_ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)

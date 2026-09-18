@@ -3,6 +3,8 @@
 use crate::device::Device;
 use crate::key::{HashAlg, Key};
 use crate::{check_rc, sys, Result, TpmError};
+use alloc::vec;
+use alloc::vec::Vec;
 
 /// Number of PCRs a TPM 2.0 implementation exposes; valid indices are `0..24`.
 const PCR_COUNT: u32 = 24;
@@ -47,7 +49,7 @@ impl Device {
         // Certify needs two auth slots; a one-session build (MAX_SESSION_NUM=1)
         // rejects slot 1, so check both rather than submitting a half-authorized
         // command.
-        // SAFETY: self.ptr() is live and object.handle_ptr()/signer.handle_ptr() address each Key's own pinned handle.
+        // SAFETY: self.ptr() is live and both handle pointers remain valid for these calls.
         let (s0, s1) = unsafe {
             (
                 sys::wolfTPM2_SetAuthHandle(self.ptr(), 0, object.handle_ptr()),
@@ -103,11 +105,6 @@ impl Device {
         hash: HashAlg,
         qualifying: &[u8],
     ) -> Result<Attestation> {
-        // An encryption session holds auth slot 1, which quote needs for its
-        // signing key; refuse rather than silently disable the session.
-        if crate::session::is_active() {
-            return Err(TpmError(crate::E_SESSION_IN_USE));
-        }
         // `is_ecc` only selects which signature union field to read back; the
         // command uses the signer's own scheme and `hash` selects the PCR bank.
         let is_ecc = signer.alg() == sys::TPM_ALG_ID_T_TPM_ALG_ECC as sys::TPM_ALG_ID;
@@ -125,10 +122,12 @@ impl Device {
         }
         for &idx in pcr_indices {
             // SAFETY: &mut qin.PCRselect is a valid, exclusively-borrowed field of the live qin struct.
-            unsafe { sys::TPM2_SetupPCRSel(&mut qin.PCRselect, hash.alg_id(), idx as core::ffi::c_int) };
+            unsafe {
+                sys::TPM2_SetupPCRSel(&mut qin.PCRselect, hash.alg_id(), idx as core::ffi::c_int)
+            };
         }
 
-        // SAFETY: self.ptr() is live and signer.handle_ptr() addresses that Key's own pinned handle.
+        // SAFETY: self.ptr() is live and signer.handle_ptr() remains valid for this call.
         unsafe { sys::wolfTPM2_SetAuthHandle(self.ptr(), 0, signer.handle_ptr()) };
         qin.signHandle = signer.handle();
         // TPM_ALG_NULL: sign with the AIK's own scheme/hash. The signature hash

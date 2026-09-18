@@ -4,6 +4,8 @@
 
 use crate::key::{HashAlg, Key};
 use crate::{check_rc, sys, Result, Secret, TpmError};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::ffi::c_int;
 
 impl<'d> Key<'d> {
@@ -65,7 +67,7 @@ impl<'d> Key<'d> {
         if msg.len() > cin.message.buffer.len() {
             return Err(TpmError(crate::BUFFER_E));
         }
-        // SAFETY: self.dev() is live and self.handle_ptr() addresses this Key's own pinned handle.
+        // SAFETY: self.dev() is live and self.handle_ptr() remains valid for this call.
         unsafe { sys::wolfTPM2_SetAuthHandle(self.dev(), 0, self.handle_ptr()) };
         cin.keyHandle = self.handle();
         cin.message.size = msg.len() as u16;
@@ -97,7 +99,7 @@ impl<'d> Key<'d> {
         if ciphertext.len() > cin.cipherText.buffer.len() {
             return Err(TpmError(crate::BUFFER_E));
         }
-        // SAFETY: self.dev() is live and self.handle_ptr() addresses this Key's own pinned handle.
+        // SAFETY: self.dev() is live and self.handle_ptr() remains valid for this call.
         unsafe { sys::wolfTPM2_SetAuthHandle(self.dev(), 0, self.handle_ptr()) };
         cin.keyHandle = self.handle();
         cin.cipherText.size = ciphertext.len() as u16;

@@ -82,14 +82,14 @@ jobs:
 
       - name: Build Rust wrapper
         working-directory: ./wrapper/rust/wolftpm
-        run: cargo build --all-targets --features swtpm-tests
+        run: cargo build --locked --all-targets --features swtpm-tests
 
       # Style gates are advisory on the first runs (annotate, don't fail the
       # pipeline); flip continue-on-error off once a `cargo fmt` pass is landed.
       - name: Clippy
         working-directory: ./wrapper/rust/wolftpm
         continue-on-error: true
-        run: cargo clippy --all-targets --features swtpm-tests -- -D warnings
+        run: cargo clippy --locked --all-targets --features swtpm-tests -- -D warnings
 
       - name: Rustfmt check
         working-directory: ./wrapper/rust/wolftpm
@@ -98,11 +98,11 @@ jobs:
 
       - name: Test against fwTPM
         working-directory: ./wrapper/rust/wolftpm
-        run: cargo test --features swtpm-tests -- --test-threads=1
+        run: cargo test --locked --features swtpm-tests -- --test-threads=1
 
       - name: Docs
         working-directory: ./wrapper/rust/wolftpm
-        run: cargo doc --no-deps
+        run: cargo doc --locked --no-deps
 
   # Compile-only against the Linux kernel-device transport, so the non-swtpm
   # cfg paths and the callback-free open() build are exercised too.
@@ -128,7 +128,7 @@ jobs:
           make -j"$(nproc)"
       - name: Compile Rust wrapper (no swtpm)
         working-directory: ./wrapper/rust/wolftpm
-        run: cargo build --all-targets
+        run: cargo build --locked --all-targets
 
       - name: Upload failure logs
         if: failure()

@@ -1,10 +1,16 @@
 //! Rust analog of wolfTPM's `examples/keygen/create_primary` against a software
 //! TPM. Start a server first, e.g. `ibmswtpm2/src/tpm_server` on :2321.
 
+use std::fmt::Write;
+
 use wolftpm::{Device, Hierarchy, KeyAlg};
 
 fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{:02x}", x)).collect()
+    let mut encoded = String::with_capacity(b.len() * 2);
+    for byte in b {
+        write!(encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    encoded
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

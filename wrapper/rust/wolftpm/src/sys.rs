@@ -9,5 +9,9 @@
 #![allow(non_upper_case_globals)]
 #![allow(improper_ctypes)]
 #![allow(dead_code)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::ptr_offset_with_cast)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::useless_transmute)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));

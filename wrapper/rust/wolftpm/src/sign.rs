@@ -2,6 +2,8 @@
 
 use crate::key::Key;
 use crate::{check_rc, sys, Result};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::ffi::c_int;
 
 impl<'d> Key<'d> {
@@ -26,7 +28,7 @@ impl<'d> Key<'d> {
         };
         // wolfTPM2_SignHash caches the key auth in the device's slot 0; clear it
         // so it does not linger in the live Device after this returns.
-        // SAFETY: self.dev() is the live pinned device pointer.
+        // SAFETY: self.dev() is the live heap-stable device pointer.
         unsafe { sys::wolfTPM2_UnsetAuth(self.dev(), 0) };
         check_rc(rc)?;
         sig.truncate(sig_sz as usize);

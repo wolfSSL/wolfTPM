@@ -2,9 +2,12 @@
 
 use crate::device::Device;
 use crate::{check_rc, sys, Result, TpmError};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::ffi::c_int;
 use core::marker::PhantomData;
+use zeroize::Zeroize;
 
 /// TPM authorization hierarchy a primary key is created under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,13 +293,13 @@ impl<'d> Key<'d> {
     }
 
     pub(crate) fn handle_ptr(&self) -> *mut sys::WOLFTPM2_HANDLE {
-        // SAFETY: self.key.get() points into the live, pinned WOLFTPM2_KEY cell for this Key's lifetime.
+        // SAFETY: self.key.get() points to this live Key's handle for the duration of the call.
         unsafe { &mut (*self.key.get()).handle }
     }
 
     /// The TPM handle value for this key.
     pub fn handle(&self) -> u32 {
-        // SAFETY: self.key.get() points into the live, pinned WOLFTPM2_KEY cell for this Key's lifetime.
+        // SAFETY: self.key.get() points to this live Key's handle for the duration of the read.
         unsafe { (*self.key.get()).handle.hndl }
     }
 
@@ -330,7 +333,7 @@ impl<'d> Key<'d> {
     /// the way `wolfTPM2_CreateKey`/`CreatePrimaryKey` store it. Restoring a
     /// short auth verbatim would not match the padded value the TPM holds.
     pub(crate) fn set_auth_padded(&self, auth: &[u8]) -> Result<()> {
-        // SAFETY: self.key.get() points into the live, pinned WOLFTPM2_KEY cell for this Key's lifetime.
+        // SAFETY: self.key.get() points to this live Key for the duration of the read.
         let name_alg = unsafe { (*self.key.get()).pub_.publicArea.nameAlg };
         // SAFETY: name_alg is a valid TPM_ALG_ID read from the loaded key's own public area.
         let dsz = unsafe { sys::TPM2_GetHashDigestSize(name_alg) };
@@ -338,10 +341,7 @@ impl<'d> Key<'d> {
             let mut padded = vec![0u8; dsz as usize];
             padded[..auth.len()].copy_from_slice(auth);
             let r = self.set_auth(&padded);
-            for b in padded.iter_mut() {
-                // SAFETY: b is a valid &mut u8 into the live padded Vec; the volatile write scrubs it from the compiler's view.
-                unsafe { core::ptr::write_volatile(b, 0) };
-            }
+            padded.zeroize();
             r
         } else {
             self.set_auth(auth)
@@ -350,7 +350,7 @@ impl<'d> Key<'d> {
 
     /// The public key's algorithm id (`TPM_ALG_RSA` or `TPM_ALG_ECC`).
     pub(crate) fn alg(&self) -> sys::TPM_ALG_ID {
-        // SAFETY: self.key.get() points into the live, pinned WOLFTPM2_KEY cell for this Key's lifetime.
+        // SAFETY: self.key.get() points to this live Key for the duration of the read.
         unsafe { (*self.key.get()).pub_.publicArea.type_ }
     }
 
@@ -366,7 +366,13 @@ impl<'d> Key<'d> {
         } as core::ffi::c_int;
         // SAFETY: self.dev/self.kptr() are live pointers, and out.as_mut_ptr()/out_sz describe the full out Vec capacity.
         let rc = unsafe {
-            sys::wolfTPM2_ExportPublicKeyBuffer(self.dev, self.kptr(), enc, out.as_mut_ptr(), &mut out_sz)
+            sys::wolfTPM2_ExportPublicKeyBuffer(
+                self.dev,
+                self.kptr(),
+                enc,
+                out.as_mut_ptr(),
+                &mut out_sz,
+            )
         };
         check_rc(rc)?;
         out.truncate(out_sz as usize);
@@ -384,7 +390,7 @@ impl<'d> Key<'d> {
         // SAFETY: WOLFTPM2_KEY is a C POD struct; all-zero is a valid starting state for CreatePrimaryKey to fill.
         let mut key: sys::WOLFTPM2_KEY = unsafe { core::mem::zeroed() };
         let (authp, authsz) = auth_ptr(auth)?;
-        // SAFETY: devp is the pinned dev pointer, &mut key/&mut tmpl.0 are valid exclusive out-params, and authp/authsz match (auth's ptr, len) or (null, 0).
+        // SAFETY: devp is the heap-stable dev pointer, &mut key/&mut tmpl.0 are valid exclusive out-params, and authp/authsz match (auth's ptr, len) or (null, 0).
         let rc = unsafe {
             sys::wolfTPM2_CreatePrimaryKey(
                 devp,
@@ -437,7 +443,11 @@ impl<'d> KeyBlob<'d> {
         let mut buf = vec![0u8; core::mem::size_of::<sys::WOLFTPM2_KEYBLOB>() + 32];
         // SAFETY: buf.as_mut_ptr()/buf.len() describe the full buf Vec capacity, and self.blob.get() is the live blob cell.
         let n = unsafe {
-            sys::wolfTPM2_GetKeyBlobAsBuffer(buf.as_mut_ptr(), buf.len() as sys::word32, self.blob.get())
+            sys::wolfTPM2_GetKeyBlobAsBuffer(
+                buf.as_mut_ptr(),
+                buf.len() as sys::word32,
+                self.blob.get(),
+            )
         };
         if n < 0 {
             return Err(TpmError(n));
@@ -453,13 +463,14 @@ impl<'d> KeyBlob<'d> {
         let mut tmp = bytes.to_vec();
         // SAFETY: &mut blob is a valid out-param, and tmp.as_mut_ptr()/tmp.len() describe the live tmp Vec.
         let rc = unsafe {
-            sys::wolfTPM2_SetKeyBlobFromBuffer(&mut blob, tmp.as_mut_ptr(), tmp.len() as sys::word32)
+            sys::wolfTPM2_SetKeyBlobFromBuffer(
+                &mut blob,
+                tmp.as_mut_ptr(),
+                tmp.len() as sys::word32,
+            )
         };
         // Scrub the temporary copy on every path.
-        for b in tmp.iter_mut() {
-            // SAFETY: b is a valid &mut u8 into the live tmp Vec; the volatile write scrubs it from the compiler's view.
-            unsafe { core::ptr::write_volatile(b, 0) };
-        }
+        tmp.zeroize();
         check_rc(rc)?;
         Ok(KeyBlob {
             blob: UnsafeCell::new(blob),
@@ -474,10 +485,8 @@ impl<'d> KeyBlob<'d> {
     /// so pass the original `auth` (or `None`) to restore it; without it, an
     /// auth-protected key would load but fail authorization on first use.
     pub fn load(self, parent: &Key<'d>, auth: Option<&[u8]>) -> Result<Key<'d>> {
-        // SAFETY: self.dev/self.blob.get() are live, and parent.handle_ptr() points at parent's own pinned handle.
-        let rc = unsafe {
-            sys::wolfTPM2_LoadKey(self.dev, self.blob.get(), parent.handle_ptr())
-        };
+        // SAFETY: self.dev/self.blob.get() are live, and parent.handle_ptr() points to the parent's live handle for this call.
+        let rc = unsafe { sys::wolfTPM2_LoadKey(self.dev, self.blob.get(), parent.handle_ptr()) };
         check_rc(rc)?;
         // The handle now lives in the blob; move handle+public into a Key and
         // hand ownership over so only the Key unloads it.
@@ -507,7 +516,7 @@ impl Device {
     pub fn create_ek(&self, alg: KeyAlg) -> Result<Key<'_>> {
         // SAFETY: WOLFTPM2_KEY is a C POD struct; all-zero is a valid starting state for CreateEK to fill.
         let mut key: sys::WOLFTPM2_KEY = unsafe { core::mem::zeroed() };
-        // SAFETY: self.ptr() is the pinned dev pointer and &mut key is a valid exclusive out-param.
+        // SAFETY: self.ptr() is the heap-stable dev pointer and &mut key is a valid exclusive out-param.
         let rc = unsafe { sys::wolfTPM2_CreateEK(self.ptr(), &mut key, alg.alg_id()) };
         check_rc(rc)?;
         Ok(Key::from_raw(self.ptr(), key))

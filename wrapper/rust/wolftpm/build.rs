@@ -177,6 +177,65 @@ fn bindings_path() -> String {
         .to_string()
 }
 
+/// Map a Rust target triple to the equivalent clang target triple.
+///
+/// Rust triples embed RISC-V ISA extensions in the architecture component,
+/// while clang uses the base architecture. Bare-metal clang triples also omit
+/// Rust's `none` operating-system component.
+fn rust_target_to_clang_target(rust_target: &str) -> String {
+    let parts: Vec<&str> = rust_target.splitn(4, '-').collect();
+    if parts.len() < 3 {
+        return rust_target.to_string();
+    }
+
+    let arch = if parts[0].starts_with("riscv64") {
+        "riscv64"
+    } else if parts[0].starts_with("riscv32") {
+        "riscv32"
+    } else {
+        parts[0]
+    };
+    let vendor = parts[1];
+    let os = parts[2];
+    let abi = parts.get(3).copied().unwrap_or("");
+
+    if os == "none" && abi == "elf" {
+        format!("{}-{}-elf", arch, vendor)
+    } else if abi.is_empty() {
+        format!("{}-{}-{}", arch, vendor, os)
+    } else {
+        format!("{}-{}-{}-{}", arch, vendor, os, abi)
+    }
+}
+
+/// Query an installed bare-metal GCC toolchain for the C runtime sysroot that
+/// clang needs while preprocessing wolfTPM and wolfSSL headers.
+fn bare_metal_sysroot(clang_target: &str) -> Option<String> {
+    let parts: Vec<&str> = clang_target.splitn(3, '-').collect();
+    if parts.len() < 3 || !clang_target.ends_with("-elf") {
+        return None;
+    }
+    let (arch, vendor) = (parts[0], parts[1]);
+    let candidates = [
+        format!("{}-{}-elf-gcc", arch, vendor),
+        format!("{}-elf-gcc", arch),
+    ];
+    for compiler in &candidates {
+        if let Ok(output) = std::process::Command::new(compiler)
+            .arg("--print-sysroot")
+            .output()
+        {
+            if output.status.success() {
+                let sysroot = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !sysroot.is_empty() && sysroot != "/" && Path::new(&sysroot).exists() {
+                    return Some(sysroot);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn generate_bindings() -> Result<()> {
     let mut builder = bindgen::Builder::default()
         .header("headers.h")
@@ -190,13 +249,25 @@ fn generate_bindings() -> Result<()> {
         .blocklist_function("bcmp")
         .blocklist_function("strlen")
         .generate_comments(false)
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .use_core();
 
     // Preprocess for the actual target, not the build host: wolfTPM headers
     // select struct fields and transports on __linux__/_WIN32/arch macros, so a
     // host/target mismatch would generate the wrong FFI layout when cross-compiling.
-    if let Ok(target) = env::var("TARGET") {
-        builder = builder.clang_arg(format!("--target={}", target));
+    let target = env::var("TARGET").unwrap();
+    let host = env::var("HOST").unwrap();
+    if target != host {
+        let clang_target = rust_target_to_clang_target(&target);
+        builder = builder.clang_arg(format!("--target={}", clang_target));
+
+        if target.ends_with("-none-elf") {
+            if let Some(sysroot) = bare_metal_sysroot(&clang_target) {
+                builder = builder
+                    .clang_arg("-ffreestanding")
+                    .clang_arg(format!("-idirafter{}/include", sysroot));
+            }
+        }
     }
 
     if let Some(inc) = wolftpm_include_dir()? {
@@ -247,8 +318,8 @@ fn has_wolftpm_lib(dir: &str) -> bool {
         "libwolftpm.so",
         "libwolftpm.a",
         "libwolftpm.dylib",
-        "wolftpm.lib",     // MSVC static / import library
-        "wolftpm.dll",     // MSVC shared
+        "wolftpm.lib",      // MSVC static / import library
+        "wolftpm.dll",      // MSVC shared
         "libwolftpm.dll.a", // MinGW import library
     ]
     .iter()
@@ -268,7 +339,9 @@ fn setup_link() -> Result<()> {
             return Err(io::Error::other(format!(
                 "no libwolftpm to link ({}); build wolfTPM in-tree (src/.libs) or set \
                  WOLFTPM_PREFIX to an install whose headers match the library",
-                wolftpm_libs.as_deref().unwrap_or("in-tree src/.libs missing"),
+                wolftpm_libs
+                    .as_deref()
+                    .unwrap_or("in-tree src/.libs missing"),
             )));
         }
     }
@@ -344,8 +417,11 @@ fn scan_options() -> Result<()> {
 
     let flag = |macro_name: &str, cfg_name: &str| {
         println!("cargo::rustc-check-cfg=cfg({})", cfg_name);
-        let re =
-            Regex::new(&format!(r"(?m)^\s*#\s*define\s+{}\b", regex::escape(macro_name))).unwrap();
+        let re = Regex::new(&format!(
+            r"(?m)^\s*#\s*define\s+{}\b",
+            regex::escape(macro_name)
+        ))
+        .unwrap();
         if re.is_match(&text) {
             println!("cargo:rustc-cfg={}", cfg_name);
         }
@@ -353,7 +429,7 @@ fn scan_options() -> Result<()> {
     flag("WOLFTPM_SWTPM", "swtpm");
     flag("WOLFTPM_LINUX_DEV", "devtpm");
     flag("WOLFTPM_MMIO", "mmio");
-    flag("WOLFTPM_FWTPM", "fwtpm");
+    flag("WOLFTPM_FWTPM_BUILD", "fwtpm");
     // Callback-free transports: Windows TBS and Linux kernel-device autodetect.
     flag("WOLFTPM_WINAPI", "winapi");
     flag("WOLFTPM_LINUX_DEV_AUTODETECT", "linux_autodetect");

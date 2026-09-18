@@ -3,6 +3,8 @@
 use crate::device::Device;
 use crate::key::{auth_ptr, Key, KeyBlob};
 use crate::{check_rc, sys, Result, Secret, TpmError};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::ffi::c_int;
 
 /// Number of PCRs a TPM 2.0 implementation exposes; valid indices are `0..24`.
@@ -74,7 +76,7 @@ impl Device {
         if let Some(a) = auth {
             key.set_auth(a)?;
         }
-        // SAFETY: self.ptr() is the pinned dev pointer and key.handle_ptr() addresses the just-loaded key's live handle.
+        // SAFETY: self.ptr() is the heap-stable dev pointer and key.handle_ptr() remains valid for this call.
         unsafe { sys::wolfTPM2_SetAuthHandle(self.ptr(), 0, key.handle_ptr()) };
 
         // SAFETY: Unseal_In/Unseal_Out are C POD structs; all-zero is a valid starting state for TPM2_Unseal to fill.
@@ -106,7 +108,12 @@ impl Device {
     /// Access is gated solely by the PCR policy: there is deliberately no auth
     /// value, since a PCR-policy object clears `userWithAuth` and any auth would
     /// not be enforced on unseal.
-    pub fn seal_pcr(&self, parent: &Key<'_>, data: &[u8], pcr_indices: &[u8]) -> Result<KeyBlob<'_>> {
+    pub fn seal_pcr(
+        &self,
+        parent: &Key<'_>,
+        data: &[u8],
+        pcr_indices: &[u8],
+    ) -> Result<KeyBlob<'_>> {
         check_pcr_indices(pcr_indices)?;
         let sha256 = sys::TPM_ALG_ID_T_TPM_ALG_SHA256 as sys::TPM_ALG_ID;
         let mut pcrs = pcr_indices.to_vec();

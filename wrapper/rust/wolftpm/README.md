@@ -8,7 +8,7 @@ they go out of scope, and all `unsafe` stays inside the crate.
 
 ## Requirements
 
-- Rust and Cargo, stable, rustc 1.80 or newer.
+- Rust and Cargo, stable, rustc 1.81 or newer.
 - A built wolfTPM C library (`libwolftpm`) and its wolfSSL dependency
   (`libwolfssl`). The crate links a prebuilt library. It does not build the C
   code itself.
@@ -40,6 +40,12 @@ The build finds the libraries in this order:
    `./wolfssl` or a sibling `../wolfssl` checkout.
 
 Shared libraries are preferred. Static is used when no shared library is present.
+
+The library is `no_std` and uses `alloc` for owned keys, blobs, and output
+buffers. Bare-metal applications must provide a global allocator. The build
+script translates Rust cross-compilation targets such as
+`riscv32imac-unknown-none-elf` to clang's target spelling when generating the
+FFI bindings.
 
 ## Step 3: run the tests
 

@@ -4,6 +4,7 @@
 
 use crate::key::{Hierarchy, Key, KeyAlg};
 use crate::{check_rc, sys, Result, TpmError, E_DEVICE_IN_USE};
+use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -76,7 +77,7 @@ impl Device {
         // SAFETY: WOLFTPM2_DEV is a C POD struct; all-zero is a valid state for wolfTPM2_Init to fill in.
         let dev: Box<UnsafeCell<sys::WOLFTPM2_DEV>> =
             Box::new(UnsafeCell::new(unsafe { core::mem::zeroed() }));
-        // SAFETY: dev is heap-boxed and not yet moved again, so dev.get() is a stable pointer for Init to populate.
+        // SAFETY: dev.get() points into a stable heap allocation for Init to populate.
         let rc = unsafe { sys::wolfTPM2_Init(dev.get(), io_cb, core::ptr::null_mut()) };
         if rc != 0 {
             // Tear down any active context wolfTPM installed (for example on
@@ -101,7 +102,7 @@ impl Device {
             return Ok(());
         }
         let n = crate::checked_u32(buf.len())?;
-        // SAFETY: self.ptr() is the pinned dev pointer and buf.as_mut_ptr()/len describe a live, in-bounds slice.
+        // SAFETY: self.ptr() is the heap-stable dev pointer and buf.as_mut_ptr()/len describe a live, in-bounds slice.
         let rc = unsafe { sys::wolfTPM2_GetRandom(self.ptr(), buf.as_mut_ptr(), n) };
         check_rc(rc)
     }

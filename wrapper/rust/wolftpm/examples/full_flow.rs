@@ -5,10 +5,16 @@
 //! then:
 //!   cargo run --example full_flow
 
+use std::fmt::Write;
+
 use wolftpm::{Device, HashAlg, Hierarchy, KeyAlg, KeyBlob, Template};
 
 fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{:02x}", x)).collect()
+    let mut encoded = String::with_capacity(b.len() * 2);
+    for byte in b {
+        write!(encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    encoded
 }
 
 fn main() -> Result<(), wolftpm::TpmError> {
@@ -23,7 +29,10 @@ fn main() -> Result<(), wolftpm::TpmError> {
     println!("create_primary    ECC SRK handle 0x{:08x}", srk.handle());
 
     let signer = dev.create_and_load(&srk, &Template::signing(KeyAlg::EccP256)?, None)?;
-    println!("create_and_load   signing key handle 0x{:08x}", signer.handle());
+    println!(
+        "create_and_load   signing key handle 0x{:08x}",
+        signer.handle()
+    );
 
     let digest = [0x11u8; 32];
     let sig = signer.sign_hash(&digest)?;

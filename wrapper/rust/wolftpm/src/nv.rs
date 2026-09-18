@@ -9,6 +9,9 @@
 use crate::device::Device;
 use crate::key::auth_ptr;
 use crate::{check_rc, sys, Result};
+use alloc::vec;
+use alloc::vec::Vec;
+use zeroize::Zeroize;
 
 /// A defined NV index. NV state persists in the TPM until [`Device::nv_delete`].
 pub struct NvSlot<'d> {
@@ -33,7 +36,7 @@ fn owner_handle() -> sys::WOLFTPM2_HANDLE {
 
 impl Device {
     /// Define an NV index of `size` bytes under the owner hierarchy,
-    /// auth-protected (auth/owner read+write).
+    /// auth-protected (auth read+write).
     pub fn nv_create(&self, index: u32, size: u32, auth: Option<&[u8]>) -> Result<NvSlot<'_>> {
         let attrs = sys::TPMA_NV_AUTHREAD | sys::TPMA_NV_AUTHWRITE;
         // SAFETY: WOLFTPM2_NV is a C POD struct; all-zero is a valid starting state for NVCreateAuth to fill.
@@ -76,10 +79,7 @@ impl Device {
                 offset,
             )
         };
-        for b in buf.iter_mut() {
-            // SAFETY: b is a valid &mut u8 into the live buf Vec; the volatile write scrubs the temporary copy.
-            unsafe { core::ptr::write_volatile(b, 0) };
-        }
+        buf.zeroize();
         check_rc(rc)
     }
 

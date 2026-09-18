@@ -2,6 +2,8 @@
 
 use crate::device::Device;
 use crate::{check_rc, sys, Result};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// A subset of the TPM's reported capabilities.
 #[derive(Clone, Debug, Default)]
@@ -36,7 +38,7 @@ impl Device {
     /// confirm the TPM is healthy before use.
     #[cfg(caps)]
     pub fn self_test(&self) -> Result<()> {
-        // SAFETY: self.ptr() is the pinned dev pointer for the life of this Device.
+        // SAFETY: self.ptr() is the heap-stable dev pointer for the life of this Device.
         let rc = unsafe { sys::wolfTPM2_SelfTest(self.ptr()) };
         check_rc(rc)
     }

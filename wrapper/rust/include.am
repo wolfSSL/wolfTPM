@@ -3,8 +3,11 @@
 # All paths should be given relative to the root
 
 EXTRA_DIST += wrapper/rust/README.md
+EXTRA_DIST += wrapper/rust/Makefile
 EXTRA_DIST += wrapper/rust/wolftpm/Cargo.toml
+EXTRA_DIST += wrapper/rust/wolftpm/Cargo.lock
 EXTRA_DIST += wrapper/rust/wolftpm/README.md
+EXTRA_DIST += wrapper/rust/wolftpm/Makefile
 EXTRA_DIST += wrapper/rust/wolftpm/build.rs
 EXTRA_DIST += wrapper/rust/wolftpm/headers.h
 EXTRA_DIST += wrapper/rust/wolftpm/src/lib.rs

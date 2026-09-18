@@ -2,6 +2,8 @@
 
 use crate::key::Key;
 use crate::{check_rc, sys, Result, Secret, TpmError};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::ffi::c_int;
 
 /// An ephemeral ECDH public point (`x || y`, each the curve's field size) and

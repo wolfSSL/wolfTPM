@@ -2,6 +2,7 @@
 name = "wolftpm"
 version = "0.4.0"
 edition = "2021"
+rust-version = "1.81"
 description = "Rust wrapper for the wolfTPM TPM 2.0 library"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/wolfSSL/wolfTPM"
@@ -14,6 +15,9 @@ readme = "README.md"
 default = []
 # Gate the socket integration tests that need a running swtpm/fwtpm server.
 swtpm-tests = []
+
+[dependencies]
+zeroize = { version = "=1.8.2", default-features = false, features = ["alloc"] }
 
 [build-dependencies]
 bindgen = "0.72"

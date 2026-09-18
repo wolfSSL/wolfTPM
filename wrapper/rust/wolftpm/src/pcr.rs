@@ -4,6 +4,8 @@
 use crate::device::Device;
 use crate::key::HashAlg;
 use crate::{check_rc, sys, Result, TpmError};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::ffi::c_int;
 
 impl Device {

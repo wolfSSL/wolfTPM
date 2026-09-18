@@ -6,6 +6,7 @@
 use crate::device::Device;
 use crate::key::Key;
 use crate::{check_rc, sys, Result, Secret, TpmError};
+use alloc::vec::Vec;
 
 /// A credential protected to a TPM's EK: the encrypted `credential_blob` and
 /// the wrapped `secret`, both produced by [`Device::make_credential`] and
@@ -74,7 +75,7 @@ impl Device {
         // EK auth is by policy (PolicySecret over the endorsement hierarchy),
         // not a password. Save the prior bit and restore it on every exit so the
         // caller's Key is not left mutated.
-        // SAFETY: ek.handle_ptr() addresses the live, pinned handle bit-field for this Key.
+        // SAFETY: ek.handle_ptr() addresses the live handle bit-field for this call.
         let prev_policy = unsafe { (*ek.handle_ptr()).policyAuth() };
         unsafe { (*ek.handle_ptr()).set_policyAuth(1) };
         // SAFETY: WOLFTPM2_SESSION is a C POD struct; all-zero is a valid starting state for CreateAuthSession_EkPolicy to fill.
@@ -110,10 +111,8 @@ impl Device {
 
         // Slot 1: EK policy session, bound to the EK's Name.
         // SAFETY: &mut session still refers to the live session created above.
-        let set_rc = unsafe {
-            sys::wolfTPM2_SetAuthSession(self.ptr(), 1, &mut session, 0)
-        };
-        // SAFETY: self.ptr() is live, and ek.handle_ptr()/aik.handle_ptr() address each Key's own pinned handle.
+        let set_rc = unsafe { sys::wolfTPM2_SetAuthSession(self.ptr(), 1, &mut session, 0) };
+        // SAFETY: self.ptr() is live, and both handle pointers remain valid for these calls.
         unsafe {
             sys::wolfTPM2_SetAuthHandleName(self.ptr(), 1, ek.handle_ptr());
             // Slot 0: the AIK's own (password) auth.
