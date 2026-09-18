@@ -222,7 +222,7 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 
 [[package]]
 name = "wolftpm"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "bindgen",
  "regex",

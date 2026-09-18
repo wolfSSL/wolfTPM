@@ -4,6 +4,7 @@
 
 EXTRA_DIST += wrapper/rust/README.md
 EXTRA_DIST += wrapper/rust/Makefile
+EXTRA_DIST += wrapper/rust/wolftpm/CHANGELOG.md
 EXTRA_DIST += wrapper/rust/wolftpm/Cargo.toml
 EXTRA_DIST += wrapper/rust/wolftpm/Cargo.lock
 EXTRA_DIST += wrapper/rust/wolftpm/README.md
