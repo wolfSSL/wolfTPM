@@ -1250,15 +1250,9 @@ int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
  * Returns TPM_RC_SUCCESS with *isSupported set to 1 (supported) or 0 (not
  * supported); on any failure a non-zero rc is returned and *isSupported is set
  * to 0 so a caller that ignores the rc fails closed.
- * Queries TPM_CAP_ALGS: the TPM returns algorithms with ID >= property, so a
- * match at index 0 for a single-property query means it is implemented. */
+ * Delegates to TPM2_IsAlgSupported(); dev is validated but unused. */
 int wolfTPM2_IsAlgSupported(WOLFTPM2_DEV* dev, TPM_ALG_ID alg, int* isSupported)
 {
-    int rc;
-    GetCapability_In in;
-    GetCapability_Out out;
-    TPML_ALG_PROPERTY* algs;
-
     if (isSupported == NULL) {
         return BAD_FUNC_ARG;
     }
@@ -1267,29 +1261,7 @@ int wolfTPM2_IsAlgSupported(WOLFTPM2_DEV* dev, TPM_ALG_ID alg, int* isSupported)
     if (dev == NULL) {
         return BAD_FUNC_ARG;
     }
-    XMEMSET(&in, 0, sizeof(in));
-    XMEMSET(&out, 0, sizeof(out));
-    in.capability = TPM_CAP_ALGS;
-    in.property = alg;
-    in.propertyCount = 1;
-    rc = TPM2_GetCapability(&in, &out);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc; /* query failure, distinct from "not supported" */
-    }
-    /* capabilityData.data is a union - confirm the TPM answered with the
-     * capability we asked for before reading the algorithm member, so a
-     * non-conforming response cannot be reinterpreted as an algorithm
-     * property. */
-    if (out.capabilityData.capability != TPM_CAP_ALGS) {
-        return TPM_RC_VALUE;
-    }
-    /* The TPM returns algorithms with ID >= property; a match at index 0
-     * means the requested algorithm is implemented. */
-    algs = &out.capabilityData.data.algorithms;
-    if (algs->count >= 1 && algs->algProperties[0].alg == alg) {
-        *isSupported = 1;
-    }
-    return TPM_RC_SUCCESS;
+    return TPM2_IsAlgSupported(alg, isSupported);
 }
 
 int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
@@ -5788,6 +5760,124 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 }
 
+/* Reject a signature the TPM cannot accept as a parameter. Some parts stop
+ * responding until a hardware reset rather than erroring, so this must not be
+ * left to the TPM. Two limits apply: TPM_PT_INPUT_BUFFER bounds the parameter
+ * and TPM_PT_MAX_COMMAND_SIZE bounds the whole command, so the capability read
+ * is skipped only when the signature plus overhead fits inside
+ * TPM_MIN_INPUT_BUFFER, the floor every conformant TPM meets. That still
+ * covers every ECC signature and RSA up to 4096. Above it the limit must be
+ * established, so this fails closed. Returns TPM_RC_SUCCESS if it fits,
+ * BUFFER_E if it provably does not, and the query error otherwise so callers
+ * can tell the two apart. */
+
+/* Bytes that share the command with the signature: 10-byte header, up to two
+ * 4-byte handles, a 4-byte auth-area size, a password session (~9) or an HMAC
+ * session with a nonce and digest (~75), the digest TPM2B (up to 66), and the
+ * TPMT_SIGNATURE tag/alg/size fields (~8). Rounded up with margin. Only used
+ * to reserve room against TPM_PT_MAX_COMMAND_SIZE, so an over-estimate can
+ * reject a signature that would just fit; override if that ever bites. */
+#ifndef TPM_SIG_CMD_OVERHEAD
+#define TPM_SIG_CMD_OVERHEAD 176
+#endif
+
+/* extraSz is the caller's other variable-length parameters (digest, context),
+ * which the fixed overhead estimate does not cover. */
+static int wolfTPM2_CheckSigInputBuffer(int sigSz, int extraSz)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+    TPML_TAGGED_TPM_PROPERTY* props;
+    UINT32 inputBuffer;
+    UINT32 cmdSz;
+
+    if (sigSz < 0 || extraSz < 0) {
+        return BUFFER_E;
+    }
+    cmdSz = (UINT32)sigSz + (UINT32)extraSz + TPM_SIG_CMD_OVERHEAD;
+    /* Overhead is included: a signature that fits the parameter floor could
+     * still overflow a TPM whose command limit equals that floor. */
+    if (cmdSz <= TPM_MIN_INPUT_BUFFER) {
+        return TPM_RC_SUCCESS;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_INPUT_BUFFER;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: cannot read TPM_PT_INPUT_BUFFER "
+            "(0x%x), refusing a %d byte signature\n", rc, sigSz);
+    #endif
+        return rc; /* query failure, distinct from a genuine oversize */
+    }
+    /* union - confirm the capability and property asked for */
+    props = &out.capabilityData.data.tpmProperties;
+    if (out.capabilityData.capability != TPM_CAP_TPM_PROPERTIES ||
+            props->count == 0 ||
+            props->tpmProperty[0].property != TPM_PT_INPUT_BUFFER) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: unexpected capability response, "
+            "refusing a %d byte signature\n", sigSz);
+    #endif
+        return TPM_RC_VALUE; /* not an oversize; the TPM answered wrongly */
+    }
+
+    inputBuffer = props->tpmProperty[0].value;
+    if (inputBuffer == 0) {
+        return TPM_RC_VALUE; /* nonsensical limit, treat as unreadable */
+    }
+    if ((UINT32)sigSz > inputBuffer) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: signature %d bytes exceeds the TPM's "
+            "%u byte input buffer\n", sigSz, (unsigned int)inputBuffer);
+    #endif
+        return BUFFER_E;
+    }
+
+    /* The whole command has to fit too, and that is the limit this guard
+     * exists to respect, so an unreadable or malformed answer fails closed
+     * rather than letting the oversized command through. */
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_MAX_COMMAND_SIZE;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: cannot read TPM_PT_MAX_COMMAND_SIZE "
+            "(0x%x), refusing a %d byte signature\n", rc, sigSz);
+    #endif
+        return rc;
+    }
+    props = &out.capabilityData.data.tpmProperties;
+    if (out.capabilityData.capability != TPM_CAP_TPM_PROPERTIES ||
+            props->count == 0 ||
+            props->tpmProperty[0].property != TPM_PT_MAX_COMMAND_SIZE ||
+            props->tpmProperty[0].value == 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: unexpected command-size response, "
+            "refusing a %d byte signature\n", sigSz);
+    #endif
+        return TPM_RC_VALUE;
+    }
+    if (cmdSz > props->tpmProperty[0].value) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: command %u bytes exceeds the TPM's "
+            "%u byte command limit\n", (unsigned int)cmdSz,
+            (unsigned int)props->tpmProperty[0].value);
+    #endif
+        return BUFFER_E;
+    }
+
+    return TPM_RC_SUCCESS;
+}
+
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
 /* hashAlg: TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384 or TPM_ALG_SHA512 */
 int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
@@ -5803,6 +5893,11 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz, digestSz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
@@ -6234,6 +6329,15 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+    /* Before the sequence is advanced: bailing out after SequenceUpdate
+     * would leave the sequence slot allocated. The data is hashed by the TPM
+     * rather than carried in the verify command, so only the signature and
+     * the fixed overhead count here. */
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz, 0);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
     /* Validate per-key-type sigSz BEFORE the internal SequenceUpdate
      * call. Otherwise we advance the TPM-side sequence and then bail out
      * before Complete, leaving the slot allocated until the caller
@@ -6519,6 +6623,11 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
     if (contextSz > 0 && context == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz, digestSz + contextSz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     XMEMSET(&verifyDigestSigIn, 0, sizeof(verifyDigestSigIn));
@@ -7411,6 +7520,172 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
 #endif
 
     return rc;
+}
+
+int wolfTPM2_AllocatePCRBanks_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
+    const TPM_ALG_ID* hashAlgs, int hashAlgCount, PCR_Allocate_Out* allocOut)
+{
+    int rc;
+    int i, wanted;
+    word32 j, selIdx;
+    byte pcrArray[PCR_LAST - PCR_FIRST + 1];
+    GetCapability_In capIn;
+    GetCapability_Out capOut;
+    TPML_PCR_SELECTION* banks;
+    PCR_Allocate_In in;
+    PCR_Allocate_Out out;
+    TPM2_AUTH_SESSION saveSess;
+
+    if (allocOut != NULL) {
+        XMEMSET(allocOut, 0, sizeof(*allocOut));
+    }
+    if (dev == NULL || hashAlgs == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    /* A zero-length selection is legal and leaves the TPM with no PCR banks */
+    if (hashAlgCount <= 0 || hashAlgCount > (int)HASH_COUNT) {
+        return BAD_FUNC_ARG;
+    }
+
+    for (i = 0; i < hashAlgCount; i++) {
+        if (hashAlgs[i] == TPM_ALG_NULL || hashAlgs[i] == TPM_ALG_ERROR) {
+            return BAD_FUNC_ARG;
+        }
+        for (j = 0; j < (word32)i; j++) {
+            if (hashAlgs[j] == hashAlgs[i]) {
+                return BAD_FUNC_ARG;
+            }
+        }
+    }
+
+    /* The bank list is the authority on what can be allocated, not
+     * TPM_CAP_ALGS - parts advertise hashes there that have no PCR bank */
+    XMEMSET(&capIn, 0, sizeof(capIn));
+    XMEMSET(&capOut, 0, sizeof(capOut));
+    capIn.capability = TPM_CAP_PCRS;
+    capIn.property = 0;
+    capIn.propertyCount = HASH_COUNT;
+    rc = TPM2_GetCapability(&capIn, &capOut);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+    if (capOut.capabilityData.capability != TPM_CAP_PCRS) {
+        return TPM_RC_VALUE;
+    }
+    /* A truncated list would mean mirroring an incomplete selection, which
+     * silently deallocates the banks that did not fit the page. */
+    if (capOut.moreData == YES) {
+        return TPM_RC_SIZE;
+    }
+    banks = &capOut.capabilityData.data.assignedPCR;
+
+    /* An unimplemented bank is silently ignored (Part 3 22.5), which would
+     * allocate nothing and still report success */
+    for (i = 0; i < hashAlgCount; i++) {
+        wanted = 0;
+        for (j = 0; j < banks->count; j++) {
+            if (banks->pcrSelections[j].hash == hashAlgs[i]) {
+                wanted = 1;
+                break;
+            }
+        }
+        if (!wanted) {
+            return TPM_RC_HASH;
+        }
+    }
+
+    for (i = 0; i < (int)sizeof(pcrArray); i++) {
+        pcrArray[i] = (byte)(PCR_FIRST + i);
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.authHandle = TPM_RH_PLATFORM;
+
+    /* Mirror the bank list, giving dropped banks an all-zero bitmap. Part 3
+     * 22.5 says an omitted bank is deallocated, but Infineon parts answer
+     * TPM_RC_PCR unless each deallocation is spelled out. */
+    for (j = 0; j < banks->count; j++) {
+        wanted = 0;
+        for (i = 0; i < hashAlgCount; i++) {
+            if (hashAlgs[i] == banks->pcrSelections[j].hash) {
+                wanted = 1;
+                break;
+            }
+        }
+        if (wanted) {
+            TPM2_SetupPCRSelArray(&in.pcrAllocation,
+                banks->pcrSelections[j].hash, pcrArray,
+                (word32)sizeof(pcrArray));
+        }
+        else {
+            selIdx = in.pcrAllocation.count;
+            if (selIdx >= HASH_COUNT) {
+                return TPM_RC_VALUE; /* the TPM reported more banks than fit */
+            }
+            in.pcrAllocation.pcrSelections[selIdx].hash =
+                banks->pcrSelections[j].hash;
+            in.pcrAllocation.pcrSelections[selIdx].sizeofSelect =
+                banks->pcrSelections[j].sizeofSelect;
+            in.pcrAllocation.count++;
+        }
+    }
+
+    /* Platform auth setup below overwrites session[0] */
+    XMEMCPY(&saveSess, &dev->session[0], sizeof(saveSess));
+
+    if (session == NULL) {
+        rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
+        if (rc == TPM_RC_SUCCESS) {
+            dev->session[0].sessionAttributes = 0;
+        }
+    }
+    else {
+        rc = wolfTPM2_SetAuthSession(dev, 0, session,
+            (TPMA_SESSION_continueSession));
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TPM2_PCR_Allocate(&in, &out);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_PCR_Allocate failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+        #endif
+        }
+    }
+
+    /* A continuing session gets a fresh nonceTPM from the response; hand it
+     * back before slot 0 is overwritten or the caller's next use of the
+     * session computes an invalid HMAC (see wolfTPM2_UnsetAuthSession). */
+    if (session != NULL) {
+        XMEMCPY(&session->nonceTPM, &dev->session[0].nonceTPM,
+            sizeof(TPM2B_NONCE));
+    }
+
+    /* Restore previous session[0] state and clear the stack copy */
+    XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
+    TPM2_ForceZero(&saveSess, sizeof(saveSess));
+
+    if (allocOut != NULL) {
+        XMEMCPY(allocOut, &out, sizeof(*allocOut));
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+    /* No room for the set - fail rather than make the caller check a field */
+    if (out.allocationSuccess != YES) {
+        return BUFFER_E;
+    }
+    /* Staged: applied at the next Startup(CLEAR), which needs a _TPM_Init
+     * only a power cycle provides - no command does it */
+    return TPM_RC_SUCCESS;
+}
+
+int wolfTPM2_AllocatePCRBanks(WOLFTPM2_DEV* dev, const TPM_ALG_ID* hashAlgs,
+    int hashAlgCount, PCR_Allocate_Out* allocOut)
+{
+    return wolfTPM2_AllocatePCRBanks_ex(dev, NULL, hashAlgs, hashAlgCount,
+        allocOut);
 }
 
 int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
@@ -8635,7 +8910,7 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
      * it with TPM_RC_VALUE / TPM_RC_KEY per TPM 2.0 Part 3. */
 
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
-    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) { /* some TPM's lack the command */
         /* try to enable support */
         rc = wolfTPM2_SetCommand(dev, TPM_CC_EncryptDecrypt2, YES);
         if (rc == TPM_RC_SUCCESS) {

@@ -744,6 +744,10 @@ typedef enum {
 } TPM_PT_T;
 typedef UINT32 TPM_PT;
 
+/* Smallest TPM_PT_INPUT_BUFFER a conformant TPM may report (TCG Part 2), so a
+ * parameter at or below it fits without reading the capability. */
+#define TPM_MIN_INPUT_BUFFER 1024
+
 /* PCR Property Tag */
 typedef enum {
     TPM_PT_PCR_FIRST        = 0x00000000,
@@ -2201,20 +2205,34 @@ struct wolfTPM_winContext {
 #define TPM_E_COMMAND_BLOCKED (0x80280400)
 #endif
 
-/* Mask off vendor/layer high bits so a vendor-decorated TPM_RC_COMMAND_CODE
- * (e.g. NS350 returns 0x000b0143 for 0x143) still matches. Gate on >= 0 so a
- * propagated negative wolfCrypt error (e.g. -189) is never misread as an
- * unavailable command. TPM_E_COMMAND_BLOCKED is a Windows HRESULT (negative),
- * matched exactly. */
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
-    (((code) >= 0 && \
-      (((UINT32)(code)) & 0xFFFFu) == (UINT32)TPM_RC_COMMAND_CODE) || \
-     (code) == (int)TPM_E_COMMAND_BLOCKED)
-#else
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
-    ((code) >= 0 && \
-     (((UINT32)(code)) & 0xFFFFu) == (UINT32)TPM_RC_COMMAND_CODE)
 #endif /* WOLFTPM_WINAPI */
+
+/* Compare a return code against a TPM_RC, masking off vendor/layer high bits
+ * so a vendor-decorated code (NS350 returns 0x000b0143 for 0x143) still
+ * matches. Gate on >= 0 so a propagated negative wolfCrypt error (e.g. -189)
+ * is never misread as a TPM response code. */
+#define WOLFTPM_RC_IS(code, rc) \
+    ((code) >= 0 && (((UINT32)(code)) & 0xFFFFu) == (UINT32)(rc))
+
+/* The TPM does not implement this command. TPM_E_COMMAND_BLOCKED is a Windows
+ * HRESULT (negative), so it is matched exactly rather than masked. */
+#ifdef WOLFTPM_WINAPI
+    #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
+        (WOLFTPM_RC_IS(code, TPM_RC_COMMAND_CODE) || \
+         (code) == (int)TPM_E_COMMAND_BLOCKED)
+#else
+    #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
+        WOLFTPM_RC_IS(code, TPM_RC_COMMAND_CODE)
+#endif
+
+/* Implemented but switched off, commonly TPM2_EncryptDecrypt for export
+ * controls; answers TPM_RC_DISABLED not TPM_RC_COMMAND_CODE. */
+#define WOLFTPM_IS_COMMAND_DISABLED(code) \
+    WOLFTPM_RC_IS(code, TPM_RC_DISABLED)
+
+/* Either form of "the TPM will not run this command". */
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(code) \
+    (WOLFTPM_IS_COMMAND_UNAVAILABLE(code) || WOLFTPM_IS_COMMAND_DISABLED(code))
 
 /* make sure advanced IO is enabled for I2C */
 #ifdef WOLFTPM_I2C
@@ -2993,6 +3011,31 @@ typedef struct {
     UINT32 sizeNeeded;
     UINT32 sizeAvailable;
 } PCR_Allocate_Out;
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Set which PCR banks the TPM allocates
+    \note The selection REPLACES the current allocation - banks not named in it
+        are deallocated. Algorithms the TPM does not implement are silently
+        ignored (TPM 2.0 Part 3 22.5), so a selection naming only unimplemented
+        algorithms can leave the TPM with no PCR banks at all. Prefer
+        wolfTPM2_AllocatePCRBanks, which pre-checks each algorithm and refuses
+        an empty result.
+    \note The change takes effect at the next Startup(CLEAR), not on return.
+    \note Requires an active session (TPM2_SetAuthPassword or
+        wolfTPM2_SetAuthSession on slot 0) and the platform hierarchy; without
+        one this returns BAD_FUNC_ARG rather than a TPM response code.
+
+    \return TPM_RC_SUCCESS: the TPM processed the request - check
+        out->allocationSuccess, which is NO when the TPM lacks the space
+    \return TPM_RC_HIERARCHY: the platform hierarchy is disabled
+    \return BAD_FUNC_ARG: check the provided arguments, or no session is set
+
+    \param in pointer to a PCR_Allocate_In struct
+    \param out pointer to a PCR_Allocate_Out struct
+
+    \sa wolfTPM2_AllocatePCRBanks
+    \sa TPM2_IsPcrBankAllocated
+*/
 WOLFTPM_API TPM_RC TPM2_PCR_Allocate(PCR_Allocate_In* in,
     PCR_Allocate_Out* out);
 
@@ -4134,6 +4177,46 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
 */
 WOLFTPM_API void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     byte* pcrArray, word32 pcrArraySz);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Report whether the TPM implements a given algorithm
+
+    \note Queries TPM_CAP_ALGS. Fails closed: *isSupported is 0 on any error,
+          so a query failure cannot be mistaken for "supported".
+
+    \return TPM_RC_SUCCESS: query completed; *isSupported is 1 or 0
+    \return BAD_FUNC_ARG: isSupported is NULL
+
+    \param alg the algorithm identifier to test (for example TPM_ALG_SHA512)
+    \param isSupported output, set to 1 if implemented by the TPM, else 0
+
+    \sa TPM2_IsPcrBankAllocated
+*/
+WOLFTPM_API int TPM2_IsAlgSupported(TPM_ALG_ID alg, int* isSupported);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Report whether a PCR index is allocated in a bank of a given hash
+
+    \note Queries TPM_CAP_PCRS. Implementing a hash and allocating a bank for
+          it are separate: a TPM may offer SHA-1 while allocating no SHA-1
+          bank, and a selection naming an unallocated bank is rejected. Ask
+          before building a selection with TPM2_SetupPCRSel(). Fails closed:
+          *isAllocated is 0 on any error.
+
+    \return TPM_RC_SUCCESS: query completed; *isAllocated is 1 or 0
+    \return BAD_FUNC_ARG: isAllocated is NULL or pcrIndex is negative
+
+    \param hashAlg the PCR bank hash algorithm (for example TPM_ALG_SHA256)
+    \param pcrIndex the PCR index to test
+    \param isAllocated output, set to 1 if allocated in that bank, else 0
+
+    \sa TPM2_SetupPCRSel
+    \sa TPM2_IsAlgSupported
+*/
+WOLFTPM_API int TPM2_IsPcrBankAllocated(TPM_ALG_ID hashAlg, int pcrIndex,
+    int* isAllocated);
 
 /*!
     \ingroup TPM2_Proprietary

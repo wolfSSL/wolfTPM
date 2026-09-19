@@ -151,14 +151,14 @@ int TPM2_EncryptDecrypt_Example(void* userCtx, int argc, char* argv[])
     XMEMSET(iv, 0, sizeof(iv));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message, cipher,
         (word32)sizeof(message), iv, (word32)sizeof(iv), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
         printf("wolfTPM2_EncryptDecrypt (encrypt) failed 0x%x: %s\n", rc,
             wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
-    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
-        printf("Encrypt/Decrypt: not supported (export controls)\n");
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
+        printf("Encrypt/Decrypt: not supported or disabled\n");
         rc = 0; /* not an error condition */
         goto exit;
     }
@@ -167,14 +167,14 @@ int TPM2_EncryptDecrypt_Example(void* userCtx, int argc, char* argv[])
     XMEMSET(iv, 0, sizeof(iv));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher, plain,
         (word32)sizeof(cipher), iv, (word32)sizeof(iv), WOLFTPM2_DECRYPT);
-    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
         printf("wolfTPM2_EncryptDecrypt (decrypt) failed 0x%x: %s\n", rc,
             wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
-    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
-        printf("Encrypt/Decrypt: not supported (export controls)\n");
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc)) {
+        printf("Encrypt/Decrypt: not supported or disabled\n");
         rc = 0; /* not an error condition */
         goto exit;
     }

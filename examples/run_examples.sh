@@ -890,6 +890,28 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     # Keeping keyblob.bin for tests later
 fi
 
+# PCR bank allocation. Only the query-only form runs by default: changing the
+# allocation is persistent platform configuration that invalidates PCR policies
+# and sealed objects, and the two commands are not transactional - an interrupt
+# between them leaves a new allocation staged. Strict assertions live in
+# tests/fwtpm_check.sh where the NV image is disposable.
+echo -e "PCR bank allocation"
+./examples/pcr/allocate >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "pcr allocate query failed! $RESULT" && exit 1
+if test $ENABLE_DESTRUCTIVE_TESTS -eq 1
+then
+    ALLOC_OUT=$(./examples/pcr/allocate -sha256 -restore 2>&1)
+    echo "$ALLOC_OUT" >> $TPMPWD/run.out
+    if echo "$ALLOC_OUT" | grep -q "Original allocation staged"; then
+        : # platform auth available and the round trip worked
+    elif echo "$ALLOC_OUT" | grep -qiE "hierarchy|BAD_AUTH|auth"; then
+        echo -e "  PCR allocate needs platform auth, skipping"
+    else
+        echo -e "pcr allocate failed!" && echo "$ALLOC_OUT" && exit 1
+    fi
+fi
+
 # PCR Quote Tests
 echo -e "PCR Quote tests"
 ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
