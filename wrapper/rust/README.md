@@ -1,5 +1,8 @@
 # wolfTPM Rust wrapper
 
+[![crates.io](https://img.shields.io/crates/v/wolftpm.svg)](https://crates.io/crates/wolftpm)
+[![docs.rs](https://docs.rs/wolftpm/badge.svg)](https://docs.rs/wolftpm)
+
 Official Rust bindings for wolfTPM. The crate lives in [`wolftpm/`](wolftpm/);
 see its [README](wolftpm/README.md) for the full API, build, and test details.
 

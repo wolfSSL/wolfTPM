@@ -1,5 +1,8 @@
 # wolftpm
 
+[![crates.io](https://img.shields.io/crates/v/wolftpm.svg)](https://crates.io/crates/wolftpm)
+[![docs.rs](https://docs.rs/wolftpm/badge.svg)](https://docs.rs/wolftpm)
+
 Safe Rust bindings for wolfTPM, the portable TPM 2.0 library.
 
 The raw FFI is generated with bindgen and kept in the `sys` module. The rest of
