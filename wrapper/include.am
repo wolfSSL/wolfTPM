@@ -2,6 +2,7 @@
 # All paths should be given relative to the root
 
 include wrapper/CSharp/include.am
+include wrapper/rust/include.am
 
 wrapperdir = $(docdir)/wrapper
 dist_wrapper_DATA= wrapper/wolfTPM-csharp.sln
