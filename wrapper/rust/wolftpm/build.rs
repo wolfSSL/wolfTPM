@@ -24,10 +24,30 @@ fn main() {
 fn run_build() -> Result<()> {
     println!("cargo:rerun-if-env-changed=WOLFTPM_PREFIX");
     println!("cargo:rerun-if-env-changed=WOLFSSL_PREFIX");
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
+    // docs.rs builds in a sandbox with no wolfTPM/wolfSSL headers or libraries.
+    // Use the committed bindings and skip the link so the API docs still render;
+    // rustdoc compiles the crate but does not link the native library.
+    if env::var_os("DOCS_RS").is_some() {
+        return docs_rs_build();
+    }
     generate_bindings()?;
     setup_link()?;
     scan_cfg()?;
     scan_options()?;
+    Ok(())
+}
+
+/// docs.rs build path: copy the committed FFI bindings into `$OUT_DIR`, emit the
+/// cfgs a software-TPM build produces, and skip linking.
+fn docs_rs_build() -> Result<()> {
+    println!("cargo:rerun-if-changed=prebuilt_bindings.rs");
+    fs::copy("prebuilt_bindings.rs", bindings_path())?;
+    scan_cfg()?;
+    for cfg in ["swtpm", "devtpm", "mmio", "fwtpm", "winapi", "linux_autodetect"] {
+        println!("cargo::rustc-check-cfg=cfg({})", cfg);
+    }
+    println!("cargo:rustc-cfg=swtpm");
     Ok(())
 }
 

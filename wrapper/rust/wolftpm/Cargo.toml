@@ -6,10 +6,21 @@ rust-version = "1.81"
 description = "Rust wrapper for the wolfTPM TPM 2.0 library"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/wolfSSL/wolfTPM"
-documentation = "https://github.com/wolfSSL/wolfTPM/tree/master/wrapper/rust"
+documentation = "https://docs.rs/wolftpm"
 keywords = ["wolftpm", "tpm", "tpm2", "security", "api-bindings"]
 categories = ["cryptography", "hardware-support", "api-bindings"]
 readme = "README.md"
+include = [
+    "src/**/*.rs",
+    "examples/*.rs",
+    "tests/**/*.rs",
+    "build.rs",
+    "headers.h",
+    "prebuilt_bindings.rs",
+    "README.md",
+    "CHANGELOG.md",
+    "Cargo.toml",
+]
 
 [features]
 default = []
@@ -22,3 +33,8 @@ zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 [build-dependencies]
 bindgen = "0.72"
 regex = "1.5"
+
+[package.metadata.docs.rs]
+# docs.rs sets DOCS_RS=1; build.rs then uses prebuilt_bindings.rs and skips the
+# native link. Pin the target the committed x86_64 Linux bindings were made for.
+default-target = "x86_64-unknown-linux-gnu"

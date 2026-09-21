@@ -26,5 +26,5 @@ jobs:
       - name: Run codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          skip: .git,./IDE,./certs,./m4,*.der,*.pem
+          skip: .git,./IDE,./certs,./m4,*.der,*.pem,*prebuilt_bindings.rs
           ignore_words_list: inh,inout,keypair,nd,parm,rcv,ser,loadIn,importIn,certifyIn,bu,fo,daa,pris,hsi,fram,hart

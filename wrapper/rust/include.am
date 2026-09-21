@@ -11,6 +11,7 @@ EXTRA_DIST += wrapper/rust/wolftpm/README.md
 EXTRA_DIST += wrapper/rust/wolftpm/Makefile
 EXTRA_DIST += wrapper/rust/wolftpm/build.rs
 EXTRA_DIST += wrapper/rust/wolftpm/headers.h
+EXTRA_DIST += wrapper/rust/wolftpm/prebuilt_bindings.rs
 EXTRA_DIST += wrapper/rust/wolftpm/src/lib.rs
 EXTRA_DIST += wrapper/rust/wolftpm/src/sys.rs
 EXTRA_DIST += wrapper/rust/wolftpm/src/device.rs
