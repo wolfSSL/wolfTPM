@@ -1345,6 +1345,12 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                 FwNvUnmarshalU16(value, &vPos, vMax,
                     &ctx->pcrPolicyAlg[idx]);
             }
+            /* Absent in records written before staging existed */
+            if (vPos < vMax) {
+                FwNvUnmarshalU8(value, &vPos, vMax, &ctx->pcrAllocPending);
+                FwNvUnmarshalU8(value, &vPos, vMax,
+                    &ctx->pcrAllocatedBanksPending);
+            }
             break;
         }
 
@@ -1816,6 +1822,14 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         return BAD_FUNC_ARG;
     }
 
+    /* The journal only carries a PCR_AUTH record when the allocation is
+     * non-default or a PCR has auth set, so a replay would otherwise leave
+     * this at zero - no banks allocated - on every restart. Seed the default;
+     * FwNvGenFreshState and a replayed record both override it. */
+    ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
+    ctx->pcrAllocatedBanksPending = 0;
+    ctx->pcrAllocPending = 0;
+
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
     ctx->nvRebuild = 0;
 #endif
@@ -2103,7 +2117,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
                 break;
             }
         }
-        if (hasPcrAuth || ctx->pcrAllocatedBanks != FWTPM_PCR_ALLOC_DEFAULT) {
+        if (hasPcrAuth || ctx->pcrAllocPending ||
+                ctx->pcrAllocatedBanks != FWTPM_PCR_ALLOC_DEFAULT) {
             word32 needed = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2);
             if (needed > bufSz) {
                 byte* newBuf;
@@ -2129,6 +2144,10 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
                     FwNvMarshalU16(buf, &pos, bufSz,
                         ctx->pcrPolicyAlg[i]);
                 }
+                /* Appended last so an older record still parses */
+                FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
+                FwNvMarshalU8(buf, &pos, bufSz,
+                    ctx->pcrAllocatedBanksPending);
                 rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH,
                     buf, (UINT16)pos);
             }
@@ -2446,6 +2465,9 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
         FwNvMarshalDigest(buf, &pos, bufSz, &ctx->pcrPolicy[i]);
         FwNvMarshalU16(buf, &pos, bufSz, ctx->pcrPolicyAlg[i]);
     }
+    /* Appended last so an older record still parses */
+    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
+    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanksPending);
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH, buf, (UINT16)pos);
 

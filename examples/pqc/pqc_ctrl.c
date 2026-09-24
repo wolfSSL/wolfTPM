@@ -430,6 +430,15 @@ static int do_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
     if (rc != TPM_RC_SUCCESS) goto exit;
     rc = wolfTPM2_VerifySequenceComplete(dev, seq, &key, NULL, 0,
         sig, sigSz, &validation);
+    if (rc == BUFFER_E) {
+        /* Same oversize case do_hash_mldsa() reports: signing worked but the
+         * TPM cannot take the signature back, so skip rather than fail. */
+        printf("SKIP  ML-DSA-%-3s      signed %d bytes, not verified: "
+            "signature exceeds this TPM's input buffer\n",
+            mldsaName(ps), sigSz);
+        rc = TPM_RC_SUCCESS;
+        goto exit_quiet;
+    }
     if (rc != TPM_RC_SUCCESS) goto exit;
     seq = 0; /* Complete consumed the sequence object */
 
@@ -448,6 +457,9 @@ exit:
         printf("FAIL  ML-DSA-%-3s      0x%x: %s\n",
             mldsaName(ps), rc, wolfTPM2_GetRCString(rc));
     }
+exit_quiet:
+    /* The size guard runs before the sequence is consumed, so seq is still
+     * live on BUFFER_E and must be flushed here like any other exit. */
     if (seq != 0) {
         flushCtx.flushHandle = seq;
         (void)TPM2_FlushContext(&flushCtx);
@@ -493,6 +505,16 @@ static int do_hash_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
 
     rc = wolfTPM2_VerifyDigestSignature(dev, &key, digest, (int)sizeof(digest),
         sig, sigSz, NULL, 0, &validation);
+    if (rc == BUFFER_E) {
+        /* Too large for this TPM to accept back for on-TPM verification.
+         * Signing worked but nothing checked it, so skip, not pass. Only
+         * BUFFER_E means oversize; a query error still reports FAIL. */
+        printf("SKIP  HashML-DSA-%-3s  signed %d bytes, not verified: "
+            "signature exceeds this TPM's input buffer\n",
+            mldsaName(ps), sigSz);
+        rc = TPM_RC_SUCCESS;
+        goto exit_quiet;
+    }
     if (rc != TPM_RC_SUCCESS) goto exit;
 
     if (validation.tag != TPM_ST_DIGEST_VERIFIED) {
@@ -510,6 +532,7 @@ exit:
         printf("FAIL  HashML-DSA-%-3s  0x%x: %s\n",
             mldsaName(ps), rc, wolfTPM2_GetRCString(rc));
     }
+exit_quiet:
     wolfTPM2_UnloadHandle(dev, &key.handle);
     XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;

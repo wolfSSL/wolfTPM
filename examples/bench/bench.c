@@ -43,16 +43,44 @@
 #define TPM2_BENCH_DURATION_KEYGEN_SEC  15
 static int gUseBase2 = 1;
 
+/* Fixed-iteration mode (-iter=N). Zero keeps the default duration mode, where
+ * each algorithm runs for a wall-clock budget instead of a set count. */
+static int gBenchIter = 0;
+/* Per-iteration spread, so a single slow outlier is visible rather than
+ * averaged away. Rejection sampling makes ML-DSA signing vary run to run. */
+static double gIterPrev, gIterMin, gIterMax;
+
 static inline void bench_stats_start(int* count, double* start)
 {
     *count = 0;
     *start = gettime_secs(1);
+    gIterPrev = *start;
+    gIterMin = 0;
+    gIterMax = 0;
 }
 
 static inline int bench_stats_check(double start, int* count, double maxDurSec)
 {
+    double now, each;
+
     (*count)++;
-    return ((gettime_secs(0) - start) < maxDurSec);
+    now = gettime_secs(0);
+    each = now - gIterPrev;
+    gIterPrev = now;
+    if (*count == 1) {
+        gIterMin = each;
+        gIterMax = each;
+    }
+    else if (each > gIterMax) {
+        gIterMax = each;
+    }
+    else if (each < gIterMin) {
+        gIterMin = each;
+    }
+    if (gBenchIter > 0) {
+        return (*count < gBenchIter);
+    }
+    return ((now - start) < maxDurSec);
 }
 
 /* countSz is number of bytes that 1 count represents. Normally bench_size,
@@ -105,8 +133,14 @@ static void bench_stats_sym_finish(const char* desc, int count, int countSz,
     }
 
     /* format and print to terminal */
-    printf("%-16s %5.0f %s took %5.3f seconds, %8.3f %s/s\n",
+    printf("%-16s %5.0f %s took %5.3f seconds, %8.3f %s/s",
         desc, blocks, blockType, total, persec, blockType);
+    if (gBenchIter > 0) {
+        printf(", %d ops, avg %5.3f ms, min %5.3f ms, max %5.3f ms",
+            count, (count > 0) ? (total / count) * 1000 : 0,
+            gIterMin * 1000, gIterMax * 1000);
+    }
+    printf("\n");
 }
 
 static void bench_stats_asym_finish(const char* algo, int strength,
@@ -121,15 +155,21 @@ static void bench_stats_asym_finish(const char* algo, int strength,
     milliEach = each * 1000;   /* milliseconds */
 
     printf("%-6s %5d %-9s %6d ops took %5.3f sec, avg %5.3f ms,"
-        " %.3f ops/sec\n", algo, strength, desc,
+        " %.3f ops/sec", algo, strength, desc,
         count, total, milliEach, opsSec);
+    if (gBenchIter > 0) {
+        printf(", min %5.3f ms, max %5.3f ms",
+            gIterMin * 1000, gIterMax * 1000);
+    }
+    printf("\n");
 }
 
 /* True if rc means the TPM does not implement the operation (so the bench
  * can skip it instead of aborting). Masks parameter bits on FMT1 codes. */
 static int bench_unsupported(int rc)
 {
-    return ((rc & 0xBF) == TPM_RC_SCHEME) || WOLFTPM_IS_COMMAND_UNAVAILABLE(rc);
+    return ((rc & 0xBF) == TPM_RC_SCHEME) ||
+        WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(rc);
 }
 
 /* Print timing on success, "Skipped" if the op was not implemented. Returns
@@ -143,6 +183,14 @@ static int bench_asym_done(const char* algo, int strength, const char* desc,
     }
     if (bench_unsupported(rc)) {
         printf("%-6s %5d %-9s Skipped (not supported)\n", algo, strength, desc);
+        return 0;
+    }
+    /* A post-quantum signature can exceed the TPM's input buffer, which the
+     * verify guard reports before sending. That is a property of the part,
+     * not a benchmark failure, so record it and carry on. */
+    if (rc == BUFFER_E) {
+        printf("%-6s %5d %-9s Skipped (signature exceeds TPM input buffer)\n",
+            algo, strength, desc);
         return 0;
     }
     return rc;
@@ -203,9 +251,10 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
         XMEMSET(iv, 0, sizeof(iv));
         rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, iv,
             sizeof(iv), isDecrypt);
-        if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
-            printf("Encrypt/Decrypt unavailable\n");
-            break;
+        if (bench_unsupported(rc)) {
+            printf("%-16s Skipped (not supported)\n", desc);
+            rc = 0;
+            goto exit;
         }
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count, maxDuration));
@@ -368,6 +417,9 @@ static void usage(void)
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -maxdur=[ms]: Maximum runtime for each algorithm in milliseconds "
         "(default %d)\n", TPM2_BENCH_DURATION_SEC*1000);
+    printf("* -iter=[n]: Run each algorithm exactly n times and report the\n");
+    printf("    average with the per-iteration min and max, instead of\n");
+    printf("    running for a duration. Overrides -maxdur.\n");
 }
 
 /******************************************************************************/
@@ -398,6 +450,9 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     double maxDuration = TPM2_BENCH_DURATION_SEC;
     double maxKeyGenDurSec = TPM2_BENCH_DURATION_KEYGEN_SEC;
 
+    /* Static, so a previous call with -iter must not leak into this one */
+    gBenchIter = 0;
+
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
             XSTRCMP(argv[1], "-h") == 0 ||
@@ -416,6 +471,15 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-maxdur=", XSTRLEN("-maxdur=")) == 0) {
             const char* maxStr = argv[argc-1] + XSTRLEN("-maxdur=");
             maxKeyGenDurSec = maxDuration = XATOI(maxStr) / 1000.0;
+        }
+        else if (XSTRNCMP(argv[argc-1], "-iter=", XSTRLEN("-iter=")) == 0) {
+            const char* iterStr = argv[argc-1] + XSTRLEN("-iter=");
+            gBenchIter = XATOI(iterStr);
+            if (gBenchIter <= 0) {
+                printf("Iteration count must be greater than zero\n");
+                usage();
+                return BAD_FUNC_ARG;
+            }
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);

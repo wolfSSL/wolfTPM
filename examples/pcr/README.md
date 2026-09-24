@@ -11,6 +11,7 @@ Examples:
 * `./examples/pcr/reset`: Used to clear the content of a PCR (restrictions apply, see below)
 * `./examples/pcr/extend`: Used to modify the content of a PCR (extend is a cryptographic operation, see below)
 * `./examples/pcr/quote`: Used to generate a TPM2.0 Quote structure containing the PCR digest and TPM-generated signature
+* `./examples/pcr/allocate`: Used to report which PCR banks the TPM implements and has allocated, and to change that allocation
 
 Scripts:
 
@@ -42,6 +43,18 @@ Reset locality (TCG PC Client): PCR16/23 reset at localities 0-3, PCR20-22 at lo
 
 The TPM 2.0 `TPM2_Extend` API uses a SHA1 or SHA256 cryptographic operation to combine the current value of the PCR and with newly provided hash digest.
 
+### Bank allocation
+
+A TPM keeps a separate set of PCRs per hash algorithm, called a bank. Which banks exist is fixed in silicon, but which of them are *allocated* is provisioned with `TPM2_PCR_Allocate` and can be changed. Many parts, including the Infineon SLB9672 and later, allocate only one bank at a time, so moving from SHA-256 to SHA-384 means deallocating SHA-256 rather than adding a second bank. SHA-1 is deprecated and is not allocated on current parts.
+
+Three things make this operation different from the others here:
+
+* The selection **replaces** the allocation. Any bank not named in the request is deallocated, so asking for SHA-384 alone on a SHA-256 TPM removes SHA-256.
+* It needs the **platform hierarchy**. Under an OS the platform firmware has usually disabled it, and the TPM then answers `TPM_RC_HIERARCHY` no matter what authorization is supplied. Use `wolfTPM2_AllocatePCRBanks_ex` with a session where platform auth is not the empty password.
+* It takes effect at the **next TPM reset**, not on return. There is no command that performs that reset: power cycle the TPM, or restart the simulator process, then re-read the banks to confirm.
+
+Changing banks invalidates every `PolicyPCR` digest and makes anything sealed to PCR values unsealable. PCR contents are zeroed at the reset, so re-allocating the original bank does not bring them back.
+
 ### Quote
 
 The TPM 2.0 `TPM2_Quote` API is a standard operation that encapsulates the PCR digest in a TCG defined structure called `TPMS_ATTEST` together with TPM signature. The signature is produced from a TPM generated key called Attestation Identity Key (AIK) that only the TPM can use. This provides guarantee for the source of the Quote and PCR digest. Together, the Quote and PCR provide the means for system measurement and integrity.
@@ -61,6 +74,59 @@ Expected usage:
      enforced by the fwTPM and by discrete TPMs like the ST33)
 Demo usage without parameters, resets PCR16.
 ```
+
+### Allocate Example Usage
+
+```sh
+$ ./examples/pcr/allocate -?
+Expected usage:
+./examples/pcr/allocate [-sha1] [-sha256] [-sha384] [-sha512]
+                        [-restore]
+* no algorithm flags: report the current allocation and exit
+* -shaN: include that bank in the new allocation (repeatable)
+* -restore: put the original allocation back before exiting
+Demo usage without parameters, reports the PCR banks.
+
+WARNING: the algorithm flags REPLACE the allocation. Banks not
+named are deallocated, every PolicyPCR digest changes, and blobs
+sealed to PCR values become unsealable. Many TPMs support only
+one active bank at a time.
+
+The new allocation takes effect at the next TPM reset, so power
+cycle the TPM (or restart the simulator) and re-run to confirm.
+```
+
+Report the banks the TPM has, with the PCRs selected in each. The list comes from the TPM's own `TPM_CAP_PCRS` response, so a bank this build has no name for prints as its hash algorithm id, and `pcrSelect` is the raw bitmap:
+
+```sh
+$ ./examples/pcr/allocate
+PCR banks:
+  Bank       Allocated  pcrSelect
+  SHA-256    yes        FFFFFF
+  SHA-384    yes        FFFFFF
+  SHA-1      no         000000
+```
+
+Move to a SHA-384 only allocation, then confirm it after a reset:
+
+```sh
+$ ./examples/pcr/allocate -sha384
+TPM reported: allocationSuccess YES, maxPCR 24, sizeNeeded 1152, sizeAvailable 4608
+PCR allocation staged. It takes effect at the next TPM reset
+(Startup(CLEAR) after a _TPM_Init) - power cycle the TPM, or
+restart the simulator process, then re-run to confirm.
+
+$ ./examples/pcr/allocate
+PCR banks:
+  Bank       Allocated  pcrSelect
+  SHA-256    no         000000
+  SHA-384    yes        FFFFFF
+  SHA-1      no         000000
+```
+
+On a TPM that keeps one bank active, asking for two is rejected outright with `TPM_RC_PCR`. A TPM that accepts the command but lacks the space instead reports `allocationSuccess = NO`, which the wrapper returns as `BUFFER_E` with `sizeNeeded` greater than `sizeAvailable`. Neither is a wolfTPM error.
+
+Use `-restore` in scripts so a run leaves the TPM's banks as it found them: it replays the exact selection read at startup, bitmaps included, rather than re-deriving it, so a partially selected bank comes back partial.
 
 ### Extend Example Usage
 

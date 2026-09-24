@@ -795,6 +795,11 @@ typedef struct FWTPM_CTX {
     TPMI_ALG_HASH pcrPolicyAlg[IMPLEMENTATION_PCR];
     /* PCR bank allocation (bitmap: bit 0=SHA-256, bit 1=SHA-384) */
     UINT8 pcrAllocatedBanks; /* default: 0x03 = both banks */
+    /* TPM2_PCR_Allocate is recorded here and applied at the next
+     * Startup(CLEAR), per TPM 2.0 Part 3 22.5. Persisted so the change
+     * survives the power cycle that performs that reset. */
+    UINT8 pcrAllocatedBanksPending;
+    UINT8 pcrAllocPending; /* 1 when a change is staged */
 
     /* Transient object slots */
     FWTPM_Object objects[FWTPM_MAX_OBJECTS];

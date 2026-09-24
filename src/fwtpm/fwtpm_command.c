@@ -1017,6 +1017,13 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     XMEMSET(ctx->pcrDigest[i][b], 0, TPM_MAX_DIGEST_SIZE);
                 }
             }
+            /* A staged TPM2_PCR_Allocate takes effect here, and only here */
+            if (ctx->pcrAllocPending) {
+                ctx->pcrAllocatedBanks = ctx->pcrAllocatedBanksPending;
+                ctx->pcrAllocatedBanksPending = 0;
+                ctx->pcrAllocPending = 0;
+                (void)FWTPM_NV_Save(ctx);
+            }
             ctx->globalNvWriteLock = 0;
             /* shEnable/ehEnable/phEnableNV re-enable on TPM Reset only;
              * phEnable re-enables on every startup (handled below). */
@@ -3081,8 +3088,8 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 
 /* --- TPM2_PCR_Allocate (CC 0x012B) --- */
-/* Allocate PCR banks. Per spec Section 22.5, takes effect after next Startup(CLEAR).
- * For software TPM, we always succeed. */
+/* Allocate PCR banks. Per spec Section 22.5 the selection is recorded and takes
+ * effect at the next Startup(CLEAR), so it is staged rather than applied. */
 static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -3092,6 +3099,9 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 c;
     UINT8 newBanks = 0;
     int paramSzPos, paramStart;
+    int anySelected = 0;
+    int b;
+    UINT8 selByte = 0;
     UINT32 sizeNeeded = 0;
     UINT32 sizeAvailable;
 
@@ -3122,10 +3132,18 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
             }
-            cmd->pos += sizeOfSelect; /* skip pcrSelect bytes */
+            /* An all-zero pcrSelect deallocates the bank, so read it */
+            anySelected = 0;
+            for (b = 0; b < (int)sizeOfSelect; b++) {
+                selByte = 0;
+                TPM2_Packet_ParseU8(cmd, &selByte);
+                if (selByte != 0) {
+                    anySelected = 1;
+                }
+            }
 
             bank = FwGetPcrBankIndex(hashAlg);
-            if (bank >= 0) {
+            if (bank >= 0 && anySelected) {
                 newBanks |= (UINT8)(1 << bank);
                 sizeNeeded += (UINT32)(IMPLEMENTATION_PCR *
                     TPM2_GetHashDigestSize(hashAlg));
@@ -3138,14 +3156,26 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PCR_Allocate(banks=0x%02x)\n", newBanks);
     #endif
-        ctx->pcrAllocatedBanks = newBanks;
+        sizeAvailable = (UINT32)(IMPLEMENTATION_PCR * FWTPM_PCR_BANKS *
+            TPM_MAX_DIGEST_SIZE);
+
+        /* Storing an empty result would persist "no banks at all" to NV */
+        if (newBanks == 0) {
+            paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+            TPM2_Packet_AppendU8(rsp, 0); /* allocationSuccess = NO */
+            TPM2_Packet_AppendU32(rsp, (UINT32)IMPLEMENTATION_PCR);
+            TPM2_Packet_AppendU32(rsp, sizeNeeded);
+            TPM2_Packet_AppendU32(rsp, sizeAvailable);
+            FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+            return rc;
+        }
+
+        ctx->pcrAllocatedBanksPending = newBanks;
+        ctx->pcrAllocPending = 1;
         rc = FWTPM_NV_Save(ctx);
         if (rc != TPM_RC_SUCCESS) {
             return rc;
         }
-
-        sizeAvailable = (UINT32)(IMPLEMENTATION_PCR * FWTPM_PCR_BANKS *
-            TPM_MAX_DIGEST_SIZE);
 
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         TPM2_Packet_AppendU8(rsp, 1); /* allocationSuccess = YES */

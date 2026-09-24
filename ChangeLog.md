@@ -1,5 +1,14 @@
 # Release Notes
 
+## Unreleased
+
+* Added `wolfTPM2_AllocatePCRBanks` for changing which PCR banks a TPM allocates.
+  - Added `examples/pcr/allocate` to report and re-provision the banks.
+  - Fixed the fwTPM applying the allocation immediately instead of at the next
+    `Startup(CLEAR)` per TPM 2.0 Part 3 22.5, accepting a selection that would
+    leave it with no PCR banks, ignoring the `pcrSelect` bitmap, and reporting
+    no allocated banks after a restart against an existing NV file.
+
 ## wolfTPM Release 4.2.0 (Sep 14, 2026)
 
 **Summary**
