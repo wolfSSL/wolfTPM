@@ -1093,7 +1093,7 @@ AC_SUBST([AM_CFLAGS])
 AC_SUBST([AM_LDFLAGS])
 AC_SUBST([CPPCHECK])
 
-# Tools used by the SBOM targets (see scripts/sbom.am `make sbom`).  GIT is used
+# Tools used by the SBOM targets (see tools/sbom/sbom.am `make sbom`).  GIT is used
 # only to derive SOURCE_DATE_EPOCH for reproducible SBOM output; all three are
 # optional and the target reports a clear error when a required one is missing.
 AC_PATH_PROG([PYTHON3], [python3])

@@ -1243,20 +1243,31 @@ See `./examples/endorsement/get_ek_certs`.
 
 wolfTPM generates a Software Bill of Materials (SBOM) in CycloneDX 1.6 and
 SPDX 2.3 formats to support compliance with the EU Cyber Resilience Act (CRA).
-The SBOM records the configured build options (from `wolftpm/options.h`),
-hashes the built `libwolftpm` library artifact (shared or static; ELF, Mach-O,
-or PE), and (with a sufficiently new `gen-sbom`) lists wolfSSL as a dependency
-so vulnerability scanners can associate wolfSSL advisories with a wolfTPM
+The generator is the wolfGlass snapshot vendored in `tools/sbom/` and pinned by
+`tools/sbom/.wolfglass-rev`. The SBOM records the configured build options
+(from `wolftpm/options.h`), hashes the built `libwolftpm` library artifact
+(shared or static; ELF, Mach-O, or PE), and lists wolfSSL as a dependency so
+vulnerability scanners can associate wolfSSL advisories with a wolfTPM
 deployment. Output is reproducible: set `SOURCE_DATE_EPOCH` (or build from a git
 checkout, which uses the last commit time) and repeated runs are byte-identical.
 
 ```sh
-make sbom WOLFSSL_DIR=/path/to/wolfssl
+make sbom
 ```
 
-Requires `python3` and `pyspdxtools` (`pip install spdx-tools`). `WOLFSSL_DIR`
-must point to a wolfssl source tree containing `scripts/gen-sbom` (branch
-`feat/sbom-embedded`, or `master` once wolfSSL/wolfssl#10343 merges).
+Requires `python3` and `pyspdxtools` (`pip install spdx-tools`). The generator
+ships in the tree, so `make sbom` does not need a separate wolfSSL checkout.
+Pass `WOLFSSL_DIR=/path/to/wolfssl` when pkg-config cannot see the wolfSSL that
+this build linked, so the dependency version is read from `wolfssl/version.h`.
+`SBOM_WOLFSSL_VERSION` overrides that detection.
+
+The CMake build exposes the same target. `WOLFSSL_DIR` is optional and has the
+same meaning:
+
+```sh
+cmake -B build .
+cmake --build build --target sbom
+```
 
 Output: `wolftpm-<version>.cdx.json`, `wolftpm-<version>.spdx.json`, `wolftpm-<version>.spdx`
 
@@ -1275,11 +1286,6 @@ Optional overrides:
 make install-sbom    # installs to $(datadir)/doc/wolftpm/
 make uninstall-sbom
 ```
-
-Note: recording wolfSSL as a dependency and emitting wolfTPM-specific project
-URLs require the `gen-sbom` from wolfSSL/wolfssl#10343. Against an older
-`gen-sbom`, `make sbom` still succeeds and produces a valid SBOM, but omits the
-wolfSSL dependency entry and inherits wolfSSL's project URLs.
 
 For further CRA guidance see [wolfssl/doc/CRA.md](https://github.com/wolfSSL/wolfssl/blob/master/doc/CRA.md).
 

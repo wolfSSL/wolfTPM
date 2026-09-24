@@ -37,8 +37,9 @@ IDE/IAR-EWARM/settings
 wolftpm/options.h
 *.trs
 
-# common cmake build location
-build/
+# common cmake build location at the repository root.
+# A bare "build/" would also hide tools/sbom/build.
+/build/
 
 examples/wrap/wrap_test
 examples/wrap/caps
@@ -225,6 +226,11 @@ fwtpm_test_nv.bin
 fwtpm_test_nv.bin.key
 # Catch any NV integrity-key sidecar the fwTPM auto-generates
 *.bin.key
+
+# SBOM outputs from `make sbom` / `cmake --target sbom`
+wolftpm-*.cdx.json
+wolftpm-*.spdx.json
+wolftpm-*.spdx
 
 # Fuzz artifacts (corpus generated at runtime by gen_corpus.py)
 tests/fuzz/corpus/
