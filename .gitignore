@@ -225,6 +225,11 @@ fwtpm_test_nv.bin.key
 # Catch any NV integrity-key sidecar the fwTPM auto-generates
 *.bin.key
 
+# SBOM outputs from `make sbom` / `cmake --target sbom`
+wolftpm-*.cdx.json
+wolftpm-*.spdx.json
+wolftpm-*.spdx
+
 # Fuzz artifacts (corpus generated at runtime by gen_corpus.py)
 tests/fuzz/corpus/
 tests/fuzz/fwtpm_fuzz

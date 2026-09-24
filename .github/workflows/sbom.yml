@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       wolfssl_ref:
-        description: 'wolfssl git ref that provides scripts/gen-sbom'
+        description: 'wolfSSL ref this build links, used for the dependency version'
         default: 'master'
 
 concurrency:
@@ -30,14 +30,12 @@ jobs:
         with:
           path: wolftpm
 
-      # wolfTPM links wolfSSL/wolfCrypt (RNG, parameter encryption, PK
-      # callbacks), so its SBOM records wolfSSL as a dependency.  wolfSSL is
-      # built + installed here so wolfTPM has a library to link, and the same
-      # source tree (scripts/gen-sbom + wolfssl/version.h) is passed to
-      # `make sbom` via WOLFSSL_DIR -- so the recorded wolfSSL dependency
-      # version matches the linked one.  gen-sbom landed on wolfssl master in
-      # wolfSSL/wolfssl#10343, so track master.
-      - name: Checkout wolfssl (gen-sbom + library source)
+      # wolfTPM links wolfSSL/wolfCrypt, so its SBOM records wolfSSL as a
+      # dependency. wolfSSL is built and installed here so wolfTPM has a
+      # library to link. The generator itself is vendored in tools/sbom/.
+      # WOLFSSL_DIR is passed only so the dependency version is read from
+      # wolfssl/version.h and matches the linked tree.
+      - name: Checkout wolfssl (library source and version)
         uses: actions/checkout@v4
         with:
           repository: wolfSSL/wolfssl
@@ -61,28 +59,11 @@ jobs:
           make -j"$(nproc)"
           make install
 
-      # gen-sbom is on wolfssl master (wolfSSL/wolfssl#10343), so its absence
-      # means the ref is wrong rather than that the change is still in flight:
-      # fail loudly instead of skipping. The capability probe stays, so an
-      # older wolfssl_ref still degrades gracefully rather than erroring.
-      - name: Detect gen-sbom availability and capabilities
-        id: gate
-        run: |
-          GS="$GITHUB_WORKSPACE/wolfssl/scripts/gen-sbom"
-          if [ ! -f "$GS" ]; then
-            echo "::error::wolfssl scripts/gen-sbom not found at $GS. It is on wolfssl master; check the wolfssl_ref input."
-            exit 1
-          fi
-          echo "have=yes" >> "$GITHUB_OUTPUT"
-          if python3 "$GS" --help 2>/dev/null | grep -q -- '--dep-wolfssl'; then
-            echo "dep_wolfssl=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "dep_wolfssl=no" >> "$GITHUB_OUTPUT"
-            echo "::notice::gen-sbom on this ref has no --dep-wolfssl; the wolfssl dependency + name-derived identity assertions will be skipped."
-          fi
+      - name: Vendored generator is present
+        working-directory: wolftpm
+        run: test -f tools/sbom/gen-sbom
 
       - name: Configure and build wolftpm
-        if: steps.gate.outputs.have == 'yes'
         working-directory: wolftpm
         run: |
           autoreconf -ivf
@@ -91,19 +72,16 @@ jobs:
           make -j"$(nproc)"
 
       - name: Generate SBOM
-        if: steps.gate.outputs.have == 'yes'
         working-directory: wolftpm
         run: make sbom WOLFSSL_DIR="$GITHUB_WORKSPACE/wolfssl"
 
       - name: Outputs exist and SPDX validates
-        if: steps.gate.outputs.have == 'yes'
         working-directory: wolftpm
         run: |
           ls wolftpm-*.cdx.json wolftpm-*.spdx.json wolftpm-*.spdx
           pyspdxtools --infile wolftpm-*.spdx.json
 
       - name: CycloneDX identity, licence, and captured options
-        if: steps.gate.outputs.have == 'yes'
         working-directory: wolftpm
         run: |
           python3 - <<'PY'
@@ -113,7 +91,7 @@ jobs:
           assert cdx['specVersion'] == '1.6', cdx.get('specVersion')
           m = cdx['metadata']['component']
           assert m['name'] == 'wolftpm', m['name']
-          assert m['purl'].startswith('pkg:github/wolfSSL/wolftpm@'), m['purl']
+          assert m['purl'].startswith('pkg:github/wolfssl/wolftpm@'), m['purl']
           # Default override must land as GPL-3.0-or-later (matches source headers).
           ids = [l.get('license', {}).get('id') for l in m.get('licenses', [])]
           assert 'GPL-3.0-or-later' in ids, ids
@@ -129,7 +107,6 @@ jobs:
           PY
 
       - name: Reproducible across two runs (SOURCE_DATE_EPOCH)
-        if: steps.gate.outputs.have == 'yes'
         working-directory: wolftpm
         run: |
           rm -f wolftpm-*.cdx.json wolftpm-*.spdx.json wolftpm-*.spdx
@@ -143,7 +120,6 @@ jobs:
           diff /tmp/a.sums /tmp/b.sums
 
       - name: wolfssl recorded as a dependency
-        if: steps.gate.outputs.have == 'yes' && steps.gate.outputs.dep_wolfssl == 'yes'
         working-directory: wolftpm
         run: |
           python3 - <<'PY'
@@ -159,7 +135,7 @@ jobs:
           PY
 
       - name: Upload SBOM artefacts
-        if: always() && steps.gate.outputs.have == 'yes'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: wolftpm-sbom-${{ github.sha }}
@@ -169,3 +145,47 @@ jobs:
             wolftpm/wolftpm-*.spdx
           if-no-files-found: warn
           retention-days: 90
+
+  # tools/sbom/ is a vendored copy of the wolfGlass share/ set, pinned by
+  # tools/sbom/.wolfglass-rev. wolfglass-sync --check fails when the copy
+  # differs from that revision.
+  wolfglass_drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pinned wolfGlass revision
+        id: pin
+        run: |
+          rev="$(tr -d '[:space:]' < tools/sbom/.wolfglass-rev)"
+          if [ -z "$rev" ]; then
+            echo "ERROR: tools/sbom/.wolfglass-rev is empty." >&2
+            exit 1
+          fi
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+          echo "Pinned wolfGlass revision: $rev"
+
+      - name: Check out wolfGlass at the pinned revision
+        id: fetch
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: wolfSSL/wolfGlass
+          ref: ${{ steps.pin.outputs.rev }}
+          path: .wolfglass-src
+
+      - name: Drift check against wolfGlass
+        env:
+          PINNED_REV: ${{ steps.pin.outputs.rev }}
+        run: |
+          if [ ! -d .wolfglass-src/share ]; then
+            echo "ERROR: wolfGlass revision $PINNED_REV does not resolve." >&2
+            echo "tools/sbom/.wolfglass-rev must name a commit that exists in" >&2
+            echo "wolfSSL/wolfGlass. Re-run tools/wolfglass-sync to re-pin." >&2
+            exit 1
+          fi
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/.wolfglass-src"
+          python3 .wolfglass-src/tools/wolfglass-sync \
+            --check --src .wolfglass-src --dest .
