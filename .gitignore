@@ -37,8 +37,9 @@ IDE/IAR-EWARM/settings
 wolftpm/options.h
 *.trs
 
-# common cmake build location
-build/
+# common cmake build location at the repository root.
+# A bare "build/" would also hide tools/sbom/build.
+/build/
 
 examples/wrap/wrap_test
 examples/wrap/caps
