@@ -1057,6 +1057,43 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
             if (rc != 0) rc = TPM_RC_FAILURE;
 
+        #ifndef FWTPM_NO_NV
+            /* Reset NV attributes that last only until Startup(CLEAR). */
+            for (i = 0; i < FWTPM_MAX_NV_INDICES && rc == 0; i++) {
+                FWTPM_NvIndex* nv = &ctx->nvIndices[i];
+                UINT32 oldAttrs;
+                UINT32 attrs;
+                int oldWritten;
+
+                if (!nv->inUse)
+                    continue;
+
+                oldAttrs = nv->nvPublic.attributes;
+                oldWritten = nv->written;
+                attrs = oldAttrs;
+
+                if (attrs & TPMA_NV_CLEAR_STCLEAR) {
+                    attrs &= ~TPMA_NV_WRITTEN;
+                    nv->written = 0;
+                }
+                if (attrs & TPMA_NV_READ_STCLEAR)
+                    attrs &= ~TPMA_NV_READLOCKED;
+                if (!(attrs & TPMA_NV_WRITEDEFINE) ||
+                        !(attrs & TPMA_NV_WRITTEN)) {
+                    attrs &= ~TPMA_NV_WRITELOCKED;
+                }
+
+                if (attrs != oldAttrs || nv->written != oldWritten) {
+                    nv->nvPublic.attributes = attrs;
+                    rc = FWTPM_NV_SaveNvIndex(ctx, i);
+                    if (rc != 0) {
+                        nv->nvPublic.attributes = oldAttrs;
+                        nv->written = oldWritten;
+                    }
+                }
+            }
+        #endif
+
             /* TPM Reset: bump persisted resetCount, clear restartCount */
             if (rc == 0) {
                 ctx->resetCount++;
