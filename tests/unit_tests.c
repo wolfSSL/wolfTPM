@@ -2641,9 +2641,13 @@ static void test_TPM2_transport_buffer_cleanup(void)
 
     rc = TPM2_NV_Write(&in);
     AssertIntNE(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(TPM2_Packet_ByteArrayToU32(ctx.cmdBuf + 6),
-        TPM_CC_NV_Write);
-    cmdSz = TPM2_Packet_ByteArrayToU32(ctx.cmdBuf + 2);
+    AssertIntEQ(ctx.cmdBuf[6], (byte)(TPM_CC_NV_Write >> 24));
+    AssertIntEQ(ctx.cmdBuf[7], (byte)(TPM_CC_NV_Write >> 16));
+    AssertIntEQ(ctx.cmdBuf[8], (byte)(TPM_CC_NV_Write >> 8));
+    AssertIntEQ(ctx.cmdBuf[9], (byte)TPM_CC_NV_Write);
+    cmdSz = ((word32)ctx.cmdBuf[2] << 24) |
+            ((word32)ctx.cmdBuf[3] << 16) |
+            ((word32)ctx.cmdBuf[4] << 8) | (word32)ctx.cmdBuf[5];
     AssertIntGT(cmdSz, TPM2_HEADER_SIZE);
     AssertIntLE(cmdSz, sizeof(ctx.cmdBuf));
     for (i = TPM2_HEADER_SIZE; i < cmdSz; i++)
@@ -4273,7 +4277,10 @@ static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
     for (i = 0; i < (int)digestLen; i++)
         ticket.digest.buffer[i] = (byte)(0xA0 + i);
 
-    TPM2_Packet_InitBuf(&packet, buf, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.pos = TPM2_HEADER_SIZE;
+    packet.size = (int)sizeof(buf);
     TPM2_Packet_AppendVerifiedTicket(&packet, &ticket);
     AssertIntEQ(packet.overflow, 0);
     cmd = buf;
@@ -4296,7 +4303,8 @@ static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
     /* VERIFIED omits metaAlg: command is 2 bytes shorter and the hierarchy
      * low half sits directly before digest.size. */
     ticket.tag = TPM_ST_VERIFIED;
-    TPM2_Packet_InitBuf(&packet, buf, sizeof(buf));
+    packet.pos = TPM2_HEADER_SIZE;
+    packet.overflow = 0;
     TPM2_Packet_AppendVerifiedTicket(&packet, &ticket);
     AssertIntEQ(packet.overflow, 0);
     cmdLenVerified = (word32)packet.pos;
@@ -4310,7 +4318,8 @@ static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
      * length matches the VERIFIED case (2 bytes shorter than non-NULL). */
     ticket.tag = TPM_ST_DIGEST_VERIFIED;
     ticket.hierarchy = TPM_RH_NULL;
-    TPM2_Packet_InitBuf(&packet, buf, sizeof(buf));
+    packet.pos = TPM2_HEADER_SIZE;
+    packet.overflow = 0;
     TPM2_Packet_AppendVerifiedTicket(&packet, &ticket);
     AssertIntEQ(packet.overflow, 0);
     cmdLenNull = (word32)packet.pos;
