@@ -122,7 +122,8 @@ make
 On Linux, add `--enable-devtpm` to use the kernel TPM driver. For examples
 that pass transient handles between processes, also add
 `CFLAGS='-DTPM2_LINUX_DEV="/dev/tpm0"'`: the default `/dev/tpmrm0` virtualizes
-and discards those handles when a process closes the device. See
+and discards those handles when a process closes the device. Keep the inner
+double quotes literal inside the single-quoted `CFLAGS` value. See
 [docs/DEVTPM.md](docs/DEVTPM.md) for device permissions and details.
 
 `--enable-pqc` builds the lean ML-DSA / ML-KEM subset (`WOLFTPM_PQC`) for
