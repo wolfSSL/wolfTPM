@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install tpm2-tools
         uses: ./.github/actions/apt-retry
@@ -199,6 +201,7 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
         with:
+          submodules: true
           persist-credentials: false
 
       - name: Setup wolfSSL with PQC TLS

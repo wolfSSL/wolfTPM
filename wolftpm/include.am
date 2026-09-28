@@ -33,3 +33,16 @@ nobase_include_HEADERS+= \
                          wolftpm/fwtpm/fwtpm_crypto.h \
                          wolftpm/fwtpm/fwtpm_nv.h \
                          wolftpm/fwtpm/fwtpm_tis.h
+
+if BUILD_SPDM
+wolfspdmincdir = $(includedir)/wolfspdm
+wolfspdminc_HEADERS = \
+                         lib/wolfSPDM/wolfspdm/spdm.h \
+                         lib/wolfSPDM/wolfspdm/spdm_types.h \
+                         lib/wolfSPDM/wolfspdm/spdm_error.h \
+                         lib/wolfSPDM/wolfspdm/spdm_tcg.h \
+                         lib/wolfSPDM/wolfspdm/spdm_nuvoton.h \
+                         lib/wolfSPDM/wolfspdm/spdm_nations.h \
+                         lib/wolfSPDM/wolfspdm/spdm_psk.h \
+                         lib/wolfSPDM/wolfspdm/spdm_responder.h
+endif

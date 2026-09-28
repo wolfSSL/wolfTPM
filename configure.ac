@@ -760,6 +760,10 @@ then
         AC_MSG_ERROR([--enable-spdm requires the client library (incompatible with --enable-fwtpm-only)])
     fi
     AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM support])
+    if test ! -f "$srcdir/lib/wolfSPDM/src/spdm_context.c"; then
+        AC_MSG_ERROR([--enable-spdm needs the wolfSPDM submodule: run git submodule update --init lib/wolfSPDM])
+    fi
+    AM_CPPFLAGS="$AM_CPPFLAGS -I\$(top_srcdir)/lib/wolfSPDM -I\$(top_srcdir)/lib/wolfSPDM/src"
 
     if test "x$ENABLED_TCG" = "xdetect"
     then

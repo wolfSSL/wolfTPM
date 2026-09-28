@@ -8,8 +8,11 @@ responses are encrypted with AES-256-GCM over the existing SPI/I2C bus. Identity
 key mode requires the responder's P-384 public key from a trusted provisioning
 source.
 
-For standard SPDM protocol testing with the DMTF spdm-emu emulator, see the
-[wolfSPDM](https://github.com/aidangarske/wolfSPDM) standalone library.
+The SPDM code lives in the [wolfSPDM](https://github.com/wolfSSL/wolfSPDM)
+library, included as the `lib/wolfSPDM` submodule and compiled into libwolftpm
+in its TPM profile. Clone with `git clone --recursive`, or run
+`git submodule update --init` in an existing checkout. wolfSPDM also builds
+standalone as a DMTF SPDM 1.2-1.4 requester with PQC for spdm-emu testing.
 
 ## Quick Start
 

@@ -70,7 +70,7 @@ noise rather than safety.
 - Raw libc calls (`memcpy`, `memset`, `strlen`, ...) in the core library: these
   are caught deterministically by the Semgrep gate and should use the
   `XMEMCPY`/`XMEMSET`/`XSTRLEN` wrappers. Do not duplicate that as a review
-  comment. (The vendored `src/spdm/` and `src/fwtpm/` trees are exempt.)
+  comment. (The vendored `lib/wolfSPDM/`, `src/spdm/` and `src/fwtpm/` trees are exempt.)
 - C++ idioms or constructs outside C89/C99. wolfTPM targets C89/C99 and must
   compile across its many feature configurations.
 - `TPM2_ForceZero` replaced by `memset`/`XMEMSET` (the project deliberately uses

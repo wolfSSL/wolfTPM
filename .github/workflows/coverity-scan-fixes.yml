@@ -13,6 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
+        submodules: true
         ref: master
 
     # Cache the built wolfSSL tree keyed on the resolved upstream commit so it
@@ -29,6 +30,8 @@ jobs:
         key: wolfssl-coverity-fixes-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
 
     - uses: actions/checkout@master
+      with:
+        submodules: true
       if: steps.wolfssl_cache.outputs.cache-hit != 'true'
       with:
         repository: wolfssl/wolfssl

@@ -94,6 +94,8 @@ jobs:
       # Checkout first so the local apt-retry composite action is on disk.
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       # Version-specific compilers are not baked into the CI image; keep this
       # job on the host runner and just make apt resilient to mirror timeouts.

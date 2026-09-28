@@ -6,7 +6,7 @@
 #
 # Style/maintainability is intentionally out of scope (owned by codespell,
 # Coverity, and the CodeQL security suite). These rules only enforce security
-# invariants. The vendored src/spdm/ and src/fwtpm/ trees, the HAL platform
+# invariants. The vendored lib/wolfSPDM/, src/spdm/ and src/fwtpm/ trees, the HAL platform
 # drivers, and the swtpm socket transport carry their own platform libc usage
 # and are excluded where noted.
 
@@ -72,6 +72,7 @@ rules:
         - src/
       exclude:
         - src/spdm/
+        - lib/wolfSPDM/
         - src/fwtpm/
         - src/tpm2_swtpm.c
     pattern-either:

@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install ARM toolchain
         uses: ./.github/actions/apt-retry
@@ -125,6 +127,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup wolfSSL
         uses: ./.github/actions/setup-wolfssl

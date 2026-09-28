@@ -73,6 +73,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache wolfSSL ${{ matrix.wolfssl-version }}
         if: matrix.wolfssl-version != 'master'
