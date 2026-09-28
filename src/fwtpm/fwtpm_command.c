@@ -6281,17 +6281,14 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_VALUE;
     }
 
-    /* Validate auth handle: owner or platform required by spec,
-     * endorsement also accepted for EH-created objects */
+    /* Only owner and platform are provisioning authorities. */
     if (rc == 0 && authHandle != TPM_RH_OWNER &&
-        authHandle != TPM_RH_PLATFORM &&
-        authHandle != TPM_RH_ENDORSEMENT) {
+        authHandle != TPM_RH_PLATFORM) {
         rc = TPM_RC_HIERARCHY;
     }
 
     /* Per TPM 2.0 Part 3 Sec.28, platformAuth owns the PLATFORM_PERSISTENT
-     * sub-range and owner/endorsement auth the range below it; neither may
-     * manage a handle in the other's sub-range. */
+     * sub-range and owner auth owns the range below it. */
     if (rc == 0) {
         if (authHandle == TPM_RH_PLATFORM) {
             if (persistentHandle < PLATFORM_PERSISTENT)

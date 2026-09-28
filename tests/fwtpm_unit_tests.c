@@ -15157,6 +15157,18 @@ static void test_fwtpm_evict_control(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
+    /* Endorsement authorization cannot evict an owner persistent object. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_EvictControl);
+    PutU32BE(gCmd + pos, TPM_RH_ENDORSEMENT); pos += 4;
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HIERARCHY);
+
     /* Flush transient */
     FlushHandle(&ctx, keyH);
 
@@ -16395,6 +16407,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
+
+    if (argc == 2 && XSTRCMP(argv[1], "evict-auth") == 0) {
+        test_fwtpm_evict_control();
+        return 0;
+    }
 
     /* Lifecycle */
 #ifdef FWTPM_NO_NV
