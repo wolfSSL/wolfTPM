@@ -16383,7 +16383,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_clear();
         return 0;
     }
-#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+#if !defined(FWTPM_NO_POLICY) && !defined(NO_RSA) && \
+    defined(WOLFSSL_KEY_GEN)
     if (argc == 2 && XSTRCMP(argv[1], "clear-child") == 0) {
         test_fwtpm_clear_revokes_endorsement_child();
         return 0;
