@@ -2609,7 +2609,7 @@ static void test_TPM2_command_process_buffer_cleanup(void)
 static void test_TPM2_transport_buffer_cleanup(void)
 {
     TPM2_CTX ctx;
-    TPM2_AUTH_SESSION session;
+    TPM2_AUTH_SESSION sessions[MAX_SESSION_NUM];
     NV_Write_In in;
     const byte payload[] = "transport-secret";
     char savedPort[32];
@@ -2630,13 +2630,13 @@ static void test_TPM2_transport_buffer_cleanup(void)
     AssertIntEQ(setenv("TPM2_SWTPM_PORT", "1", 1), 0);
 
     XMEMSET(&ctx, 0, sizeof(ctx));
-    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(sessions, 0, sizeof(sessions));
     XMEMSET(&in, 0, sizeof(in));
     AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
-    ctx.session = &session;
-    session.sessionHandle = TPM_RS_PW;
-    session.auth.size = 8;
-    XMEMCPY(session.auth.buffer, "bad-auth", 8);
+    ctx.session = sessions;
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[0].auth.size = 8;
+    XMEMCPY(sessions[0].auth.buffer, "bad-auth", 8);
     in.authHandle = TPM_RH_OWNER;
     in.nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
     in.data.size = (UINT16)sizeof(payload) - 1;
