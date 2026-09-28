@@ -2507,6 +2507,9 @@ static void test_wolfTPM2_NVWriteChunked(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ((int)readSz, (int)sizeof(buf));
     AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+    for (i = 0; i < (word32)sizeof(dev.ctx.cmdBuf); i++) {
+        AssertIntEQ(dev.ctx.cmdBuf[i], 0);
+    }
 
     /* Rewrite uses the stable name. */
     for (i = 0; i < (word32)sizeof(buf); i++) {
@@ -2521,6 +2524,9 @@ static void test_wolfTPM2_NVWriteChunked(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ((int)readSz, (int)sizeof(buf));
     AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+    for (i = 0; i < (word32)sizeof(dev.ctx.cmdBuf); i++) {
+        AssertIntEQ(dev.ctx.cmdBuf[i], 0);
+    }
 
     wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
     wolfTPM2_UnloadHandle(&dev, &session.handle);
@@ -9596,6 +9602,12 @@ int unit_tests(int argc, char *argv[])
     !defined(WOLFTPM2_NO_WRAPPER)
     if (argc == 2 && XSTRCMP(argv[1], "--init-upgrade") == 0) {
         test_wolfTPM2_InitUpgrade();
+        return 0;
+    }
+#endif
+#ifndef WOLFTPM2_NO_WRAPPER
+    if (argc == 2 && XSTRCMP(argv[1], "nv-read-wipe") == 0) {
+        test_wolfTPM2_NVWriteChunked();
         return 0;
     }
 #endif

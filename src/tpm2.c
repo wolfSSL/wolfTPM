@@ -6308,6 +6308,7 @@ TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
                 out->data.buffer, (UINT16)sizeof(out->data.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
