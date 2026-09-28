@@ -590,11 +590,15 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* parse response header and extract the TPM response code */
     rc = TPM2_Packet_Parse(rc, packet);
 
-    /* Wipe request-tail bytes a shorter response did not overwrite, so
-     * plaintext auth values do not linger in the shared command buffer. Only
-     * on success: the command must survive a transport error for inspection. */
-    if (rc == TPM_RC_SUCCESS && packet->size >= 0 &&
-            (UINT32)packet->size < cmdSz) {
+    /* Keep the response header for the caller, but wipe request bytes that
+     * a TPM error response did not overwrite. */
+    if (rc != TPM_RC_SUCCESS) {
+        if (cmdSz > TPM2_HEADER_SIZE) {
+            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+                cmdSz - TPM2_HEADER_SIZE);
+        }
+    }
+    else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
             cmdSz - (UINT32)packet->size);
     }
@@ -639,12 +643,15 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
         break;
     }
 
-    /* Wipe request-tail bytes a shorter response did not overwrite, so
-     * plaintext auth values do not linger in the shared command buffer. Only
-     * after the final attempt, and only on success so the command survives a
-     * transport error for retry and inspection. */
-    if (rc == TPM_RC_SUCCESS && packet->size >= 0 &&
-            (UINT32)packet->size < cmdSz) {
+    /* Keep the response header for the caller. Wipe request bytes only
+     * after the final attempt so a retry can resend the intact command. */
+    if (rc != TPM_RC_SUCCESS) {
+        if (cmdSz > TPM2_HEADER_SIZE) {
+            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+                cmdSz - TPM2_HEADER_SIZE);
+        }
+    }
+    else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
             cmdSz - (UINT32)packet->size);
     }
@@ -681,6 +688,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* Is there at least one auth session present? */
         if (info->authCnt < 1 || ctx->session == NULL) {
             packet->pos = cmdSz; /* restore */
+            TPM2_ForceZero(packet->buf, cmdSz);
             return TPM_RC_AUTH_MISSING;
         }
 
@@ -689,8 +697,10 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     #endif
 
         rc = TPM2_CommandProcess(ctx, packet, info, cmdCode, cmdSz);
-        if (rc != 0)
+        if (rc != 0) {
+            TPM2_ForceZero(packet->buf, cmdSz);
             return rc;
+        }
     }
 
     /* submit command and parse the response */

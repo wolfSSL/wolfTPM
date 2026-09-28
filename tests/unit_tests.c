@@ -2454,6 +2454,8 @@ static void test_wolfTPM2_NVWriteChunked(void)
     byte readBuf[sizeof(buf)];
     word32 readSz;
     word32 i;
+    const byte rejectedData[] = "nv-write-payload";
+    int residueFound = 0;
 
     XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&session, 0, sizeof(session));
@@ -2531,6 +2533,21 @@ static void test_wolfTPM2_NVWriteChunked(void)
     wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
     wolfTPM2_UnloadHandle(&dev, &session.handle);
     wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+
+    /* A rejected write must not leave its request payload in cmdBuf. */
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, (byte*)rejectedData,
+        (word32)sizeof(rejectedData) - 1, (word32)sizeof(buf));
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+    for (i = 0; i <= (word32)sizeof(dev.ctx.cmdBuf) -
+            ((word32)sizeof(rejectedData) - 1); i++) {
+        if (XMEMCMP(&dev.ctx.cmdBuf[i], rejectedData,
+                sizeof(rejectedData) - 1) == 0) {
+            residueFound = 1;
+            break;
+        }
+    }
+    AssertIntEQ(residueFound, 0);
+
     wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
     wolfTPM2_Cleanup(&dev);
     printf("Test TPM Wrapper:\tNV write chunked:\tPassed\n");
@@ -2538,6 +2555,53 @@ static void test_wolfTPM2_NVWriteChunked(void)
     printf("Test TPM Wrapper:\tNV write chunked:\tSkipped\n");
 #endif
 }
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+static void test_TPM2_command_process_buffer_cleanup(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION sessions[MAX_SESSION_NUM];
+    NV_Write_In in;
+    const byte payload[] = "pre-dispatch-data";
+    word32 i;
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(sessions, 0, sizeof(sessions));
+    XMEMSET(&in, 0, sizeof(in));
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
+    AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
+#else
+    AssertIntEQ(TPM2_Init_ex(&ctx, TPM2_IoCb, NULL, 0),
+        TPM_RC_SUCCESS);
+#endif
+    ctx.session = sessions;
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[0].auth.size = 8;
+    XMEMCPY(sessions[0].auth.buffer, "bad-auth", 8);
+    sessions[1].sessionHandle = HMAC_SESSION_FIRST;
+    sessions[1].sessionAttributes = TPMA_SESSION_decrypt;
+    sessions[1].authHash = TPM_ALG_SHA256;
+    sessions[1].symmetric.algorithm = TPM_ALG_NULL;
+
+    in.authHandle = TPM_RH_OWNER;
+    in.nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    in.data.size = (UINT16)sizeof(payload) - 1;
+    XMEMCPY(in.data.buffer, payload, sizeof(payload) - 1);
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+#ifdef WOLFTPM_SWTPM
+    AssertIntEQ(ctx.tcpCtx.fd, -1);
+#endif
+    for (i = 0; i < (word32)sizeof(ctx.cmdBuf); i++) {
+        AssertIntEQ(ctx.cmdBuf[i], 0);
+    }
+
+    TPM2_Cleanup(&ctx);
+    printf("Test TPM Wrapper:	Command process buffer cleanup:	Passed\n");
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 static void test_wolfTPM2_PolicyHash(void)
 {
@@ -9611,6 +9675,18 @@ int unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
+#ifndef WOLFTPM2_NO_WRAPPER
+    if (argc == 2 && XSTRCMP(argv[1], "error-request-wipe") == 0) {
+        test_wolfTPM2_NVWriteChunked();
+        return 0;
+    }
+#endif
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+    if (argc == 2 && XSTRCMP(argv[1], "pre-dispatch-wipe") == 0) {
+        test_TPM2_command_process_buffer_cleanup();
+        return 0;
+    }
+#endif
     (void)argc;
     (void)argv;
 
@@ -9640,6 +9716,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_CreateLoaded_ParamEnc();
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_NVWriteChunked();
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    test_TPM2_command_process_buffer_cleanup();
+#endif
     test_wolfTPM2_PolicyHash();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
