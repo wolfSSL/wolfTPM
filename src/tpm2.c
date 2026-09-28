@@ -572,6 +572,21 @@ static TPM_RC TPM2_DispatchCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     return rc;
 }
 
+/* Preserve the request header for the caller, but remove any parameters left
+ * after a transport failure. cmdSz may exceed the packet buffer on overflow. */
+static void TPM2_WipeRequestTail(TPM2_Packet* packet, UINT32 cmdSz,
+    int bufferSz)
+{
+    if (bufferSz > TPM2_HEADER_SIZE) {
+        if (cmdSz > (UINT32)bufferSz)
+            cmdSz = (UINT32)bufferSz;
+        if (cmdSz > TPM2_HEADER_SIZE) {
+            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+                cmdSz - TPM2_HEADER_SIZE);
+        }
+    }
+}
+
 #ifdef WOLFTPM_NO_RETRY
 /* Submit the finalized command in packet (length cmdSz) and parse the
  * response, returning the TPM response code. */
@@ -579,13 +594,16 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
     UINT32 cmdSz)
 {
     TPM_RC rc;
+    int origSize = packet->size;
 
     /* send command requires packet->pos to be the total command length */
     packet->pos = cmdSz;
 
     rc = TPM2_DispatchCommand(ctx, packet);
-    if (rc != 0)
+    if (rc != 0) {
+        TPM2_WipeRequestTail(packet, cmdSz, origSize);
         return rc; /* transport or SPDM error */
+    }
 
     /* parse response header and extract the TPM response code */
     rc = TPM2_Packet_Parse(rc, packet);
@@ -627,8 +645,10 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
         packet->pos = cmdSz;
 
         rc = TPM2_DispatchCommand(ctx, packet);
-        if (rc != 0)
+        if (rc != 0) {
+            TPM2_WipeRequestTail(packet, cmdSz, origSize);
             return rc; /* transport or SPDM error */
+        }
 
         /* parse response header and extract the TPM response code */
         rc = TPM2_Packet_Parse(rc, packet);
@@ -5030,21 +5050,16 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
         TPM2_Packet_AppendU16(&packet, in->keySign.size);
         TPM2_Packet_AppendBytes(&packet, in->keySign.name, in->keySign.size);
 
+#ifdef WOLFTPM_MLDSA_VERIFY
+        TPM2_Packet_AppendVerifiedTicket(&packet, &in->checkTicket);
+#else
         TPM2_Packet_AppendU16(&packet, in->checkTicket.tag);
         TPM2_Packet_AppendU32(&packet, in->checkTicket.hierarchy);
-#ifdef WOLFTPM_MLDSA_VERIFY
-        /* A non-NULL DIGEST_VERIFIED ticket carries the 2-byte metadata alg
-         * on the wire; VERIFIED, MESSAGE_VERIFIED and NULL tickets omit it.
-         * Mirrors the response parse condition. */
-        if (in->checkTicket.tag == TPM_ST_DIGEST_VERIFIED &&
-            in->checkTicket.hierarchy != TPM_RH_NULL) {
-            TPM2_Packet_AppendU16(&packet, in->checkTicket.metaAlg);
-        }
-#endif
         TPM2_Packet_AppendU16(&packet, in->checkTicket.digest.size);
         TPM2_Packet_AppendBytes(&packet,
                     in->checkTicket.digest.buffer,
                     in->checkTicket.digest.size);
+#endif
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyAuthorize);
 

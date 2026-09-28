@@ -275,6 +275,21 @@ void TPM2_Packet_AppendBytes(TPM2_Packet* packet, byte* buf, int size)
         packet->overflow = 1;
     }
 }
+#ifdef WOLFTPM_MLDSA_VERIFY
+void TPM2_Packet_AppendVerifiedTicket(TPM2_Packet* packet,
+    TPMT_TK_VERIFIED* ticket)
+{
+    TPM2_Packet_AppendU16(packet, ticket->tag);
+    TPM2_Packet_AppendU32(packet, ticket->hierarchy);
+    if (ticket->tag == TPM_ST_DIGEST_VERIFIED &&
+            ticket->hierarchy != TPM_RH_NULL) {
+        TPM2_Packet_AppendU16(packet, ticket->metaAlg);
+    }
+    TPM2_Packet_AppendU16(packet, ticket->digest.size);
+    TPM2_Packet_AppendBytes(packet, ticket->digest.buffer,
+        ticket->digest.size);
+}
+#endif
 void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
 {
     if (packet) {

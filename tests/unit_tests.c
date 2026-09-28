@@ -28,6 +28,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
+#include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_asn.h>
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_tis.h>
@@ -2603,6 +2604,60 @@ static void test_TPM2_command_process_buffer_cleanup(void)
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
+#if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
+/* A failed transport leaves the command header but no password or NV data. */
+static void test_TPM2_transport_buffer_cleanup(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION session;
+    NV_Write_In in;
+    const byte payload[] = "transport-secret";
+    char savedPort[32];
+    const char* envPort;
+    int hadPort;
+    word32 cmdSz, i;
+    int rc;
+
+    envPort = getenv("TPM2_SWTPM_PORT");
+    hadPort = (envPort != NULL);
+    if (hadPort) {
+        XSTRNCPY(savedPort, envPort, sizeof(savedPort) - 1);
+        savedPort[sizeof(savedPort) - 1] = '\0';
+    }
+    AssertIntEQ(setenv("TPM2_SWTPM_PORT", "1", 1), 0);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&in, 0, sizeof(in));
+    AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
+    ctx.session = &session;
+    session.sessionHandle = TPM_RS_PW;
+    session.auth.size = 8;
+    XMEMCPY(session.auth.buffer, "bad-auth", 8);
+    in.authHandle = TPM_RH_OWNER;
+    in.nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    in.data.size = (UINT16)sizeof(payload) - 1;
+    XMEMCPY(in.data.buffer, payload, sizeof(payload) - 1);
+
+    rc = TPM2_NV_Write(&in);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_Packet_ByteArrayToU32(ctx.cmdBuf + 6),
+        TPM_CC_NV_Write);
+    cmdSz = TPM2_Packet_ByteArrayToU32(ctx.cmdBuf + 2);
+    AssertIntGT(cmdSz, TPM2_HEADER_SIZE);
+    AssertIntLE(cmdSz, sizeof(ctx.cmdBuf));
+    for (i = TPM2_HEADER_SIZE; i < cmdSz; i++)
+        AssertIntEQ(ctx.cmdBuf[i], 0);
+
+    TPM2_Cleanup(&ctx);
+    if (hadPort)
+        setenv("TPM2_SWTPM_PORT", savedPort, 1);
+    else
+        unsetenv("TPM2_SWTPM_PORT");
+    printf("Test TPM Wrapper:\tTransport buffer cleanup:\tPassed\n");
+}
+#endif /* WOLFTPM_SWTPM && !NO_GETENV */
+
 static void test_wolfTPM2_PolicyHash(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -4195,63 +4250,34 @@ static void test_TPM2_ParseSignature_NullAlg(void)
 }
 
 #ifdef WOLFTPM_MLDSA_VERIFY
-/* TPM2_PolicyAuthorize must emit the 2-byte checkTicket metaAlg on the wire
- * for a non-NULL DIGEST_VERIFIED ticket and omit it for VERIFIED / NULL
- * tickets, mirroring the response parse side. Drives the real marshaling and
- * inspects the finalized command left in ctx->cmdBuf (the send fails with no
- * server, so the command buffer survives). */
+/* The PolicyAuthorize ticket carries metaAlg only for a non-NULL
+ * DIGEST_VERIFIED ticket. Test the same packet helper used by the command so
+ * transport-error cleanup does not have to leave a request in cmdBuf. */
 static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
 {
-#if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
-    TPM2_CTX ctx;
-    PolicyAuthorize_In in;
+    TPM2_Packet packet;
+    TPMT_TK_VERIFIED ticket;
+    byte buf[64];
     const byte* cmd;
     word32 digestLen, cmdLenDigest, cmdLenVerified, cmdLenNull;
-    char savedPort[32];
-    const char* envPort;
-    int hadPort;
-    int rc;
     int i;
-
-    /* Force the SWTPM connect to fail so the finalized command is left intact
-     * in ctx->cmdBuf instead of being overwritten by a live server response. */
-    envPort = getenv("TPM2_SWTPM_PORT");
-    hadPort = (envPort != NULL);
-    if (hadPort) {
-        XSTRNCPY(savedPort, envPort, sizeof(savedPort) - 1);
-        savedPort[sizeof(savedPort) - 1] = '\0';
-    }
-    AssertIntEQ(setenv("TPM2_SWTPM_PORT", "1", 1), 0);
-
-    XMEMSET(&ctx, 0, sizeof(ctx));
-
-    /* Register the active ctx and skip chip startup (timeoutTries = 0). */
-    AssertIntEQ(TPM2_Init_ex(&ctx, NULL, NULL, 0), TPM_RC_SUCCESS);
 
     digestLen = TPM_SHA256_DIGEST_SIZE;
 
     /* DIGEST_VERIFIED with a non-NULL hierarchy carries metaAlg. */
-    XMEMSET(&in, 0, sizeof(in));
-    in.checkTicket.tag = TPM_ST_DIGEST_VERIFIED;
-    in.checkTicket.hierarchy = TPM_RH_OWNER;
-    in.checkTicket.metaAlg = TPM_ALG_SHA256;
-    in.checkTicket.digest.size = (UINT16)digestLen;
+    XMEMSET(&ticket, 0, sizeof(ticket));
+    ticket.tag = TPM_ST_DIGEST_VERIFIED;
+    ticket.hierarchy = TPM_RH_OWNER;
+    ticket.metaAlg = TPM_ALG_SHA256;
+    ticket.digest.size = (UINT16)digestLen;
     for (i = 0; i < (int)digestLen; i++)
-        in.checkTicket.digest.buffer[i] = (byte)(0xA0 + i);
+        ticket.digest.buffer[i] = (byte)(0xA0 + i);
 
-    /* The send must fail (no server) so the marshaled command survives. */
-    rc = TPM2_PolicyAuthorize(&in);
-    AssertIntNE(rc, TPM_RC_SUCCESS);
-
-    cmd = ctx.cmdBuf;
-    /* Confirm cmdBuf still holds our command (no live server clobbered it). */
-    AssertIntEQ(cmd[6], 0x00);
-    AssertIntEQ(cmd[7], 0x00);
-    AssertIntEQ(cmd[8], 0x01);
-    AssertIntEQ(cmd[9], 0x6A); /* TPM_CC_PolicyAuthorize */
-
-    cmdLenDigest = ((word32)cmd[2] << 24) | ((word32)cmd[3] << 16) |
-                   ((word32)cmd[4] << 8) | (word32)cmd[5];
+    TPM2_Packet_InitBuf(&packet, buf, sizeof(buf));
+    TPM2_Packet_AppendVerifiedTicket(&packet, &ticket);
+    AssertIntEQ(packet.overflow, 0);
+    cmd = buf;
+    cmdLenDigest = (word32)packet.pos;
 
     /* Under NO_ABORT a bypassed assert above must not let a short length
      * underflow the trailing-offset math into an OOB index. */
@@ -4269,13 +4295,11 @@ static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
 
     /* VERIFIED omits metaAlg: command is 2 bytes shorter and the hierarchy
      * low half sits directly before digest.size. */
-    in.checkTicket.tag = TPM_ST_VERIFIED;
-    rc = TPM2_PolicyAuthorize(&in);
-    AssertIntNE(rc, TPM_RC_SUCCESS);
-
-    cmd = ctx.cmdBuf;
-    cmdLenVerified = ((word32)cmd[2] << 24) | ((word32)cmd[3] << 16) |
-                     ((word32)cmd[4] << 8) | (word32)cmd[5];
+    ticket.tag = TPM_ST_VERIFIED;
+    TPM2_Packet_InitBuf(&packet, buf, sizeof(buf));
+    TPM2_Packet_AppendVerifiedTicket(&packet, &ticket);
+    AssertIntEQ(packet.overflow, 0);
+    cmdLenVerified = (word32)packet.pos;
 
     AssertIntGT(cmdLenVerified, digestLen + 6);
     AssertIntEQ((int)(cmdLenDigest - cmdLenVerified), 2);
@@ -4284,29 +4308,16 @@ static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
 
     /* DIGEST_VERIFIED with a NULL hierarchy also omits metaAlg, so the command
      * length matches the VERIFIED case (2 bytes shorter than non-NULL). */
-    in.checkTicket.tag = TPM_ST_DIGEST_VERIFIED;
-    in.checkTicket.hierarchy = TPM_RH_NULL;
-    rc = TPM2_PolicyAuthorize(&in);
-    AssertIntNE(rc, TPM_RC_SUCCESS);
-
-    cmd = ctx.cmdBuf;
-    cmdLenNull = ((word32)cmd[2] << 24) | ((word32)cmd[3] << 16) |
-                 ((word32)cmd[4] << 8) | (word32)cmd[5];
+    ticket.tag = TPM_ST_DIGEST_VERIFIED;
+    ticket.hierarchy = TPM_RH_NULL;
+    TPM2_Packet_InitBuf(&packet, buf, sizeof(buf));
+    TPM2_Packet_AppendVerifiedTicket(&packet, &ticket);
+    AssertIntEQ(packet.overflow, 0);
+    cmdLenNull = (word32)packet.pos;
     AssertIntEQ((int)cmdLenNull, (int)cmdLenVerified);
-
-    TPM2_Cleanup(&ctx);
-
-    if (hadPort)
-        setenv("TPM2_SWTPM_PORT", savedPort, 1);
-    else
-        unsetenv("TPM2_SWTPM_PORT");
 
     printf("Test TPM Wrapper: %-40s Passed\n",
         "PolicyAuthorize DIGEST_VERIFIED metaAlg:");
-#else
-    printf("Test TPM Wrapper: %-40s Skipped (requires SWTPM)\n",
-        "PolicyAuthorize DIGEST_VERIFIED metaAlg:");
-#endif /* WOLFTPM_SWTPM && !NO_GETENV */
 }
 #endif /* WOLFTPM_MLDSA_VERIFY */
 
@@ -9687,6 +9698,19 @@ int unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
+#if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV) && \
+    !defined(WOLFTPM2_NO_WRAPPER)
+    if (argc == 2 && XSTRCMP(argv[1], "transport-wipe") == 0) {
+        test_TPM2_transport_buffer_cleanup();
+        return 0;
+    }
+#endif
+#if defined(WOLFTPM_MLDSA_VERIFY) && !defined(WOLFTPM2_NO_WRAPPER)
+    if (argc == 2 && XSTRCMP(argv[1], "policy-authorize-ticket") == 0) {
+        test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg();
+        return 0;
+    }
+#endif
     (void)argc;
     (void)argv;
 
@@ -9718,6 +9742,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVWriteChunked();
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();
+#endif
+#if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
+    test_TPM2_transport_buffer_cleanup();
 #endif
     test_wolfTPM2_PolicyHash();
     test_wolfTPM2_SensitiveToPrivate();
