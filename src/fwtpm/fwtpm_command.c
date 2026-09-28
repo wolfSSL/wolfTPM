@@ -5558,19 +5558,16 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
         XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
 
-        /* Generate new owner and endorsement seeds */
+        /* Generate new storage primary seed */
         rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->ownerSeed, FWTPM_SEED_SIZE);
-        if (rc == 0)
-            rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->endorsementSeed,
-                FWTPM_SEED_SIZE);
         if (rc != 0) rc = TPM_RC_FAILURE;
 
         /* Only commit state changes if seed generation succeeded —
          * avoid partial mutation on RNG failure */
         if (rc == 0) {
-            /* Flush primary cache — stale entries from old seeds would
-             * produce wrong keys now that CreatePrimary derives from the
-             * seed via KDFa */
+            ctx->endorsementProofVersion = 1;
+            /* Flush owner and endorsement primary cache entries after
+             * clearing hierarchy state. */
             for (ci = 0; ci < FWTPM_MAX_PRIMARY_CACHE; ci++) {
                 if (ctx->primaryCache[ci].used &&
                     (ctx->primaryCache[ci].hierarchy == TPM_RH_OWNER ||
@@ -5696,6 +5693,7 @@ static TPM_RC FwCmd_ChangeEPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Only commit state changes if seed generation succeeded */
         if (rc == 0) {
+            ctx->endorsementProofVersion = 1;
             /* Reset endorsement auth and policy */
             XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
             XMEMSET(&ctx->endorsementPolicy, 0,
@@ -6663,7 +6661,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
         rc = FwComputePublicName(&inPublic->publicArea, &childName);
         if (rc == 0) {
-            rc = FwWrapPrivate(parent, &ctx->rng, &childName,
+            rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
                 privKeyDer, privKeyDerSz, outPrivate);
         }
@@ -6818,7 +6816,7 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Re-wrap private key with new auth, then update the live object */
     if (rc == 0) {
-        rc = FwWrapPrivate(parent, &ctx->rng, &obj->name, obj->pub.type,
+        rc = FwWrapPrivate(ctx, parent, &ctx->rng, &obj->name, obj->pub.type,
             &newAuth, obj->privKey, obj->privKeySize, &outPrivate);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
@@ -6942,7 +6940,7 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Unwrap private */
     if (rc == 0) {
-        rc = FwUnwrapPrivate(parent, &obj->name, &inPrivate,
+        rc = FwUnwrapPrivate(ctx, parent, &obj->name, &inPrivate,
             &sensitiveType, &obj->authValue,
             obj->privKey, &obj->privKeySize);
     #ifdef DEBUG_WOLFTPM
@@ -7719,7 +7717,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
         rc = FwComputePublicName(&objectPublic->publicArea, &childName);
         if (rc == 0) {
-            rc = FwWrapPrivate(parent, &ctx->rng, &childName, sensType,
+            rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName, sensType,
                 &importedAuth, privKeyDer, privKeyDerSz, outPrivate);
         }
     }
@@ -8748,7 +8746,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2B_NAME childName;
         rc = FwComputePublicName(&inPublic->publicArea, &childName);
         if (rc == 0) {
-            rc = FwWrapPrivate(parent, &ctx->rng, &childName,
+            rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
                 privKeyDer, privKeyDerSz, outPrivate);
         }

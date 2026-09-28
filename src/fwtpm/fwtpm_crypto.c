@@ -245,8 +245,10 @@ byte* FwGetHierarchySeed(FWTPM_CTX* ctx, UINT32 hierarchy)
     }
 }
 
-/** \brief Derive proof value from a hierarchy seed via KDFa.
- *  proofValue = KDFa(hashAlg, seed, "PROOF", NULL, NULL, digestSize).
+/** \brief Derive proof value from hierarchy seeds via KDFa.
+ *  New endorsement state uses both SPS and EPS so Clear changes the proof
+ *  without changing endorsement primary keys. Legacy state keeps the
+ *  original EPS-only derivation until Clear or ChangeEPS.
  *  Used for HMAC-based ticket verification (Hash, Sign, VerifySignature). */
 int FwComputeProofValue(FWTPM_CTX* ctx, UINT32 hierarchy,
     TPMI_ALG_HASH hashAlg, byte* proofOut, int proofSize)
@@ -256,8 +258,16 @@ int FwComputeProofValue(FWTPM_CTX* ctx, UINT32 hierarchy,
     if (seed == NULL) {
         return TPM_RC_FAILURE;
     }
-    rc = TPM2_KDFa_ex(hashAlg, seed, FWTPM_SEED_SIZE,
-        "PROOF", NULL, 0, NULL, 0, proofOut, proofSize);
+    if (hierarchy == TPM_RH_ENDORSEMENT &&
+            ctx->endorsementProofVersion != 0) {
+        rc = TPM2_KDFa_ex(hashAlg, ctx->ownerSeed, FWTPM_SEED_SIZE,
+            "PROOF", ctx->endorsementSeed, FWTPM_SEED_SIZE,
+            NULL, 0, proofOut, proofSize);
+    }
+    else {
+        rc = TPM2_KDFa_ex(hashAlg, seed, FWTPM_SEED_SIZE,
+            "PROOF", NULL, 0, NULL, 0, proofOut, proofSize);
+    }
     if (rc != proofSize) {
         return TPM_RC_FAILURE;
     }
@@ -2052,24 +2062,38 @@ TPM_RC FwDeriveRsaPrimaryKey(TPMI_ALG_HASH nameAlg,
 /* Private key wrapping/unwrapping for Create/Load                     */
 /* ================================================================== */
 
-/* Derive the 32-byte AES key and 32-byte MAC key from parent's private key
- * and the child's Name, so a blob only unwraps under the public area it was
- * created with. Used to wrap child key sensitive data in TPM2B_PRIVATE. */
-int FwDeriveWrapKey(const FWTPM_Object* parent, const TPM2B_NAME* name,
+/* Derive child private-blob keys from the parent key and child Name.
+ * New endorsement descendants also use ehProof so Clear invalidates old
+ * blobs while the EPS-derived primary key remains unchanged. */
+int FwDeriveWrapKey(FWTPM_CTX* ctx, const FWTPM_Object* parent,
+    const TPM2B_NAME* name,
     byte* aesKey, byte* macKey)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
+    byte proof[WC_SHA256_DIGEST_SIZE];
+    int useProof;
+    int hmacTried = 0;
     FWTPM_DECLARE_VAR(hmac, Hmac);
 
-    if (name == NULL || name->size == 0 || name->size > sizeof(name->name)) {
+    if (ctx == NULL || parent == NULL || name == NULL || name->size == 0 ||
+            name->size > sizeof(name->name)) {
         return TPM_RC_FAILURE;
     }
 
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
-    rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    useProof = (parent->hierarchy == TPM_RH_ENDORSEMENT &&
+        ctx->endorsementProofVersion != 0);
+    if (rc == 0 && useProof) {
+        rc = FwComputeProofValue(ctx, TPM_RH_ENDORSEMENT,
+            TPM_ALG_SHA256, proof, sizeof(proof));
+    }
+    if (rc == 0) {
+        hmacTried = 1;
+        rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    }
 
-    /* AES key = HMAC-SHA256(parentPriv, "fwTPM-wrap-key" || name)
+    /* AES key = HMAC-SHA256(parentPriv, label || [ehProof] || name).
      * Use full parent private key as HMAC key — HMAC handles arbitrary-length
      * keys via internal hashing. The previous 32-byte truncation used
      * predictable ASN.1 DER header bytes for RSA keys. */
@@ -2080,6 +2104,8 @@ int FwDeriveWrapKey(const FWTPM_Object* parent, const TPM2B_NAME* name,
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, (const byte*)"fwTPM-wrap-key", 14);
     }
+    if (rc == 0 && useProof)
+        rc = wc_HmacUpdate(hmac, proof, sizeof(proof));
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, name->name, name->size);
     }
@@ -2087,7 +2113,7 @@ int FwDeriveWrapKey(const FWTPM_Object* parent, const TPM2B_NAME* name,
         rc = wc_HmacFinal(hmac, aesKey);
     }
 
-    /* MAC key = HMAC-SHA256(parentPriv, "fwTPM-wrap-mac" || name) */
+    /* Use a separate label for the MAC key. */
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, WC_SHA256, parent->privKey,
             parent->privKeySize);
@@ -2095,6 +2121,8 @@ int FwDeriveWrapKey(const FWTPM_Object* parent, const TPM2B_NAME* name,
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, (const byte*)"fwTPM-wrap-mac", 14);
     }
+    if (rc == 0 && useProof)
+        rc = wc_HmacUpdate(hmac, proof, sizeof(proof));
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, name->name, name->size);
     }
@@ -2106,7 +2134,9 @@ int FwDeriveWrapKey(const FWTPM_Object* parent, const TPM2B_NAME* name,
         rc = TPM_RC_FAILURE;
     }
 
-    wc_HmacFree(hmac);
+    TPM2_ForceZero(proof, sizeof(proof));
+    if (hmacTried)
+        wc_HmacFree(hmac);
     FWTPM_FREE_VAR(hmac);
     return rc;
 }
@@ -2243,7 +2273,7 @@ int FwUnmarshalSensitive(const byte* buf, int bufSz,
  * Format: integritySize(2) + integrity(32) + iv(16) + encSensSize(2) +
  *         encSens(N)
  */
-int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
+int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     const TPM2B_NAME* name,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
     const byte* privKeyDer, int privKeyDerSz,
@@ -2277,7 +2307,7 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
 
     /* Derive wrapping keys from parent and child Name, fresh IV per blob */
     if (rc == 0) {
-        rc = FwDeriveWrapKey(parent, name, aesKey, macKey);
+        rc = FwDeriveWrapKey(ctx, parent, name, aesKey, macKey);
     }
     if (rc == 0) {
         if (rng == NULL ||
@@ -2361,7 +2391,8 @@ int FwWrapPrivate(FWTPM_Object* parent, WC_RNG* rng,
 }
 
 /* Unwrap TPM2B_PRIVATE using parent's key */
-int FwUnwrapPrivate(FWTPM_Object* parent, const TPM2B_NAME* name,
+int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
+    const TPM2B_NAME* name,
     const TPM2B_PRIVATE* inPriv,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
     byte* privKeyDer, int* privKeyDerSz)
@@ -2418,7 +2449,7 @@ int FwUnwrapPrivate(FWTPM_Object* parent, const TPM2B_NAME* name,
 
     /* Derive wrapping keys from parent and the presented public area's Name */
     if (rc == 0) {
-        rc = FwDeriveWrapKey(parent, name, aesKey, macKey);
+        rc = FwDeriveWrapKey(ctx, parent, name, aesKey, macKey);
     }
 
     /* Verify HMAC over IV and encrypted data */

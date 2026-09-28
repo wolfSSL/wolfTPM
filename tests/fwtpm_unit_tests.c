@@ -11176,6 +11176,130 @@ static void test_fwtpm_load_private_bound_to_public(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Private blob bound to its public area:", 0);
 }
+static UINT32 CreateEndorsementPrimaryHelper(FWTPM_CTX* ctx)
+{
+    int cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA);
+    int rspSize = 0;
+
+    AssertIntGT(cmdSz, 0);
+    PutU32BE(gCmd + 10, TPM_RH_ENDORSEMENT);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+static void test_fwtpm_clear_revokes_endorsement_child(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 parent, child;
+    byte priv[sizeof(TPM2B_PRIVATE)];
+    byte pub[sizeof(TPM2B_PUBLIC)];
+    UINT16 privSz, pubSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntNE(parent, 0);
+    CreateChildBlobs(&ctx, parent, priv, &privSz, pub, &pubSz);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_SUCCESS);
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    FlushHandle(&ctx, child);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_SUCCESS);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntNE(parent, 0);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_INTEGRITY);
+
+    CreateChildBlobs(&ctx, parent, priv, &privSz, pub, &pubSz);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_SUCCESS);
+
+    TPM2_ForceZero(priv, sizeof(priv));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear revokes endorsement child blobs:", 0);
+}
+
+
+#ifndef FWTPM_NO_NV
+static void test_fwtpm_legacy_endorsement_artifacts(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 parent, child;
+    byte priv[sizeof(TPM2B_PRIVATE)];
+    byte pub[sizeof(TPM2B_PUBLIC)];
+    byte ticketBefore[TPM_MAX_DIGEST_SIZE];
+    byte ticketAfter[TPM_MAX_DIGEST_SIZE];
+    byte legacyProof[WC_SHA256_DIGEST_SIZE];
+    byte actualProof[WC_SHA256_DIGEST_SIZE];
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    UINT16 privSz, pubSz;
+    int ticketBeforeSz = 0;
+    int ticketAfterSz = 0;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    /* A flags record without the version byte has the old derivation. */
+    ctx.endorsementProofVersion = 0;
+    AssertIntEQ(FWTPM_NV_Save(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_KDFa_ex(TPM_ALG_SHA256, ctx.endorsementSeed,
+        FWTPM_SEED_SIZE, "PROOF", NULL, 0, NULL, 0,
+        legacyProof, sizeof(legacyProof)), (int)sizeof(legacyProof));
+    AssertIntEQ(FwComputeProofValue(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, actualProof, sizeof(actualProof)), TPM_RC_SUCCESS);
+    AssertIntEQ(XMEMCMP(legacyProof, actualProof, sizeof(legacyProof)), 0);
+    XMEMSET(digest, 0x6B, sizeof(digest));
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketBefore, &ticketBeforeSz), TPM_RC_SUCCESS);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    CreateChildBlobs(&ctx, parent, priv, &privSz, pub, &pubSz);
+    AssertIntEQ(FWTPM_Cleanup(&ctx), TPM_RC_SUCCESS);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.endorsementProofVersion, 0);
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketAfter, &ticketAfterSz), TPM_RC_SUCCESS);
+    AssertIntEQ(ticketBeforeSz, ticketAfterSz);
+    AssertIntEQ(XMEMCMP(ticketBefore, ticketAfter, ticketBeforeSz), 0);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_SUCCESS);
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    FlushHandle(&ctx, child);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.endorsementProofVersion, 1);
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketAfter, &ticketAfterSz), TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(ticketBefore, ticketAfter, ticketBeforeSz), 0);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_INTEGRITY);
+    AssertIntEQ(FWTPM_Cleanup(&ctx), TPM_RC_SUCCESS);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.endorsementProofVersion, 1);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_INTEGRITY);
+    TPM2_ForceZero(priv, sizeof(priv));
+    TPM2_ForceZero(ticketBefore, sizeof(ticketBefore));
+    TPM2_ForceZero(ticketAfter, sizeof(ticketAfter));
+    TPM2_ForceZero(legacyProof, sizeof(legacyProof));
+    TPM2_ForceZero(actualProof, sizeof(actualProof));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Legacy endorsement artifacts through upgrade:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN */
 
 /* PolicyPCR selecting PCR 0 in the SHA-256 bank with an optional caller digest */
@@ -13120,14 +13244,40 @@ static void test_fwtpm_set_primary_policy_bad_size_rejected(void)
 static void test_fwtpm_clear(void)
 {
     FWTPM_CTX ctx;
+    byte ownerSeed[FWTPM_SEED_SIZE];
+    byte endorsementSeed[FWTPM_SEED_SIZE];
+    byte ticketBefore[TPM_MAX_DIGEST_SIZE];
+    byte ticketAfter[TPM_MAX_DIGEST_SIZE];
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    int ticketBeforeSz = 0;
+    int ticketAfterSz = 0;
+
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    XMEMCPY(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
+    XMEMCPY(endorsementSeed, ctx.endorsementSeed, sizeof(endorsementSeed));
+    XMEMSET(digest, 0x5A, sizeof(digest));
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketBefore, &ticketBeforeSz), TPM_RC_SUCCESS);
 
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
         TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(ctx.ownerSeed, ownerSeed, sizeof(ownerSeed)), 0);
+    AssertIntEQ(XMEMCMP(ctx.endorsementSeed, endorsementSeed,
+        sizeof(endorsementSeed)), 0);
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketAfter, &ticketAfterSz), TPM_RC_SUCCESS);
+    AssertIntEQ(ticketBeforeSz, ticketAfterSz);
+    AssertIntNE(XMEMCMP(ticketBefore, ticketAfter, ticketBeforeSz), 0);
 
+    TPM2_ForceZero(ownerSeed, sizeof(ownerSeed));
+    TPM2_ForceZero(endorsementSeed, sizeof(endorsementSeed));
+    TPM2_ForceZero(ticketBefore, sizeof(ticketBefore));
+    TPM2_ForceZero(ticketAfter, sizeof(ticketAfter));
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("Clear(LOCKOUT):", 0);
+    fwtpm_pass("Clear preserves endorsement seed:", 0);
 }
 
 #ifndef FWTPM_NO_NV
@@ -16028,13 +16178,27 @@ int main(int argc, char *argv[])
 int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 {
-    (void)argc;
-    (void)argv;
-
     printf("fwTPM Unit Tests\n");
 
     /* Remove stale NV state to ensure clean test runs */
     (void)remove(FWTPM_NV_FILE);
+
+    if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
+        test_fwtpm_clear();
+        return 0;
+    }
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    if (argc == 2 && XSTRCMP(argv[1], "clear-child") == 0) {
+        test_fwtpm_clear_revokes_endorsement_child();
+        return 0;
+    }
+#ifndef FWTPM_NO_NV
+    if (argc == 2 && XSTRCMP(argv[1], "legacy-endorsement") == 0) {
+        test_fwtpm_legacy_endorsement_artifacts();
+        return 0;
+    }
+#endif
+#endif
 
     /* Lifecycle */
 #ifdef FWTPM_NO_NV
@@ -16374,6 +16538,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_wrap_private_unique_iv();
     test_fwtpm_load_private_bound_to_public();
+    test_fwtpm_clear_revokes_endorsement_child();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_legacy_endorsement_artifacts();
+#endif
 #endif
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();

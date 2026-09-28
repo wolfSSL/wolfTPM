@@ -1399,6 +1399,14 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                 ctx->lockoutAuthFailed = 0;
             }
         #endif
+            /* Old journals end here and keep their original proof/KDF. */
+            ctx->endorsementProofVersion = 0;
+            if (vPos < vMax) {
+                FwNvUnmarshalU8(value, &vPos, vMax,
+                    &ctx->endorsementProofVersion);
+                if (ctx->endorsementProofVersion != 1)
+                    ctx->endorsementProofVersion = 0;
+            }
             break;
         }
 
@@ -1597,6 +1605,8 @@ static int FwNvGenFreshState(FWTPM_CTX* ctx)
     if (rc != 0) {
         return TPM_RC_FAILURE;
     }
+
+    ctx->endorsementProofVersion = 1;
 
     /* Auth values start empty */
     XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
@@ -2180,6 +2190,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     #ifndef FWTPM_NO_DA
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daFailedTries);
     #endif
+        if (ctx->endorsementProofVersion != 0)
+            FwNvMarshalU8(buf, &pos, bufSz, 1);
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     }
 
@@ -2486,7 +2498,7 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     return TPM_RC_SUCCESS;
 #else
     int rc;
-    byte buf[1 + 12 + 4 + 4]; /* flags + DA params + resetCount + failedTries */
+    byte buf[1 + 12 + 4 + 4 + 1]; /* flags, DA, counters, proof version */
     word32 pos = 0;
 
     if (ctx == NULL) {
@@ -2514,6 +2526,8 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
 #ifndef FWTPM_NO_DA
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daFailedTries);
 #endif
+    if (ctx->endorsementProofVersion != 0)
+        FwNvMarshalU8(buf, &pos, sizeof(buf), 1);
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     return rc;
