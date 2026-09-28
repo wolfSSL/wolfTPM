@@ -2621,8 +2621,11 @@ static void test_TPM2_transport_buffer_cleanup(void)
     envPort = getenv("TPM2_SWTPM_PORT");
     hadPort = (envPort != NULL);
     if (hadPort) {
-        XSTRNCPY(savedPort, envPort, sizeof(savedPort) - 1);
-        savedPort[sizeof(savedPort) - 1] = '\0';
+        for (i = 0; i < (word32)sizeof(savedPort) - 1 &&
+                envPort[i] != '\0'; i++) {
+            savedPort[i] = envPort[i];
+        }
+        savedPort[i] = '\0';
     }
     AssertIntEQ(setenv("TPM2_SWTPM_PORT", "1", 1), 0);
 
