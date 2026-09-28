@@ -10661,6 +10661,72 @@ static void test_fwtpm_policyauthorizenv_owner_read_denied(void)
     printf("Test fwTPM:\tPolicyAuthorizeNV OWNER read denied:\tPassed\n");
 }
 
+/* Policy NV commands must honor the same runtime read lock as NV_Read. */
+static void test_fwtpm_policy_nv_read_locked(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500077;
+    UINT32 attrs = TPMA_NV_OWNERREAD | TPMA_NV_OWNERWRITE |
+        TPMA_NV_READ_STCLEAR | TPMA_NV_NO_DA;
+    UINT32 sessH;
+    int pos, cmdSz, rspSize = 0;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 32, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_Write);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    XMEMSET(gCmd + pos, 0, 32); pos += 32;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_ReadLock, nvIdx),
+        TPM_RC_SUCCESS);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyNV);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 1); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_EO_EQ); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_LOCKED);
+    FlushHandle(&ctx, sessH);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyAuthorizeNV);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_LOCKED);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Policy NV read lock:", 0);
+}
+
 /* PolicyLocality must bind a locality constraint that is enforced when the
  * policy session authorizes an entity. A session satisfying a locality-4
  * policy must not authorize a command issued at locality 0. */
@@ -16323,6 +16389,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
+#if !defined(FWTPM_NO_NV) && !defined(FWTPM_NO_POLICY)
+    if (argc == 2 && XSTRCMP(argv[1], "policy-nv-lock") == 0) {
+        test_fwtpm_policy_nv_read_locked();
+        return 0;
+    }
+#endif
 
     /* Lifecycle */
 #ifdef FWTPM_NO_NV
@@ -16672,6 +16744,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_NV
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();
+    test_fwtpm_policy_nv_read_locked();
     test_fwtpm_policy_locality_enforced();
     test_fwtpm_policy_cphash_enforced();
 #ifdef WOLFTPM_SPDM

@@ -12486,6 +12486,9 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwNvCheckAccess(authHandle, nvIndex,
             nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
+    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
+        rc = TPM_RC_NV_LOCKED;
+    }
 
     /* Find policy session */
     if (rc == 0) {
@@ -13581,6 +13584,9 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
             nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
+    }
+    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
+        rc = TPM_RC_NV_LOCKED;
     }
 
     if (rc == 0 && !nv->written) {
