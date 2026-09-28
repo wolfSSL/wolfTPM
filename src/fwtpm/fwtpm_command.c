@@ -939,6 +939,10 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 startupType = 0;
     int i, b;
+#ifndef FWTPM_NO_NV
+    FWTPM_DECLARE_BUF(oldNvData, FWTPM_MAX_NV_DATA);
+    int oldNvDataAllocated = 0;
+#endif
 
     (void)cmdTag;
 
@@ -1064,6 +1068,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 UINT32 oldAttrs;
                 UINT32 attrs;
                 int oldWritten;
+                int clearData;
 
                 if (!nv->inUse)
                     continue;
@@ -1071,8 +1076,21 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 oldAttrs = nv->nvPublic.attributes;
                 oldWritten = nv->written;
                 attrs = oldAttrs;
+                clearData = (attrs & TPMA_NV_CLEAR_STCLEAR) != 0;
 
-                if (attrs & TPMA_NV_CLEAR_STCLEAR) {
+                if (clearData) {
+                    if (!oldNvDataAllocated) {
+                        FWTPM_ALLOC_BUF(oldNvData, FWTPM_MAX_NV_DATA);
+                        if (rc != 0)
+                            break;
+                        oldNvDataAllocated = 1;
+                    }
+                    if (nv->nvPublic.dataSize > FWTPM_MAX_NV_DATA) {
+                        rc = TPM_RC_SIZE;
+                        break;
+                    }
+                    XMEMCPY(oldNvData, nv->data, nv->nvPublic.dataSize);
+                    XMEMSET(nv->data, 0, nv->nvPublic.dataSize);
                     attrs &= ~TPMA_NV_WRITTEN;
                     nv->written = 0;
                 }
@@ -1083,14 +1101,23 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     attrs &= ~TPMA_NV_WRITELOCKED;
                 }
 
-                if (attrs != oldAttrs || nv->written != oldWritten) {
+                if (clearData || attrs != oldAttrs ||
+                        nv->written != oldWritten) {
                     nv->nvPublic.attributes = attrs;
                     rc = FWTPM_NV_SaveNvIndex(ctx, i);
                     if (rc != 0) {
                         nv->nvPublic.attributes = oldAttrs;
                         nv->written = oldWritten;
+                        if (clearData) {
+                            XMEMCPY(nv->data, oldNvData,
+                                nv->nvPublic.dataSize);
+                        }
                     }
                 }
+            }
+            if (oldNvDataAllocated) {
+                TPM2_ForceZero(oldNvData, FWTPM_MAX_NV_DATA);
+                FWTPM_FREE_BUF(oldNvData);
             }
         #endif
 

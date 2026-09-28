@@ -11684,6 +11684,8 @@ static void test_fwtpm_nv_stclear_startup(void)
         else if (nv->nvPublic.nvIndex == handles[1]) {
             AssertIntEQ(nv->nvPublic.attributes & TPMA_NV_WRITTEN, 0);
             AssertIntEQ(nv->written, 0);
+            for (i = 0; i < nv->nvPublic.dataSize; i++)
+                AssertIntEQ(nv->data[i], 0);
             checked++;
         }
         else if (nv->nvPublic.nvIndex == handles[2]) {
@@ -11710,6 +11712,8 @@ static void test_fwtpm_nv_stclear_startup(void)
         }
         else if (nv->nvPublic.nvIndex == handles[1]) {
             AssertIntEQ(nv->written, 0);
+            for (i = 0; i < nv->nvPublic.dataSize; i++)
+                AssertIntEQ(nv->data[i], 0);
             checked++;
         }
         else if (nv->nvPublic.nvIndex == handles[2]) {
