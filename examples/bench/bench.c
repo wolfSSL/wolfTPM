@@ -444,6 +444,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     TPM2B_ECC_POINT pubPoint;
     double start;
     int count;
+    int sha1Supported;
     int skipDec = 0; /* skip a decrypt op whose paired encrypt was unsupported */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
@@ -577,10 +578,18 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* Hashing Benchmarks */
-    /* SHA1 */
-    rc = bench_sym_hash(&dev, "SHA1", TPM_ALG_SHA1, message.buffer,
-        sizeof(message.buffer), cipher.buffer, TPM_SHA_DIGEST_SIZE, maxDuration);
-    if (rc != 0 && (rc & RC_MAX_FMT1) != TPM_RC_HASH) goto exit;
+    /* SHA1 is optional on current TPMs. Skip it when the TPM omits it. */
+    rc = wolfTPM2_IsAlgSupported(&dev, TPM_ALG_SHA1, &sha1Supported);
+    if (rc != 0) goto exit;
+    if (sha1Supported) {
+        rc = bench_sym_hash(&dev, "SHA1", TPM_ALG_SHA1, message.buffer,
+            sizeof(message.buffer), cipher.buffer, TPM_SHA_DIGEST_SIZE,
+            maxDuration);
+        if (rc != 0 && (rc & RC_MAX_FMT1) != TPM_RC_HASH) goto exit;
+    }
+    else {
+        printf("SHA1              Skipped (not supported)\n");
+    }
     /* SHA256 */
     rc = bench_sym_hash(&dev, "SHA256", TPM_ALG_SHA256, message.buffer,
         sizeof(message.buffer), cipher.buffer, TPM_SHA256_DIGEST_SIZE, maxDuration);

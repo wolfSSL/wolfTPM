@@ -46,3 +46,4 @@ endif
 # PQC enabled (EXTRA_DIST inside a conditional is excluded from dist otherwise).
 EXTRA_DIST += examples/pqc/README.md
 EXTRA_DIST += examples/pqc/pqc_ctrl.sh
+EXTRA_DIST += examples/pqc/no_sha1_examples.sh
