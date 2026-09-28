@@ -82,12 +82,11 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-sha384
             build_only: true
 
-          # Build-only: fwTPM with SHA-1 disabled (verifies !NO_SHA gating
-          # for SHA-1 PCR bank and RSA hash conversion)
+          # fwTPM with SHA-1 disabled: build plus PQC and benchmark smoke runs.
           - name: fwtpm-no-sha1
             os: ubuntu-latest
-            wolftpm_config: --enable-fwtpm --enable-swtpm
-            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-sha
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-pqc
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-mldsa --enable-mlkem --disable-sha
             build_only: true
             extra_cflags: -DNO_SHA
 
@@ -349,6 +348,19 @@ jobs:
           else
             make check
           fi
+
+      - name: Run no-SHA-1 PQC examples and benchmark
+        if: matrix.name == 'fwtpm-no-sha1'
+        run: |
+          set -euo pipefail
+          ./src/fwtpm/fwtpm_server --clear > /tmp/fwtpm_no_sha1.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          kill -0 "$server_pid"
+          ./examples/pqc/no_sha1_examples.sh
+          ./examples/bench/bench -iter=1 | tee /tmp/fwtpm_no_sha1_bench.log
+          grep -E '^SHA1[[:space:]]+Skipped [(]not supported[)]$' /tmp/fwtpm_no_sha1_bench.log
 
       - name: Print test-suite.log on failure
         if: ${{ failure() && !matrix.build_only }}

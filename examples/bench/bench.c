@@ -588,7 +588,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0 && (rc & RC_MAX_FMT1) != TPM_RC_HASH) goto exit;
     }
     else {
-        printf("SHA1              Skipped (not supported)\n");
+        printf("%-16s Skipped (not supported)\n", "SHA1");
     }
     /* SHA256 */
     rc = bench_sym_hash(&dev, "SHA256", TPM_ALG_SHA256, message.buffer,
