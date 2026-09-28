@@ -79,9 +79,10 @@ Supported algorithms:
 | ML-KEM (key encapsulation) | FIPS 203 | ML-KEM-512 / 768 / 1024 |
 
 wolfTPM **officially supports the SealSQ QVault TPM**, the first shipping TPM 2.0
-with these v1.85 PQC algorithms in silicon. Build for it with `--enable-sealsq
---enable-pqc`. The same examples and wrapper API also run against the in-tree
-fwTPM server for CI or when no hardware is present. See the
+with these v1.85 PQC algorithms in silicon. See
+[Hardware TPM: SealSQ QVault](#hardware-tpm-sealsq-qvault) for its hardware
+build. The same PQC API also runs against the in-tree fwTPM server for CI or
+when no hardware is present. See the
 [TPM2 Benchmarks](#tpm2-benchmarks) section for measured ML-DSA / ML-KEM
 performance on the QVault TPM.
 
@@ -97,20 +98,43 @@ make
 sudo make install
 ```
 
-**wolfTPM**:
+#### fwTPM (software TPM)
 
 ```
 ./configure --enable-fwtpm --enable-pqc
 make
 ```
 
-`--enable-v185` turns on the full v1.85 build (`WOLFTPM_V185`): the PQC
-algorithms plus the non-PQC v1.85 spec additions. `--enable-pqc` turns on
-just the lean PQC subset (`WOLFTPM_PQC`) — ML-DSA / ML-KEM only — which is
-smaller for deployments that do not need the rest of v1.85. If you omit both
-but `--enable-fwtpm` is set and wolfCrypt has ML-DSA + ML-KEM available,
-configure auto-detects and enables full v1.85. Pass `--disable-pqc` to opt
+The fwTPM server uses the full v1.85 command set, so configure promotes
+`--enable-pqc` to `--enable-v185`. If you omit both flags and wolfCrypt has
+ML-DSA + ML-KEM, configure auto-enables v1.85. Pass `--disable-pqc` to opt
 out explicitly.
+
+#### Hardware TPM: SealSQ QVault
+
+SealSQ QVault is the hardware TPM currently supported for v1.85 PQC:
+
+```
+./configure --enable-sealsq --enable-pqc
+make
+```
+
+On Linux, add `--enable-devtpm` to use the kernel TPM driver. For examples
+that pass transient handles between processes, also add
+`CFLAGS='-DTPM2_LINUX_DEV="/dev/tpm0"'`: the default `/dev/tpmrm0` virtualizes
+and discards those handles when a process closes the device. See
+[docs/DEVTPM.md](docs/DEVTPM.md) for device permissions and details.
+
+`--enable-pqc` builds the lean ML-DSA / ML-KEM subset (`WOLFTPM_PQC`) for
+hardware. Use `--enable-v185` (`WOLFTPM_V185`) for the full v1.85 command set.
+
+Non-SHA-1 TPM examples include:
+
+```
+./examples/pqc/pqc_ctrl --caps --algs
+./examples/pqc/pqc_ctrl --mldsa=65 --mlkem=768
+./examples/wrap/hash "wolfTPM" -sha256
+```
 
 #### Trimming the PQC footprint
 
@@ -145,6 +169,8 @@ fwTPM always builds the full v1.85 spec surface, so the trims apply on top of
 ```
 make check
 ```
+
+`make check` runs the fwTPM tests, including PQC coverage.
 
 See [examples/pqc/README.md](examples/pqc/README.md) for per-example
 details — the `pqc_ctrl` control center (every PQC operation plus board
@@ -197,7 +223,9 @@ There is also an Ephemeral hierarchy (`TPM_RH_NULL`), which can be used to creat
 
 ### Platform Configuration Registers (PCRs)
 
-Contains hash digests for SHA-1 and SHA-256 with an index 0-23. These hash digests can be extended to prove the integrity of a boot sequence (secure boot).
+PCRs hold hash digests at indices 0-23 in banks supported and allocated by the
+TPM. They can be extended to prove the integrity of a boot sequence (secure
+boot).
 
 
 ### Terminology

@@ -3,10 +3,10 @@
 Examples exercising the ML-DSA / ML-KEM post-quantum additions from TCG
 TPM 2.0 Library Specification v1.85, wrapped by `wolfTPM2_*` API calls.
 
-These examples run on the SealSQ QVault TPM — the first shipping TPM 2.0 with
-v1.85 post-quantum (ML-DSA / ML-KEM) algorithms in silicon — over SPI, and on
-the in-tree fwTPM server for CI or when no hardware is present. Build for the
-SealSQ part with `--enable-sealsq --enable-pqc`; see
+These examples run on the in-tree fwTPM server for CI or when no hardware is
+present. They also run on the SealSQ QVault TPM, which implements v1.85
+ML-DSA / ML-KEM in silicon, over SPI or the Linux TPM device. See
+[Hardware TPM: SealSQ QVault](#hardware-tpm-sealsq-qvault) for its build and
 [docs/FWTPM.md](../../docs/FWTPM.md#tpm-20-v185-post-quantum-support) for the
 fwTPM PQC reference.
 
@@ -16,7 +16,7 @@ fwTPM PQC reference.
 
 ```
 ./configure --enable-wolftpm --enable-mldsa --enable-mlkem \
-            --enable-tls-mlkem-standalone --enable-experimental \
+            --enable-tls-mlkem-standalone \
             --enable-harden --enable-keygen --enable-certgen
 make
 sudo make install
@@ -30,24 +30,26 @@ groups; without it wolfSSL only offers the hybrid groups and
 `--enable-wolftpm` provides the crypto callback and private-key-id support the
 TLS server uses.
 
-**wolfTPM**:
+### fwTPM (software TPM)
 
 ```
 ./configure --enable-fwtpm --enable-pqc
 make
 ```
 
-`--enable-pqc` is an alias for `--enable-v185`. If you omit both but
-`--enable-fwtpm` is set and wolfCrypt has ML-DSA + ML-KEM,
-configure auto-enables PQC.
+The fwTPM server needs the full v1.85 command set, so configure promotes
+`--enable-pqc` to `--enable-v185`. If you omit both flags and wolfCrypt has
+ML-DSA + ML-KEM, configure auto-enables v1.85.
 
-## Run the test suite
+#### Run the test suite
 
 ```
 make check
 ```
 
-Runs the full suite, including all PQC coverage:
+With the fwTPM build above, this runs the software-TPM suite, including PQC
+coverage:
+
 - `tests/fwtpm_unit.test` — 30+ in-process PQC handler tests
 - `tests/unit.test` — PQC wrapper tests over the mssim socket
   (ML-DSA Sign/Verify Sequence, ML-KEM Encap/Decap, EncryptSecret MLKEM, etc.)
@@ -61,9 +63,37 @@ for faster targeted iteration:
 ./tests/pqc_mssim_e2e.sh      # PQC E2E only (fastest PQC-focused check)
 ```
 
+### Hardware TPM: SealSQ QVault
+
+SealSQ QVault is the hardware TPM currently supported for v1.85 PQC:
+
+```
+./configure --enable-sealsq --enable-pqc
+make
+```
+
+On Linux, add `--enable-devtpm` to use the kernel TPM driver. For examples
+that pass transient handles between processes, also add
+`CFLAGS='-DTPM2_LINUX_DEV="/dev/tpm0"'`: the default `/dev/tpmrm0` virtualizes
+and discards those handles when a process closes the device. Keep the inner
+double quotes literal inside the single-quoted `CFLAGS` value. See
+[docs/DEVTPM.md](../../docs/DEVTPM.md) for details and permissions.
+
+Non-SHA-1 TPM examples include:
+
+```
+./examples/pqc/pqc_ctrl --caps --algs
+./examples/pqc/pqc_ctrl --mldsa=65 --mlkem=768
+./examples/wrap/hash "wolfTPM" -sha256
+```
+
+`./examples/pqc/pqc_ctrl.sh` runs the full PQC command set when the device
+supports all parameter sets.
+
 ## Individual examples
 
-All examples expect a running `fwtpm_server` on `127.0.0.1:2321`:
+With an fwTPM build, start `fwtpm_server` on `127.0.0.1:2321` before running
+the examples below. A SealSQ build uses its configured hardware transport.
 
 ```
 ./src/fwtpm/fwtpm_server --clear &
@@ -196,9 +226,10 @@ by loading it back:
 ./examples/keygen/keyload keyblob.bin
 ```
 
-A successful load prints `Loaded key to 0x80000000`. The full 18-way
+A successful load prints a transient key handle. The full 18-way
 matrix (three variants x three parameter sets) is exercised by
-`examples/run_examples.sh` when v1.85 is detected in `config.h`.
+`examples/run_examples.sh` when v1.85 is detected in `config.h`; that generic
+suite also covers non-PQC operations with their own TPM requirements.
 
 ### PQC keys for parameter encryption
 
@@ -255,8 +286,7 @@ against a software CA.
 
 Requires a wolfSSL that routes `wc_MlDsaKey_SignCtx` to the crypto callback for
 device keys (private key in the TPM). That landed upstream, so master or any
-later release works. No shipping TPM implements TCG v1.85 PQC yet, so this runs
-against the in-tree fwTPM.
+later release works. The commands below start the in-tree fwTPM for this demo.
 
 Demo scope: the identity key is an unauthenticated deterministic TPM primary
 (empty auth), reproducible by both `gen_pqc_certs` and the server from the owner

@@ -980,11 +980,11 @@ then
         # <wolfssl/wolfcrypt/wc_mldsa.h> directly, so older wolfSSL that
         # only ships <wolfssl/wolfcrypt/dilithium.h> is not supported here.
         AC_CHECK_DECL([wc_MlDsaKey_Init], [],
-            [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mldsa (or alias --enable-dilithium) and --enable-experimental, ships post-v5.9.1-stable])],
+            [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mldsa (or alias --enable-dilithium), ships post-v5.9.1-stable])],
             [[#include <wolfssl/options.h>
               #include <wolfssl/wolfcrypt/wc_mldsa.h>]])
         AC_CHECK_DECL([wc_MlKemKey_Init], [],
-            [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL >= v5.8.0-stable built with --enable-mlkem --enable-experimental])],
+            [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL >= v5.8.0-stable built with --enable-mlkem])],
             [[#include <wolfssl/options.h>
               #include <wolfssl/wolfcrypt/wc_mlkem.h>]])
 
