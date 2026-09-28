@@ -1945,32 +1945,34 @@ static int BuildPcrAllocateCmd(byte* buf, UINT32 authHandle,
 }
 
 /* 1 if hashAlg has any PCR bits set in a TPM_CAP_PCRS response */
-static int fwtpm_parse_bank_allocated(int rspSize, UINT16 hashAlg)
+static int fwtpm_parse_bank_allocated(const byte* rsp, int rspSize,
+    UINT16 hashAlg)
 {
     int pos, i, found = 0;
     UINT32 bankCount, b;
 
-    if (rspSize < TPM2_HEADER_SIZE + 1 + 4 + 4 ||
-        rspSize > (int)sizeof(gRsp) ||
-        GetRspRC(gRsp) != TPM_RC_SUCCESS) {
+    if (rsp == NULL || rspSize < TPM2_HEADER_SIZE + 1 + 4 + 4 ||
+        rspSize > FWTPM_MAX_COMMAND_SIZE ||
+        GetRspRC(rsp) != TPM_RC_SUCCESS ||
+        GetU32BE(rsp + TPM2_HEADER_SIZE + 1) != TPM_CAP_PCRS) {
         return -1;
     }
 
     /* header + moreData(1) + capability(4) + count(4) */
     pos = TPM2_HEADER_SIZE + 1 + 4;
-    bankCount = GetU32BE(gRsp + pos); pos += 4;
+    bankCount = GetU32BE(rsp + pos); pos += 4;
     if (bankCount > HASH_COUNT || bankCount > (UINT32)(rspSize - pos) / 3) {
         return -1;
     }
     for (b = 0; b < bankCount; b++) {
-        UINT16 alg = (UINT16)GetU16BE(gRsp + pos); pos += 2;
-        int sizeOfSelect = gRsp[pos++];
+        UINT16 alg = (UINT16)GetU16BE(rsp + pos); pos += 2;
+        int sizeOfSelect = rsp[pos++];
         if (sizeOfSelect > PCR_SELECT_MAX || sizeOfSelect > rspSize - pos) {
             return -1;
         }
         if (alg == hashAlg) {
             for (i = 0; i < sizeOfSelect; i++) {
-                if (gRsp[pos + i] != 0) {
+                if (rsp[pos + i] != 0) {
                     found = 1;
                 }
             }
@@ -1996,34 +1998,47 @@ static int fwtpm_bank_allocated(FWTPM_CTX* ctx, UINT16 hashAlg)
     if (rc != TPM_RC_SUCCESS) {
         return -1;
     }
-    return fwtpm_parse_bank_allocated(rspSize, hashAlg);
+    return fwtpm_parse_bank_allocated(gRsp, rspSize, hashAlg);
 }
 
 /* Reject malformed capability data before its counts reach parser loops. */
 static void test_fwtpm_bank_allocated_response(void)
 {
     int pos = TPM2_HEADER_SIZE + 1 + 4 + 4;
+    byte rsp[32];
 
-    XMEMSET(gRsp, 0, sizeof(gRsp));
-    PutU32BE(gRsp + pos - 4, 1);
-    PutU16BE(gRsp + pos, TPM_ALG_SHA256);
-    gRsp[pos + 2] = 1;
-    gRsp[pos + 3] = 1;
-    AssertIntEQ(fwtpm_parse_bank_allocated(pos + 4, TPM_ALG_SHA256), 1);
-    AssertIntEQ(fwtpm_parse_bank_allocated(pos + 4, TPM_ALG_SHA384), 0);
+    XMEMSET(rsp, 0, sizeof(rsp));
+    PutU32BE(rsp + TPM2_HEADER_SIZE + 1, TPM_CAP_PCRS);
+    PutU32BE(rsp + pos - 4, 1);
+    PutU16BE(rsp + pos, TPM_ALG_SHA256);
+    rsp[pos + 2] = 1;
+    rsp[pos + 3] = 1;
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos + 4, TPM_ALG_SHA256), 1);
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos + 4, TPM_ALG_SHA384), 0);
 
-    AssertIntEQ(fwtpm_parse_bank_allocated(pos - 1, TPM_ALG_SHA256), -1);
-    AssertIntEQ(fwtpm_parse_bank_allocated((int)sizeof(gRsp) + 1,
+    AssertIntEQ(fwtpm_parse_bank_allocated(NULL, pos + 4,
         TPM_ALG_SHA256), -1);
-    PutU32BE(gRsp + pos - 4, HASH_COUNT + 1);
-    AssertIntEQ(fwtpm_parse_bank_allocated(pos + 4, TPM_ALG_SHA256), -1);
-    PutU32BE(gRsp + pos - 4, 2);
-    AssertIntEQ(fwtpm_parse_bank_allocated(pos + 4, TPM_ALG_SHA256), -1);
-    PutU32BE(gRsp + pos - 4, 1);
-    gRsp[pos + 2] = PCR_SELECT_MAX + 1;
-    AssertIntEQ(fwtpm_parse_bank_allocated(pos + 4, TPM_ALG_SHA256), -1);
-    gRsp[pos + 2] = 1;
-    AssertIntEQ(fwtpm_parse_bank_allocated(pos + 3, TPM_ALG_SHA256), -1);
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos - 1,
+        TPM_ALG_SHA256), -1);
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp,
+        FWTPM_MAX_COMMAND_SIZE + 1, TPM_ALG_SHA256), -1);
+    PutU32BE(rsp + TPM2_HEADER_SIZE + 1, TPM_CAP_ALGS);
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos + 4,
+        TPM_ALG_SHA256), -1);
+    PutU32BE(rsp + TPM2_HEADER_SIZE + 1, TPM_CAP_PCRS);
+    PutU32BE(rsp + pos - 4, HASH_COUNT + 1);
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos + 4,
+        TPM_ALG_SHA256), -1);
+    PutU32BE(rsp + pos - 4, 2);
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos + 4,
+        TPM_ALG_SHA256), -1);
+    PutU32BE(rsp + pos - 4, 1);
+    rsp[pos + 2] = PCR_SELECT_MAX + 1;
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos + 4,
+        TPM_ALG_SHA256), -1);
+    rsp[pos + 2] = 1;
+    AssertIntEQ(fwtpm_parse_bank_allocated(rsp, pos + 3,
+        TPM_ALG_SHA256), -1);
 
     fwtpm_pass("PCR bank response:", 0);
 }
