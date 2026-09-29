@@ -24,6 +24,9 @@
 #ifndef WOLFTPM_SPDM_FWD_SPDM_ERROR_H
 #define WOLFTPM_SPDM_FWD_SPDM_ERROR_H
 
-#include <wolfspdm/spdm_error.h>
+#include <wolftpm/tpm2_types.h>
+#ifdef WOLFTPM_SPDM
+    #include <wolfspdm/spdm_error.h>
+#endif
 
 #endif /* WOLFTPM_SPDM_FWD_SPDM_ERROR_H */

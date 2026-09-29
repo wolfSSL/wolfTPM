@@ -24,7 +24,10 @@
 #ifndef WOLFTPM_SPDM_FWD_SPDM_NATIONS_H
 #define WOLFTPM_SPDM_FWD_SPDM_NATIONS_H
 
-#include <wolfspdm/spdm_nations.h>
+#include <wolftpm/tpm2_types.h>
+#ifdef WOLFTPM_SPDM
+    #include <wolfspdm/spdm_nations.h>
+#endif
 
 #ifdef WOLFSPDM_NATIONS
     #define TPM_CC_Nations_SpdmIdentityKeySet  (0x20000708)

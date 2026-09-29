@@ -24,6 +24,9 @@
 #ifndef WOLFTPM_SPDM_FWD_SPDM_NUVOTON_H
 #define WOLFTPM_SPDM_FWD_SPDM_NUVOTON_H
 
-#include <wolfspdm/spdm_nuvoton.h>
+#include <wolftpm/tpm2_types.h>
+#ifdef WOLFTPM_SPDM
+    #include <wolfspdm/spdm_nuvoton.h>
+#endif
 
 #endif /* WOLFTPM_SPDM_FWD_SPDM_NUVOTON_H */

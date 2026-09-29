@@ -24,6 +24,9 @@
 #ifndef WOLFTPM_SPDM_FWD_SPDM_H
 #define WOLFTPM_SPDM_FWD_SPDM_H
 
-#include <wolfspdm/spdm.h>
+#include <wolftpm/tpm2_types.h>
+#ifdef WOLFTPM_SPDM
+    #include <wolfspdm/spdm.h>
+#endif
 
 #endif /* WOLFTPM_SPDM_FWD_SPDM_H */

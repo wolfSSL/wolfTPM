@@ -83,6 +83,16 @@ jobs:
                       --with-wolfcrypt=$HOME/wolfssl-install
           make -j"$(nproc)"
 
+      - name: Compile against the installed headers (${{ matrix.name }})
+        run: |
+          set -e
+          make install DESTDIR="$PWD/inst" >/dev/null
+          printf '%s\n' '#include <wolftpm/tpm2_wrap.h>' \
+              '#include <wolftpm/spdm/spdm.h>' '#include <wolfspdm/spdm.h>' \
+              'int main(void) { return 0; }' > consumer.c
+          cc -c consumer.c -o consumer.o -I"$PWD/inst/usr/local/include" \
+              -I"$HOME/wolfssl-install/include"
+
       - name: Test unavailable vendor rejection (${{ matrix.name }})
         if: matrix.name == 'spdm-nuvoton' || matrix.name == 'spdm-nations'
         run: |

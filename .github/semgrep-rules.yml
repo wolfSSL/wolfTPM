@@ -24,6 +24,7 @@ rules:
         - src/
         - hal/
         - wolftpm/
+        - lib/wolfSPDM/src/
     pattern-either:
       - pattern: gets(...)
       - pattern: strcpy(...)
@@ -43,6 +44,7 @@ rules:
         - src/
         - hal/
         - wolftpm/
+        - lib/wolfSPDM/src/
     pattern-either:
       - pattern: system(...)
       - pattern: popen(...)

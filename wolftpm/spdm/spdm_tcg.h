@@ -24,6 +24,9 @@
 #ifndef WOLFTPM_SPDM_FWD_SPDM_TCG_H
 #define WOLFTPM_SPDM_FWD_SPDM_TCG_H
 
-#include <wolfspdm/spdm_tcg.h>
+#include <wolftpm/tpm2_types.h>
+#ifdef WOLFTPM_SPDM
+    #include <wolfspdm/spdm_tcg.h>
+#endif
 
 #endif /* WOLFTPM_SPDM_FWD_SPDM_TCG_H */
