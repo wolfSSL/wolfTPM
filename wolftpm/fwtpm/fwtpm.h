@@ -830,6 +830,8 @@ typedef struct FWTPM_CTX {
     /* Hierarchy seeds (generated once, persisted in NV) */
     byte ownerSeed[TPM_SHA384_DIGEST_SIZE];
     byte endorsementSeed[TPM_SHA384_DIGEST_SIZE];
+    /* 0: legacy endorsement proof/wrap; 1: proof bound to storage seed. */
+    UINT8 endorsementProofVersion;
     byte platformSeed[TPM_SHA384_DIGEST_SIZE];
     byte nullSeed[TPM_SHA384_DIGEST_SIZE];
 

@@ -939,6 +939,10 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 startupType = 0;
     int i, b;
+#ifndef FWTPM_NO_NV
+    FWTPM_DECLARE_BUF(oldNvData, FWTPM_MAX_NV_DATA);
+    int oldNvDataAllocated = 0;
+#endif
 
     (void)cmdTag;
 
@@ -1056,6 +1060,66 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     FWTPM_SEED_SIZE);
             }
             if (rc != 0) rc = TPM_RC_FAILURE;
+
+        #ifndef FWTPM_NO_NV
+            /* Reset NV attributes that last only until Startup(CLEAR). */
+            for (i = 0; i < FWTPM_MAX_NV_INDICES && rc == 0; i++) {
+                FWTPM_NvIndex* nv = &ctx->nvIndices[i];
+                UINT32 oldAttrs;
+                UINT32 attrs;
+                int oldWritten;
+                int clearData;
+
+                if (!nv->inUse)
+                    continue;
+
+                oldAttrs = nv->nvPublic.attributes;
+                oldWritten = nv->written;
+                attrs = oldAttrs;
+                clearData = (attrs & TPMA_NV_CLEAR_STCLEAR) != 0;
+
+                if (clearData) {
+                    if (!oldNvDataAllocated) {
+                        FWTPM_ALLOC_BUF(oldNvData, FWTPM_MAX_NV_DATA);
+                        if (rc != 0)
+                            break;
+                        oldNvDataAllocated = 1;
+                    }
+                    if (nv->nvPublic.dataSize > FWTPM_MAX_NV_DATA) {
+                        rc = TPM_RC_SIZE;
+                        break;
+                    }
+                    XMEMCPY(oldNvData, nv->data, nv->nvPublic.dataSize);
+                    XMEMSET(nv->data, 0, nv->nvPublic.dataSize);
+                    attrs &= ~TPMA_NV_WRITTEN;
+                    nv->written = 0;
+                }
+                if (attrs & TPMA_NV_READ_STCLEAR)
+                    attrs &= ~TPMA_NV_READLOCKED;
+                if (!(attrs & TPMA_NV_WRITEDEFINE) ||
+                        !(attrs & TPMA_NV_WRITTEN)) {
+                    attrs &= ~TPMA_NV_WRITELOCKED;
+                }
+
+                if (clearData || attrs != oldAttrs ||
+                        nv->written != oldWritten) {
+                    nv->nvPublic.attributes = attrs;
+                    rc = FWTPM_NV_SaveNvIndex(ctx, i);
+                    if (rc != 0) {
+                        nv->nvPublic.attributes = oldAttrs;
+                        nv->written = oldWritten;
+                        if (clearData) {
+                            XMEMCPY(nv->data, oldNvData,
+                                nv->nvPublic.dataSize);
+                        }
+                    }
+                }
+            }
+            if (oldNvDataAllocated) {
+                TPM2_ForceZero(oldNvData, FWTPM_MAX_NV_DATA);
+                FWTPM_FREE_BUF(oldNvData);
+            }
+        #endif
 
             /* TPM Reset: bump persisted resetCount, clear restartCount */
             if (rc == 0) {
@@ -5558,19 +5622,16 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
         XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
 
-        /* Generate new owner and endorsement seeds */
+        /* Generate new storage primary seed */
         rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->ownerSeed, FWTPM_SEED_SIZE);
-        if (rc == 0)
-            rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->endorsementSeed,
-                FWTPM_SEED_SIZE);
         if (rc != 0) rc = TPM_RC_FAILURE;
 
         /* Only commit state changes if seed generation succeeded —
          * avoid partial mutation on RNG failure */
         if (rc == 0) {
-            /* Flush primary cache — stale entries from old seeds would
-             * produce wrong keys now that CreatePrimary derives from the
-             * seed via KDFa */
+            ctx->endorsementProofVersion = 1;
+            /* Flush owner and endorsement primary cache entries after
+             * clearing hierarchy state. */
             for (ci = 0; ci < FWTPM_MAX_PRIMARY_CACHE; ci++) {
                 if (ctx->primaryCache[ci].used &&
                     (ctx->primaryCache[ci].hierarchy == TPM_RH_OWNER ||
@@ -5696,6 +5757,7 @@ static TPM_RC FwCmd_ChangeEPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Only commit state changes if seed generation succeeded */
         if (rc == 0) {
+            ctx->endorsementProofVersion = 1;
             /* Reset endorsement auth and policy */
             XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
             XMEMSET(&ctx->endorsementPolicy, 0,
@@ -6246,17 +6308,14 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_VALUE;
     }
 
-    /* Validate auth handle: owner or platform required by spec,
-     * endorsement also accepted for EH-created objects */
+    /* Only owner and platform are provisioning authorities. */
     if (rc == 0 && authHandle != TPM_RH_OWNER &&
-        authHandle != TPM_RH_PLATFORM &&
-        authHandle != TPM_RH_ENDORSEMENT) {
+        authHandle != TPM_RH_PLATFORM) {
         rc = TPM_RC_HIERARCHY;
     }
 
     /* Per TPM 2.0 Part 3 Sec.28, platformAuth owns the PLATFORM_PERSISTENT
-     * sub-range and owner/endorsement auth the range below it; neither may
-     * manage a handle in the other's sub-range. */
+     * sub-range and owner auth owns the range below it. */
     if (rc == 0) {
         if (authHandle == TPM_RH_PLATFORM) {
             if (persistentHandle < PLATFORM_PERSISTENT)
@@ -6663,7 +6722,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
         rc = FwComputePublicName(&inPublic->publicArea, &childName);
         if (rc == 0) {
-            rc = FwWrapPrivate(parent, &ctx->rng, &childName,
+            rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
                 privKeyDer, privKeyDerSz, outPrivate);
         }
@@ -6818,7 +6877,7 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Re-wrap private key with new auth, then update the live object */
     if (rc == 0) {
-        rc = FwWrapPrivate(parent, &ctx->rng, &obj->name, obj->pub.type,
+        rc = FwWrapPrivate(ctx, parent, &ctx->rng, &obj->name, obj->pub.type,
             &newAuth, obj->privKey, obj->privKeySize, &outPrivate);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
@@ -6942,7 +7001,7 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Unwrap private */
     if (rc == 0) {
-        rc = FwUnwrapPrivate(parent, &obj->name, &inPrivate,
+        rc = FwUnwrapPrivate(ctx, parent, &obj->name, &inPrivate,
             &sensitiveType, &obj->authValue,
             obj->privKey, &obj->privKeySize);
     #ifdef DEBUG_WOLFTPM
@@ -7719,7 +7778,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMSET(outPrivate, 0, sizeof(*outPrivate));
         rc = FwComputePublicName(&objectPublic->publicArea, &childName);
         if (rc == 0) {
-            rc = FwWrapPrivate(parent, &ctx->rng, &childName, sensType,
+            rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName, sensType,
                 &importedAuth, privKeyDer, privKeyDerSz, outPrivate);
         }
     }
@@ -8748,7 +8807,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2B_NAME childName;
         rc = FwComputePublicName(&inPublic->publicArea, &childName);
         if (rc == 0) {
-            rc = FwWrapPrivate(parent, &ctx->rng, &childName,
+            rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
                 privKeyDer, privKeyDerSz, outPrivate);
         }
@@ -12451,6 +12510,9 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwNvCheckAccess(authHandle, nvIndex,
             nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
+    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
+        rc = TPM_RC_NV_LOCKED;
+    }
 
     /* Find policy session */
     if (rc == 0) {
@@ -13546,6 +13608,9 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwNvCheckAccess(authHandle, nvHandle,
             nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
+    }
+    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
+        rc = TPM_RC_NV_LOCKED;
     }
 
     if (rc == 0 && !nv->written) {

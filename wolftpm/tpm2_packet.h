@@ -184,6 +184,10 @@ WOLFTPM_LOCAL int  TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz);
 WOLFTPM_LOCAL TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* info);
 WOLFTPM_LOCAL void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd);
 WOLFTPM_LOCAL void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* auth);
+#ifdef WOLFTPM_MLDSA_VERIFY
+WOLFTPM_TEST_API void TPM2_Packet_AppendVerifiedTicket(TPM2_Packet* packet,
+    TPMT_TK_VERIFIED* ticket);
+#endif
 WOLFTPM_LOCAL void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr);
 WOLFTPM_LOCAL void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr);
 WOLFTPM_LOCAL void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric);

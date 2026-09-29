@@ -9902,6 +9902,20 @@ static int BuildNvDefineCmd(byte* buf, UINT32 nvIndex, UINT16 dataSize,
         NULL, 0, NULL, 0);
 }
 
+static TPM_RC SendNvLockCmd(FWTPM_CTX* ctx, UINT32 commandCode,
+    UINT32 nvIndex)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, commandCode);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
 #ifndef FWTPM_NO_POLICY
 static TPM_RC SendNvAccessCmd(FWTPM_CTX* ctx, UINT32 nvIndex,
     UINT32 sessionHandle, const byte* auth, int authSz, int isWrite)
@@ -10647,6 +10661,72 @@ static void test_fwtpm_policyauthorizenv_owner_read_denied(void)
     printf("Test fwTPM:\tPolicyAuthorizeNV OWNER read denied:\tPassed\n");
 }
 
+/* Policy NV commands must honor the same runtime read lock as NV_Read. */
+static void test_fwtpm_policy_nv_read_locked(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500077;
+    UINT32 attrs = TPMA_NV_OWNERREAD | TPMA_NV_OWNERWRITE |
+        TPMA_NV_READ_STCLEAR | TPMA_NV_NO_DA;
+    UINT32 sessH;
+    int pos, cmdSz, rspSize = 0;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 32, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_Write);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    XMEMSET(gCmd + pos, 0, 32); pos += 32;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_ReadLock, nvIdx),
+        TPM_RC_SUCCESS);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyNV);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 1); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_EO_EQ); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_LOCKED);
+    FlushHandle(&ctx, sessH);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyAuthorizeNV);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_LOCKED);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Policy NV read lock:", 0);
+}
+
 /* PolicyLocality must bind a locality constraint that is enforced when the
  * policy session authorizes an entity. A session satisfying a locality-4
  * policy must not authorize a command issued at locality 0. */
@@ -11176,6 +11256,130 @@ static void test_fwtpm_load_private_bound_to_public(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Private blob bound to its public area:", 0);
 }
+static UINT32 CreateEndorsementPrimaryHelper(FWTPM_CTX* ctx)
+{
+    int cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA);
+    int rspSize = 0;
+
+    AssertIntGT(cmdSz, 0);
+    PutU32BE(gCmd + 10, TPM_RH_ENDORSEMENT);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+static void test_fwtpm_clear_revokes_endorsement_child(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 parent, child;
+    byte priv[sizeof(TPM2B_PRIVATE)];
+    byte pub[sizeof(TPM2B_PUBLIC)];
+    UINT16 privSz, pubSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntNE(parent, 0);
+    CreateChildBlobs(&ctx, parent, priv, &privSz, pub, &pubSz);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_SUCCESS);
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    FlushHandle(&ctx, child);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_SUCCESS);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntNE(parent, 0);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_INTEGRITY);
+
+    CreateChildBlobs(&ctx, parent, priv, &privSz, pub, &pubSz);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_SUCCESS);
+
+    TPM2_ForceZero(priv, sizeof(priv));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear revokes endorsement child blobs:", 0);
+}
+
+
+#ifndef FWTPM_NO_NV
+static void test_fwtpm_legacy_endorsement_artifacts(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 parent, child;
+    byte priv[sizeof(TPM2B_PRIVATE)];
+    byte pub[sizeof(TPM2B_PUBLIC)];
+    byte ticketBefore[TPM_MAX_DIGEST_SIZE];
+    byte ticketAfter[TPM_MAX_DIGEST_SIZE];
+    byte legacyProof[WC_SHA256_DIGEST_SIZE];
+    byte actualProof[WC_SHA256_DIGEST_SIZE];
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    UINT16 privSz, pubSz;
+    int ticketBeforeSz = 0;
+    int ticketAfterSz = 0;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    /* A flags record without the version byte has the old derivation. */
+    ctx.endorsementProofVersion = 0;
+    AssertIntEQ(FWTPM_NV_Save(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_KDFa_ex(TPM_ALG_SHA256, ctx.endorsementSeed,
+        FWTPM_SEED_SIZE, "PROOF", NULL, 0, NULL, 0,
+        legacyProof, sizeof(legacyProof)), (int)sizeof(legacyProof));
+    AssertIntEQ(FwComputeProofValue(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, actualProof, sizeof(actualProof)), TPM_RC_SUCCESS);
+    AssertIntEQ(XMEMCMP(legacyProof, actualProof, sizeof(legacyProof)), 0);
+    XMEMSET(digest, 0x6B, sizeof(digest));
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketBefore, &ticketBeforeSz), TPM_RC_SUCCESS);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    CreateChildBlobs(&ctx, parent, priv, &privSz, pub, &pubSz);
+    AssertIntEQ(FWTPM_Cleanup(&ctx), TPM_RC_SUCCESS);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.endorsementProofVersion, 0);
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketAfter, &ticketAfterSz), TPM_RC_SUCCESS);
+    AssertIntEQ(ticketBeforeSz, ticketAfterSz);
+    AssertIntEQ(XMEMCMP(ticketBefore, ticketAfter, ticketBeforeSz), 0);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_SUCCESS);
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    FlushHandle(&ctx, child);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.endorsementProofVersion, 1);
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketAfter, &ticketAfterSz), TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(ticketBefore, ticketAfter, ticketBeforeSz), 0);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_INTEGRITY);
+    AssertIntEQ(FWTPM_Cleanup(&ctx), TPM_RC_SUCCESS);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.endorsementProofVersion, 1);
+    parent = CreateEndorsementPrimaryHelper(&ctx);
+    AssertIntEQ(SendLoadCmd(&ctx, parent, priv, privSz, pub, pubSz),
+        TPM_RC_INTEGRITY);
+    TPM2_ForceZero(priv, sizeof(priv));
+    TPM2_ForceZero(ticketBefore, sizeof(ticketBefore));
+    TPM2_ForceZero(ticketAfter, sizeof(ticketAfter));
+    TPM2_ForceZero(legacyProof, sizeof(legacyProof));
+    TPM2_ForceZero(actualProof, sizeof(actualProof));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Legacy endorsement artifacts through upgrade:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN */
 
 /* PolicyPCR selecting PCR 0 in the SHA-256 bank with an optional caller digest */
@@ -11415,6 +11619,114 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
 /* ================================================================== */
 
 #ifndef FWTPM_NO_NV
+static void test_fwtpm_nv_stclear_startup(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 handles[3] = {0x01500074, 0x01500075, 0x01500076};
+    UINT32 baseAttrs = TPMA_NV_OWNERREAD | TPMA_NV_OWNERWRITE |
+        TPMA_NV_NO_DA;
+    UINT32 attrs[3];
+    int i, j, pos, cmdSz, rspSize, checked;
+
+    attrs[0] = baseAttrs | TPMA_NV_READ_STCLEAR | TPMA_NV_WRITE_STCLEAR;
+    attrs[1] = baseAttrs | TPMA_NV_CLEAR_STCLEAR;
+    attrs[2] = baseAttrs | TPMA_NV_WRITEDEFINE;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    for (i = 0; i < 3; i++) {
+        cmdSz = BuildNvDefineCmd(gCmd, handles[i], 8, attrs[i]);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_Write);
+        PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+        PutU32BE(gCmd + pos, handles[i]); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU16BE(gCmd + pos, 1); pos += 2;
+        gCmd[pos++] = (byte)(i + 1);
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_ReadLock, handles[0]),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_WriteLock, handles[2]),
+        TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + pos, TPM_SU_CLEAR); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    checked = 0;
+    for (j = 0; j < FWTPM_MAX_NV_INDICES; j++) {
+        FWTPM_NvIndex* nv = &ctx.nvIndices[j];
+        if (!nv->inUse)
+            continue;
+        if (nv->nvPublic.nvIndex == handles[0]) {
+            AssertIntEQ(nv->nvPublic.attributes &
+                (TPMA_NV_READLOCKED | TPMA_NV_WRITELOCKED), 0);
+            AssertIntEQ(nv->written, 1);
+            checked++;
+        }
+        else if (nv->nvPublic.nvIndex == handles[1]) {
+            AssertIntEQ(nv->nvPublic.attributes & TPMA_NV_WRITTEN, 0);
+            AssertIntEQ(nv->written, 0);
+            for (i = 0; i < nv->nvPublic.dataSize; i++)
+                AssertIntEQ(nv->data[i], 0);
+            checked++;
+        }
+        else if (nv->nvPublic.nvIndex == handles[2]) {
+            AssertIntNE(nv->nvPublic.attributes & TPMA_NV_WRITELOCKED, 0);
+            checked++;
+        }
+    }
+    AssertIntEQ(checked, 3);
+
+    /* Reload without a shutdown to verify Startup persisted the changes. */
+    wc_FreeRng(&ctx.rng);
+    wolfCrypt_Cleanup();
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
+    checked = 0;
+    for (j = 0; j < FWTPM_MAX_NV_INDICES; j++) {
+        FWTPM_NvIndex* nv = &ctx.nvIndices[j];
+        if (!nv->inUse)
+            continue;
+        if (nv->nvPublic.nvIndex == handles[0]) {
+            AssertIntEQ(nv->nvPublic.attributes &
+                (TPMA_NV_READLOCKED | TPMA_NV_WRITELOCKED), 0);
+            checked++;
+        }
+        else if (nv->nvPublic.nvIndex == handles[1]) {
+            AssertIntEQ(nv->written, 0);
+            for (i = 0; i < nv->nvPublic.dataSize; i++)
+                AssertIntEQ(nv->data[i], 0);
+            checked++;
+        }
+        else if (nv->nvPublic.nvIndex == handles[2]) {
+            AssertIntNE(nv->nvPublic.attributes & TPMA_NV_WRITELOCKED, 0);
+            checked++;
+        }
+    }
+    AssertIntEQ(checked, 3);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV STCLEAR state at Startup(CLEAR):", 0);
+}
+
 static void test_fwtpm_nv_define_write_read(void)
 {
     FWTPM_CTX ctx;
@@ -13120,14 +13432,40 @@ static void test_fwtpm_set_primary_policy_bad_size_rejected(void)
 static void test_fwtpm_clear(void)
 {
     FWTPM_CTX ctx;
+    byte ownerSeed[FWTPM_SEED_SIZE];
+    byte endorsementSeed[FWTPM_SEED_SIZE];
+    byte ticketBefore[TPM_MAX_DIGEST_SIZE];
+    byte ticketAfter[TPM_MAX_DIGEST_SIZE];
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    int ticketBeforeSz = 0;
+    int ticketAfterSz = 0;
+
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    XMEMCPY(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
+    XMEMCPY(endorsementSeed, ctx.endorsementSeed, sizeof(endorsementSeed));
+    XMEMSET(digest, 0x5A, sizeof(digest));
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketBefore, &ticketBeforeSz), TPM_RC_SUCCESS);
 
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
         TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(ctx.ownerSeed, ownerSeed, sizeof(ownerSeed)), 0);
+    AssertIntEQ(XMEMCMP(ctx.endorsementSeed, endorsementSeed,
+        sizeof(endorsementSeed)), 0);
+    AssertIntEQ(FwComputeTicketHmac(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_ALG_SHA256, TPM_ST_HASHCHECK, digest, sizeof(digest),
+        NULL, 0, ticketAfter, &ticketAfterSz), TPM_RC_SUCCESS);
+    AssertIntEQ(ticketBeforeSz, ticketAfterSz);
+    AssertIntNE(XMEMCMP(ticketBefore, ticketAfter, ticketBeforeSz), 0);
 
+    TPM2_ForceZero(ownerSeed, sizeof(ownerSeed));
+    TPM2_ForceZero(endorsementSeed, sizeof(endorsementSeed));
+    TPM2_ForceZero(ticketBefore, sizeof(ticketBefore));
+    TPM2_ForceZero(ticketAfter, sizeof(ticketAfter));
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("Clear(LOCKOUT):", 0);
+    fwtpm_pass("Clear preserves endorsement seed:", 0);
 }
 
 #ifndef FWTPM_NO_NV
@@ -14823,6 +15161,18 @@ static void test_fwtpm_evict_control(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
+    /* Endorsement authorization cannot evict an owner persistent object. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_EvictControl);
+    PutU32BE(gCmd + pos, TPM_RH_ENDORSEMENT); pos += 4;
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HIERARCHY);
+
     /* Flush transient */
     FlushHandle(&ctx, keyH);
 
@@ -16028,13 +16378,45 @@ int main(int argc, char *argv[])
 int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 {
-    (void)argc;
-    (void)argv;
-
     printf("fwTPM Unit Tests\n");
 
     /* Remove stale NV state to ensure clean test runs */
     (void)remove(FWTPM_NV_FILE);
+
+    if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
+        test_fwtpm_clear();
+        return 0;
+    }
+#if !defined(FWTPM_NO_POLICY) && !defined(NO_RSA) && \
+    defined(WOLFSSL_KEY_GEN)
+    if (argc == 2 && XSTRCMP(argv[1], "clear-child") == 0) {
+        test_fwtpm_clear_revokes_endorsement_child();
+        return 0;
+    }
+#ifndef FWTPM_NO_NV
+    if (argc == 2 && XSTRCMP(argv[1], "legacy-endorsement") == 0) {
+        test_fwtpm_legacy_endorsement_artifacts();
+        return 0;
+    }
+#endif
+#endif
+#ifndef FWTPM_NO_NV
+    if (argc == 2 && XSTRCMP(argv[1], "nv-stclear") == 0) {
+        test_fwtpm_nv_stclear_startup();
+        return 0;
+    }
+#endif
+#if !defined(FWTPM_NO_NV) && !defined(FWTPM_NO_POLICY)
+    if (argc == 2 && XSTRCMP(argv[1], "policy-nv-lock") == 0) {
+        test_fwtpm_policy_nv_read_locked();
+        return 0;
+    }
+#endif
+
+    if (argc == 2 && XSTRCMP(argv[1], "evict-auth") == 0) {
+        test_fwtpm_evict_control();
+        return 0;
+    }
 
     /* Lifecycle */
 #ifdef FWTPM_NO_NV
@@ -16374,12 +16756,17 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_wrap_private_unique_iv();
     test_fwtpm_load_private_bound_to_public();
+    test_fwtpm_clear_revokes_endorsement_child();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_legacy_endorsement_artifacts();
+#endif
 #endif
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();
 #ifndef FWTPM_NO_NV
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();
+    test_fwtpm_policy_nv_read_locked();
     test_fwtpm_policy_locality_enforced();
     test_fwtpm_policy_cphash_enforced();
 #ifdef WOLFTPM_SPDM
@@ -16444,6 +16831,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_append_atomic();
     test_fwtpm_nv_compaction_commit();
     test_fwtpm_nv_delete_at_capacity();
+    test_fwtpm_nv_stclear_startup();
 #endif /* !FWTPM_NO_NV */
     test_fwtpm_clear();
 

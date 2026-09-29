@@ -572,6 +572,21 @@ static TPM_RC TPM2_DispatchCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     return rc;
 }
 
+/* Preserve the request header for the caller, but remove any parameters left
+ * after a transport failure. cmdSz may exceed the packet buffer on overflow. */
+static void TPM2_WipeRequestTail(TPM2_Packet* packet, UINT32 cmdSz,
+    int bufferSz)
+{
+    if (bufferSz > TPM2_HEADER_SIZE) {
+        if (cmdSz > (UINT32)bufferSz)
+            cmdSz = (UINT32)bufferSz;
+        if (cmdSz > TPM2_HEADER_SIZE) {
+            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+                cmdSz - TPM2_HEADER_SIZE);
+        }
+    }
+}
+
 #ifdef WOLFTPM_NO_RETRY
 /* Submit the finalized command in packet (length cmdSz) and parse the
  * response, returning the TPM response code. */
@@ -579,22 +594,29 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
     UINT32 cmdSz)
 {
     TPM_RC rc;
+    int origSize = packet->size;
 
     /* send command requires packet->pos to be the total command length */
     packet->pos = cmdSz;
 
     rc = TPM2_DispatchCommand(ctx, packet);
-    if (rc != 0)
+    if (rc != 0) {
+        TPM2_WipeRequestTail(packet, cmdSz, origSize);
         return rc; /* transport or SPDM error */
+    }
 
     /* parse response header and extract the TPM response code */
     rc = TPM2_Packet_Parse(rc, packet);
 
-    /* Wipe request-tail bytes a shorter response did not overwrite, so
-     * plaintext auth values do not linger in the shared command buffer. Only
-     * on success: the command must survive a transport error for inspection. */
-    if (rc == TPM_RC_SUCCESS && packet->size >= 0 &&
-            (UINT32)packet->size < cmdSz) {
+    /* Keep the response header for the caller, but wipe request bytes that
+     * a TPM error response did not overwrite. */
+    if (rc != TPM_RC_SUCCESS) {
+        if (cmdSz > TPM2_HEADER_SIZE) {
+            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+                cmdSz - TPM2_HEADER_SIZE);
+        }
+    }
+    else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
             cmdSz - (UINT32)packet->size);
     }
@@ -623,8 +645,10 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
         packet->pos = cmdSz;
 
         rc = TPM2_DispatchCommand(ctx, packet);
-        if (rc != 0)
+        if (rc != 0) {
+            TPM2_WipeRequestTail(packet, cmdSz, origSize);
             return rc; /* transport or SPDM error */
+        }
 
         /* parse response header and extract the TPM response code */
         rc = TPM2_Packet_Parse(rc, packet);
@@ -639,12 +663,15 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
         break;
     }
 
-    /* Wipe request-tail bytes a shorter response did not overwrite, so
-     * plaintext auth values do not linger in the shared command buffer. Only
-     * after the final attempt, and only on success so the command survives a
-     * transport error for retry and inspection. */
-    if (rc == TPM_RC_SUCCESS && packet->size >= 0 &&
-            (UINT32)packet->size < cmdSz) {
+    /* Keep the response header for the caller. Wipe request bytes only
+     * after the final attempt so a retry can resend the intact command. */
+    if (rc != TPM_RC_SUCCESS) {
+        if (cmdSz > TPM2_HEADER_SIZE) {
+            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+                cmdSz - TPM2_HEADER_SIZE);
+        }
+    }
+    else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
             cmdSz - (UINT32)packet->size);
     }
@@ -681,6 +708,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* Is there at least one auth session present? */
         if (info->authCnt < 1 || ctx->session == NULL) {
             packet->pos = cmdSz; /* restore */
+            TPM2_ForceZero(packet->buf, cmdSz);
             return TPM_RC_AUTH_MISSING;
         }
 
@@ -689,8 +717,10 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     #endif
 
         rc = TPM2_CommandProcess(ctx, packet, info, cmdCode, cmdSz);
-        if (rc != 0)
+        if (rc != 0) {
+            TPM2_ForceZero(packet->buf, cmdSz);
             return rc;
+        }
     }
 
     /* submit command and parse the response */
@@ -5020,21 +5050,16 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
         TPM2_Packet_AppendU16(&packet, in->keySign.size);
         TPM2_Packet_AppendBytes(&packet, in->keySign.name, in->keySign.size);
 
+#ifdef WOLFTPM_MLDSA_VERIFY
+        TPM2_Packet_AppendVerifiedTicket(&packet, &in->checkTicket);
+#else
         TPM2_Packet_AppendU16(&packet, in->checkTicket.tag);
         TPM2_Packet_AppendU32(&packet, in->checkTicket.hierarchy);
-#ifdef WOLFTPM_MLDSA_VERIFY
-        /* A non-NULL DIGEST_VERIFIED ticket carries the 2-byte metadata alg
-         * on the wire; VERIFIED, MESSAGE_VERIFIED and NULL tickets omit it.
-         * Mirrors the response parse condition. */
-        if (in->checkTicket.tag == TPM_ST_DIGEST_VERIFIED &&
-            in->checkTicket.hierarchy != TPM_RH_NULL) {
-            TPM2_Packet_AppendU16(&packet, in->checkTicket.metaAlg);
-        }
-#endif
         TPM2_Packet_AppendU16(&packet, in->checkTicket.digest.size);
         TPM2_Packet_AppendBytes(&packet,
                     in->checkTicket.digest.buffer,
                     in->checkTicket.digest.size);
+#endif
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyAuthorize);
 
@@ -6308,6 +6333,7 @@ TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
                 out->data.buffer, (UINT16)sizeof(out->data.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;

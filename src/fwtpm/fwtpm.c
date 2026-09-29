@@ -136,6 +136,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
             FWTPM_SEED_SIZE);
     if (rc == 0) {
         ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
+        ctx->endorsementProofVersion = 1;
     }
 #ifndef FWTPM_NO_DA
     if (rc == 0) {
