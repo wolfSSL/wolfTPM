@@ -44,5 +44,6 @@ wolfspdminc_HEADERS = \
                          lib/wolfSPDM/wolfspdm/spdm_nuvoton.h \
                          lib/wolfSPDM/wolfspdm/spdm_nations.h \
                          lib/wolfSPDM/wolfspdm/spdm_psk.h \
-                         lib/wolfSPDM/wolfspdm/spdm_responder.h
+                         lib/wolfSPDM/wolfspdm/spdm_responder.h \
+                         src/spdm/wolfspdm/options.h
 endif

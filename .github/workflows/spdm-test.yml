@@ -92,6 +92,10 @@ jobs:
               'int main(void) { return 0; }' > consumer.c
           cc -c consumer.c -o consumer.o -I"$PWD/inst/usr/local/include" \
               -I"$HOME/wolfssl-install/include"
+          printf '%s\n' '#include <wolfspdm/spdm.h>' \
+              'int main(void) { return 0; }' > consumer2.c
+          cc -c consumer2.c -o consumer2.o -I"$PWD/inst/usr/local/include" \
+              -I"$HOME/wolfssl-install/include"
 
       - name: Test unavailable vendor rejection (${{ matrix.name }})
         if: matrix.name == 'spdm-nuvoton' || matrix.name == 'spdm-nations'
