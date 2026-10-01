@@ -1409,6 +1409,115 @@ static void test_wolfTPM2_IsAlgSupported(void)
 #endif /* WOLFTPM_SWTPM */
 }
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PRIVATE_IMPORT)
+/* wolfTPM2_SensitiveToPrivate with a parent that exists only as a public
+ * area, which is how a key is wrapped offline for a TPM that is not present.
+ * No TPM is contacted. */
+static void test_wolfTPM2_SensitiveToPrivate_parentPub(void)
+{
+    WOLFTPM2_KEY parent;
+    TPM2B_PUBLIC pub;
+    TPM2B_SENSITIVE sens;
+    TPM2B_PRIVATE priv;
+    TPM2B_NAME name;
+    TPM2B_DATA symSeed;
+    TPMT_SYM_DEF_OBJECT symAlg;
+    int i;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_KEYEDHASH;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.objectAttributes = (TPMA_OBJECT_sign |
+        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
+    pub.publicArea.parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
+    pub.publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg =
+        TPM_ALG_SHA256;
+    pub.publicArea.unique.keyedHash.size = TPM_SHA256_DIGEST_SIZE;
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_KEYEDHASH;
+    sens.sensitiveArea.seedValue.size = TPM_SHA256_DIGEST_SIZE;
+    sens.sensitiveArea.sensitive.bits.size = TPM_SHA256_DIGEST_SIZE;
+    for (i = 0; i < TPM_SHA256_DIGEST_SIZE; i++) {
+        pub.publicArea.unique.keyedHash.buffer[i] = (byte)i;
+        sens.sensitiveArea.seedValue.buffer[i] = (byte)(0x40 + i);
+        sens.sensitiveArea.sensitive.bits.buffer[i] = (byte)(0x80 + i);
+    }
+
+    /* a storage parent carrying its symmetric definition in the public area
+     * only: handle.symmetric stays zero, as it does for a parent that was
+     * never loaded here */
+    XMEMSET(&parent, 0, sizeof(parent));
+    parent.pub.publicArea.type = TPM_ALG_RSA;
+    parent.pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    parent.pub.publicArea.parameters.asymDetail.symmetric.algorithm =
+        TPM_ALG_AES;
+    parent.pub.publicArea.parameters.asymDetail.symmetric.keyBits.sym = 128;
+    parent.pub.publicArea.parameters.asymDetail.symmetric.mode.aes =
+        TPM_ALG_CFB;
+
+    /* a non-empty seed selects the outer wrap */
+    XMEMSET(&symSeed, 0, sizeof(symSeed));
+    symSeed.size = TPM_SHA256_DIGEST_SIZE;
+    for (i = 0; i < TPM_SHA256_DIGEST_SIZE; i++) {
+        symSeed.buffer[i] = (byte)(0xC0 + i);
+    }
+    XMEMSET(&symAlg, 0, sizeof(symAlg));
+    symAlg.algorithm = TPM_ALG_NULL;
+
+    AssertIntEQ(wolfTPM2_ComputeName(&pub, &name), TPM_RC_SUCCESS);
+
+    XMEMSET(&priv, 0, sizeof(priv));
+    AssertIntEQ(wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        pub.publicArea.nameAlg, &name, &parent, &symAlg, &symSeed),
+        TPM_RC_SUCCESS);
+    AssertIntGT(priv.size, 0);
+
+    /* an ECC storage parent takes the same path through eccDetail */
+    XMEMSET(&parent, 0, sizeof(parent));
+    parent.pub.publicArea.type = TPM_ALG_ECC;
+    parent.pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    parent.pub.publicArea.parameters.eccDetail.symmetric.algorithm =
+        TPM_ALG_AES;
+    parent.pub.publicArea.parameters.eccDetail.symmetric.keyBits.sym = 128;
+    parent.pub.publicArea.parameters.eccDetail.symmetric.mode.aes =
+        TPM_ALG_CFB;
+    XMEMSET(&priv, 0, sizeof(priv));
+    AssertIntEQ(wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        pub.publicArea.nameAlg, &name, &parent, &symAlg, &symSeed),
+        TPM_RC_SUCCESS);
+    AssertIntGT(priv.size, 0);
+
+    /* a type that cannot be a storage parent must be refused, not read
+     * through the wrong member of the parameters union */
+    XMEMSET(&parent, 0, sizeof(parent));
+    parent.pub.publicArea.type = TPM_ALG_KEYEDHASH;
+    parent.pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    parent.pub.publicArea.parameters.keyedHashDetail.scheme.scheme =
+        TPM_ALG_HMAC;
+    /* a value that, read through the wrong union member, would look like a
+     * valid AES-128 key size and yield a silently wrong wrapping key */
+    parent.pub.publicArea.parameters.keyedHashDetail.scheme.details.hmac
+        .hashAlg = 128;
+    XMEMSET(&priv, 0, sizeof(priv));
+    AssertIntEQ(wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        pub.publicArea.nameAlg, &name, &parent, &symAlg, &symSeed),
+        BAD_FUNC_ARG);
+
+    /* with no symmetric definition anywhere the wrap must be refused rather
+     * than derive a zero length key */
+    XMEMSET(&parent, 0, sizeof(parent));
+    parent.pub.publicArea.type = TPM_ALG_RSA;
+    parent.pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    XMEMSET(&priv, 0, sizeof(priv));
+    AssertIntEQ(wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        pub.publicArea.nameAlg, &name, &parent, &symAlg, &symSeed),
+        BAD_FUNC_ARG);
+
+    printf("Test SensToPriv:  %-40s Passed\n", "Parent Public Area:");
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFTPM2_PRIVATE_IMPORT */
+
 /* TPM2_IsPcrBankAllocated: argument validation always, plus a live query on
  * the simulator. Mirrors test_wolfTPM2_IsAlgSupported. */
 static void test_TPM2_IsPcrBankAllocated(void)
@@ -9909,6 +10018,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_FirmwareUpgrade_ex_session();
     #endif
     test_wolfTPM2_IsAlgSupported();
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PRIVATE_IMPORT)
+    test_wolfTPM2_SensitiveToPrivate_parentPub();
+#endif
     test_TPM2_IsPcrBankAllocated();
     test_wolfTPM2_AllocatePCRBanks();
     test_wolfTPM2_PolicyOR_success();

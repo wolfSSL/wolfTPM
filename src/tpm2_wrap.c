@@ -3678,6 +3678,30 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     sensitiveData = &priv->buffer[integritySz];
     if (parentKey != NULL) {
         symKey.size = parentKey->handle.symmetric.keyBits.sym;
+        if (symKey.size == 0) {
+            /* A parent given as a public area alone, as when a key is
+             * wrapped offline for a remote TPM, has no handle symmetric
+             * definition. The public area carries it, but only for the
+             * types that can be a storage parent. Anything else leaves the
+             * size at zero so the wrap is refused below rather than reading
+             * an inactive member of the parameters union. */
+            switch (parentKey->pub.publicArea.type) {
+                case TPM_ALG_RSA:
+                    symKey.size = parentKey->pub.publicArea.parameters
+                        .rsaDetail.symmetric.keyBits.sym;
+                    break;
+                case TPM_ALG_ECC:
+                    symKey.size = parentKey->pub.publicArea.parameters
+                        .eccDetail.symmetric.keyBits.sym;
+                    break;
+                case TPM_ALG_SYMCIPHER:
+                    symKey.size = parentKey->pub.publicArea.parameters
+                        .symDetail.sym.keyBits.sym;
+                    break;
+                default:
+                    break;
+            }
+        }
     }
     else if (sym != NULL) {
         symKey.size = sym->keyBits.sym;
@@ -3691,6 +3715,12 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         /* check for invalid value */
         if (symKey.size > sizeof(symKey.buffer)) {
             rc = BUFFER_E;
+        }
+        else if (outerWrap && symKey.size == 0) {
+            /* Only the outer wrap encrypts with this key. KDFa returns
+             * success for a zero length request, so without this the
+             * sensitive would reach the cipher with no key. */
+            rc = BAD_FUNC_ARG;
         }
     }
 #endif
