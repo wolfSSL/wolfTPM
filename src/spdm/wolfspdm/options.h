@@ -1,4 +1,4 @@
-/* spdm_nations.h
+/* options.h
  *
  * Copyright (C) 2006-2026 wolfSSL Inc.
  *
@@ -19,20 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* Forwards to the wolfSPDM submodule (lib/wolfSPDM) */
+/* Installed as wolfspdm/options.h: wolfSPDM built into wolfTPM takes its
+ * switches from wolfTPM's options */
 
-#ifndef WOLFTPM_SPDM_FWD_SPDM_NATIONS_H
-#define WOLFTPM_SPDM_FWD_SPDM_NATIONS_H
+#ifndef WOLFSPDM_OPTIONS_H
+#define WOLFSPDM_OPTIONS_H
 
-#include <wolftpm/tpm2_types.h>
-#ifdef WOLFTPM_SPDM
-    #include <wolfspdm/spdm_nations.h>
-#endif
+#include <wolftpm/options.h>
 
-#ifdef WOLFSPDM_NATIONS
-    #define TPM_CC_Nations_SpdmIdentityKeySet  (0x20000708)
-    #define TPM_PT_VENDOR_NATIONS_FIPS_SL2     (TPM_PT_VENDOR + 11)
-    #define TPM_PT_VENDOR_NATIONS_IDENTITY_KEY (TPM_PT_VENDOR + 12)
-#endif
-
-#endif /* WOLFTPM_SPDM_FWD_SPDM_NATIONS_H */
+#endif /* WOLFSPDM_OPTIONS_H */

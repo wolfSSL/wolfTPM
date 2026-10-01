@@ -109,6 +109,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup wolfSSL with PQC
         uses: ./.github/actions/setup-wolfssl
@@ -160,6 +162,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Build wolfTPM standalone (${{ matrix.name }})
         run: |
@@ -188,6 +192,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Setup wolfSSL with PQC
         uses: ./.github/actions/setup-wolfssl
         with:

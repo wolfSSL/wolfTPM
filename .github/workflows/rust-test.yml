@@ -37,6 +37,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: true
 
       # Build + install wolfSSL with the crypto-callback support the wrapper
       # (and the TPM-backed TLS bridge) needs; installs to /usr/local so
@@ -112,6 +114,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: true
       - name: Setup wolfSSL
         uses: ./.github/actions/setup-wolfssl
         with:

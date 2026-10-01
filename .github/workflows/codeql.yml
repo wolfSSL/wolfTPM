@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       # CodeQL's action is fiddly inside a custom container, so keep this job
       # on the host runner and just make apt resilient to mirror timeouts.

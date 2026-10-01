@@ -380,6 +380,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@master
+        with:
+          submodules: true
 
       # Build (or restore from cache) + install wolfSSL. The action caches the
       # built ./wolfssl tree keyed on the resolved wolfSSL commit + this config,

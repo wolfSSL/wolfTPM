@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Run codespell
         uses: codespell-project/actions-codespell@v2

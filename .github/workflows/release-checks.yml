@@ -78,6 +78,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Download wolfSSL
         uses: actions/download-artifact@v4
@@ -122,6 +124,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Download wolfSSL
         uses: actions/download-artifact@v4
@@ -165,6 +169,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       # PQC-enabled wolfSSL is a superset of what fwTPM and SPDM need, so one
       # install covers the maximal rebuild below.

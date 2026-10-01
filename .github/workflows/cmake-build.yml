@@ -138,6 +138,8 @@ jobs:
     steps:
 #pull wolfTPM
     - uses: actions/checkout@master
+      with:
+        submodules: true
 
 # Install cmake (matrix includes a Windows leg, so this job stays on the host
 # runner; apt is made resilient instead of moving into the Linux CI image)
@@ -227,6 +229,8 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@master
+        with:
+          submodules: true
 
       # Same wolfSSL config as the matrix build above, so it shares that cache
       # entry (key includes only OS + commit, not the wolfTPM options).

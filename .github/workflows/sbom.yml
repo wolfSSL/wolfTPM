@@ -28,6 +28,7 @@ jobs:
       - name: Checkout wolftpm
         uses: actions/checkout@v4
         with:
+          submodules: true
           path: wolftpm
 
       # wolfTPM links wolfSSL/wolfCrypt, so its SBOM records wolfSSL as a
@@ -155,6 +156,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Read the pinned wolfGlass revision
         id: pin
