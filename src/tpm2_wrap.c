@@ -1586,8 +1586,7 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
             return rc;
         }
     }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    defined(ECC_TIMING_RESISTANT)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     else {
         /* Auto-generate ephemeral P-384 key pair for mutual authentication */
         ecc_key hostKey;
@@ -1676,11 +1675,6 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
         rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
             tpmtPub, (word32)(p - tpmtPub));
         if (rc != 0) return rc;
-    }
-#elif !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
-    else {
-        /* Requester key auto-generation requires timing-resistant ECC */
-        return NOT_COMPILED_IN;
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
@@ -1780,8 +1774,7 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
             return rc;
         }
     }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    defined(ECC_TIMING_RESISTANT)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     else {
         /* Auto-generate ephemeral P-384 key pair for mutual authentication.
          * Nations: GIVE_PUB is not supported, but MUT_AUTH is still required.
@@ -1858,11 +1851,6 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
         rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
             tpmtPub, (word32)(p - tpmtPub));
         if (rc != 0) return rc;
-    }
-#elif !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
-    else {
-        /* Requester key auto-generation requires timing-resistant ECC */
-        return NOT_COMPILED_IN;
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
@@ -2409,8 +2397,7 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 }
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP) && \
-    defined(ECC_TIMING_RESISTANT)
+    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
 /* TPM2_KDFe is now in tpm2_param_enc.c (shared with fwTPM) */
 
 #ifdef ALT_ECC_SIZE
@@ -2793,8 +2780,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     switch (tpmKey->pub.publicArea.type) {
-    #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && \
-        defined(WOLFSSL_PUBLIC_MP) && defined(ECC_TIMING_RESISTANT)
+    #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
         case TPM_ALG_ECC:
             rc = wolfTPM2_EncryptSecret_ECC(dev, tpmKey, data, secret, label);
             break;
@@ -5320,11 +5306,8 @@ static int wolfTPM2_EccMakePubBlinded(ecc_key* key, ecc_point* point)
     TPM2_ForceZero(&rng, sizeof(rng));
     return rc;
 #else
-    (void)key;
-    (void)point;
-    /* Private-only imports require blinded scalar multiplication. Callers
-     * must provide the public point when that protection is unavailable. */
-    return NOT_COMPILED_IN;
+    /* blinding requires ECC_TIMING_RESISTANT in wolfCrypt */
+    return wc_ecc_make_pub(key, point);
 #endif
 }
 
