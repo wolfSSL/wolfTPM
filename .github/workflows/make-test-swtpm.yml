@@ -47,6 +47,11 @@ jobs:
             needs_dist: true
             needs_install: true
 
+          # wolfSSL without timing resistance (--disable-harden)
+          - name: no-harden
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --disable-harden
+            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+
           # CSharp wrapper tests
           - name: csharp
             test_command: "true"
@@ -132,6 +137,15 @@ jobs:
           - name: spdm-nations-smallstack
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
             wolftpm_config: --enable-spdm --enable-nations --enable-smallstack --disable-fwtpm
+            needs_swtpm: false
+          # SPDM vendors with wolfSSL without timing resistance (compile-only)
+          - name: spdm-nuvoton-no-harden
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp --disable-harden
+            wolftpm_config: --enable-spdm --enable-nuvoton --disable-fwtpm
+            needs_swtpm: false
+          - name: spdm-nations-no-harden
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp --disable-harden
+            wolftpm_config: --enable-spdm --enable-nations --disable-fwtpm
             needs_swtpm: false
           # Microchip
           - name: microchip

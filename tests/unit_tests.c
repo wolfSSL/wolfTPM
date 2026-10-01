@@ -2958,6 +2958,11 @@ static void test_wolfTPM2_EncryptSecret(void)
     WOLFTPM2_KEY tpmKey;
     TPM2B_DATA data;
     TPM2B_ENCRYPTED_SECRET secret;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    WOLFTPM2_KEY eccKey;
+    const TPMT_PUBLIC* eccPub;
+#endif
 #if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
@@ -2987,6 +2992,29 @@ static void test_wolfTPM2_EncryptSecret(void)
     /* Test NULL secret returns BAD_FUNC_ARG */
     rc = wolfTPM2_EncryptSecret(&dev, &tpmKey, &data, NULL, "SECRET");
     AssertIntEQ(rc, BAD_FUNC_ARG);
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    /* ECC path: the salt is the KDFe output (nameAlg digest size) and the
+     * ephemeral public point (x and y, each size prefixed) goes on the wire.
+     * Must work with or without ECC_TIMING_RESISTANT in wolfCrypt. */
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
+    XMEMSET(&data, 0, sizeof(data));
+    XMEMSET(&secret, 0, sizeof(secret));
+
+    rc = wolfTPM2_CreateSRK(&dev, &eccKey, TPM_ALG_ECC, NULL, 0);
+    AssertIntEQ(rc, 0);
+    eccPub = &eccKey.pub.publicArea;
+
+    rc = wolfTPM2_EncryptSecret(&dev, &eccKey, &data, &secret, "SECRET");
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(data.size, TPM2_GetHashDigestSize(eccPub->nameAlg));
+    AssertIntEQ(secret.size, 2 * ((int)sizeof(UINT16) +
+        TPM2_GetCurveSize(eccPub->parameters.eccDetail.curveID)));
+    printf("Test TPM Wrapper: %-40s Passed\n", "EncryptSecret ECC:");
+
+    wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+#endif
 
 #if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
@@ -8785,6 +8813,74 @@ static void test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths(void)
 }
 #endif /* HAVE_ECC */
 
+/* A private-only wolf ECC key has no public point, so creating the key blob
+ * derives it from the private scalar. Must work with or without
+ * ECC_TIMING_RESISTANT in wolfCrypt. */
+static void test_wolfTPM2_CreateEccKeyBlob_PrivateOnly(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT) && \
+    !defined(NO_ECC256) && !defined(WC_NO_RNG) && \
+    defined(WOLFSSL_PUBLIC_MP) && defined(WOLFSSL_AES_CFB)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEYBLOB keyBlob;
+    WC_RNG rng;
+    ecc_key privKey, refKey;
+    const TPMS_ECC_POINT* pt;
+    byte d[32], qx[32], qy[32];
+    word32 qxSz = sizeof(qx), qySz = sizeof(qy);
+
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_CreateSRK(&dev, &srk, TPM_ALG_ECC, NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    /* random scalar below the P-256 order and not zero */
+    AssertIntEQ(wc_InitRng(&rng), 0);
+    AssertIntEQ(wc_RNG_GenerateBlock(&rng, d, sizeof(d)), 0);
+    d[0] &= 0x7F;
+    d[sizeof(d) - 1] |= 0x01;
+
+    /* reference public point for the same scalar */
+    AssertIntEQ(wc_ecc_init(&refKey), 0);
+    AssertIntEQ(wc_ecc_import_private_key_ex(d, sizeof(d), NULL, 0, &refKey,
+        ECC_SECP256R1), 0);
+    AssertIntEQ(wc_ecc_make_pub(&refKey, NULL), 0);
+    AssertIntEQ(wc_ecc_export_public_raw(&refKey, qx, &qxSz, qy, &qySz), 0);
+
+    AssertIntEQ(wc_ecc_init(&privKey), 0);
+    AssertIntEQ(wc_ecc_import_private_key_ex(d, sizeof(d), NULL, 0, &privKey,
+        ECC_SECP256R1), 0);
+    AssertIntEQ(privKey.type, ECC_PRIVATEKEY_ONLY);
+
+    rc = wolfTPM2_CreateEccKeyBlob(&dev, &srk, &privKey, &keyBlob);
+    AssertIntEQ(rc, 0);
+    pt = &keyBlob.pub.publicArea.unique.ecc;
+    AssertIntEQ(pt->x.size, (int)qxSz);
+    AssertIntEQ(pt->y.size, (int)qySz);
+    AssertIntEQ(XMEMCMP(pt->x.buffer, qx, qxSz), 0);
+    AssertIntEQ(XMEMCMP(pt->y.buffer, qy, qySz), 0);
+
+    rc = wolfTPM2_LoadKey(&dev, &keyBlob, &srk.handle);
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_UnloadHandle(&dev, &keyBlob.handle);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wc_ecc_free(&privKey);
+    wc_ecc_free(&refKey);
+    wc_FreeRng(&rng);
+    wc_ForceZero(d, sizeof(d));
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tCreateEccKeyBlob private only:\tPassed\n");
+#endif
+}
+
 #ifndef NO_RSA
 static void test_wolfTPM2_ImportRsaPrivateKeySeed_ErrorPaths(void)
 {
@@ -9982,6 +10078,7 @@ int unit_tests(int argc, char *argv[])
     #ifdef HAVE_ECC
     test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths();
     #endif
+    test_wolfTPM2_CreateEccKeyBlob_PrivateOnly();
     #ifndef NO_RSA
     test_wolfTPM2_ImportRsaPrivateKeySeed_ErrorPaths();
     #endif
