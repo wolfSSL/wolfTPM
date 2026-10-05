@@ -14879,6 +14879,70 @@ static void test_fwtpm_ecc_parameters(void)
 }
 #endif
 
+/* Raw decryption and key agreement require an unrestricted decrypt key
+ * (Part 3 Sec.14.3, 14.5, 14.7); a storage key must be refused. */
+#if (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)) || \
+    (defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH))
+static void test_fwtpm_decrypt_primitives_reject_storage_key(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(keyH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_RSA_Decrypt);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* cipherText */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* label */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+    FlushHandle(&ctx, keyH);
+#endif
+
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    AssertIntNE(keyH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ECDH_ZGen);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 4); pos += 2; /* inPoint outer size */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* x.size */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* y.size */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ZGen_2Phase);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 4); pos += 2; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* inQsB */
+    PutU16BE(gCmd + pos, 4); pos += 2; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* inQeB */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDH); pos += 2; /* inScheme */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* counter */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+    FlushHandle(&ctx, keyH);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Decrypt primitives reject storage key:", 0);
+}
+#endif
+
 #ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_context_save(void)
 {
@@ -16756,6 +16820,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif /* !FWTPM_NO_HASH_CMDS */
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_parameters();
+#endif
+#if (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)) || \
+    (defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH))
+    test_fwtpm_decrypt_primitives_reject_storage_key();
 #endif
 
     /* Sessions */

@@ -9359,6 +9359,11 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_decrypt))
             rc = TPM_RC_KEY;
     }
+    /* Storage keys must not act as a raw decryption oracle (Part 3 Sec.14.3) */
+    if (rc == 0) {
+        if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0)
+            rc = TPM_RC_ATTRIBUTES;
+    }
     if (rc == 0) {
         if (obj->privKeySize == 0) {
             rc = TPM_RC_KEY; /* need private key */
@@ -10552,10 +10557,12 @@ static TPM_RC FwCmd_ECDH_ZGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_KEY;
         }
     }
-    /* Key agreement requires a decryption key (Part 3 Sec.21.3) */
+    /* Key agreement requires an unrestricted decryption key (Part 3 Sec.14.5) */
     if (rc == 0) {
-        if (!(obj->pub.objectAttributes & TPMA_OBJECT_decrypt))
+        if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
+            (obj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0) {
             rc = TPM_RC_ATTRIBUTES;
+        }
     }
 
     /* Skip auth area */
@@ -16679,8 +16686,10 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && keyA->pub.type != TPM_ALG_ECC) {
         rc = TPM_RC_KEY;
     }
-    /* Key agreement requires a decryption key (Part 3 Sec.14.7) */
-    if (rc == 0 && !(keyA->pub.objectAttributes & TPMA_OBJECT_decrypt)) {
+    /* Key agreement requires an unrestricted decryption key (Part 3 Sec.14.7) */
+    if (rc == 0 &&
+        ((keyA->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
+         (keyA->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0)) {
         rc = TPM_RC_ATTRIBUTES;
     }
 
