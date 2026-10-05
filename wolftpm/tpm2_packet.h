@@ -166,6 +166,8 @@ WOLFTPM_LOCAL void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int si
 WOLFTPM_TEST_API int TPM2_ParseSpdmSessionInfo(TPM2_Packet* packet,
     TPML_SPDM_SESSION_INFO* sessInfo);
 #endif /* WOLFTPM_SPDM */
+WOLFTPM_TEST_API int TPM2_ParsePcrProperties(TPM2_Packet* packet,
+    TPML_TAGGED_PCR_PROPERTY* pcrProp);
 /*!
     \brief Parse a UINT16-prefixed buffer from a TPM2 packet. Reads a 16-bit
     size followed by that many bytes into buf, clamped to maxBufSz.

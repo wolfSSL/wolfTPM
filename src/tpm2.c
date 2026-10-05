@@ -1432,6 +1432,51 @@ int TPM2_ParseSpdmSessionInfo(TPM2_Packet* packet,
 }
 #endif /* WOLFTPM_SPDM */
 
+/* Parse a TPML_TAGGED_PCR_PROPERTY capability list, rejecting a count that
+ * claims more entries than the response holds. */
+int TPM2_ParsePcrProperties(TPM2_Packet* packet,
+    TPML_TAGGED_PCR_PROPERTY* pcrProp)
+{
+    UINT32 wireCount = 0;
+    UINT32 i;
+    UINT32 tag;
+    UINT8 wireSizeofSelect;
+
+    if (packet == NULL || pcrProp == NULL)
+        return BAD_FUNC_ARG;
+
+    TPM2_Packet_ParseU32(packet, &wireCount);
+    pcrProp->count = wireCount;
+    if (pcrProp->count > MAX_PCR_PROPERTIES)
+        pcrProp->count = MAX_PCR_PROPERTIES;
+    for (i = 0; i < wireCount && !packet->overflow; i++) {
+        TPM2_Packet_ParseU32(packet, &tag);
+        TPM2_Packet_ParseU8(packet, &wireSizeofSelect);
+        if (i < pcrProp->count) {
+            TPMS_TAGGED_PCR_SELECT* sel = &pcrProp->pcrProperty[i];
+            sel->tag = tag;
+            sel->sizeofSelect = wireSizeofSelect;
+            if (sel->sizeofSelect > PCR_SELECT_MAX)
+                sel->sizeofSelect = PCR_SELECT_MAX;
+            TPM2_Packet_ParseBytes(packet, sel->pcrSelect,
+                sel->sizeofSelect);
+            if (wireSizeofSelect > sel->sizeofSelect) {
+                TPM2_Packet_ParseBytes(packet, NULL,
+                    wireSizeofSelect - sel->sizeofSelect);
+            }
+        }
+        else {
+            /* Skip entries beyond array capacity */
+            TPM2_Packet_ParseBytes(packet, NULL, wireSizeofSelect);
+        }
+    }
+    if (packet->overflow) {
+        pcrProp->count = 0;
+        return TPM_RC_SIZE;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
 {
     TPM_RC rc;
@@ -1535,38 +1580,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                 }
                 case TPM_CAP_PCR_PROPERTIES:
                 {
-                    TPML_TAGGED_PCR_PROPERTY* pcrProp =
-                        &out->capabilityData.data.pcrProperties;
-                    UINT32 wireCount;
-                    UINT32 tag;
-                    UINT8 wireSizeofSelect;
-                    TPM2_Packet_ParseU32(&packet, &wireCount);
-                    pcrProp->count = wireCount;
-                    if (pcrProp->count > MAX_PCR_PROPERTIES)
-                        pcrProp->count = MAX_PCR_PROPERTIES;
-                    for (i=0; i<(int)wireCount; i++) {
-                        TPM2_Packet_ParseU32(&packet, &tag);
-                        TPM2_Packet_ParseU8(&packet, &wireSizeofSelect);
-                        if (i < (int)pcrProp->count) {
-                            TPMS_TAGGED_PCR_SELECT* sel =
-                                &pcrProp->pcrProperty[i];
-                            sel->tag = tag;
-                            sel->sizeofSelect = wireSizeofSelect;
-                            if (sel->sizeofSelect > PCR_SELECT_MAX)
-                                sel->sizeofSelect = PCR_SELECT_MAX;
-                            TPM2_Packet_ParseBytes(&packet, sel->pcrSelect,
-                                sel->sizeofSelect);
-                            if (wireSizeofSelect > sel->sizeofSelect) {
-                                TPM2_Packet_ParseBytes(&packet, NULL,
-                                    wireSizeofSelect - sel->sizeofSelect);
-                            }
-                        }
-                        else {
-                            /* Skip entries beyond array capacity */
-                            TPM2_Packet_ParseBytes(&packet, NULL,
-                                wireSizeofSelect);
-                        }
-                    }
+                    rc = TPM2_ParsePcrProperties(&packet,
+                        &out->capabilityData.data.pcrProperties);
                     break;
                 }
                 case TPM_CAP_ECC_CURVES:
