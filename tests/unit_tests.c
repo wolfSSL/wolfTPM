@@ -2546,6 +2546,108 @@ static void test_wolfTPM2_BoundOwnEntity_ParamEnc(void)
 #endif
 }
 
+/* A policy session authorizes in slot 0 while a separate AES-CFB session in
+ * slot 1 encrypts the parameters, so the slot 0 HMAC must also cover the
+ * slot 1 nonceTPM in both directions. */
+static void test_wolfTPM2_SplitParamEncSession(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION policySess;
+    WOLFTPM2_SESSION encSess;
+    WOLFTPM2_SESSION trial;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_AUTH_INDEX;
+    word32 nvAttributes;
+    byte policyDigest[TPM_SHA256_DIGEST_SIZE];
+    word32 policyDigestSz = (word32)sizeof(policyDigest);
+    byte pcrArray[1];
+    byte buf[16];
+    byte readBuf[16];
+    word32 readSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&policySess, 0, sizeof(policySess));
+    XMEMSET(&encSess, 0, sizeof(encSess));
+    XMEMSET(&trial, 0, sizeof(trial));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(policyDigest, 0, sizeof(policyDigest));
+    XMEMSET(buf, 0x5A, sizeof(buf));
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    pcrArray[0] = 16; /* resettable debug PCR */
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tSplit param-enc session:\tSkipped\n");
+        return;
+    }
+
+    rc = wolfTPM2_StartSession(&dev, &trial, NULL, NULL, TPM_SE_TRIAL,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrArray, 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_GetPolicyDigest(&dev, trial.handle.hndl, policyDigest,
+        &policyDigestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    wolfTPM2_UnloadHandle(&dev, &trial.handle);
+
+    parent.hndl = TPM_RH_OWNER;
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    nvAttributes = TPMA_NV_POLICYWRITE | TPMA_NV_POLICYREAD | TPMA_NV_NO_DA;
+    rc = wolfTPM2_NVCreateAuthPolicy(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), NULL, 0, policyDigest, (int)policyDigestSz);
+    if (rc != 0) {
+        /* Environmental (NV space / unsupported). Treat as skip. */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tSplit param-enc session:\tSkipped\n");
+        return;
+    }
+
+    /* Start both first: StartSession resets slot 0 to password auth */
+    rc = wolfTPM2_StartSession(&dev, &policySess, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_StartSession(&dev, &encSess, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &policySess,
+        TPMA_SESSION_continueSession);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &encSess,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_NVWriteAuthPolicy(&dev, &policySess, TPM_ALG_SHA256,
+        pcrArray, 1, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_PolicyRestart(&dev, policySess.handle.hndl);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuthPolicy(&dev, &policySess, TPM_ALG_SHA256,
+        pcrArray, 1, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_SetAuthSession(&dev, 0, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &encSess.handle);
+    wolfTPM2_UnloadHandle(&dev, &policySess.handle);
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tSplit param-enc session:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tSplit param-enc session:\tSkipped\n");
+#endif
+}
+
 /* Multi-chunk NV write plus rewrite under an HMAC parameter encryption
  * session; a stale cached NV index name would fail the session HMAC. */
 static void test_wolfTPM2_NVWriteChunked(void)
@@ -10002,6 +10104,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc();
     test_wolfTPM2_CreateLoaded_ParamEnc();
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
+    test_wolfTPM2_SplitParamEncSession();
     test_wolfTPM2_NVWriteChunked();
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();

@@ -843,6 +843,7 @@ static int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
 static int FwComputeSessionHmac(FWTPM_Session* sess,
     const byte* pHash, int pHashSz, UINT8 sessionAttributes,
     const byte* authValue, int authValueSz,
+    const TPM2B_NONCE* nonceDecrypt, const TPM2B_NONCE* nonceEncrypt,
     int isResponse,
     byte* hmacOut, int* hmacOutSz)
 {
@@ -898,6 +899,13 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
         if (rc == 0)
             rc = wc_HmacUpdate(hmac, sess->nonceTPM.buffer,
                 sess->nonceTPM.size);
+        /* Binds separate decrypt/encrypt sessions to the first auth session */
+        if (rc == 0 && nonceDecrypt != NULL)
+            rc = wc_HmacUpdate(hmac, nonceDecrypt->buffer,
+                nonceDecrypt->size);
+        if (rc == 0 && nonceEncrypt != NULL)
+            rc = wc_HmacUpdate(hmac, nonceEncrypt->buffer,
+                nonceEncrypt->size);
     }
 
     /* sessionAttributes (1 byte) */
@@ -9359,6 +9367,11 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_decrypt))
             rc = TPM_RC_KEY;
     }
+    /* Storage keys must not act as a raw decryption oracle (Part 3 Sec.14.3) */
+    if (rc == 0) {
+        if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0)
+            rc = TPM_RC_ATTRIBUTES;
+    }
     if (rc == 0) {
         if (obj->privKeySize == 0) {
             rc = TPM_RC_KEY; /* need private key */
@@ -10552,10 +10565,12 @@ static TPM_RC FwCmd_ECDH_ZGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_KEY;
         }
     }
-    /* Key agreement requires a decryption key (Part 3 Sec.21.3) */
+    /* Key agreement requires an unrestricted decryption key (Part 3 Sec.14.5) */
     if (rc == 0) {
-        if (!(obj->pub.objectAttributes & TPMA_OBJECT_decrypt))
+        if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
+            (obj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0) {
             rc = TPM_RC_ATTRIBUTES;
+        }
     }
 
     /* Skip auth area */
@@ -16679,8 +16694,10 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && keyA->pub.type != TPM_ALG_ECC) {
         rc = TPM_RC_KEY;
     }
-    /* Key agreement requires a decryption key (Part 3 Sec.14.7) */
-    if (rc == 0 && !(keyA->pub.objectAttributes & TPMA_OBJECT_decrypt)) {
+    /* Key agreement requires an unrestricted decryption key (Part 3 Sec.14.7) */
+    if (rc == 0 &&
+        ((keyA->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
+         (keyA->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0)) {
         rc = TPM_RC_ATTRIBUTES;
     }
 
@@ -19510,7 +19527,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     const FWTPM_CMD_ENTRY* entry;
     TPM_RC rc = TPM_RC_SUCCESS;
 #ifndef FWTPM_NO_PARAM_ENC
-    FWTPM_Session* encSess = NULL;  /* Session requesting param encryption */
+    FWTPM_Session* decSess = NULL;  /* Session with the decrypt attribute */
+    TPM_HANDLE decAuthHandle = 0;   /* Handle the decrypt session authorizes */
+    FWTPM_Session* encSess = NULL;  /* Session with the encrypt attribute */
     TPM_HANDLE encAuthHandle = 0;   /* Handle the encrypt session authorizes */
     int doEncCmd = 0;               /* Decrypt incoming encrypted param */
     int doEncRsp = 0;               /* Encrypt outgoing response param */
@@ -19746,34 +19765,47 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             }
 
 #ifndef FWTPM_NO_PARAM_ENC
-                            /* Detect encryption session (first non-PW with a
-                             * symmetric alg). Unsalted/unbound sessions are
-                             * accepted for client compatibility; over the
-                             * loopback transport their key is only observable
-                             * to a local peer. */
-                            if (encSess == NULL &&
-                                sess->symmetric.algorithm != TPM_ALG_NULL) {
+                            /* decrypt/encrypt each pick the one session with
+                             * that attribute and a cipher. Unsalted sessions
+                             * stay accepted for client compatibility. */
+                            if (((attribs & TPMA_SESSION_decrypt) != 0 &&
+                                    decSess != NULL) ||
+                                ((attribs & TPMA_SESSION_encrypt) != 0 &&
+                                    encSess != NULL)) {
+                                rc = TPM_RC_ATTRIBUTES;
+                                break;
+                            }
+                            if ((attribs & (TPMA_SESSION_decrypt |
+                                    TPMA_SESSION_encrypt)) != 0 &&
+                                    sess->symmetric.algorithm == TPM_ALG_NULL) {
+                                rc = TPM_RC_SYMMETRIC;
+                                break;
+                            }
+                            /* The first authHandleCnt handles are the ones
+                             * that require authorization, in order, so auth
+                             * session i authorizes handle i for
+                             * i < authHandleCnt. Beyond that the session is
+                             * a secondary encrypt-only session and
+                             * authorizes no handle. */
+                            /* decrypt attr = client encrypted cmd param */
+                            if ((attribs & TPMA_SESSION_decrypt) != 0) {
+                                decSess = sess;
+                                if (cmdAuthCnt < (int)entry->authHandleCnt &&
+                                        cmdAuthCnt < cmdHandleCnt) {
+                                    decAuthHandle = cmdHandles[cmdAuthCnt];
+                                }
+                                if (entry->encDecFlags & FW_CMD_FLAG_ENC) {
+                                    doEncCmd = 1;
+                                }
+                            }
+                            /* encrypt attr = TPM encrypts rsp param */
+                            if ((attribs & TPMA_SESSION_encrypt) != 0) {
                                 encSess = sess;
-                                /* The first authHandleCnt handles are the ones
-                                 * that require authorization, in order, so auth
-                                 * session i authorizes handle i for
-                                 * i < authHandleCnt. Beyond that the session is
-                                 * a secondary encrypt-only session and
-                                 * authorizes no handle. */
                                 if (cmdAuthCnt < (int)entry->authHandleCnt &&
                                         cmdAuthCnt < cmdHandleCnt) {
                                     encAuthHandle = cmdHandles[cmdAuthCnt];
                                 }
-                                /* decrypt attr = client encrypted cmd param */
-                                if ((attribs & TPMA_SESSION_decrypt)
-                                    &&
-                                    (entry->encDecFlags & FW_CMD_FLAG_ENC)) {
-                                    doEncCmd = 1;
-                                }
-                                /* encrypt attr = TPM encrypts rsp param */
-                                if ((attribs & TPMA_SESSION_encrypt)
-                                    &&
-                                    (entry->encDecFlags & FW_CMD_FLAG_DEC)) {
+                                if (entry->encDecFlags & FW_CMD_FLAG_DEC) {
                                     doEncRsp = 1;
                                 }
                             }
@@ -20317,10 +20349,26 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             int expectedSz = 0;
             const byte* authVal = NULL;
             int authValSz = 0;
+            const TPM2B_NONCE* nonceDecrypt = NULL;
+            const TPM2B_NONCE* nonceEncrypt = NULL;
             TPM_HANDLE entityH;
             int sizeMismatch;
             int hmacDiff;
             word32 cmpSz;
+
+#ifndef FWTPM_NO_PARAM_ENC
+            /* Part 1 Sec.19.6.5: the first session's HMAC also covers the
+             * nonceTPM of a different decrypt and encrypt session */
+            if (hj == 0) {
+                if (decSess != NULL && decSess != hSess) {
+                    nonceDecrypt = &decSess->nonceTPM;
+                }
+                if (encSess != NULL && encSess != hSess &&
+                        encSess != decSess) {
+                    nonceEncrypt = &encSess->nonceTPM;
+                }
+            }
+#endif
 
             /* Compute cpHash = H(commandCode || handleNames || cpBuffer) */
             if (FwComputeCpHash(hSess->authHash, cmdCode,
@@ -20385,6 +20433,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             /* Compute expected command HMAC (nonceCaller first, then nonceTPM) */
             FwComputeSessionHmac(hSess, cpHash, cpHashSz,
                 cmdAuths[hj].attributes, authVal, authValSz,
+                nonceDecrypt, nonceEncrypt,
                 0, /* isResponse=0 for command HMAC */
                 expectedHmac, &expectedSz);
 
@@ -20430,11 +20479,11 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* Command parameter decryption (after HMAC verification, before handler).
      * Per TPM 2.0 spec Part 1 Section 19.6.5: cpHash is computed over the encrypted
      * command parameters. Decryption happens after HMAC verification. */
-    if (doEncCmd && encSess != NULL && cpStart > 0 && cpStart + 2 <= cmdSize) {
+    if (doEncCmd && decSess != NULL && cpStart > 0 && cpStart + 2 <= cmdSize) {
         UINT16 paramSz;
         paramSz = FwLoadU16BE(cmdBuf + cpStart);
         if (paramSz > 0 && cpStart + 2 + paramSz <= cmdSize) {
-            rc = (TPM_RC)FwParamDecryptCmd(ctx, encSess, encAuthHandle,
+            rc = (TPM_RC)FwParamDecryptCmd(ctx, decSess, decAuthHandle,
                 (byte*)cmdBuf + cpStart + 2, paramSz);
             if (rc != 0) {
             #ifdef DEBUG_WOLFTPM
@@ -20642,7 +20691,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         authValSz = 0;
                     }
                     FwComputeSessionHmac(sess, rpHash, rpHashSz, rspAttribs,
-                        authVal, authValSz, 1 /* isResponse */,
+                        authVal, authValSz, NULL, NULL, 1 /* isResponse */,
                         hmacBuf, &hmacSz);
                 }
                 TPM2_Packet_AppendU16(&rspPkt, (UINT16)hmacSz);
