@@ -4517,6 +4517,51 @@ static void test_TPM2_ParseSpdmSessionInfo_Truncated(void)
 }
 #endif /* WOLFTPM_SPDM */
 
+static void test_TPM2_Packet_ParseU16BufStrict(void)
+{
+    byte field[] = { 0x00, 0x04, 0x11, 0x22, 0x33, 0x44 };
+    byte out[8];
+    TPM2_Packet packet;
+    UINT16 size;
+    int rc;
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(out, 0, sizeof(out));
+    packet.buf = field;
+    packet.size = (int)sizeof(field);
+    rc = TPM2_Packet_ParseU16BufStrict(&packet, &size, out, 4);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(size, 4);
+    AssertIntEQ(out[3], 0x44);
+    AssertIntEQ(packet.pos, packet.size);
+
+    /* Larger than the destination: rejected, not truncated */
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = field;
+    packet.size = (int)sizeof(field);
+    rc = TPM2_Packet_ParseU16BufStrict(&packet, &size, out, 3);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+    AssertIntEQ(size, 0);
+
+    /* Larger than the bytes left in the response */
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = field;
+    packet.size = (int)sizeof(field) - 1;
+    rc = TPM2_Packet_ParseU16BufStrict(&packet, &size, out, sizeof(out));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+    AssertIntEQ(size, 0);
+
+    /* Size field itself truncated */
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = field;
+    packet.size = 1;
+    rc = TPM2_Packet_ParseU16BufStrict(&packet, &size, out, sizeof(out));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+    AssertIntEQ(size, 0);
+
+    printf("Test TPM Wrapper:\tParseU16BufStrict:\t\tPassed\n");
+}
+
 /* TPM2_Packet_ParsePoint must resync to outerStart + point->size so a
  * malformed wire blob with inner x.size / y.size disagreement can't
  * desynchronize subsequent fields. */
@@ -9940,6 +9985,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PolicyTransportSPDMMake();
     test_TPM2_ParseSpdmSessionInfo_Truncated();
 #endif
+    test_TPM2_Packet_ParseU16BufStrict();
     test_wolfTPM2_Init();
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();

@@ -6727,6 +6727,23 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 }
 #endif /* WOLFTPM_MLDSA_VERIFY */
 
+#if defined(WOLFTPM_MLKEM_ENCAP) || defined(WOLFTPM_MLKEM_DECAP)
+#define WOLFTPM2_MLKEM_SS_SZ 32
+#endif
+
+#ifdef WOLFTPM_MLKEM_ENCAP
+/* FIPS 203 ciphertext size for the parameter set, or 0 if unknown */
+static int MlKemCiphertextSize(TPMI_MLKEM_PARAMETER_SET parameterSet)
+{
+    switch (parameterSet) {
+        case TPM_MLKEM_512:  return 768;
+        case TPM_MLKEM_768:  return 1088;
+        case TPM_MLKEM_1024: return 1568;
+        default:             return 0;
+    }
+}
+#endif /* WOLFTPM_MLKEM_ENCAP */
+
 #ifdef WOLFTPM_MLKEM_ENCAP
 int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     byte* ciphertext, int* ciphertextSz, byte* sharedSecret, int* sharedSecretSz)
@@ -6745,6 +6762,12 @@ int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     XMEMSET(&encapsulateOut, 0, sizeof(encapsulateOut));
     rc = TPM2_Encapsulate(&encapsulateIn, &encapsulateOut);
+    if (rc == TPM_RC_SUCCESS && key->pub.publicArea.type == TPM_ALG_MLKEM &&
+            ((int)encapsulateOut.ciphertext.size != MlKemCiphertextSize(
+                key->pub.publicArea.parameters.mlkemDetail.parameterSet) ||
+             encapsulateOut.sharedSecret.size != WOLFTPM2_MLKEM_SS_SZ)) {
+        rc = TPM_RC_SIZE;
+    }
     if (rc == TPM_RC_SUCCESS) {
         if (*ciphertextSz >= (int)encapsulateOut.ciphertext.size) {
             XMEMCPY(ciphertext, encapsulateOut.ciphertext.buffer, encapsulateOut.ciphertext.size);
@@ -6799,6 +6822,10 @@ int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     XMEMSET(&decapsulateOut, 0, sizeof(decapsulateOut));
     rc = TPM2_Decapsulate(&decapsulateIn, &decapsulateOut);
+    if (rc == TPM_RC_SUCCESS && key->pub.publicArea.type == TPM_ALG_MLKEM &&
+            decapsulateOut.sharedSecret.size != WOLFTPM2_MLKEM_SS_SZ) {
+        rc = TPM_RC_SIZE;
+    }
     if (rc == TPM_RC_SUCCESS) {
         if (*sharedSecretSz >= (int)decapsulateOut.sharedSecret.size) {
             XMEMCPY(sharedSecret, decapsulateOut.sharedSecret.buffer, decapsulateOut.sharedSecret.size);

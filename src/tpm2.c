@@ -4086,6 +4086,23 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
 }
 #endif /* WOLFTPM_MLDSA_VERIFY */
 
+#if defined(WOLFTPM_MLKEM_ENCAP) || defined(WOLFTPM_MLKEM_DECAP)
+/* Limit parsing to the declared response parameter area, so the
+ * authorization area cannot satisfy a parameter length. */
+static TPM_RC TPM2_LimitToParamArea(TPM2_Packet* packet)
+{
+    UINT32 paramSz = 0;
+
+    TPM2_Packet_ParseU32(packet, &paramSz);
+    if (packet->overflow ||
+            paramSz > (UINT32)(packet->size - packet->pos)) {
+        return TPM_RC_SIZE;
+    }
+    packet->size = packet->pos + (int)paramSz;
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_MLKEM_ENCAP || WOLFTPM_MLKEM_DECAP */
+
 #ifdef WOLFTPM_MLKEM_ENCAP
 TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
 {
@@ -4120,42 +4137,25 @@ TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
-            UINT32 paramSz = 0;
-            UINT16 wireSize;
-            UINT16 wireSize2;
-
             if (st == TPM_ST_SESSIONS) {
-                TPM2_Packet_ParseU32(&packet, &paramSz);
+                rc = TPM2_LimitToParamArea(&packet);
             }
-
-            /* Parse sharedSecret with bounds checking */
-            TPM2_Packet_ParseU16(&packet, &wireSize);
-            out->sharedSecret.size = wireSize;
-            if (out->sharedSecret.size >
-                    (UINT16)sizeof(out->sharedSecret.buffer)) {
-                out->sharedSecret.size =
-                    (UINT16)sizeof(out->sharedSecret.buffer);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = TPM2_Packet_ParseU16BufStrict(&packet,
+                    &out->sharedSecret.size, out->sharedSecret.buffer,
+                    (UINT16)sizeof(out->sharedSecret.buffer));
             }
-            TPM2_Packet_ParseBytes(&packet, out->sharedSecret.buffer,
-                out->sharedSecret.size);
-            if (wireSize > out->sharedSecret.size) {
-                TPM2_Packet_ParseBytes(&packet, NULL,
-                    wireSize - out->sharedSecret.size);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = TPM2_Packet_ParseU16BufStrict(&packet,
+                    &out->ciphertext.size, out->ciphertext.buffer,
+                    (UINT16)sizeof(out->ciphertext.buffer));
             }
-
-            /* Parse ciphertext with bounds checking */
-            TPM2_Packet_ParseU16(&packet, &wireSize2);
-            out->ciphertext.size = wireSize2;
-            if (out->ciphertext.size >
-                    (UINT16)sizeof(out->ciphertext.buffer)) {
-                out->ciphertext.size =
-                    (UINT16)sizeof(out->ciphertext.buffer);
+            if (rc == TPM_RC_SUCCESS && packet.pos != packet.size) {
+                rc = TPM_RC_SIZE;
             }
-            TPM2_Packet_ParseBytes(&packet, out->ciphertext.buffer,
-                out->ciphertext.size);
-            if (wireSize2 > out->ciphertext.size) {
-                TPM2_Packet_ParseBytes(&packet, NULL,
-                    wireSize2 - out->ciphertext.size);
+            if (rc != TPM_RC_SUCCESS) {
+                TPM2_ForceZero(&out->sharedSecret, sizeof(out->sharedSecret));
+                XMEMSET(&out->ciphertext, 0, sizeof(out->ciphertext));
             }
         }
 
@@ -4196,24 +4196,17 @@ TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out)
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
-            UINT32 paramSz = 0;
-            UINT16 wireSize;
-
-            TPM2_Packet_ParseU32(&packet, &paramSz);
-
-            /* Parse sharedSecret with bounds checking */
-            TPM2_Packet_ParseU16(&packet, &wireSize);
-            out->sharedSecret.size = wireSize;
-            if (out->sharedSecret.size >
-                    (UINT16)sizeof(out->sharedSecret.buffer)) {
-                out->sharedSecret.size =
-                    (UINT16)sizeof(out->sharedSecret.buffer);
+            rc = TPM2_LimitToParamArea(&packet);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = TPM2_Packet_ParseU16BufStrict(&packet,
+                    &out->sharedSecret.size, out->sharedSecret.buffer,
+                    (UINT16)sizeof(out->sharedSecret.buffer));
             }
-            TPM2_Packet_ParseBytes(&packet, out->sharedSecret.buffer,
-                out->sharedSecret.size);
-            if (wireSize > out->sharedSecret.size) {
-                TPM2_Packet_ParseBytes(&packet, NULL,
-                    wireSize - out->sharedSecret.size);
+            if (rc == TPM_RC_SUCCESS && packet.pos != packet.size) {
+                rc = TPM_RC_SIZE;
+            }
+            if (rc != TPM_RC_SUCCESS) {
+                TPM2_ForceZero(&out->sharedSecret, sizeof(out->sharedSecret));
             }
         }
 

@@ -177,6 +177,8 @@ WOLFTPM_TEST_API int TPM2_ParseSpdmSessionInfo(TPM2_Packet* packet,
 */
 WOLFTPM_LOCAL void TPM2_Packet_ParseU16Buf(TPM2_Packet* packet, UINT16* size,
     byte* buf, UINT16 maxBufSz);
+WOLFTPM_TEST_API int TPM2_Packet_ParseU16BufStrict(TPM2_Packet* packet,
+    UINT16* size, byte* buf, UINT16 maxBufSz);
 WOLFTPM_LOCAL void TPM2_Packet_MarkU16(TPM2_Packet* packet, int* markSz);
 WOLFTPM_LOCAL int  TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz);
 WOLFTPM_LOCAL void TPM2_Packet_MarkU32(TPM2_Packet* packet, int* markSz);
