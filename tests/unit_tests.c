@@ -4668,8 +4668,8 @@ static void test_TPM2_ParsePcrProperties_Count(void)
 {
     static const byte twoProps[] = {
         0x00, 0x00, 0x00, 0x02,
-        0x00, 0x00, 0x00, 0x01, 0x03, 0x01, 0x02, 0x03,
-        0x00, 0x00, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06
+        0x00, 0x00, 0x00, 0x01, 0x01, 0x03,
+        0x00, 0x00, 0x00, 0x02, 0x01, 0x06
     };
     static const UINT32 badCounts[] = { 3, 0x80000000UL, 0xFFFFFFFFUL };
     byte manyProps[4 + (MAX_PCR_PROPERTIES + 1) * 5];
@@ -4687,8 +4687,8 @@ static void test_TPM2_ParsePcrProperties_Count(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(props.count, 2);
     AssertIntEQ(props.pcrProperty[1].tag, 2);
-    AssertIntEQ(props.pcrProperty[1].sizeofSelect, 3);
-    AssertIntEQ(props.pcrProperty[1].pcrSelect[2], 0x06);
+    AssertIntEQ(props.pcrProperty[1].sizeofSelect, 1);
+    AssertIntEQ(props.pcrProperty[1].pcrSelect[0], 0x06);
     AssertIntEQ(packet.pos, packet.size);
 
     /* Entries past the local array are skipped, not rejected */
