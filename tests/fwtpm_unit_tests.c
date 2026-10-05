@@ -15105,8 +15105,8 @@ static void ComputeAuthHmac(const byte* cpHash, const byte* nonceCaller,
     wc_HmacFree(&hmac);
 }
 
-/* TPM2_HMAC authorized by an HMAC session, plus a param-enc session. The
- * auth HMAC covers the param-enc session nonce only when bind is set. */
+/* TPM2_HMAC authorized by an HMAC session, plus a param-enc session. With
+ * bind clear the auth HMAC omits that session's nonce, which must fail. */
 static int BuildBoundHmacCmd(byte* buf, UINT32 keyH, const byte* name,
     UINT16 nameSz, UINT32 hmacSess, const byte* nonceH, UINT16 nonceHSz,
     UINT32 encSess, UINT8 encAttrs, const byte* nonceE, UINT16 nonceESz,
