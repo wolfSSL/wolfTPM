@@ -61,6 +61,11 @@ WOLFTPM_TEST_API int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew,
     const TPM2B_NONCE* nonceOld, TPMA_SESSION sessionAttributes,
     TPM2B_AUTH* hmac);
+WOLFTPM_TEST_API int TPM2_CalcHmac_ex(TPMI_ALG_HASH authHash,
+    TPM2B_AUTH* auth, const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew,
+    const TPM2B_NONCE* nonceOld, const TPM2B_NONCE* nonceDecrypt,
+    const TPM2B_NONCE* nonceEncrypt, TPMA_SESSION sessionAttributes,
+    TPM2B_AUTH* hmac);
 WOLFTPM_TEST_API int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
     TPM_CC cmdCode, BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash);
 WOLFTPM_LOCAL int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,

@@ -127,9 +127,13 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int paramSz, encParamSz = 0;
     int i, authPos;
     int authTotalSzPos = 0;
+    int decIdx = -1;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     UINT32 handleValue1, handleValue2, handleValue3;
     int handlePos;
+#endif
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+    int encIdx = -1;
 #endif
 
     /* Skip the header and handles area */
@@ -179,18 +183,50 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     packet->pos = handlePos;
 #endif
 
+    /* Fresh nonces and parameter encryption come first so that every
+     * session's cpHash covers the encrypted parameter */
+    for (i=0; i<info->authCnt; i++) {
+        TPM2_AUTH_SESSION* session = &ctx->session[i];
+
+        if (session->sessionHandle == TPM_RS_PW) {
+            continue;
+        }
+        rc = TPM2_GetNonceNoLock(session->nonceCaller.buffer,
+            session->nonceCaller.size);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
+        if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+                TPM2_IS_POLICY_SESSION(session->sessionHandle)) {
+            if (decIdx < 0 &&
+                    (session->sessionAttributes & TPMA_SESSION_decrypt) &&
+                    (info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) {
+                decIdx = i;
+            }
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+            if (encIdx < 0 &&
+                    (session->sessionAttributes & TPMA_SESSION_encrypt) &&
+                    (info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4))) {
+                encIdx = i;
+            }
+        #endif
+        }
+    }
+    if (encParam != NULL && decIdx >= 0) {
+        /* Encrypt the first command parameter */
+        rc = TPM2_ParamEnc_CmdRequest(&ctx->session[decIdx], encParam,
+            encParamSz);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Command parameter encryption failed\n");
+        #endif
+            return rc;
+        }
+    }
+
     for (i=0; i<info->authCnt; i++) {
         TPM2_AUTH_SESSION* session = &ctx->session[i];
         TPMS_AUTH_COMMAND authCmd;
-
-        if (session->sessionHandle != TPM_RS_PW) {
-            /* Generate fresh nonce */
-            rc = TPM2_GetNonceNoLock(session->nonceCaller.buffer,
-                session->nonceCaller.size);
-            if (rc != TPM_RC_SUCCESS) {
-                return rc;
-            }
-        }
 
         /* Build auth */
         XMEMSET(&authCmd, 0, sizeof(authCmd));
@@ -214,6 +250,10 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             TPM2B_NAME name1, name2, name3;
             TPM2B_DIGEST hash;
         #endif
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+            const TPM2B_NONCE* nonceDecrypt = NULL;
+            const TPM2B_NONCE* nonceEncrypt = NULL;
+        #endif
 
             /* default is a HMAC output (using alg authHash) */
             authCmd.hmac.size = TPM2_GetHashDigestSize(session->authHash);
@@ -225,19 +265,6 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
             if ((info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4)) == 0) {
                 authCmd.sessionAttributes &= ~TPMA_SESSION_encrypt;
-            }
-
-            /* Handle session request for encryption */
-            if (encParam && authCmd.sessionAttributes & TPMA_SESSION_decrypt) {
-                /* Encrypt the first command parameter */
-                rc = TPM2_ParamEnc_CmdRequest(session, encParam, encParamSz);
-                if (rc != TPM_RC_SUCCESS) {
-            #ifdef DEBUG_WOLFTPM
-                    printf("Command parameter encryption failed\n");
-            #endif
-                    TPM2_ForceZero(&authCmd, sizeof(authCmd));
-                    return rc;
-                }
             }
 
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
@@ -265,11 +292,19 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return rc;
             }
+            /* Part 1 Sec.19.6.5: the first session's HMAC also covers the
+             * nonceTPM of a different decrypt and encrypt session */
+            if (i == 0 && decIdx > 0) {
+                nonceDecrypt = &ctx->session[decIdx].nonceTPM;
+            }
+            if (i == 0 && encIdx > 0 && encIdx != decIdx) {
+                nonceEncrypt = &ctx->session[encIdx].nonceTPM;
+            }
             /* Calculate HMAC for policy, hmac or salted sessions */
             /* this is done after encryption */
-            rc = TPM2_CalcHmac(session->authHash, &session->auth, &hash,
-                &session->nonceCaller, &session->nonceTPM,
-                authCmd.sessionAttributes, &authCmd.hmac);
+            rc = TPM2_CalcHmac_ex(session->authHash, &session->auth, &hash,
+                &session->nonceCaller, &session->nonceTPM, nonceDecrypt,
+                nonceEncrypt, authCmd.sessionAttributes, &authCmd.hmac);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating command HMAC!\n");
@@ -313,6 +348,8 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     BYTE *param, *decParam = NULL;
     UINT32 paramSz, decParamSz = 0, authPos;
     int i;
+    int encIdx = -1;
+    int retireEnc = 0;
 
     /* Skip the header output handles */
     packet->pos = TPM2_HEADER_SIZE + (info->outHandleCnt * sizeof(TPM_HANDLE));
@@ -400,7 +437,8 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                         expectedHmacSz);
                 #endif
                     TPM2_ForceZero(&authRsp, sizeof(authRsp));
-                    return TPM_RC_HMAC;
+                    rc = TPM_RC_HMAC;
+                    break;
                 }
                 sizeMismatch = (authRsp.hmac.size != expectedHmacSz);
                 #ifdef DEBUG_WOLFTPM
@@ -419,7 +457,7 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 #endif
                     TPM2_ForceZero(&hash, sizeof(hash));
                     TPM2_ForceZero(&authRsp, sizeof(authRsp));
-                    return rc;
+                    break;
                 }
 
                 /* Calculate HMAC prior to decryption */
@@ -433,7 +471,7 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     TPM2_ForceZero(&hmac, sizeof(hmac));
                     TPM2_ForceZero(&hash, sizeof(hash));
                     TPM2_ForceZero(&authRsp, sizeof(authRsp));
-                    return rc;
+                    break;
                 }
 
                 /* Verify HMAC using constant-time comparison. A wire-size
@@ -450,7 +488,8 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     TPM2_ForceZero(&hmac, sizeof(hmac));
                     TPM2_ForceZero(&hash, sizeof(hash));
                     TPM2_ForceZero(&authRsp, sizeof(authRsp));
-                    return TPM_RC_HMAC;
+                    rc = TPM_RC_HMAC;
+                    break;
                 }
 
                 TPM2_ForceZero(&hmac, sizeof(hmac));
@@ -467,31 +506,45 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
              * when NO_HMAC is defined */
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
 
-            /* Handle session request for decryption */
-            /* If the response supports decryption */
-            if (decParam && authRsp.sessionAttributes & TPMA_SESSION_encrypt) {
-                /* Decrypt the first response parameter */
-                rc = TPM2_ParamDec_CmdResponse(session, decParam, decParamSz);
-                if (rc != TPM_RC_SUCCESS) {
-            #ifdef DEBUG_WOLFTPM
-                    printf("Response parameter decryption failed\n");
-            #endif
-                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
-                    return rc;
-                }
+            /* Decrypt only after every session's rpHash is verified, since
+             * rpHash covers the encrypted response parameter */
+            if (decParam && encIdx < 0 &&
+                    (authRsp.sessionAttributes & TPMA_SESSION_encrypt)) {
+                encIdx = i;
             }
-
             /* Retire a one-shot session: when the TPM clears
              * continueSession the session is consumed, so clear the local
              * slot to prevent reuse of a stale handle. */
             if ((authRsp.sessionAttributes & TPMA_SESSION_continueSession)
                     == 0) {
-                TPM2_ForceZero(session, sizeof(TPM2_AUTH_SESSION));
-                session->sessionHandle = TPM_RS_PW;
+                if (i == encIdx) {
+                    retireEnc = 1; /* still needed to decrypt */
+                }
+                else {
+                    TPM2_ForceZero(session, sizeof(TPM2_AUTH_SESSION));
+                    session->sessionHandle = TPM_RS_PW;
+                }
             }
         }
 
         TPM2_ForceZero(&authRsp, sizeof(authRsp));
+    }
+
+    if (encIdx >= 0) {
+        if (rc == TPM_RC_SUCCESS) {
+            /* Decrypt the first response parameter */
+            rc = TPM2_ParamDec_CmdResponse(&ctx->session[encIdx], decParam,
+                decParamSz);
+        #ifdef DEBUG_WOLFTPM
+            if (rc != TPM_RC_SUCCESS) {
+                printf("Response parameter decryption failed\n");
+            }
+        #endif
+        }
+        if (retireEnc) {
+            TPM2_ForceZero(&ctx->session[encIdx], sizeof(TPM2_AUTH_SESSION));
+            ctx->session[encIdx].sessionHandle = TPM_RS_PW;
+        }
     }
 
     return rc;

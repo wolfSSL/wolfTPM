@@ -454,9 +454,10 @@ int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
 
 /* Compute the HMAC using cpHash, nonces and session attributes */
 /* TCG TPM 2.0 Part 1 - 19.6.5 - HMAC Computation */
-int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
+int TPM2_CalcHmac_ex(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew,
-    const TPM2B_NONCE* nonceOld, TPMA_SESSION sessionAttributes,
+    const TPM2B_NONCE* nonceOld, const TPM2B_NONCE* nonceDecrypt,
+    const TPM2B_NONCE* nonceEncrypt, TPMA_SESSION sessionAttributes,
     TPM2B_AUTH* hmac)
 {
     int rc;
@@ -492,6 +493,12 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
         rc = wc_HmacUpdate(&hmac_ctx, nonceNew->buffer, nonceNew->size);
     if (rc == 0)
         rc = wc_HmacUpdate(&hmac_ctx, nonceOld->buffer, nonceOld->size);
+    if (rc == 0 && nonceDecrypt != NULL)
+        rc = wc_HmacUpdate(&hmac_ctx, nonceDecrypt->buffer,
+            nonceDecrypt->size);
+    if (rc == 0 && nonceEncrypt != NULL)
+        rc = wc_HmacUpdate(&hmac_ctx, nonceEncrypt->buffer,
+            nonceEncrypt->size);
     if (rc == 0)
         rc = wc_HmacUpdate(&hmac_ctx, &sessionAttributes, 1);
     if (rc == 0)
@@ -505,5 +512,14 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
 #endif
 
     return rc;
+}
+
+int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
+    const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew,
+    const TPM2B_NONCE* nonceOld, TPMA_SESSION sessionAttributes,
+    TPM2B_AUTH* hmac)
+{
+    return TPM2_CalcHmac_ex(authHash, auth, hash, nonceNew, nonceOld,
+        NULL, NULL, sessionAttributes, hmac);
 }
 #endif /* !WOLFTPM_FWTPM && !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */

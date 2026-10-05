@@ -38,6 +38,7 @@
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
+#include <wolftpm/tpm2_param_enc.h>
 #include <wolftpm/fwtpm/fwtpm.h>
 #include <wolftpm/fwtpm/fwtpm_command.h>
 #include <wolftpm/fwtpm/fwtpm_crypto.h>
@@ -14855,6 +14856,402 @@ static void test_fwtpm_hash_sequence(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("HashSequence (Start/Upd/Comp):", 0);
 }
+
+#if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
+/* Start an unsalted, unbound session; optionally return nonceTPM */
+static UINT32 StartParamEncSessionHelper(FWTPM_CTX* ctx, UINT8 sessType,
+    UINT16 symAlg, byte* nonceTPM, UINT16* nonceTPMSz)
+{
+    int pos, rspSize = 0;
+    UINT16 sz;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_StartAuthSession);
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* tpmKey */
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* bind */
+    PutU16BE(gCmd + pos, 16); pos += 2;
+    memset(gCmd + pos, 0xAA, 16); pos += 16; /* nonceCaller */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* encryptedSalt */
+    gCmd[pos++] = sessType;
+    PutU16BE(gCmd + pos, symAlg); pos += 2;
+    if (symAlg == TPM_ALG_XOR) {
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    }
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* authHash */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
+    sz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    if (sz > TPM_MAX_DIGEST_SIZE) return 0;
+    if (nonceTPM != NULL && nonceTPMSz != NULL) {
+        memcpy(nonceTPM, gRsp + TPM2_HEADER_SIZE + 6, sz);
+        *nonceTPMSz = sz;
+    }
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* KEYEDHASH HMAC-SHA256 primary with a caller-supplied key */
+static UINT32 CreateHmacKeyHelper(FWTPM_CTX* ctx)
+{
+    static const byte hmacKey[] = "param-enc-hmac-key";
+    int pos, rspSize = 0, sensStart, pubStart;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_CreatePrimary);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    sensStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* userAuth */
+    PutU16BE(gCmd + pos, sizeof(hmacKey) - 1); pos += 2;
+    memcpy(gCmd + pos, hmacKey, sizeof(hmacKey) - 1);
+    pos += sizeof(hmacKey) - 1;
+    PutU16BE(gCmd + sensStart, (UINT16)(pos - sensStart - 2));
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_KEYEDHASH); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    /* fixedTPM|fixedParent|userWithAuth|noDA|sign */
+    PutU32BE(gCmd + pos, 0x00040452); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, TPM_ALG_HMAC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU16BE(gCmd + pos, 0); pos += 2; /* outsideInfo */
+    PutU32BE(gCmd + pos, 0); pos += 4; /* creationPCR */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+static int AppendSessEntry(byte* buf, int pos, UINT32 sessHandle,
+    const byte* nonce, UINT16 nonceSz, UINT8 attribs)
+{
+    PutU32BE(buf + pos, sessHandle); pos += 4;
+    PutU16BE(buf + pos, nonceSz); pos += 2;
+    if (nonceSz > 0) {
+        memcpy(buf + pos, nonce, nonceSz);
+        pos += nonceSz;
+    }
+    buf[pos++] = attribs;
+    PutU16BE(buf + pos, 0); pos += 2; /* hmac */
+    return pos;
+}
+
+/* TPM2_HMAC with PW auth for the key, then up to two extra sessions */
+static int BuildHmacSessCmd(byte* buf, UINT32 keyH, UINT32 sess1,
+    UINT8 attr1, UINT32 sess2, UINT8 attr2, const byte* nonceCaller,
+    const byte* data, UINT16 dataSz)
+{
+    int pos, authStart;
+    pos = BuildCmdHeader(buf, TPM_ST_SESSIONS, 0, TPM_CC_HMAC);
+    PutU32BE(buf + pos, keyH); pos += 4;
+    authStart = pos;
+    pos += 4;
+    pos = AppendSessEntry(buf, pos, TPM_RS_PW, NULL, 0, 0);
+    if (sess1 != 0) {
+        pos = AppendSessEntry(buf, pos, sess1, nonceCaller, 16, attr1);
+    }
+    if (sess2 != 0) {
+        pos = AppendSessEntry(buf, pos, sess2, nonceCaller, 16, attr2);
+    }
+    PutU32BE(buf + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(buf + pos, dataSz); pos += 2;
+    memcpy(buf + pos, data, dataSz); pos += dataSz;
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* Offset of response auth entry idx, pointing at its nonce size */
+static int RspSessOffset(const byte* rsp, int idx)
+{
+    int off = TPM2_HEADER_SIZE + 4 + (int)GetU32BE(rsp + TPM2_HEADER_SIZE);
+    int i;
+    for (i = 0; i < idx; i++) {
+        off += 2 + GetU16BE(rsp + off) + 1;
+        off += 2 + GetU16BE(rsp + off);
+    }
+    return off;
+}
+
+/* The decrypt and encrypt sessions are the ones carrying those attributes,
+ * not the first session that happens to have a symmetric algorithm. */
+static void test_fwtpm_param_enc_session_selection(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize, off;
+    UINT32 keyH, sessA, sessB, nullSess;
+    UINT8 cont = TPMA_SESSION_continueSession;
+    byte nonceA[TPM_MAX_DIGEST_SIZE];
+    byte nonceB[TPM_MAX_DIGEST_SIZE];
+    UINT16 nonceASz = 0, nonceBSz = 0;
+    byte nonceCaller[16];
+    byte noKey[1] = {0};
+    byte plain[16];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte data[WC_SHA256_DIGEST_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    keyH = CreateHmacKeyHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    /* Reference HMAC without parameter encryption */
+    memset(plain, 0x61, sizeof(plain));
+    memset(nonceCaller, 0x5C, sizeof(nonceCaller));
+    pos = BuildHmacSessCmd(gCmd, keyH, 0, 0, 0, 0, nonceCaller,
+        plain, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), sizeof(expected));
+    memcpy(expected, gRsp + TPM2_HEADER_SIZE + 6, sizeof(expected));
+
+    sessA = StartParamEncSessionHelper(&ctx, TPM_SE_POLICY, TPM_ALG_XOR,
+        nonceA, &nonceASz);
+    AssertIntNE(sessA, 0);
+    sessB = StartParamEncSessionHelper(&ctx, TPM_SE_POLICY, TPM_ALG_XOR,
+        nonceB, &nonceBSz);
+    AssertIntNE(sessB, 0);
+
+    /* Session A encrypts the response, session B the command */
+    memcpy(data, plain, sizeof(plain));
+    AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, noKey, 0,
+        nonceCaller, sizeof(nonceCaller), nonceB, nonceBSz,
+        data, sizeof(plain)), TPM_RC_SUCCESS);
+    pos = BuildHmacSessCmd(gCmd, keyH, sessA, cont | TPMA_SESSION_encrypt,
+        sessB, cont | TPMA_SESSION_decrypt, nonceCaller, data, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), sizeof(expected));
+    memcpy(data, gRsp + TPM2_HEADER_SIZE + 6, sizeof(expected));
+    off = RspSessOffset(gRsp, 1);
+    nonceASz = GetU16BE(gRsp + off);
+    AssertIntLE(nonceASz, TPM_MAX_DIGEST_SIZE);
+    memcpy(nonceA, gRsp + off + 2, nonceASz);
+    AssertIntNE(gRsp[off + 2 + nonceASz] & TPMA_SESSION_encrypt, 0);
+    off = RspSessOffset(gRsp, 2);
+    nonceBSz = GetU16BE(gRsp + off);
+    AssertIntLE(nonceBSz, TPM_MAX_DIGEST_SIZE);
+    memcpy(nonceB, gRsp + off + 2, nonceBSz);
+    AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, noKey, 0,
+        nonceA, nonceASz, nonceCaller, sizeof(nonceCaller),
+        data, sizeof(expected)), TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(data, expected, sizeof(expected)), 0);
+
+    /* Swap the roles between the two sessions */
+    memset(nonceCaller, 0x3A, sizeof(nonceCaller));
+    memcpy(data, plain, sizeof(plain));
+    AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, noKey, 0,
+        nonceCaller, sizeof(nonceCaller), nonceA, nonceASz,
+        data, sizeof(plain)), TPM_RC_SUCCESS);
+    pos = BuildHmacSessCmd(gCmd, keyH, sessA, cont | TPMA_SESSION_decrypt,
+        sessB, cont | TPMA_SESSION_encrypt, nonceCaller, data, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), sizeof(expected));
+    memcpy(data, gRsp + TPM2_HEADER_SIZE + 6, sizeof(expected));
+    off = RspSessOffset(gRsp, 2);
+    nonceBSz = GetU16BE(gRsp + off);
+    AssertIntLE(nonceBSz, TPM_MAX_DIGEST_SIZE);
+    memcpy(nonceB, gRsp + off + 2, nonceBSz);
+    AssertIntNE(gRsp[off + 2 + nonceBSz] & TPMA_SESSION_encrypt, 0);
+    AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, noKey, 0,
+        nonceB, nonceBSz, nonceCaller, sizeof(nonceCaller),
+        data, sizeof(expected)), TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(data, expected, sizeof(expected)), 0);
+
+    /* decrypt may be set on one session only, and needs a session cipher */
+    pos = BuildHmacSessCmd(gCmd, keyH, sessA, cont | TPMA_SESSION_decrypt,
+        sessB, cont | TPMA_SESSION_decrypt, nonceCaller, plain, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FlushHandle(&ctx, sessB);
+    nullSess = StartParamEncSessionHelper(&ctx, TPM_SE_POLICY, TPM_ALG_NULL,
+        NULL, NULL);
+    AssertIntNE(nullSess, 0);
+    pos = BuildHmacSessCmd(gCmd, keyH, nullSess, cont | TPMA_SESSION_decrypt,
+        0, 0, nonceCaller, plain, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SYMMETRIC);
+
+    FlushHandle(&ctx, nullSess);
+    FlushHandle(&ctx, sessA);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Param-enc follows decrypt/encrypt session:", 0);
+}
+
+/* HMAC-SHA256 with an empty key over cpHash, nonces and attributes */
+static void ComputeAuthHmac(const byte* cpHash, const byte* nonceCaller,
+    const byte* nonceTPM, UINT16 nonceTPMSz, const byte* nonceExtra,
+    UINT16 nonceExtraSz, UINT8 attribs, byte* out)
+{
+    Hmac hmac;
+    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, NULL, 0), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, cpHash, WC_SHA256_DIGEST_SIZE), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceCaller, 16), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceTPM, nonceTPMSz), 0);
+    if (nonceExtraSz > 0) {
+        AssertIntEQ(wc_HmacUpdate(&hmac, nonceExtra, nonceExtraSz), 0);
+    }
+    AssertIntEQ(wc_HmacUpdate(&hmac, &attribs, 1), 0);
+    AssertIntEQ(wc_HmacFinal(&hmac, out), 0);
+    wc_HmacFree(&hmac);
+}
+
+/* TPM2_HMAC authorized by an HMAC session, plus a param-enc session. The
+ * auth HMAC covers the param-enc session nonce only when bind is set. */
+static int BuildBoundHmacCmd(byte* buf, UINT32 keyH, const byte* name,
+    UINT16 nameSz, UINT32 hmacSess, const byte* nonceH, UINT16 nonceHSz,
+    UINT32 encSess, UINT8 encAttrs, const byte* nonceE, UINT16 nonceESz,
+    int bind, const byte* nonceCaller, const byte* data, UINT16 dataSz)
+{
+    int pos, authStart;
+    UINT8 cont = TPMA_SESSION_continueSession;
+    byte params[2 + 16 + 2];
+    byte ccBuf[4];
+    byte cpHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+    wc_Sha256 sha;
+
+    AssertIntLE(dataSz, 16);
+    PutU16BE(params, dataSz);
+    memcpy(params + 2, data, dataSz);
+    PutU16BE(params + 2 + dataSz, TPM_ALG_SHA256);
+    PutU32BE(ccBuf, TPM_CC_HMAC);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, ccBuf, sizeof(ccBuf)), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, name, nameSz), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, params, 2 + dataSz + 2), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
+    wc_Sha256Free(&sha);
+    ComputeAuthHmac(cpHash, nonceCaller, nonceH, nonceHSz,
+        nonceE, bind ? nonceESz : 0, cont, authHmac);
+
+    pos = BuildCmdHeader(buf, TPM_ST_SESSIONS, 0, TPM_CC_HMAC);
+    PutU32BE(buf + pos, keyH); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(buf + pos, hmacSess); pos += 4;
+    PutU16BE(buf + pos, 16); pos += 2;
+    memcpy(buf + pos, nonceCaller, 16); pos += 16;
+    buf[pos++] = cont;
+    PutU16BE(buf + pos, sizeof(authHmac)); pos += 2;
+    memcpy(buf + pos, authHmac, sizeof(authHmac)); pos += sizeof(authHmac);
+    pos = AppendSessEntry(buf, pos, encSess, nonceCaller, 16, encAttrs);
+    PutU32BE(buf + authStart, (UINT32)(pos - authStart - 4));
+    memcpy(buf + pos, params, 2 + dataSz + 2); pos += 2 + dataSz + 2;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* With an HMAC authorization first, its HMAC must also cover the nonceTPM
+ * of a separate encrypt or decrypt session (Part 1 Sec.19.6.5). */
+static void test_fwtpm_param_enc_session_bound_to_auth(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize, off;
+    UINT32 keyH, hmacSess, encSess;
+    UINT8 cont = TPMA_SESSION_continueSession;
+    byte name[TPM_MAX_DIGEST_SIZE + 2];
+    UINT16 nameSz;
+    byte nonceH[TPM_MAX_DIGEST_SIZE];
+    byte nonceE[TPM_MAX_DIGEST_SIZE];
+    UINT16 nonceHSz = 0, nonceESz = 0;
+    byte nonceCaller[16];
+    byte noKey[1] = {0};
+    byte plain[16];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte data[WC_SHA256_DIGEST_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    keyH = CreateHmacKeyHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ReadPublic);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    off = TPM2_HEADER_SIZE + 2 + GetU16BE(gRsp + TPM2_HEADER_SIZE);
+    nameSz = GetU16BE(gRsp + off);
+    AssertIntLE(nameSz, sizeof(name));
+    memcpy(name, gRsp + off + 2, nameSz);
+
+    memset(plain, 0x61, sizeof(plain));
+    memset(nonceCaller, 0x5C, sizeof(nonceCaller));
+    pos = BuildHmacSessCmd(gCmd, keyH, 0, 0, 0, 0, nonceCaller,
+        plain, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    memcpy(expected, gRsp + TPM2_HEADER_SIZE + 6, sizeof(expected));
+
+    hmacSess = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_NULL,
+        nonceH, &nonceHSz);
+    AssertIntNE(hmacSess, 0);
+    encSess = StartParamEncSessionHelper(&ctx, TPM_SE_POLICY, TPM_ALG_XOR,
+        nonceE, &nonceESz);
+    AssertIntNE(encSess, 0);
+
+    /* An auth HMAC that omits the encrypt session nonce is rejected */
+    pos = BuildBoundHmacCmd(gCmd, keyH, name, nameSz, hmacSess, nonceH,
+        nonceHSz, encSess, cont | TPMA_SESSION_encrypt, nonceE, nonceESz, 0,
+        nonceCaller, plain, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_BAD_AUTH);
+
+    pos = BuildBoundHmacCmd(gCmd, keyH, name, nameSz, hmacSess, nonceH,
+        nonceHSz, encSess, cont | TPMA_SESSION_encrypt, nonceE, nonceESz, 1,
+        nonceCaller, plain, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    memcpy(data, gRsp + TPM2_HEADER_SIZE + 6, sizeof(expected));
+    off = RspSessOffset(gRsp, 0);
+    nonceHSz = GetU16BE(gRsp + off);
+    AssertIntLE(nonceHSz, TPM_MAX_DIGEST_SIZE);
+    memcpy(nonceH, gRsp + off + 2, nonceHSz);
+    off = RspSessOffset(gRsp, 1);
+    nonceESz = GetU16BE(gRsp + off);
+    AssertIntLE(nonceESz, TPM_MAX_DIGEST_SIZE);
+    memcpy(nonceE, gRsp + off + 2, nonceESz);
+    AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, noKey, 0,
+        nonceE, nonceESz, nonceCaller, sizeof(nonceCaller),
+        data, sizeof(expected)), TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(data, expected, sizeof(expected)), 0);
+
+    /* Same binding when the second session decrypts the command */
+    memset(nonceCaller, 0x3A, sizeof(nonceCaller));
+    memcpy(data, plain, sizeof(plain));
+    AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, noKey, 0,
+        nonceCaller, sizeof(nonceCaller), nonceE, nonceESz,
+        data, sizeof(plain)), TPM_RC_SUCCESS);
+    pos = BuildBoundHmacCmd(gCmd, keyH, name, nameSz, hmacSess, nonceH,
+        nonceHSz, encSess, cont | TPMA_SESSION_decrypt, nonceE, nonceESz, 1,
+        nonceCaller, data, sizeof(plain));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 6, expected,
+        sizeof(expected)), 0);
+
+    FlushHandle(&ctx, encSess);
+    FlushHandle(&ctx, hmacSess);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Param-enc session bound to auth HMAC:", 0);
+}
+#endif /* !FWTPM_NO_PARAM_ENC && FWTPM_MAX_SESSIONS >= 2 */
 #endif /* !FWTPM_NO_HASH_CMDS */
 
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
@@ -16817,6 +17214,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_hash();
     test_fwtpm_hash_sequence();
+#if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
+    test_fwtpm_param_enc_session_selection();
+    test_fwtpm_param_enc_session_bound_to_auth();
+#endif
 #endif /* !FWTPM_NO_HASH_CMDS */
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_parameters();
