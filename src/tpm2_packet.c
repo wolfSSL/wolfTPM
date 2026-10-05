@@ -348,6 +348,28 @@ void TPM2_Packet_ParseU16Buf(TPM2_Packet* packet, UINT16* size, byte* buf,
     }
 }
 
+/* Parse a UINT16-prefixed buffer, failing with TPM_RC_SIZE instead of
+ * truncating when the size exceeds maxBufSz or the bytes left in the packet. */
+int TPM2_Packet_ParseU16BufStrict(TPM2_Packet* packet, UINT16* size,
+    byte* buf, UINT16 maxBufSz)
+{
+    UINT16 wireSize = 0;
+
+    if (packet == NULL || size == NULL || buf == NULL)
+        return BAD_FUNC_ARG;
+
+    *size = 0;
+    TPM2_Packet_ParseU16(packet, &wireSize);
+    if (packet->overflow || wireSize > maxBufSz ||
+            (int)wireSize > packet->size - packet->pos) {
+        packet->overflow = 1;
+        return TPM_RC_SIZE;
+    }
+    TPM2_Packet_ParseBytes(packet, buf, wireSize);
+    *size = wireSize;
+    return TPM_RC_SUCCESS;
+}
+
 void TPM2_Packet_MarkU16(TPM2_Packet* packet, int* markSz)
 {
     if (packet) {
