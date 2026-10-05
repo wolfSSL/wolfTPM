@@ -4136,7 +4136,7 @@ TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
             }
             if (rc != TPM_RC_SUCCESS) {
                 TPM2_ForceZero(&out->sharedSecret, sizeof(out->sharedSecret));
-                out->ciphertext.size = 0;
+                XMEMSET(&out->ciphertext, 0, sizeof(out->ciphertext));
             }
         }
 
