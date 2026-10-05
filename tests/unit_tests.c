@@ -4664,6 +4664,67 @@ static void test_TPM2_Packet_ParseU16BufStrict(void)
     printf("Test TPM Wrapper:\tParseU16BufStrict:\t\tPassed\n");
 }
 
+static void test_TPM2_ParsePcrProperties_Count(void)
+{
+    static const byte twoProps[] = {
+        0x00, 0x00, 0x00, 0x02,
+        0x00, 0x00, 0x00, 0x01, 0x03, 0x01, 0x02, 0x03,
+        0x00, 0x00, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06
+    };
+    static const UINT32 badCounts[] = { 3, 0x80000000UL, 0xFFFFFFFFUL };
+    byte manyProps[4 + (MAX_PCR_PROPERTIES + 1) * 5];
+    byte buf[sizeof(twoProps)];
+    TPM2_Packet packet;
+    TPML_TAGGED_PCR_PROPERTY props;
+    word32 i;
+    int rc;
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&props, 0, sizeof(props));
+    packet.buf = (byte*)twoProps;
+    packet.size = (int)sizeof(twoProps);
+    rc = TPM2_ParsePcrProperties(&packet, &props);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(props.count, 2);
+    AssertIntEQ(props.pcrProperty[1].tag, 2);
+    AssertIntEQ(props.pcrProperty[1].sizeofSelect, 3);
+    AssertIntEQ(props.pcrProperty[1].pcrSelect[2], 0x06);
+    AssertIntEQ(packet.pos, packet.size);
+
+    /* Entries past the local array are skipped, not rejected */
+    XMEMSET(manyProps, 0, sizeof(manyProps));
+    manyProps[0] = (byte)((word32)(MAX_PCR_PROPERTIES + 1) >> 24);
+    manyProps[1] = (byte)((word32)(MAX_PCR_PROPERTIES + 1) >> 16);
+    manyProps[2] = (byte)((word32)(MAX_PCR_PROPERTIES + 1) >> 8);
+    manyProps[3] = (byte)(MAX_PCR_PROPERTIES + 1);
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&props, 0, sizeof(props));
+    packet.buf = manyProps;
+    packet.size = (int)sizeof(manyProps);
+    rc = TPM2_ParsePcrProperties(&packet, &props);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(props.count, MAX_PCR_PROPERTIES);
+    AssertIntEQ(packet.pos, packet.size);
+
+    /* A count claiming more entries than the response holds is rejected */
+    for (i = 0; i < (word32)(sizeof(badCounts) / sizeof(badCounts[0])); i++) {
+        XMEMCPY(buf, twoProps, sizeof(buf));
+        buf[0] = (byte)(badCounts[i] >> 24);
+        buf[1] = (byte)(badCounts[i] >> 16);
+        buf[2] = (byte)(badCounts[i] >> 8);
+        buf[3] = (byte)badCounts[i];
+        XMEMSET(&packet, 0, sizeof(packet));
+        XMEMSET(&props, 0, sizeof(props));
+        packet.buf = buf;
+        packet.size = (int)sizeof(buf);
+        rc = TPM2_ParsePcrProperties(&packet, &props);
+        AssertIntEQ(rc, TPM_RC_SIZE);
+        AssertIntEQ(props.count, 0);
+    }
+
+    printf("Test TPM Wrapper:\tPCR properties count:\t\tPassed\n");
+}
+
 /* TPM2_Packet_ParsePoint must resync to outerStart + point->size so a
  * malformed wire blob with inner x.size / y.size disagreement can't
  * desynchronize subsequent fields. */
@@ -10088,6 +10149,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParseSpdmSessionInfo_Truncated();
 #endif
     test_TPM2_Packet_ParseU16BufStrict();
+    test_TPM2_ParsePcrProperties_Count();
     test_wolfTPM2_Init();
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
