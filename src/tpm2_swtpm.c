@@ -105,6 +105,39 @@
     #endif
 #endif
 
+/* How the transport reaches its descriptor. Everywhere except Windows a
+ * socket is a file descriptor and the ordinary calls work on it. A Winsock
+ * SOCKET is not a CRT descriptor: read(), write() and close() do not accept
+ * one, it is unsigned so a negative test never fires, and the invalid value
+ * is INVALID_SOCKET rather than -1. UART mode really does use a descriptor,
+ * so it keeps the POSIX calls on every platform. */
+#if defined(_WIN32) && !defined(WOLFTPM_SWTPM_UART)
+    typedef uintptr_t SWTPM_FD_T;
+    #define SWTPM_FD_INVALID    ((uintptr_t)INVALID_SOCKET)
+    #define SWTPM_FD_IS_VALID(fd) ((fd) != SWTPM_FD_INVALID)
+    #define SWTPM_READ(fd, p, n)  recv((SOCKET)(fd), (p), (int)(n), 0)
+    #define SWTPM_WRITE(fd, p, n) send((SOCKET)(fd), (p), (int)(n), 0)
+    #define SWTPM_CLOSE(fd)       closesocket((SOCKET)(fd))
+    /* Winsock does not set errno; a transfer that fails leaves whatever was
+     * there before, so the retry decision has to come from Winsock. */
+    #define SWTPM_SHOULD_RETRY()  (WSAGetLastError() == WSAEINTR)
+#else
+    typedef int SWTPM_FD_T;
+    #define SWTPM_FD_INVALID    (-1)
+    #define SWTPM_FD_IS_VALID(fd) ((fd) >= 0)
+    #define SWTPM_READ(fd, p, n)  read((fd), (p), (n))
+    #define SWTPM_WRITE(fd, p, n) write((fd), (p), (n))
+    #define SWTPM_CLOSE(fd)       close(fd)
+    #if defined(EWOULDBLOCK) && (!defined(EAGAIN) || EWOULDBLOCK != EAGAIN)
+        #define SWTPM_SHOULD_RETRY() \
+            (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+    #elif defined(EAGAIN)
+        #define SWTPM_SHOULD_RETRY()  (errno == EINTR || errno == EAGAIN)
+    #else
+        #define SWTPM_SHOULD_RETRY()  (errno == EINTR)
+    #endif
+#endif
+
 static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -112,7 +145,8 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     const char* ptr;
     ssize_t remaining;
 
-    if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL || bufSz <= 0) {
+    if (ctx == NULL || !SWTPM_FD_IS_VALID(ctx->tcpCtx.fd) ||
+            buffer == NULL || bufSz <= 0) {
         return BAD_FUNC_ARG;
     }
 
@@ -124,24 +158,17 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
         /* a dead peer must return an error, not raise SIGPIPE */
         wrc = send(ctx->tcpCtx.fd, ptr, remaining, MSG_NOSIGNAL);
     #else
-        wrc = write(ctx->tcpCtx.fd, ptr, remaining);
+        wrc = SWTPM_WRITE(ctx->tcpCtx.fd, ptr, remaining);
     #endif
         if (wrc < 0) {
-            /* Retry on EINTR (signal). EAGAIN/EWOULDBLOCK shouldn't normally
-             * happen on the default blocking fd, but treat them as transient. */
-            if (errno == EINTR
-                #ifdef EAGAIN
-                    || errno == EAGAIN
-                #endif
-                #if defined(EWOULDBLOCK) && (!defined(EAGAIN) || EWOULDBLOCK != EAGAIN)
-                    || errno == EWOULDBLOCK
-                #endif
-            ) {
+            /* Retry a signal, and the transient would-block cases that a
+             * blocking descriptor should not produce but sometimes does. */
+            if (SWTPM_SHOULD_RETRY()) {
                 continue;
             }
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Failed to send the TPM command to fd %d, got errno %d ="
-                   "%s\n", ctx->tcpCtx.fd, errno, strerror(errno));
+                   "%s\n", (int)ctx->tcpCtx.fd, errno, strerror(errno));
         #endif
             rc = TPM_RC_FAILURE;
             break;
@@ -173,27 +200,19 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
     }
 #endif
 
-    if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
+    if (ctx == NULL || !SWTPM_FD_IS_VALID(ctx->tcpCtx.fd) || buffer == NULL) {
         return BAD_FUNC_ARG;
     }
 
     while (bytes_remaining > 0) {
-        wrc = read(ctx->tcpCtx.fd, ptr, bytes_remaining);
+        wrc = SWTPM_READ(ctx->tcpCtx.fd, ptr, bytes_remaining);
         if (wrc < 0) {
-            /* Retry on EINTR; treat EAGAIN/EWOULDBLOCK as transient too. */
-            if (errno == EINTR
-                #ifdef EAGAIN
-                    || errno == EAGAIN
-                #endif
-                #if defined(EWOULDBLOCK) && (!defined(EAGAIN) || EWOULDBLOCK != EAGAIN)
-                    || errno == EWOULDBLOCK
-                #endif
-            ) {
+            if (SWTPM_SHOULD_RETRY()) {
                 continue;
             }
             #ifdef DEBUG_WOLFTPM
             printf("Failed to read from TPM socket %d, got errno %d"
-                   " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
+                   " = %s\n", (int)ctx->tcpCtx.fd, errno, strerror(errno));
             #endif
             rc = TPM_RC_FAILURE;
             break;
@@ -238,7 +257,9 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-    int fd = -1;
+    /* Must be the width of the field it ends up in: narrowing a Windows
+     * SOCKET into an int here would undo the widening in the context. */
+    SWTPM_FD_T fd = SWTPM_FD_INVALID;
 
 #ifdef WOLFTPM_SWTPM_UART
     /* UART transport: open serial device with termios */
@@ -413,10 +434,34 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     int sockOpt = 1;
     struct addrinfo hints;
     struct addrinfo *result, *rp;
+#ifdef _WIN32
+    static int wsaStarted = 0;
+    WSADATA wsd;
+#endif
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef _WIN32
+    /* Nothing may call a socket function before Winsock is started, and this
+     * transport is usually the first thing in the process to do so: a TLS
+     * example reaches its TPM here before it opens a socket of its own.
+     *
+     * Started once and deliberately never matched with WSACleanup: the
+     * library has no teardown hook that runs after the last connection, and
+     * a cleanup on disconnect would pull Winsock out from under a caller
+     * that is still using sockets of its own. Winsock is released when the
+     * process exits. The flag is not synchronized, so a caller that first
+     * connects from two threads at once should serialize that. */
+    if (!wsaStarted) {
+        if (WSAStartup(MAKEWORD(2, 2), &wsd) != 0) {
+            fprintf(stderr, "WSAStartup failed\n");
+            return rc;
+        }
+        wsaStarted = 1;
+    }
+#endif
 
     XMEMSET(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC;
@@ -430,11 +475,11 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 
     for (rp = result; rp != NULL; rp = rp->ai_next) {
         fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (fd == -1)
+        if (!SWTPM_FD_IS_VALID(fd))
             continue;
 
         if (connect(fd, rp->ai_addr, rp->ai_addrlen) == -1) {
-            close(fd);
+            SWTPM_CLOSE(fd);
         }
         else {
             break;
@@ -448,12 +493,13 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
         (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
     #endif
     #ifdef SO_NOSIGPIPE
-        (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &sockOpt,
-            sizeof(sockOpt));
+        (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE,
+            (const char*)&sockOpt, sizeof(sockOpt));
     #endif
     #ifdef TCP_NODELAY
-        (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &sockOpt,
-            sizeof(sockOpt));
+        /* Winsock takes a char* here where POSIX takes a void*. */
+        (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
+            (const char*)&sockOpt, sizeof(sockOpt));
     #endif
         ctx->tcpCtx.fd = fd;
         rc = TPM_RC_SUCCESS;
@@ -473,7 +519,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     TPM_RC rc = TPM_RC_SUCCESS;
     uint32_t tss_cmd;
 
-    if (ctx == NULL || ctx->tcpCtx.fd < 0) {
+    if (ctx == NULL || !SWTPM_FD_IS_VALID(ctx->tcpCtx.fd)) {
         return BAD_FUNC_ARG;
     }
 
@@ -489,20 +535,20 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
 #ifdef WOLFTPM_SWTPM_UART
     /* Keep the port open unless SESSION_END fails. */
     if (rc != TPM_RC_SUCCESS) {
-        close(ctx->tcpCtx.fd);
-        ctx->tcpCtx.fd = -1;
+        SWTPM_CLOSE(ctx->tcpCtx.fd);
+        ctx->tcpCtx.fd = SWTPM_FD_INVALID;
     }
 #else
-    if (0 != close(ctx->tcpCtx.fd)) {
+    if (0 != SWTPM_CLOSE(ctx->tcpCtx.fd)) {
         rc = TPM_RC_FAILURE;
 
         #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("Failed to close fd %d, got errno %d ="
-               "%s\n", ctx->tcpCtx.fd, errno, strerror(errno));
+               "%s\n", (int)ctx->tcpCtx.fd, errno, strerror(errno));
         #endif
     }
 
-    ctx->tcpCtx.fd = -1;
+    ctx->tcpCtx.fd = SWTPM_FD_INVALID;
 #endif
 
     return rc;
@@ -540,7 +586,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return BAD_FUNC_ARG;
     }
 
-    if (ctx->tcpCtx.fd < 0) {
+    if (!SWTPM_FD_IS_VALID(ctx->tcpCtx.fd)) {
     #ifndef NO_GETENV
         envVal = getenv("TPM2_SWTPM_HOST");
         if (envVal != NULL && envVal[0] != '\0')
@@ -628,7 +674,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #endif
 
 #ifdef WOLFTPM_SWTPM_UART
-    if (ctx->tcpCtx.fd >= 0) {
+    if (SWTPM_FD_IS_VALID(ctx->tcpCtx.fd)) {
         TPM_RC rc_disconnect = SwTpmDisconnect(ctx);
         if (rc == TPM_RC_SUCCESS) {
             rc = rc_disconnect;
@@ -636,7 +682,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     }
 #else
     /* Reconnect after a transport failure. */
-    if (rc != TPM_RC_SUCCESS && ctx->tcpCtx.fd >= 0) {
+    if (rc != TPM_RC_SUCCESS && SWTPM_FD_IS_VALID(ctx->tcpCtx.fd)) {
         (void)SwTpmDisconnect(ctx);
     }
 #endif
@@ -646,10 +692,10 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
 void TPM2_SwtpmClose(TPM2_CTX* ctx)
 {
-    if (ctx != NULL && ctx->tcpCtx.fd >= 0) {
+    if (ctx != NULL && SWTPM_FD_IS_VALID(ctx->tcpCtx.fd)) {
     #ifdef WOLFTPM_SWTPM_UART
-        close(ctx->tcpCtx.fd);
-        ctx->tcpCtx.fd = -1;
+        SWTPM_CLOSE(ctx->tcpCtx.fd);
+        ctx->tcpCtx.fd = SWTPM_FD_INVALID;
     #else
         (void)SwTpmDisconnect(ctx);
     #endif

@@ -219,7 +219,7 @@ static int BuildErrorResponse(byte* rspBuf, UINT16 tag, TPM_RC rc)
 }
 
 /* --- Platform port handler --- */
-static int HandlePlatformCommand(FWTPM_CTX* ctx, int clientFd)
+static int HandlePlatformCommand(FWTPM_CTX* ctx, SOCKET_T clientFd)
 {
     int rc;
     UINT32 cmd;
@@ -319,7 +319,7 @@ static int HandlePlatformCommand(FWTPM_CTX* ctx, int clientFd)
 }
 
 /* --- Handle mssim signal on command port --- */
-static int HandleMssimSignal(FWTPM_CTX* ctx, int clientFd, UINT32 tssCmd)
+static int HandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd, UINT32 tssCmd)
 {
     UINT32 netVal;
     /* State-mutating signals (POWER_OFF/RESET) are rejected before reaching
@@ -335,7 +335,7 @@ static int HandleMssimSignal(FWTPM_CTX* ctx, int clientFd, UINT32 tssCmd)
 
 /* --- Process and send TPM command response --- */
 static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
-    int clientFd, int isSwtpm)
+    SOCKET_T clientFd, int isSwtpm)
 {
     int rc;
     int rspSize = 0;
@@ -445,7 +445,7 @@ static int IsMssimSignal(UINT32 cmd)
 /* --- Command port handler (auto-detects mssim vs swtpm protocol) ---
  * mssim: first 4 bytes are a small protocol command (1-21)
  * swtpm: first 4 bytes are raw TPM header (tag 0x8001/0x8002 + size) */
-static int HandleCommandConnection(FWTPM_CTX* ctx, int clientFd)
+static int HandleCommandConnection(FWTPM_CTX* ctx, SOCKET_T clientFd)
 {
     int rc;
     UINT32 firstWord;
@@ -670,7 +670,7 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
 #ifndef WOLFTPM_FWTPM_TIS
     int rc = TPM_RC_SUCCESS;
     fd_set readFds;
-    int maxFd;
+    SOCKET_T maxFd;
     SOCKET_T cmdFds[FWTPM_MAX_COMMAND_CLIENTS];
     SOCKET_T platFd = FWTPM_INVALID_FD;  /* active platform client fd */
     struct timeval tv;
@@ -737,7 +737,9 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
 
         tv.tv_sec = 30;
         tv.tv_usec = 0;
-        selRc = select(maxFd + 1, &readFds, NULL, NULL, &tv);
+        /* Windows ignores the first argument and its SOCKET does not fit an
+         * int; everywhere else it is the descriptor bound and does. */
+        selRc = select((int)(maxFd + 1), &readFds, NULL, NULL, &tv);
         if (selRc < 0) {
         #ifdef _WIN32
             if (WSAGetLastError() == WSAEINTR) continue;

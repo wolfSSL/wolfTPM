@@ -1,0 +1,87 @@
+name: Windows swtpm Transport Test
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  repository_dispatch:
+    types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The Visual Studio job in win-test.yml never compiles the socket
+  # transport, so nothing on Windows exercised it and it had drifted to the
+  # point of not working at all. The firmware TPM is software, so a runner
+  # with no TPM can still drive the transport end to end.
+  swtpm:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: git make autoconf automake libtool
+          pacboy: toolchain:p
+
+      - name: Build wolfSSL
+        run: |
+          set -e
+          git clone --quiet --depth 1 -b master \
+              https://github.com/wolfSSL/wolfssl.git
+          cd wolfssl
+          ./autogen.sh
+          # The Windows certificate store is what drags in crypt32 and is not
+          # wanted here. Winsock is: wolfio really does call recv().
+          ./configure --prefix="$PWD/../wolfssl-inst" --enable-wolftpm \
+                      --enable-pkcallbacks --enable-keygen \
+                      --disable-sys-ca-certs \
+                      CFLAGS="-DWC_RSA_NO_PADDING" LIBS="-lws2_32"
+          make
+          make install
+
+      - name: Build wolfTPM
+        run: |
+          set -e
+          ./autogen.sh
+          ./configure --enable-fwtpm --enable-swtpm \
+                      --with-wolfcrypt="$PWD/wolfssl-inst" LIBS="-lws2_32"
+          # wolfTPM's own unit tests use POSIX setenv, which MinGW does not
+          # have, so a bare `make` stops before reaching these.
+          make src/fwtpm/fwtpm_server.exe examples/wrap/caps.exe
+
+      - name: Talk to the firmware TPM over the socket transport
+        run: |
+          set -e
+          ./src/fwtpm/fwtpm_server.exe --port 2321 --platform-port 2322 \
+              > fwtpm.log 2>&1 &
+          sleep 5
+          cat fwtpm.log
+          # Reading capabilities needs the whole path to work: the handle has
+          # to survive being stored, Winsock has to be started, and a command
+          # has to go out and a response come back. Each of those has been
+          # broken on Windows.
+          ./examples/wrap/caps.exe | tee caps.log
+          grep -q "Mfg WOLF" caps.log
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          tail -40 fwtpm.log 2>/dev/null || true
+          tail -40 caps.log 2>/dev/null || true

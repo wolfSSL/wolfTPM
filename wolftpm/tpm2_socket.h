@@ -33,9 +33,11 @@
 
     #define SOCKET_T SOCKET
 
-    /* TODO: HACKY for win32 */
+    /* SOCKET is an unsigned UINT_PTR, so the sentinel is all bits set and is
+     * 64 bit wide on a 64 bit build; a literal 0xFFFFFFFF is a different
+     * value there and matches no socket. */
     #undef SOCKET_INVALID
-    #define SOCKET_INVALID 0xFFFFFFFF
+    #define SOCKET_INVALID INVALID_SOCKET
 #elif defined(WOLFTPM_ZEPHYR)
     #include <zephyr/net/socket.h>
 
@@ -45,6 +47,10 @@
     #include <sys/socket.h>
 
     #define SOCKET_T int
+#endif
+
+#ifndef SOCKET_INVALID
+    #define SOCKET_INVALID ((SOCKET_T)-1)
 #endif
 
 #ifdef USE_WINDOWS_API
