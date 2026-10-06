@@ -169,8 +169,8 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     /* initialize variables */
     XMEMSET(&storageKey, 0, sizeof(storageKey));
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
-    sockIoCtx.fd = -1;
-    sockIoCtx.listenFd = -1;
+    sockIoCtx.fd = SOCKET_INVALID;
+    sockIoCtx.listenFd = SOCKET_INVALID;
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));

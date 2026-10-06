@@ -2189,7 +2189,14 @@ struct TPM2_CTX;
 
 #ifdef WOLFTPM_SWTPM
 struct wolfTPM_tcpContext {
+#if defined(_WIN32) && !defined(WOLFTPM_SWTPM_UART)
+    /* A Winsock SOCKET is an unsigned pointer-width handle, which an int
+     * truncates on a 64 bit build. Spelled without the socket headers so
+     * this one stays out of the public include path. */
+    uintptr_t fd;
+#else
     int fd;
+#endif
 };
 #endif /* WOLFTPM_SWTPM */
 

@@ -228,7 +228,7 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
     /* Create a socket that uses an Internet IPv4 address,
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
-    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
         printf("ERROR: failed to create the socket\n");
         return -1;
     }
@@ -270,7 +270,7 @@ static inline int SocketWaitClient(SockIoCbCtx* sockIoCtx)
     struct sockaddr_in clientAddr;
     XSOCKLENT          size = sizeof(clientAddr);
 
-    if ((connd = accept(sockIoCtx->listenFd, (struct sockaddr*)&clientAddr, &size)) == -1) {
+    if ((connd = accept(sockIoCtx->listenFd, (struct sockaddr*)&clientAddr, &size)) == SOCKET_INVALID) {
         printf("ERROR: failed to accept the connection\n\n");
         return -1;
     }
@@ -307,7 +307,7 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
     /* Create a socket that uses an Internet IPv4 address,
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
-    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
         printf("ERROR: failed to create the socket\n");
         return -1;
     }
@@ -350,13 +350,13 @@ static inline int SocketWaitData(SockIoCbCtx* sockIoCtx, int timeout_sec)
 
 static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 {
-    if (sockIoCtx->fd != -1) {
+    if (sockIoCtx->fd != SOCKET_INVALID) {
         CloseSocket(sockIoCtx->fd);
-        sockIoCtx->fd = -1;
+        sockIoCtx->fd = SOCKET_INVALID;
     }
-    if (sockIoCtx->listenFd != -1) {
+    if (sockIoCtx->listenFd != SOCKET_INVALID) {
         CloseSocket(sockIoCtx->listenFd);
-        sockIoCtx->listenFd = -1;
+        sockIoCtx->listenFd = SOCKET_INVALID;
     }
 }
 #else
