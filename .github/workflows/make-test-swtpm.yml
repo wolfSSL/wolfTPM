@@ -451,6 +451,10 @@ jobs:
       - name: Setup ibmswtpm2
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
         uses: ./.github/actions/setup-ibmswtpm
+        with:
+          # The shared image includes tpm2-tools, so make check also runs
+          # its compatibility suite. ESYS needs extra transient object slots.
+          max-loaded-objects: 7
 
       - name: Generate TPM port
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
