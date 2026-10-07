@@ -2,37 +2,37 @@
 # included from Top Level Makefile.am
 # All paths should be given relative to the root
 
+# SPDM comes from the wolfSPDM submodule, built in its wolfTPM profile.
 if BUILD_SPDM
 
-# Side-agnostic SPDM core: same code feeds requester and responder.
 src_libwolftpm_la_SOURCES += \
-    src/spdm/spdm_context.c \
-    src/spdm/spdm_crypto.c \
-    src/spdm/spdm_kdf.c \
-    src/spdm/spdm_msg.c \
-    src/spdm/spdm_secured.c \
-    src/spdm/spdm_session.c \
-    src/spdm/spdm_transcript.c
+    lib/wolfSPDM/src/spdm_context.c \
+    lib/wolfSPDM/src/spdm_crypto.c \
+    lib/wolfSPDM/src/spdm_kdf.c \
+    lib/wolfSPDM/src/spdm_msg.c \
+    lib/wolfSPDM/src/spdm_secured.c \
+    lib/wolfSPDM/src/spdm_session.c \
+    lib/wolfSPDM/src/spdm_transcript.c
 
 if BUILD_SPDM_TCG
-src_libwolftpm_la_SOURCES += src/spdm/spdm_tcg.c
+src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/spdm_tcg.c
 endif
 
 # Gated on the mode flag, not on a vendor flag - PSK isn't Nations-specific.
 if BUILD_SPDM_PSK
-src_libwolftpm_la_SOURCES += src/spdm/spdm_psk.c
+src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/spdm_psk.c
 endif
 
 if BUILD_NUVOTON
-src_libwolftpm_la_SOURCES += src/spdm/spdm_nuvoton.c
+src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/vendor/spdm_nuvoton.c
 endif
 
 if BUILD_NATIONS
-src_libwolftpm_la_SOURCES += src/spdm/spdm_nations.c
+src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/vendor/spdm_nations.c
 endif
 
 if BUILD_FWTPM_SPDM
-src_libwolftpm_la_SOURCES += src/spdm/spdm_responder.c
+src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/spdm_responder.c
 endif
 
 check_PROGRAMS += src/spdm/unit_test
@@ -45,5 +45,6 @@ endif BUILD_SPDM
 
 # Ship unconditionally: EXTRA_DIST inside a conditional is dropped from the dist
 # tarball when packaged without --enable-spdm, breaking later --enable-spdm builds.
-EXTRA_DIST += src/spdm/spdm_internal.h
+EXTRA_DIST += lib/wolfSPDM/src/spdm_internal.h
+EXTRA_DIST += lib/wolfSPDM/LICENSE
 EXTRA_DIST += src/spdm/README.md

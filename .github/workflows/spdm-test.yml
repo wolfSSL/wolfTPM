@@ -9,6 +9,8 @@ on:
     branches: [master]
     paths:
       - 'src/spdm/**'
+      - 'lib/wolfSPDM'
+      - '.gitmodules'
       - 'wolftpm/spdm/**'
       - 'src/fwtpm/**'
       - 'wolftpm/fwtpm/**'
@@ -64,6 +66,7 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          submodules: true
           persist-credentials: false
 
       - name: Setup wolfSSL
@@ -79,6 +82,20 @@ jobs:
           ./configure ${{ matrix.wolftpm_config }} \
                       --with-wolfcrypt=$HOME/wolfssl-install
           make -j"$(nproc)"
+
+      - name: Compile against the installed headers (${{ matrix.name }})
+        run: |
+          set -e
+          make install DESTDIR="$PWD/inst" >/dev/null
+          printf '%s\n' '#include <wolftpm/tpm2_wrap.h>' \
+              '#include <wolftpm/spdm/spdm.h>' '#include <wolfspdm/spdm.h>' \
+              'int main(void) { return 0; }' > consumer.c
+          cc -c consumer.c -o consumer.o -I"$PWD/inst/usr/local/include" \
+              -I"$HOME/wolfssl-install/include"
+          printf '%s\n' '#include <wolfspdm/spdm.h>' \
+              'int main(void) { return 0; }' > consumer2.c
+          cc -c consumer2.c -o consumer2.o -I"$PWD/inst/usr/local/include" \
+              -I"$HOME/wolfssl-install/include"
 
       - name: Test unavailable vendor rejection (${{ matrix.name }})
         if: matrix.name == 'spdm-nuvoton' || matrix.name == 'spdm-nations'
@@ -124,6 +141,7 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          submodules: true
           persist-credentials: false
 
       - name: Setup wolfSSL

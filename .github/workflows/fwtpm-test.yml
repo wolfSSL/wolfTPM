@@ -282,6 +282,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       # Matrix includes a macOS leg, so this job stays on the host runner;
       # apt is made resilient rather than moving into the Linux CI image.
@@ -461,6 +463,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup wolfSSL
         uses: ./.github/actions/setup-wolfssl
@@ -491,6 +495,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup wolfSSL
         uses: ./.github/actions/setup-wolfssl
@@ -528,6 +534,8 @@ jobs:
     # (where it passes) and just make apt resilient to mirror timeouts.
     steps:
       - uses: actions/checkout@master
+        with:
+          submodules: true
 
       - name: Install tpm2-tools
         uses: ./.github/actions/apt-retry
@@ -565,6 +573,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Checkout wolfSSL
         uses: actions/checkout@v4
@@ -663,6 +673,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup wolfSSL
         uses: ./.github/actions/setup-wolfssl

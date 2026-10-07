@@ -29,6 +29,8 @@ jobs:
       # Checkout first so the local apt-retry composite action is on disk.
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       # Large, version-pinned zephyr package set — not baked into the wolfTPM
       # CI image; just make apt resilient to mirror timeouts.

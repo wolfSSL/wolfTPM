@@ -1,0 +1,5 @@
+[submodule "lib/wolfSPDM"]
+	path = lib/wolfSPDM
+	url = https://github.com/wolfSSL/wolfSPDM.git
+	branch = main
+	ignore = dirty

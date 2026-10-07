@@ -13,6 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
+        submodules: true
         ref: master
 
     # Cache the built wolfSSL tree keyed on the resolved upstream commit so it
