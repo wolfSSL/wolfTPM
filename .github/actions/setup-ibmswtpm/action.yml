@@ -57,7 +57,7 @@ runs:
           VARIANT="mlo${VARIANT}"
         fi
         echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-        echo "cache-key=ibmswtpm2-${{ runner.os }}-${SHA}-${VARIANT}-v1" >> "$GITHUB_OUTPUT"
+        echo "cache-key=ibmswtpm2-${{ runner.os }}-${SHA}-${VARIANT}-${WOLFTPM_CI_IMAGE:-native}-v1" >> "$GITHUB_OUTPUT"
         echo "ibmswtpm2 ${{ inputs.ref }} -> $SHA (variant $VARIANT)"
 
     - name: Restore ibmswtpm2 build cache

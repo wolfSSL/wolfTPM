@@ -17,9 +17,12 @@ jobs:
   pqc-examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # Host runner: tpm2-tools make-check (activatecredential) hits a tpm2-tools
-    # OpenSSL credential-integrity quirk inside a container, so stay on the host
-    # (where it passes) and just make apt resilient to mirror timeouts.
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+      options: --cap-add=SYS_ADMIN --cap-add=NET_ADMIN --cap-add=NET_RAW
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 30
 
     steps:
@@ -27,11 +30,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Install tpm2-tools
-        uses: ./.github/actions/apt-retry
-        with:
-          packages: tpm2-tools libtss2-tcti-mssim0
 
       - name: Setup wolfSSL with PQC
         uses: ./.github/actions/setup-wolfssl
@@ -64,70 +62,38 @@ jobs:
             ip link set lo up
             make check
           '
-          # make check runs as root via sudo -E unshare; restore ownership of
-          # any files left in the workspace so later steps (running as the
-          # unprivileged runner) can rewrite them — otherwise stale root-owned
-          # blobs (e.g. eccblob.bin) silently break run_examples.sh later.
-          sudo chown -R "$(id -u):$(id -g)" .
 
-      # ----- Tier 2: per-example standalone runs -----
-      # Each example gets its own GitHub Actions check so a regression
-      # surfaces with a clear failure signal — not buried inside make check.
-      - name: Start fwtpm_server for standalone example runs
+      # Standalone examples share one simulator lifetime in this step.
+      - name: PQC standalone examples and control tool
         run: |
           rm -f fwtpm_nv.bin
           ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
-          echo $! > /tmp/fwtpm_server.pid
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
           sleep 1
-          kill -0 $(cat /tmp/fwtpm_server.pid)
-
-      - name: PQC keygen — every parameter set
-        run: |
+          kill -0 "$server_pid"
+          echo '::group::PQC keygen: every parameter set'
           for ps in 44 65 87; do
-            ./examples/keygen/keygen mldsa_sk.bin -mldsa=$ps      || exit 1
-            ./examples/keygen/keygen hmldsa_sk.bin -hash_mldsa=$ps || exit 1
+            ./examples/keygen/keygen mldsa_sk.bin -mldsa=$ps
+            ./examples/keygen/keygen hmldsa_sk.bin -hash_mldsa=$ps
           done
           for ps in 512 768 1024; do
-            ./examples/keygen/keygen mlkem_sk.bin -mlkem=$ps || exit 1
+            ./examples/keygen/keygen mlkem_sk.bin -mlkem=$ps
           done
-
-      - name: ML-DSA sign + verify example (standalone)
-        run: ./examples/pqc/mldsa_sign
-
-      - name: ML-KEM encap + decap example (standalone)
-        run: ./examples/pqc/mlkem_encap
-
-      - name: PQC control tool (pqc_ctrl.sh suite + argument validation)
-        # pqc_ctrl.sh runs the full command set and the argument-validation
-        # negatives, exiting non-zero on any failure. PQC_CTRL_CLEAR is left off
-        # so the shared Tier-2 fwtpm_server is not wiped mid-sequence; the
-        # destructive --clear / --pcrextend paths are exercised on hardware.
-        run: ./examples/pqc/pqc_ctrl.sh
-
-      - name: Stop Tier 2 fwtpm_server (free port 2321 for E2E)
-        run: |
-          if [ -f /tmp/fwtpm_server.pid ]; then
-            kill "$(cat /tmp/fwtpm_server.pid)" 2>/dev/null || true
-            rm -f /tmp/fwtpm_server.pid
-          fi
-          # Defensive: kill any other default-port server lingering.
-          pkill -f "fwtpm_server$" 2>/dev/null || true
-          sleep 1
+          echo '::endgroup::'
+          echo '::group::ML-DSA sign and verify'
+          ./examples/pqc/mldsa_sign
+          echo '::endgroup::'
+          echo '::group::ML-KEM encapsulate and decapsulate'
+          ./examples/pqc/mlkem_encap
+          echo '::endgroup::'
+          # Leave PQC_CTRL_CLEAR off so the shared server is not wiped.
+          echo '::group::PQC control tool and argument validation'
+          ./examples/pqc/pqc_ctrl.sh
+          echo '::endgroup::'
 
       - name: PQC mssim E2E (MLKEM-768 + HashMLDSA-65 round-trips)
         run: ./tests/pqc_mssim_e2e.sh
-
-      - name: Restart fwtpm_server for Tier 5 (run_examples.sh)
-        run: |
-          # pqc_mssim_e2e.sh started + stopped its own server; Tier 5 needs
-          # one again. Reuse the same default-port launch as Tier 2.
-          pkill -f "fwtpm_server" 2>/dev/null || true
-          sleep 1
-          rm -f fwtpm_nv.bin
-          ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
-          echo $! > /tmp/fwtpm_server.pid
-          sleep 1
-          kill -0 "$(cat /tmp/fwtpm_server.pid)"
 
       - name: Doc constants parity check
         run: |
@@ -141,13 +107,19 @@ jobs:
 
       # ----- Tier 5: full run_examples.sh sweep -----
       # run_examples.sh does not start its own TPM — it expects one already
-      # listening. Reuse the fwtpm_server started in Tier 2. Trace each
+      # listening. Start a fresh server in the same step. Trace each
       # command (set -x) so the failing call line is in the CI log; on
       # failure, dump run.out (where the script redirects example stdout).
       - name: run_examples.sh full pass (auto-detects v1.85, runs 18-way matrix)
         env:
           WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
         run: |
+          rm -f fwtpm_nv.bin
+          ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          kill -0 "$server_pid"
           set +e
           bash -x ./examples/run_examples.sh
           rc=$?
@@ -159,14 +131,6 @@ jobs:
             tail -100 /tmp/fwtpm_server.log
           fi
           exit $rc
-
-      - name: Stop fwtpm_server
-        if: always()
-        run: |
-          if [ -f /tmp/fwtpm_server.pid ]; then
-            kill $(cat /tmp/fwtpm_server.pid) 2>/dev/null || true
-            rm -f /tmp/fwtpm_server.pid
-          fi
 
       - name: Upload failure logs
         if: failure()
@@ -190,11 +154,11 @@ jobs:
       contents: read
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     container:
-      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
     timeout-minutes: 30
 
     steps:
@@ -245,15 +209,12 @@ jobs:
           # example client/server, so point it at the clone built above
           export WOLFSSL_PATH="$GITHUB_WORKSPACE/wolfssl"
           ./src/fwtpm/fwtpm_server >/tmp/fwtpm_tls.log 2>&1 &
-          echo $! > /tmp/fwtpm_tls.pid
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
           sleep 2
           ENABLE_PQC_TLS=1 ./examples/run_examples.sh
           rc=$?
           exit $rc
-
-      - name: Stop fwtpm_server (PQC TLS)
-        if: always()
-        run: kill "$(cat /tmp/fwtpm_tls.pid)" 2>/dev/null || true
 
       - name: Upload failure logs
         if: failure()

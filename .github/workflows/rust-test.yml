@@ -26,6 +26,11 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: discover
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -53,34 +58,23 @@ jobs:
           configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen
           cflags: -DWC_RSA_NO_PADDING
 
-      # Use the runner's preinstalled rustup rather than a mutable third-party
-      # action, so no external action code runs with the job token.
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal --component clippy --component rustfmt
-          rustup default stable
-
       - name: Generate TPM port
         run: |
           MATRIX_HASH=$(echo -n "rust-${{ matrix.name }}" | cksum | cut -d' ' -f1)
           TPM_PORT=$((40000 + (MATRIX_HASH % 1000) * 2))
-          echo "TPM_PORT=$TPM_PORT" >> $GITHUB_ENV
-          echo "TPM2_SWTPM_PORT=$TPM_PORT" >> $GITHUB_ENV
-          echo "TPM2_SWTPM_HOST=localhost" >> $GITHUB_ENV
+          {
+            echo "TPM_PORT=$TPM_PORT"
+            echo "TPM2_SWTPM_PORT=$TPM_PORT"
+            echo "TPM2_SWTPM_HOST=localhost"
+          } >> "$GITHUB_ENV"
 
       # Build wolfTPM with our in-tree firmware TPM (fwtpm_server) as the
       # software TPM the Rust tests run against — no external simulator.
       - name: Build wolfTPM (swtpm + fwtpm)
         run: |
           ./autogen.sh
-          ./configure --enable-swtpm --enable-fwtpm --with-swtpm-port=$TPM_PORT
+          ./configure --enable-swtpm --enable-fwtpm --with-swtpm-port="$TPM_PORT"
           make -j"$(nproc)"
-
-      - name: Start fwTPM server
-        run: |
-          ./src/fwtpm/fwtpm_server --clear --port "$TPM_PORT" \
-            --platform-port "$((TPM_PORT + 1))" &
-          sleep 1
 
       - name: Build Rust wrapper
         working-directory: ./wrapper/rust/wolftpm
@@ -100,7 +94,18 @@ jobs:
 
       - name: Test against fwTPM
         working-directory: ./wrapper/rust/wolftpm
-        run: cargo test --locked --features swtpm-tests -- --test-threads=1
+        run: |
+          ../../../src/fwtpm/fwtpm_server --clear --port "$TPM_PORT" \
+            --platform-port "$((TPM_PORT + 1))" > /tmp/rust-fwtpm.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 500); do
+            ss -tln | grep -q ":$TPM_PORT " && break
+            sleep 0.01
+          done
+          kill -0 "$server_pid"
+          ss -tln | grep -q ":$TPM_PORT "
+          cargo test --locked --features swtpm-tests -- --test-threads=1
 
       - name: Docs
         working-directory: ./wrapper/rust/wolftpm
@@ -111,6 +116,11 @@ jobs:
   rust-devtpm-compile:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -121,10 +131,6 @@ jobs:
         with:
           ref: master
           configure-flags: --enable-wolftpm --enable-pkcallbacks
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
       - name: Build wolfTPM (devtpm)
         run: |
           ./autogen.sh

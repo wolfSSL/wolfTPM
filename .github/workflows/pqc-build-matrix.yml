@@ -26,6 +26,11 @@ jobs:
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -149,6 +154,11 @@ jobs:
     # Build-only -- no TPM is reachable over the SPI HAL on a runner.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -188,6 +198,11 @@ jobs:
     # message (no PQC algorithm). Verifies the guard, not just that it builds.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     steps:
       - name: Checkout wolfTPM

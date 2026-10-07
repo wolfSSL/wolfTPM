@@ -19,20 +19,19 @@ jobs:
     name: Semgrep (wolfTPM security rules)
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       # Pin Semgrep so the gate is deterministic: a future release cannot
       # change rule behavior or fail the build out from under a PR.
-      - name: Install Semgrep
-        run: pip install --quiet semgrep==1.166.0
 
       # --error makes the job fail on any finding. The rules self-scope via
       # their `paths:` blocks, so scanning the whole tree is fine.

@@ -9,6 +9,11 @@ jobs:
   coverity:
     if: github.repository_owner == 'wolfssl'
     runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@v4
@@ -27,7 +32,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: wolfssl
-        key: wolfssl-coverity-fixes-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
+        key: wolfssl-coverity-fixes-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1-ci-v1.1
 
     - uses: actions/checkout@master
       if: steps.wolfssl_cache.outputs.cache-hit != 'true'

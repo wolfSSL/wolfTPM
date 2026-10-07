@@ -18,6 +18,11 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
 
     runs-on: ${{ matrix.config.os }}
+    container:
+      image: ${{ startsWith(matrix.config.os, 'ubuntu-') && 'ghcr.io/wolfssl/wolftpm-ci:v1.1' || '' }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -141,14 +146,6 @@ jobs:
       with:
         submodules: true
 
-# Install cmake (matrix includes a Windows leg, so this job stays on the host
-# runner; apt is made resilient instead of moving into the Linux CI image)
-    - name: Install cmake
-      if: runner.os == 'Linux'
-      uses: ./.github/actions/apt-retry
-      with:
-        packages: cmake
-
 #pull and build wolfssl
     # Every matrix entry builds the identical wolfSSL (only the wolfTPM options
     # vary), so cache the install prefix keyed on the resolved wolfSSL commit +
@@ -164,7 +161,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: install
-        key: wolfssl-cmake-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
+        key: wolfssl-cmake-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1-ci-v1.1
 
     - name: Checkout wolfssl
       if: steps.wolfssl_cache.outputs.cache-hit != 'true'
@@ -221,12 +218,11 @@ jobs:
     name: CMake static export check
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # cmake baked into the CI image — no apt mirror on the happy path.
+    defaults:
+      run:
+        shell: bash
     container:
-      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
     steps:
       - uses: actions/checkout@master
         with:
@@ -244,7 +240,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: install
-          key: wolfssl-cmake-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
+          key: wolfssl-cmake-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1-ci-v1.1
 
       - name: Checkout wolfssl
         if: steps.wolfssl_cache.outputs.cache-hit != 'true'

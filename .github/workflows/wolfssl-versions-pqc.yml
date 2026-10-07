@@ -59,12 +59,11 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: discover-versions
     runs-on: ubuntu-latest
-    # Build tools baked into the CI image — no apt mirror on the happy path.
+    defaults:
+      run:
+        shell: bash
     container:
-      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -82,7 +81,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/wolfssl-install
-          key: ${{ matrix.cache-key }}
+          key: ${{ matrix.cache-key }}-ci-v1.1
 
       - name: Build wolfSSL ${{ matrix.wolfssl-version }}
         if: matrix.wolfssl-version == 'master' || steps.cache-wolfssl.outputs.cache-hit != 'true'

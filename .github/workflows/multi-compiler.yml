@@ -18,6 +18,11 @@ jobs:
     name: Build wolfSSL
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 5
     steps:
       # Cache the built wolfSSL tree keyed on the resolved upstream commit so it
@@ -31,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wolfssl
-          key: wolfssl-multicompiler-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
+          key: wolfssl-multicompiler-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1-ci-v1.1
 
       - name: Checkout wolfSSL
         if: steps.wolfssl_cache.outputs.cache-hit != 'true'
@@ -69,8 +74,11 @@ jobs:
     name: ${{ matrix.cc }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # Headroom for an occasionally-slow apt mirror installing a version-specific
-    # compiler (apt-retry handles real failures; this avoids a hard cancel).
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 12
     needs: build_wolfssl
     strategy:
@@ -91,18 +99,10 @@ jobs:
             cxx: clang++-17
 
     steps:
-      # Checkout first so the local apt-retry composite action is on disk.
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
         with:
           submodules: true
-
-      # Version-specific compilers are not baked into the CI image; keep this
-      # job on the host runner and just make apt resilient to mirror timeouts.
-      - name: Install compiler
-        uses: ./.github/actions/apt-retry
-        with:
-          packages: ${{ matrix.cc }}
 
       - name: Download wolfSSL
         uses: actions/download-artifact@v4

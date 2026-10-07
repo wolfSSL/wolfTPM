@@ -43,6 +43,13 @@ jobs:
   fuzz:
     needs: select
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+      # Preserve the kernel ASLR workaround used by these tests.
+      options: --privileged
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 30
     strategy:
       fail-fast: false
