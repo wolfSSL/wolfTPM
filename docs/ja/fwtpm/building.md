@@ -4,13 +4,15 @@
 
 ## 前提条件
 
-wolfSSL は、TPM サポート、keygen、および `WC_RSA_NO_PADDING` を有効にしてビルドする必要があります。
+wolfSSL は、TPM サポート、keygen、および `WC_RSA_NO_PADDING` を有効にしてビルドする必要があります。wolfSSL は `lib/wolfssl` サブモジュールとして同梱されています。wolfTPM を `--recursive` 付きでクローンし (または `git submodule update --init lib/wolfssl` を実行し)、そこからビルドします。
 
 ```sh
-cd wolfssl
+cd lib/wolfssl
+./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
+cd ../..
 ```
 
 ## fwTPM サーバーのビルド
@@ -18,7 +20,7 @@ sudo make install
 **ソケットトランスポート (SWTPM プロトコル、開発向けの既定):**
 
 ```sh
-cd wolftpm
+./autogen.sh
 ./configure --enable-fwtpm --enable-swtpm
 make
 ```

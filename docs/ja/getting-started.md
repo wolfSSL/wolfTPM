@@ -4,16 +4,17 @@ wolfTPM は、ネイティブ API、ラッパー API、およびビルド成功�
 
 ## 前提条件と wolfSSL のビルド
 
-wolfTPM には、wolfTPM 用オプションを有効にしてビルドした wolfSSL (wolfCrypt) が必要です。最初に wolfSSL をビルドしてインストールします。
+wolfTPM には、wolfTPM 用オプションを有効にしてビルドした wolfSSL (wolfCrypt) が必要です。wolfSSL は `lib/wolfssl` サブモジュールとして同梱されているため、wolfTPM を `--recursive` 付きでクローンし、最初にそこから wolfSSL をビルドしてインストールします。
 
 ```bash
-git clone https://github.com/wolfSSL/wolfssl.git
-cd wolfssl
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM/lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
+cd ../..
 ```
 
 `autogen.sh` には automake と libtool が必要です: `sudo apt-get install automake libtool`。
@@ -23,8 +24,6 @@ sudo ldconfig
 ## wolfTPM のビルド
 
 ```bash
-git clone https://github.com/wolfSSL/wolfTPM.git
-cd wolfTPM
 ./autogen.sh
 ./configure
 make

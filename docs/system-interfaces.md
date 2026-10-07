@@ -225,17 +225,18 @@ In the QEMU terminal, check out and build wolfTPM:
 ```sh
 sudo apt install automake libtool gcc git make
 
-# get and build wolfSSL
-git clone https://github.com/wolfssl/wolfssl.git
-pushd wolfssl
+# get wolfTPM (wolfSSL is bundled as the lib/wolfssl submodule)
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+pushd wolfTPM
+
+# build wolfSSL from the submodule
+pushd lib/wolfssl
 ./autogen.sh && \
-  ./configure --enable-wolftpm --disable-examples --prefix=$PWD/../inst && \
+  ./configure --enable-wolftpm --disable-examples --prefix=$PWD/../../../inst && \
   make install
 popd
 
-# get and build wolfTPM
-git clone https://github.com/wolfssl/wolftpm.git
-pushd wolftpm
+# build wolfTPM
 ./autogen.sh && \
   ./configure --enable-devtpm --prefix=$PWD/../inst --enable-debug && \
   make install
@@ -452,18 +453,18 @@ Unknown    SecurityDevices Trusted Platform Module 2.0
 
 ### Building in MSYS2
 
-Tested using MSYS2:
+Tested using MSYS2. wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there:
 
 ```bash
 export PREFIX=$PWD/tmp_install
 
-cd wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --prefix="$PREFIX" --enable-wolftpm
 make
 make install
 
-cd wolftpm/
+cd ../..
 ./autogen.sh
 ./configure --prefix="$PREFIX" --enable-winapi
 make
@@ -493,17 +494,16 @@ export PREFIX=$PWD/tmp_install
 export CFLAGS="-DWIN32 -DMINGW -D_WIN32_WINNT=0x0600 -DUSE_WOLF_STRTOK"
 export LIBS="-lws2_32"
 
-cd wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --host=i686 CC=i686-w64-mingw32-gcc --prefix="$PREFIX" --enable-wolftpm
 make
 make install
 
-cd ../wolftpm/
+cd ../..
 ./autogen.sh
 ./configure --host=i686 CC=i686-w64-mingw32-gcc --prefix="$PREFIX" --enable-winapi
 make
-cd ..
 ```
 
 ### Running on Windows
