@@ -4,16 +4,17 @@ wolfTPM is a portable TPM 2.0 library with a native API, a wrapper API, and a se
 
 ## Prerequisites and building wolfSSL
 
-wolfTPM needs wolfSSL (wolfCrypt) built with the wolfTPM options. Build and install wolfSSL first:
+wolfTPM needs wolfSSL (wolfCrypt) built with the wolfTPM options. wolfSSL is bundled as the `lib/wolfssl` submodule, so clone wolfTPM with `--recursive` and build and install wolfSSL from there first:
 
 ```bash
-git clone https://github.com/wolfSSL/wolfssl.git
-cd wolfssl
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM/lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
+cd ../..
 ```
 
 `autogen.sh` requires automake and libtool: `sudo apt-get install automake libtool`.
@@ -23,8 +24,6 @@ See [Building wolfTPM](building.md) for using a wolfSSL installed in a different
 ## Build wolfTPM
 
 ```bash
-git clone https://github.com/wolfSSL/wolfTPM.git
-cd wolfTPM
 ./autogen.sh
 ./configure
 make

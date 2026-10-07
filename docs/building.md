@@ -4,16 +4,17 @@ wolfTPM is built on top of wolfSSL (wolfCrypt) and can be built with autotools, 
 
 ## Building wolfSSL
 
-wolfSSL must be built and installed first. It can be downloaded from the [downloads page](https://wolfssl.com/download/) or cloned from GitHub:
+wolfSSL must be built and installed first. wolfSSL is bundled as the `lib/wolfssl` submodule at a known-good commit, so clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl` in an existing checkout) and build wolfSSL from there:
 
 ```bash
-git clone https://github.com/wolfSSL/wolfssl.git
-cd wolfssl
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM/lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
+cd ../..
 ```
 
 `autogen.sh` requires automake and libtool: `sudo apt-get install automake libtool`.
@@ -27,7 +28,7 @@ The `--enable-wolftpm` option is equivalent to passing these options:
 
 ## Using an alternate wolfSSL directory
 
-To build wolfTPM against a wolfSSL installed in a non-default location, install wolfSSL to a prefix and point wolfTPM at it with `--with-wolfcrypt`:
+The bundled `lib/wolfssl` submodule is the default wolfSSL source. To build wolfTPM against a different wolfSSL, such as one from the [downloads page](https://wolfssl.com/download/) installed in a non-default location, install wolfSSL to a prefix and point wolfTPM at it with `--with-wolfcrypt`:
 
 ```bash
 # cd /your-wolfssl-repo
@@ -43,11 +44,9 @@ make install
 
 ## Building with autotools
 
-Once wolfSSL is installed, download wolfTPM from the [downloads page](https://wolfssl.com/download/) or clone it from GitHub, then build it:
+Once wolfSSL is installed, build wolfTPM from the repository root:
 
 ```bash
-git clone https://github.com/wolfSSL/wolfTPM.git
-cd wolfTPM
 ./autogen.sh
 ./configure
 make

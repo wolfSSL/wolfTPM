@@ -89,17 +89,27 @@ for build instructions, responder modes, and the end-to-end test scripts.
 
 ### wolfSSL
 
+wolfTPM links against wolfSSL/wolfCrypt. wolfSSL is bundled as the `lib/wolfssl`
+submodule at a known-good commit, so clone wolfTPM with `--recursive` (or run
+`git submodule update --init lib/wolfssl`) and build it from there. **Build
+wolfSSL with `--enable-wolftpm`**; it turns on the RSA, ECC, and crypto-callback
+support wolfTPM relies on. wolfTPM's `configure` only link-checks
+`wolfCrypt_Init`, so it will not flag a wolfSSL built without it, but the
+runtime integration needs it.
+
+`autogen.sh` requires automake and libtool: `sudo apt-get install automake libtool`.
+
+#### Default build
+
 ```bash
-git clone https://github.com/wolfSSL/wolfssl.git
-cd wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm
 make
 sudo make install
 sudo ldconfig
+cd ../..
 ```
-
-`autogen.sh` requires automake and libtool: `sudo apt-get install automake libtool`.
 
 ### wolfTPM
 

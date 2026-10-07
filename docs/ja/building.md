@@ -4,16 +4,17 @@ wolfTPM は wolfSSL (wolfCrypt) の上に構築されており、autotools、CMa
 
 ## wolfSSL のビルド
 
-最初に wolfSSL をビルドしてインストールする必要があります。wolfSSL は[ダウンロードページ](https://wolfssl.com/download/)から入手するか、GitHub からクローンできます。
+最初に wolfSSL をビルドしてインストールする必要があります。wolfSSL は動作確認済みのコミットで `lib/wolfssl` サブモジュールとして同梱されているため、wolfTPM を `--recursive` 付きでクローンし (既存のチェックアウトでは `git submodule update --init lib/wolfssl` を実行し)、そこから wolfSSL をビルドします。
 
 ```bash
-git clone https://github.com/wolfSSL/wolfssl.git
-cd wolfssl
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM/lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
+cd ../..
 ```
 
 `autogen.sh` には automake と libtool が必要です: `sudo apt-get install automake libtool`。
@@ -27,7 +28,7 @@ sudo ldconfig
 
 ## 別の wolfSSL ディレクトリを使用する
 
-既定以外の場所にインストールした wolfSSL に対して wolfTPM をビルドするには、wolfSSL を任意のプレフィックスにインストールし、`--with-wolfcrypt` で wolfTPM にその場所を指定します。
+同梱の `lib/wolfssl` サブモジュールが既定の wolfSSL ソースです。[ダウンロードページ](https://wolfssl.com/download/)から入手した wolfSSL など、既定以外の場所にインストールした別の wolfSSL に対して wolfTPM をビルドするには、wolfSSL を任意のプレフィックスにインストールし、`--with-wolfcrypt` で wolfTPM にその場所を指定します。
 
 ```bash
 # cd /your-wolfssl-repo
@@ -43,11 +44,9 @@ make install
 
 ## autotools でのビルド
 
-wolfSSL をインストールしたら、[ダウンロードページ](https://wolfssl.com/download/)から wolfTPM を入手するか GitHub からクローンして、ビルドします。
+wolfSSL をインストールしたら、リポジトリのルートで wolfTPM をビルドします。
 
 ```bash
-git clone https://github.com/wolfSSL/wolfTPM.git
-cd wolfTPM
 ./autogen.sh
 ./configure
 make
