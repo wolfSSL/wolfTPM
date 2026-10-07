@@ -1,0 +1,75 @@
+name: Build manual with documentation tooling
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'mkdocs-ja.yml'
+      - 'tools/docs_manual.py'
+      - 'tools/docs-manual/**'
+      - 'docker/docs/**'
+      - '.github/workflows/docs-site.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'mkdocs-ja.yml'
+      - 'tools/docs_manual.py'
+      - 'tools/docs-manual/**'
+      - 'docker/docs/**'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select documentation revision
+        id: documentation
+        run: echo "sha=$(cat tools/docs-manual/documentation-rev)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: wolfSSL/documentation
+          ref: ${{ steps.documentation.outputs.sha }}
+          path: build/documentation
+          submodules: recursive
+          persist-credentials: false
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull documentation builder
+        run: |
+          set -euo pipefail
+          image_sha=$(sha256sum docker/docs/Dockerfile docker/docs/requirements.txt | sha256sum | cut -c1-16)
+          image="ghcr.io/wolfssl/wolftpm-docs:sha-$image_sha"
+          if ! docker pull "$image"; then
+            docker build --pull -t "$image" docker/docs
+          fi
+          echo "DOCS_IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Build and validate HTML and PDF
+        run: |
+          tools/check-docs-no-internal-links.sh
+          docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/work/wolfTPM" \
+            --workdir /work/wolfTPM "$DOCS_IMAGE" \
+            sh -c 'python3 tools/docs_manual.py build --documentation-root /work/wolfTPM/build/documentation --source-root /work/wolfTPM --target all'
+          test -s build/documentation/wolfTPM/html/index.html
+          test -s build/documentation/wolfTPM/wolfTPM-Manual.pdf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wolftpm-manual
+          path: |
+            build/documentation/wolfTPM/html/
+            build/documentation/wolfTPM/wolfTPM-Manual.pdf
+          if-no-files-found: error
+          retention-days: 14
