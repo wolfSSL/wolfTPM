@@ -28,22 +28,21 @@ and full MCTP for spdm-emu testing.
 ### Get the source
 
 ```bash
-# SPDM lives in the lib/wolfSPDM submodule, so clone wolfTPM recursively
+# SPDM and wolfSSL live in the lib/ submodules, so clone wolfTPM recursively
 git clone --recursive https://github.com/wolfSSL/wolfTPM.git
-git clone https://github.com/wolfSSL/wolfssl.git   # sibling checkout
 cd wolfTPM
 ```
 
 Already cloned without `--recursive`? Run `git submodule update --init
-lib/wolfSPDM` once inside the checkout.
+lib/wolfSPDM lib/wolfssl` once inside the checkout.
 
 ### Nuvoton NPCT75x
 
 ```bash
-# Build wolfSSL (in the sibling checkout, then return here)
-cd ../wolfssl && ./autogen.sh && \
+# Build wolfSSL (bundled lib/wolfssl submodule, then return here)
+cd lib/wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
-make && sudo make install && sudo ldconfig && cd -
+make && sudo make install && sudo ldconfig && cd ../..
 
 # Build wolfTPM (submodule already present from the recursive clone)
 ./autogen.sh && ./configure --enable-spdm --enable-nuvoton && make
@@ -60,10 +59,10 @@ full instructions.
 ### Nations NS350
 
 ```bash
-# Build wolfSSL (in the sibling checkout, then return here)
-cd ../wolfssl && ./autogen.sh && \
+# Build wolfSSL (bundled lib/wolfssl submodule, then return here)
+cd lib/wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
-make && sudo make install && sudo ldconfig && cd -
+make && sudo make install && sudo ldconfig && cd ../..
 
 # Build wolfTPM (submodule already present from the recursive clone)
 ./autogen.sh && ./configure --enable-spdm --enable-nations && make
@@ -182,26 +181,27 @@ SPDM is built from the `lib/wolfSPDM` submodule, so clone wolfTPM recursively:
 
 ```bash
 git clone --recursive https://github.com/wolfSSL/wolfTPM.git
-git clone https://github.com/wolfSSL/wolfssl.git   # sibling checkout for wolfSSL
 cd wolfTPM
 ```
 
-Already cloned wolfTPM without `--recursive`? Pull the submodule in:
+Already cloned wolfTPM without `--recursive`? Pull the submodules in:
 
 ```bash
-git submodule update --init lib/wolfSPDM
+git submodule update --init lib/wolfSPDM lib/wolfssl
 ```
 
 ### 2. wolfSSL
 
+wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there.
+
 ```bash
-cd ../wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 \
     --enable-aesgcm --enable-hkdf --enable-sp
 make
 sudo make install && sudo ldconfig
-cd -   # back to the wolfTPM checkout
+cd ../..   # back to the wolfTPM checkout
 ```
 
 Both Nuvoton and Nations use the same wolfSSL flags above.
