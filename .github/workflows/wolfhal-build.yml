@@ -25,28 +25,23 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install ARM toolchain
         uses: ./.github/actions/apt-retry
         with:
           packages: gcc-arm-none-eabi
 
-      - name: Checkout wolfHAL
-        uses: actions/checkout@v4
-        with:
-          repository: wolfSSL/wolfHAL
-          ref: main
-          path: wolfHAL
-
-      # wolfTPM does not ship board definitions, so stand in for the board.h an
-      # application would provide. Doubles as a check that the documented
-      # contract in hal/README.md is complete and sufficient.
+      # wolfTPM does not ship board definitions, so stand in for the
+      # wolfHAL_board.h an application would provide. Doubles as a check that
+      # the documented contract in hal/README.md is complete and sufficient.
       #
       # user_settings.h is needed because this is a bare metal build that never
       # runs ./configure, so the generated wolftpm/options.h does not exist.
       # WOLFTPM_USER_SETTINGS selects this header instead, which is the same
       # path a real wolfHAL application takes.
-      - name: Generate test board.h and user_settings.h
+      - name: Generate test wolfHAL_board.h and user_settings.h
         run: |
           mkdir -p test-board
           cat > test-board/user_settings.h <<'EOF'
@@ -55,7 +50,7 @@ jobs:
           /* Build options come from the compiler command line below. */
           #endif
           EOF
-          cat > test-board/board.h <<'EOF'
+          cat > test-board/wolfHAL_board.h <<'EOF'
           #ifndef TEST_BOARD_H
           #define TEST_BOARD_H
           #include <wolfHAL/wolfHAL.h>
@@ -76,7 +71,7 @@ jobs:
       - name: Build
         run: |
           set -e
-          INC="-Itest-board -IwolfHAL -I. -Ihal"
+          INC="-Itest-board -Ilib/wolfHAL -I. -Ihal"
           BASE="-mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror
                 -Wmissing-prototypes -Wconversion -Wno-unused-parameter
                 -DWOLFTPM_WOLFHAL -DWOLFTPM_EXAMPLE_HAL -DWOLFTPM_USER_SETTINGS
@@ -93,23 +88,25 @@ jobs:
           build "I2C"                  -DWOLFTPM_I2C -DWOLFTPM_ADV_IO
           build "I2C, verbose"         -DWOLFTPM_I2C -DWOLFTPM_ADV_IO -DWOLFTPM_DEBUG_VERBOSE
 
-      # The board.h contract is enforced by #error guards. Verify a missing
-      # entry is reported by name rather than as a confusing undeclared symbol.
-      - name: Check board.h guards report missing macros
+      # The wolfHAL_board.h contract is enforced by #error guards. Verify a
+      # missing entry is reported by name rather than as a confusing undeclared
+      # symbol.
+      - name: Check wolfHAL_board.h guards report missing macros
         run: |
           set -e
           mkdir -p bad-board
-          sed '/BOARD_CS_PIN/d' test-board/board.h > bad-board/board.h
+          sed '/BOARD_CS_PIN/d' test-board/wolfHAL_board.h \
+            > bad-board/wolfHAL_board.h
           cp test-board/user_settings.h bad-board/
           if arm-none-eabi-gcc -fsyntax-only -mcpu=cortex-m4 -mthumb \
-               -Ibad-board -IwolfHAL -I. -Ihal \
+               -Ibad-board -Ilib/wolfHAL -I. -Ihal \
                -DWOLFTPM_WOLFHAL -DWOLFTPM_EXAMPLE_HAL -DWOLFTPM_USER_SETTINGS \
                -DWOLFTPM2_NO_WOLFCRYPT -DNO_FILESYSTEM -DWOLFTPM_INCLUDE_IO_FILE \
                hal/tpm_io_wolfhal.c 2> guard.log; then
             echo "FAIL: expected a compile error for the missing macro"
             exit 1
           fi
-          grep -q "board.h must define BOARD_CS_PIN" guard.log || {
+          grep -q "wolfHAL_board.h must define BOARD_CS_PIN" guard.log || {
             echo "FAIL: guard did not name BOARD_CS_PIN"; cat guard.log; exit 1; }
           echo "PASS: guard named the missing macro"
 
