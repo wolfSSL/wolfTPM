@@ -30,16 +30,18 @@ Unknown    SecurityDevices Trusted Platform Module 2.0
 
 Tested using MSYS2
 
+wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there.
+
 ```
 export PREFIX=$PWD/tmp_install
 
-cd wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --prefix="$PREFIX" --enable-wolftpm
 make
 make install
 
-cd wolftpm/
+cd ../..
 ./autogen.sh
 ./configure --prefix="$PREFIX" --enable-winapi
 make
@@ -68,17 +70,16 @@ export PREFIX=$PWD/tmp_install
 export CFLAGS="-DWIN32 -DMINGW -D_WIN32_WINNT=0x0600 -DUSE_WOLF_STRTOK"
 export LIBS="-lws2_32"
 
-cd wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --host=i686 CC=i686-w64-mingw32-gcc --prefix="$PREFIX" --enable-wolftpm
 make
 make install
 
-cd ../wolftpm/
+cd ../../
 ./autogen.sh
 ./configure --host=i686 CC=i686-w64-mingw32-gcc --prefix="$PREFIX" --enable-winapi
 make
-cd ..
 ```
 
 ## Running on Windows

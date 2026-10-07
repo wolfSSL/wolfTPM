@@ -12,14 +12,21 @@ fwTPM PQC reference.
 
 ## Building
 
-**wolfSSL** (ML-DSA and ML-KEM in wolfCrypt):
+**wolfSSL** (ML-DSA and ML-KEM in wolfCrypt). wolfSSL is bundled as the
+`lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule
+update --init lib/wolfssl`) and build it from there. ML-DSA and ML-KEM require
+**wolfSSL >= v5.9.2-stable** (the release with the `wc_MlDsaKey` and
+`wc_MlKemKey` context APIs):
 
 ```
+cd lib/wolfssl
+./autogen.sh
 ./configure --enable-wolftpm --enable-mldsa --enable-mlkem \
             --enable-tls-mlkem-standalone \
             --enable-harden --enable-keygen --enable-certgen
 make
 sudo make install
+cd ../..
 ```
 
 `--enable-tls-mlkem-standalone` is required for the standalone `ML_KEM_*` TLS

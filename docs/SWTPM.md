@@ -239,17 +239,18 @@ To build checkout and build wolfTPM, in the QEMU terminal
 ```sh
 sudo apt install automake libtool gcc git make
 
-# get and build wolfSSL
-git clone https://github.com/wolfssl/wolfssl.git
-pushd wolfssl
+# get wolfTPM (wolfSSL is bundled as the lib/wolfssl submodule)
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+pushd wolfTPM
+
+# build wolfSSL from the submodule
+pushd lib/wolfssl
 ./autogen.sh && \
-  ./configure --enable-wolftpm --disable-examples --prefix=$PWD/../inst && \
+  ./configure --enable-wolftpm --disable-examples --prefix=$PWD/../../../inst && \
   make install
 popd
 
-# get and build wolfTPM
-git clone https://github.com/wolfssl/wolftpm.git
-pushd wolftpm
+# build wolfTPM
 ./autogen.sh && \
   ./configure --enable-devtpm --prefix=$PWD/../inst --enable-debug && \
   make install

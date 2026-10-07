@@ -1,0 +1,67 @@
+name: wolfSSL submodule build
+
+# Builds the pinned lib/wolfssl submodule with the documented flags and builds
+# plus tests wolfTPM (plain and full SPDM) against it, so Dependabot pin bumps
+# are gated on CI. The _resolve-wolfssl matrix still covers latest-stable and
+# master.
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-build:
+    name: Build against the pinned wolfSSL submodule
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df
+        with:
+          egress-policy: audit
+
+      - name: Checkout wolfTPM with submodules
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Build and test the pinned submodule in Docker
+        env:
+          CI_IMAGE: ghcr.io/wolfssl/wolftpm-ci:v1.1
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --env GIT_CONFIG_GLOBAL=/tmp/wolftpm-ci.gitconfig \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --workdir /workspace "$CI_IMAGE" bash -euo pipefail -c '
+              git config --global --add safe.directory /workspace
+              git config --global --add safe.directory /workspace/lib/wolfssl
+              prefix="$PWD/wolfssl-install"
+              (
+                cd lib/wolfssl
+                ./autogen.sh
+                ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+                    --enable-aescfb CFLAGS="-DWC_RSA_NO_PADDING" --prefix="$prefix"
+                make -j"$(nproc)"
+                make install
+              )
+              export LD_LIBRARY_PATH="$prefix/lib"
+              export WOLFSSL_PATH="$PWD/lib/wolfssl"
+              ./autogen.sh
+              ./configure --with-wolfcrypt="$prefix"
+              make -j"$(nproc)"
+              make distclean
+              ./autogen.sh
+              ./configure --with-wolfcrypt="$prefix" \
+                  --enable-spdm --enable-fwtpm --enable-tcg --enable-psk \
+                  --enable-nuvoton --enable-nations --enable-debug --enable-swtpm
+              make -j"$(nproc)"
+              make check
+              ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl fwtpm-tcg
+              ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl fwtpm-psk
+            '

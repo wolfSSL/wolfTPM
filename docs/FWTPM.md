@@ -56,13 +56,20 @@ fwTPM can replace a hardware TPM for:
 
 ### Prerequisites
 
-wolfSSL must be built with TPM support:
+wolfSSL must be built with TPM support plus the RSA features fwTPM needs
+(`--enable-keygen` for RSA CreatePrimary and `WC_RSA_NO_PADDING` for raw RSA
+Encrypt/Decrypt). wolfSSL is bundled as the `lib/wolfssl` submodule; clone
+wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`)
+and build it from there:
 
 ```sh
-cd wolfssl
-./configure --enable-wolftpm --enable-pkcallbacks
+cd lib/wolfssl
+./autogen.sh
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
+cd ../..
 ```
 
 ### Build fwTPM Server
@@ -70,7 +77,7 @@ sudo make install
 **Socket transport (SWTPM protocol, default for development):**
 
 ```sh
-cd wolftpm
+./autogen.sh
 ./configure --enable-fwtpm --enable-swtpm
 make
 ```

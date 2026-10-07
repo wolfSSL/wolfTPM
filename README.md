@@ -343,19 +343,61 @@ There is no `Caps/Did/Vid/Rid` line above because those values come from TIS bus
 
 ### Building wolfSSL
 
+wolfTPM links against wolfSSL/wolfCrypt. wolfSSL is bundled as the `lib/wolfssl`
+submodule at a known-good commit, so clone wolfTPM with `--recursive` (or run
+`git submodule update --init lib/wolfssl`) and build it from there. **Build
+wolfSSL with `--enable-wolftpm`**; it turns on the RSA, ECC, and crypto-callback
+support wolfTPM relies on. wolfTPM's `configure` only link-checks
+`wolfCrypt_Init`, so it will not flag a wolfSSL built without it, but the
+runtime integration needs it.
+
+`autogen.sh` requires automake and libtool: `sudo apt-get install automake libtool`.
+
+#### Default build
+
 ```bash
-git clone https://github.com/wolfSSL/wolfssl.git
-cd wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm
 make
 sudo make install
 sudo ldconfig
+cd ../..
 ```
 
-autogen.sh requires: automake and libtool: `sudo apt-get install automake libtool`
+Then build wolfTPM from the repository root:
+
+```bash
+./autogen.sh
+./configure
+make
+```
+
+#### SPDM and post-quantum builds
+
+For SPDM, build wolfSSL with the SPDM algorithm-set flags documented in
+[`src/spdm/README.md`](src/spdm/README.md). For a post-quantum build (ML-DSA and
+ML-KEM), add `--enable-mldsa --enable-mlkem`; these require **wolfSSL >=
+v5.9.2-stable**, the release carrying the `wc_MlDsaKey` and `wc_MlKemKey` context
+APIs:
+
+```bash
+cd lib/wolfssl
+./autogen.sh
+./configure --enable-wolftpm --enable-mldsa --enable-mlkem
+make
+sudo make install
+sudo ldconfig
+cd ../..
+```
+
+The pinned wolfSSL submodule can be updated like any checkout: `cd lib/wolfssl`,
+check out or rebuild whatever you need, then reinstall. `git submodule update`
+restores the pinned commit.
 
 ### Building wolfSSL with an alternate directory
+
+The bundled `lib/wolfssl` submodule is the default wolfSSL source; this section is for using a different wolfSSL checkout.
 
 ```bash
 # cd /your-wolfssl-repo
