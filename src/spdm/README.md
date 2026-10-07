@@ -10,21 +10,42 @@ source.
 
 The SPDM code lives in the [wolfSPDM](https://github.com/wolfSSL/wolfSPDM)
 library, included as the `lib/wolfSPDM` submodule and compiled into libwolftpm
-in its TPM profile. Clone with `git clone --recursive`, or run
-`git submodule update --init` in an existing checkout. wolfSPDM also builds
-standalone as a DMTF SPDM 1.2-1.4 requester with PQC for spdm-emu testing.
+in its TPM profile. Because SPDM is a submodule, any wolfTPM checkout that will
+use SPDM must be cloned with `--recursive` (see [Building](#building) step 1).
+Without the submodule, `./configure --enable-spdm` stops with: `--enable-spdm
+needs the wolfSPDM submodule: run git submodule update --init lib/wolfSPDM`.
+
+Building inside wolfTPM selects wolfSPDM's **TPM profile** automatically. A TPM
+speaks only the TCG SPDM Binding, so this profile compiles out the DMTF standard
+requester, measurements, challenge, chunking, heartbeat, key update, and the
+MCTP application-data API. You do not pass `--disable-mctp` here; `--enable-spdm`
+is enough. See [The wolfTPM SPDM profile](#the-wolftpm-spdm-profile). The same
+wolfSPDM tree also builds standalone as a DMTF SPDM 1.2-1.4 requester with PQC
+and full MCTP for spdm-emu testing.
 
 ## Quick Start
+
+### Get the source
+
+```bash
+# SPDM lives in the lib/wolfSPDM submodule, so clone wolfTPM recursively
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+git clone https://github.com/wolfSSL/wolfssl.git   # sibling checkout
+cd wolfTPM
+```
+
+Already cloned without `--recursive`? Run `git submodule update --init
+lib/wolfSPDM` once inside the checkout.
 
 ### Nuvoton NPCT75x
 
 ```bash
-# Build wolfSSL
-pushd ../wolfssl && ./autogen.sh && \
+# Build wolfSSL (in the sibling checkout, then return here)
+cd ../wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
-make && sudo make install && sudo ldconfig && popd
+make && sudo make install && sudo ldconfig && cd -
 
-# Build wolfTPM
+# Build wolfTPM (submodule already present from the recursive clone)
 ./autogen.sh && ./configure --enable-spdm --enable-nuvoton && make
 
 # Enable SPDM (one-time), reset, connect
@@ -39,12 +60,12 @@ full instructions.
 ### Nations NS350
 
 ```bash
-# Build wolfSSL
-pushd ../wolfssl && ./autogen.sh && \
+# Build wolfSSL (in the sibling checkout, then return here)
+cd ../wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
-make && sudo make install && sudo ldconfig && popd
+make && sudo make install && sudo ldconfig && cd -
 
-# Build wolfTPM
+# Build wolfTPM (submodule already present from the recursive clone)
 ./autogen.sh && ./configure --enable-spdm --enable-nations && make
 
 # Connect (identity key is factory default)
@@ -150,26 +171,42 @@ establishes the encrypted session regardless of the cleartext startup result.
 See [How Auto-SPDM Works](#how-auto-spdm-works) for details.
 
 **Reset method differs by vendor:**
-- **Nuvoton:** GPIO reset — `gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2`
+- **Nuvoton:** GPIO reset: `gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2`
 - **Nations:** Full power cycle required (GPIO 4 is not wired to TPM_RST on NS350 daughter boards)
 
 ## Building
 
-### wolfSSL
+### 1. Clone with the wolfSPDM submodule
+
+SPDM is built from the `lib/wolfSPDM` submodule, so clone wolfTPM recursively:
 
 ```bash
-pushd ../wolfssl
+git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+git clone https://github.com/wolfSSL/wolfssl.git   # sibling checkout for wolfSSL
+cd wolfTPM
+```
+
+Already cloned wolfTPM without `--recursive`? Pull the submodule in:
+
+```bash
+git submodule update --init lib/wolfSPDM
+```
+
+### 2. wolfSSL
+
+```bash
+cd ../wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 \
     --enable-aesgcm --enable-hkdf --enable-sp
 make
 sudo make install && sudo ldconfig
-popd
+cd -   # back to the wolfTPM checkout
 ```
 
 Both Nuvoton and Nations use the same wolfSSL flags above.
 
-### wolfTPM
+### 3. wolfTPM
 
 ```bash
 ./autogen.sh
@@ -178,6 +215,29 @@ Both Nuvoton and Nations use the same wolfSSL flags above.
 ./configure --enable-spdm --enable-nations    # Nations
 make
 ```
+
+### The wolfTPM SPDM profile
+
+`--enable-spdm` defines `WOLFTPM_SPDM`, which auto-selects wolfSPDM's
+`WOLFSPDM_PROFILE_TPM`. A TPM speaks only the TCG SPDM Binding, so this profile
+is a lean, TCG-focused build. Compiled out automatically:
+
+- the **DMTF standard requester**: `GET_CAPABILITIES`, `NEGOTIATE_ALGORITHMS`,
+  `GET_DIGESTS`, `GET_CERTIFICATE`, and certificate-chain validation
+- **measurements**, **challenge**, and **chunking** (they ride the cert flow)
+- **heartbeat** and **key update**
+- the **MCTP application-data API** (secured messages use the TCG 16-byte pad)
+
+There is no `--disable-mctp` option on wolfTPM's `configure`, and you should not
+try to add one. The lean profile is automatic with `--enable-spdm`, and
+wolfSPDM's downstream CI asserts the standard-requester symbols above are absent
+from `libwolftpm`.
+
+The profile does not define `WOLFSPDM_NO_MCTP`, so the MCTP secured-message
+framing stays compiled, though a TCG-only TPM never exercises it. Building
+wolfSPDM **standalone** with `--disable-mctp` (which requires `--enable-tcg`)
+additionally strips that path for a pure-TCG requester. That flag belongs to
+wolfSPDM's own `configure`, never wolfTPM's.
 
 ### Configure Options
 
@@ -250,7 +310,7 @@ gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 
 #### Nations
 
-Identity key mode is the factory default — no setup required. If previously
+Identity key mode is the factory default, no setup required. If previously
 unset, restore with:
 
 ```bash
@@ -355,14 +415,14 @@ to verify. Using the wrong size makes PSK_CLEAR impossible.
 ### Running the Test Suite
 
 ```bash
-# Nuvoton (identity key — includes GPIO resets between tests)
+# Nuvoton (identity key, includes GPIO resets between tests)
 export SPDM_RESPONDER_PUBKEY=<trusted_p384_x_y_hex>
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nuvoton
 
-# Nations (identity key — no GPIO resets)
+# Nations (identity key, no GPIO resets)
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations
 
-# Nations (PSK — full lifecycle: provision → connect → clear → restore)
+# Nations (PSK, full lifecycle: provision -> connect -> clear -> restore)
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations-psk
 ```
 
@@ -440,7 +500,7 @@ including SPDM session info.
 
 **Status Caveat:** On some NS350 firmware versions, `--status` may report
 "Identity Key: not provisioned" even when the key is present. The `--connect`
-command is the definitive test — if the ECDHE handshake succeeds, the identity
+command is the definitive test: if the ECDHE handshake succeeds, the identity
 key is provisioned.
 
 **ClearAuth:** Must be exactly 32 bytes. `PSK_SET` stores its SHA-384 digest
@@ -539,9 +599,9 @@ the TPM. `sudo reboot` is not sufficient as the 3.3V rail stays powered.
 
 For standard SPDM protocol support including session establishment with the
 DMTF spdm-emu emulator, measurements, challenge authentication, heartbeat,
-and key update, see the [wolfSPDM](https://github.com/aidangarske/wolfSPDM)
+and key update, see the [wolfSPDM](https://github.com/wolfSSL/wolfSPDM)
 standalone library.
 
 ## License
 
-GPLv3 — see COPYING file. Copyright (C) 2006-2026 wolfSSL Inc.
+GPLv3. See COPYING file. Copyright (C) 2006-2026 wolfSSL Inc.
