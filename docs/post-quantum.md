@@ -1,6 +1,6 @@
 # Post-Quantum Cryptography
 
-wolfTPM implements the post-quantum algorithms added in TCG TPM 2.0 Library Specification v1.85, built on wolfCrypt's FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) modules. This page covers the supported algorithms, how to build with them, and the PQC examples shipped in `examples/pqc`.
+wolfTPM adds support for the post-quantum algorithms introduced in TCG TPM 2.0 Library Specification v1.85. The client library marshals the new v1.85 commands to a TPM. When the target is the in-tree firmware TPM, that server performs the algorithms with wolfCrypt's FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) modules; when the target is a hardware TPM such as SEALSQ QVault, the device performs them on-chip. This page covers the supported algorithms, how to build with them, and the PQC examples shipped in `examples/pqc`.
 
 ## Overview
 
@@ -33,11 +33,11 @@ For the PQC TLS 1.3 demo described below, also add `--enable-tls-mlkem-standalon
 ### fwTPM (software TPM)
 
 ```sh
-./configure --enable-fwtpm --enable-pqc
+./configure --enable-fwtpm --enable-swtpm --enable-pqc
 make
 ```
 
-The fwTPM server uses the full v1.85 command set, so configure promotes `--enable-pqc` to `--enable-v185`. If you omit both flags and wolfCrypt has ML-DSA and ML-KEM, configure auto-enables v1.85. Pass `--disable-pqc` to opt out explicitly.
+`--enable-swtpm` builds `fwtpm_server` with the mssim socket transport on `127.0.0.1:2321` that the examples below connect to. On Linux x86_64 and AArch64 the socket transport is already the default, so the flag is what makes the socket server reliable on every platform. The fwTPM server uses the full v1.85 command set, so configure promotes `--enable-pqc` to `--enable-v185`. If you omit both PQC flags and wolfCrypt has ML-DSA and ML-KEM, configure auto-enables v1.85. Pass `--disable-pqc` to opt out explicitly.
 
 ### Hardware TPM: SEALSQ QVault
 
@@ -62,7 +62,7 @@ Non-SHA-1 TPM examples include:
 
 ### Trimming the PQC footprint
 
-To compile only the operations you call (smaller binary and smaller buffer maximums), mirror the wolfSSL flags:
+To compile only the operations you call (a smaller binary, with the unused code paths removed), mirror the wolfSSL flags:
 
 ```sh
 # ML-DSA verify-only + ML-KEM encapsulate-only (no sign, no decapsulate)
@@ -75,7 +75,7 @@ To compile only the operations you call (smaller binary and smaller buffer maxim
 | `--enable-mlkem` | `all` (default) / `enc` / `dec` / `no` | the unselected ML-KEM operation |
 | `--disable-hash-mldsa` | none | pre-hash ML-DSA key support |
 
-These map to `WOLFTPM_NO_MLDSA_SIGN`, `WOLFTPM_NO_MLKEM_DECAP`, and similar defines, which embedded integrators can also pass directly via `CFLAGS` without autotools. Existing `--enable-v185` builds are unaffected (every operation defaults on). Disabling both algorithms (`--enable-mldsa=no --enable-mlkem=no`) is a configure error. Use `--disable-pqc` to build without any post-quantum support.
+These map to `WOLFTPM_NO_MLDSA_SIGN`, `WOLFTPM_NO_MLKEM_DECAP`, and similar defines, which embedded integrators can also pass directly via `CFLAGS` without autotools. Existing `--enable-v185` builds are unaffected (every operation defaults on). Disabling both algorithms (`--enable-mldsa=no --enable-mlkem=no`) is a configure error. Use `--disable-pqc` to build without any post-quantum support. Trimming removes code paths and shrinks the binary; it does not reduce the public TPM2B buffer maximums, which stay sized for the largest v1.85 parameter set.
 
 The same flags also trim the fwTPM server: `--enable-fwtpm --enable-mldsa=verify-only` compiles out the ML-DSA sign command handlers, dispatch entries, and crypto. ML-KEM is controlled separately and stays at its default of `all`, so to build a server whose PQC surface is only ML-DSA verify, also pass `--enable-mlkem=no`. fwTPM always builds the full v1.85 spec surface, so the trims apply on top of `WOLFTPM_V185`.
 
@@ -91,7 +91,7 @@ make check
 With the fwTPM build above, `make check` runs the software-TPM suite, including PQC coverage:
 
 - `tests/fwtpm_unit.test`: 30+ in-process PQC handler tests
-- `tests/fwtpm_check.sh`: starts the server, then runs `tests/unit.test` (PQC wrapper tests over the mssim socket such as ML-DSA Sign/Verify Sequence, ML-KEM Encap/Decap, and EncryptSecret ML-KEM), `examples/run_examples.sh`, and the tpm2-tools suite
+- `tests/fwtpm_check.sh`: starts the server, then runs `tests/unit.test` (PQC wrapper tests over the mssim socket such as ML-DSA Sign/Verify Sequence, ML-KEM Encap/Decap, and EncryptSecret ML-KEM) and `examples/run_examples.sh`, and runs the tpm2-tools suite when the socket transport is enabled and tpm2-tools is installed
 - `tests/fwtpm_da_retry.sh`: dictionary attack retry check (needs a build with `-DFWTPM_DA_USED_RETRY`)
 
 `make check` does not run `tests/pqc_mssim_e2e.sh`. Run that script directly for a fast, PQC-focused end-to-end check:
@@ -100,10 +100,11 @@ With the fwTPM build above, `make check` runs the software-TPM suite, including 
 ./tests/pqc_mssim_e2e.sh
 ```
 
-With an fwTPM build, start `fwtpm_server` on `127.0.0.1:2321` before running the individual examples below. A SEALSQ build uses its configured hardware transport.
+With an fwTPM build, start `fwtpm_server` once in a separate terminal and leave it running while you run the individual examples below (including the TLS demo). It listens on `127.0.0.1:2321`. A SEALSQ build uses its configured hardware transport instead.
 
 ```sh
-./src/fwtpm/fwtpm_server --clear &
+# separate terminal; leave this running
+./src/fwtpm/fwtpm_server --clear
 ```
 
 For the fwTPM server's PQC internals (the eight v1.85 commands, primary-key derivation, buffer constants, and spec-interpretation decisions), see [docs/FWTPM.md](fwtpm/overview.md).
@@ -131,13 +132,13 @@ For the fwTPM server's PQC internals (the eight v1.85 commands, primary-key deri
 | `--pcrread[=idx]` | Read a PCR (SHA-256 bank, falling back to SHA-384) |
 | `--pcrextend=idx` | Extend a PCR with a test digest (explicit index required) |
 | `--flush` | Flush all loaded transient objects between operations |
-| `--clear` | `TPM2_Clear`, wipes the owner hierarchy |
+| `--clear` | `TPM2_Clear`: installs a new Storage primary seed, deletes Storage and Endorsement objects and non-platform NV, and resets owner, endorsement, and lockout auth |
 | `--mldsa[=44/65/87]` | Pure ML-DSA sign/verify (default 65) |
 | `--hash-mldsa[=44/65/87]` | HashML-DSA (SHA-256 pre-hash) sign/verify |
 | `--mlkem[=512/768/1024]` | ML-KEM encapsulate/decapsulate |
 | `--all` | caps + algs + selftest + getrandom + pcrread + every PQC set |
 
-Commands run left to right, so they can be chained. `pqc_ctrl` requires `--enable-v185` (or `--enable-pqc`). Point it at the SEALSQ part with `--enable-sealsq`, or at the fwTPM with `--enable-fwtpm --enable-swtpm`.
+Commands run left to right, so they can be chained. The functional `pqc_ctrl` builds only from an untrimmed PQC configuration: the wrapper plus both ML-DSA operations, both ML-KEM operations, and HashML-DSA. Build with `--enable-v185` (or `--enable-pqc`); a trimmed build such as `--enable-mldsa=verify-only` compiles out the CLI. Point it at the SEALSQ part with `--enable-sealsq`, or at the fwTPM with `--enable-fwtpm --enable-swtpm`.
 
 `pqc_ctrl.sh` runs the whole command set as a pass/fail suite (it mirrors `examples/spdm/spdm_test.sh`) when the device supports all parameter sets. The state-changing steps are opt-in via `PQC_CTRL_CLEAR=1` so the suite never changes a TPM unexpectedly:
 
@@ -147,7 +148,7 @@ PQC_CTRL_CLEAR=1 ./examples/pqc/pqc_ctrl.sh   # also extend PCR 16 and run TPM2_
 ```
 
 !!! warning
-    `PQC_CTRL_CLEAR=1` does two things, not one. It first extends PCR 16, which cannot be undone without resetting the PCR, and then runs `TPM2_Clear`, which wipes the owner hierarchy. Use it only on a disposable test TPM, or on a device whose state you have backed up.
+    `PQC_CTRL_CLEAR=1` does two things, not one. It first extends PCR 16, which cannot be undone without resetting the PCR, and then runs `TPM2_Clear`. `TPM2_Clear` installs a new Storage primary seed, so every key blob and sealed object protected by the old seed is permanently unusable afterward, and a file backup does not restore them. Use it only on a disposable test TPM.
 
 ### pqc_mssim_e2e
 
@@ -235,9 +236,9 @@ ML-KEM is a restricted decryption (salt) key, which requires a symmetric definit
 
 ### Post-Quantum TLS 1.3 (ML-KEM and TPM ML-DSA)
 
-This is a full TLS 1.3 handshake where the server's ML-DSA identity key lives in the TPM. The server signs the CertificateVerify on-chip via the wolfTPM crypto callback. The client performs an ML-KEM key exchange and validates the server against a software CA.
+This is a full TLS 1.3 handshake where the server's ML-DSA identity key lives in the TPM. The server signs the CertificateVerify inside the TPM via the wolfTPM crypto callback. On a hardware TPM such as QVault this signing happens on-chip; the commands below drive the software fwTPM. The client performs an ML-KEM key exchange and validates the server against a software CA.
 
-It requires a wolfSSL that routes `wc_MlDsaKey_SignCtx` to the crypto callback for device keys (private key in the TPM). That change is in wolfSSL 5.9.4-stable and later. A development snapshot must contain wolfSSL commit `6b0c832284286dbaec8e5ab35581ff470e90826b`. The commands below start the in-tree fwTPM for this demo.
+It requires a wolfSSL that routes `wc_MlDsaKey_SignCtx` to the crypto callback for device keys (private key in the TPM). That change is in wolfSSL 5.9.4-stable and later. A development snapshot must contain wolfSSL commit `6b0c832284286dbaec8e5ab35581ff470e90826b`. The commands below reuse the `fwtpm_server` you started earlier.
 
 !!! warning
     This is a demo. The identity key is an unauthenticated deterministic TPM primary (empty auth), reproducible by both `gen_pqc_certs` and the server from the owner hierarchy. A primary's key material is derived from the hierarchy seed and the creation inputs, and an object auth value does not change that derivation. Adding a non-empty auth value or policy alone therefore does not stop another caller who can authorize `CreatePrimary` under the owner hierarchy from recreating the same key. For production, prefer a provisioned child or persistent identity object together with controlled hierarchy authorization. The client validates the server chain against the demo CA but does not bind the certificate to the host name, so the demo connects to the default localhost and does not pass `-h=`. Supplying `-h=` turns on strict verification including `wolfSSL_check_domain_name`, which this leaf cannot satisfy. A production deployment should issue the leaf with a matching subjectAltName.
@@ -249,7 +250,7 @@ Three programs are involved:
 - `examples/tls/tls_client -mldsa` connects, does the ML-KEM key exchange, and verifies the CA.
 
 ```sh
-./src/fwtpm/fwtpm_server --clear &
+# the fwtpm_server from "Running the examples" is already listening on 127.0.0.1:2321
 
 # 1. certificate chain bound to the TPM key (-mldsa must match the server)
 ./examples/pqc/gen_pqc_certs -mldsa=65
@@ -267,7 +268,7 @@ Options:
 - `tls_server -p=<port> -mldsa=44/65/87`.
 - `tls_client -h=<host> -p=<port> -group=<name>`, where `<name>` is `ML_KEM_512/768/1024` or a hybrid `SECP256R1MLKEM768` / `X25519MLKEM768` (hybrids need the matching classical curve enabled in wolfSSL).
 
-The one-shot end-to-end test drives all three and asserts the ML-KEM group, TPM-signed ML-DSA authentication, CA verification, and app data:
+The one-shot end-to-end test drives all three and asserts the ML-KEM group, TPM-signed ML-DSA authentication, and CA verification:
 
 ```sh
 ENABLE_PQC_TLS=1 ./examples/run_examples.sh   # includes the PQC TLS matrix
@@ -275,7 +276,7 @@ ENABLE_PQC_TLS=1 ./examples/run_examples.sh   # includes the PQC TLS matrix
 
 ## Benchmarks
 
-Measured ML-DSA and ML-KEM latencies on SEALSQ QVault TPM silicon (key generation, sign, verify, encapsulate, decapsulate), taken with `examples/bench/bench`, is in [benchmarks.md](benchmarks.md). Key generation is a one-off provisioning cost. See that page for how the ML-DSA and ECDSA figures were captured before comparing them.
+Measured ML-DSA and ML-KEM latencies on SEALSQ QVault TPM silicon (key generation, sign, verify, encapsulate, decapsulate), taken with `examples/bench/bench`, are in [benchmarks.md](benchmarks.md). Key generation is a one-off provisioning cost. See that page for how the ML-DSA and ECDSA figures were captured before comparing them.
 
 ## See Also
 

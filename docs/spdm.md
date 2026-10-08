@@ -54,7 +54,7 @@ RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"
 
 ## Overview and how it works
 
-The `spdm_ctrl` tool establishes SPDM secure sessions between the host and a TPM over SPI, enabling AES-256-GCM encrypted bus communication. The implementation uses Algorithm Set B: SHA-384 and AES-256-GCM, with ECDH P-384, ECDSA P-384, and HKDF-SHA384 added in identity key mode. Two session establishment modes are supported.
+The `spdm_ctrl` tool establishes SPDM secure sessions between the host and a TPM over SPI or I2C, enabling AES-256-GCM encrypted bus communication. The implementation uses Algorithm Set B: SHA-384 and AES-256-GCM, with ECDH P-384, ECDSA P-384, and HKDF-SHA384 added in identity key mode. Two session establishment modes are supported.
 
 `spdm_ctrl` and `nv_bind` are the examples that accept SPDM credentials. Other wolfTPM examples use uncredentialed `wolfTPM2_Init()` and intentionally return `WOLFSPDM_E_BAD_STATE` while a TPM is locked in SPDM-only mode. Unlock it with `spdm_ctrl` before running those examples.
 
@@ -153,7 +153,7 @@ See the Quick start section. SPDM is built from the `lib/wolfSPDM` submodule, so
 
 ### 2. wolfSSL
 
-Both Nuvoton and Nations use the same wolfSSL flags, which provide the crypto for SPDM Algorithm Set B. wolfSSL 5.8.0 or later is required; the wolfSPDM configure check enforces this. That check lives in the `lib/wolfSPDM` submodule, which was not present in the tree used to review this page, so confirm the exact minimum there.
+Both Nuvoton and Nations use the same wolfSSL flags, which provide the crypto for SPDM Algorithm Set B. wolfSSL 5.8.0 or later is required; the wolfSPDM configure check in the `lib/wolfSPDM` submodule enforces this.
 
 ```sh
 cd ../wolfssl
@@ -197,11 +197,11 @@ The profile does not define `WOLFSPDM_NO_MCTP`, so the MCTP secured-message fram
 | `--enable-spdm` | Enable SPDM support (required) |
 | `--enable-tcg` | TCG SPDM Binding spec handshake (auto when fwtpm/nuvoton/nations on) |
 | `--enable-psk` | DSP0274 PSK handshake (auto with `--enable-nations`; requires `--enable-tcg`) |
-| `--enable-fwtpm` | Build fwtpm_server with the SPDM responder (no silicon needed) |
+| `--enable-fwtpm` | Build fwtpm_server with the SPDM responder (needs `--enable-spdm` and a handshake mode; no silicon needed) |
 | `--enable-nuvoton` | Enable Nuvoton TPM hardware support (auto-enables `--enable-tcg`) |
 | `--enable-nations` | Enable Nations NS350 hardware support (auto-enables `--enable-tcg --enable-psk`) |
 | `--enable-debug` | Debug output with verbose SPDM tracing |
-| `--enable-smallstack` | Heap-allocated SPDM context and per-command message buffers (default: caller-owned inline context, about 32 KB) |
+| `--enable-smallstack` | Heap-allocate the SPDM context and the SPDM request and response buffers, and lower the public message-size limits (default: caller-owned inline context, about 32 KB) |
 
 `configure` rejects these incompatible combinations:
 
@@ -220,7 +220,7 @@ Build it with the socket responder enabled:
 make
 ```
 
-Then start it in one of the SPDM modes. The PSK must be a complete 64-byte value (128 hex characters). The value below is the test PSK used by `spdm_test.sh`:
+Then start it in one of the SPDM modes. The fwTPM responder accepts a PSK of up to 64 bytes (128 hex characters) and rejects only an empty PSK or one longer than that; the exact 64-byte requirement applies to Nations hardware provisioning, not to this responder. The value below is the test PSK used by `spdm_test.sh`:
 
 ```sh
 SPDM_PSK=dbc2192291d807742441b963f6712841f7697e2e39c45931f3abc53658c8b9338bd3561cab5d90cf9e493295bb5bd6b2c455e0fd19392e0ce4f3433cbcfc7047
@@ -290,7 +290,7 @@ Identity key mode (both vendors):
 ./examples/spdm/spdm_ctrl --status
 ```
 
-`--responder-pubkey` takes the trusted raw P-384 X||Y point as 192 hex characters. Obtain it from device provisioning records or another authenticated manufacturer channel. The examples here read secrets into shell variables, for instance `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"`. Keep any credential files readable only by their owner (`chmod 600`).
+`--responder-pubkey` takes the trusted raw P-384 X||Y point as 192 hex characters. Obtain it from device provisioning records or another authenticated manufacturer channel. The examples here read these values into shell variables, for instance `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"`. The responder public key is not secret, but it is a trust anchor, so protect it from tampering. The PSK and ClearAuth are secrets: keep those files readable only by their owner (`chmod 600`).
 
 !!! warning
     `--get-pubkey` is unauthenticated discovery and must not be used by itself to establish trust.
@@ -368,7 +368,7 @@ PSK and identity key modes are mutually exclusive on the NS350. The identity key
 
 ### Command reference
 
-All `spdm_ctrl` options:
+All `spdm_ctrl` options (the set accepted depends on the vendor adapters compiled in):
 
 | Option | Vendor | Description |
 |--------|--------|-------------|
@@ -384,8 +384,8 @@ All `spdm_ctrl` options:
 | `--status` | Both | Query SPDM status |
 | `--session-info` | Both | Show the TPM's view of the SPDM session (`TPM_CAP_SPDM_SESSION_INFO`) |
 | `--policy-nv` | Both | Define an NV index guarded by `TPM2_PolicyTransportSPDM`, then write and read it over the session |
-| `--lock` | Both | Lock SPDM-only mode (use with `--connect`; requires active session) |
-| `--unlock` | Both | Unlock SPDM-only mode (use with `--connect`; requires active session) |
+| `--lock` | Both | Lock SPDM-only mode (needs an active session: `--connect`, or `--psk` for Nations PSK) |
+| `--unlock` | Both | Unlock SPDM-only mode (needs an active session: `--connect`, or `--psk` for Nations PSK) |
 | `--psk` *hex* | Nations | Establish PSK session (64-byte PSK) |
 | `--psk-set` *psk* *clearauth* | Nations | Provision PSK (64-byte PSK, 32-byte ClearAuth) |
 | `--psk-clear` *clearauth* | Nations | Clear PSK (32-byte ClearAuth) |
@@ -440,7 +440,7 @@ SPDM enable/disable and SPDM-only mode changes require a TPM reset to take effec
 
 The reset line is board specific. On a Raspberry Pi, Nuvoton uses GPIO4 and the ST33KTPM uses GPIO24 (pin 18). The tested NS350 daughter board also wires GPIO4 to TPM_RST. Confirm your wiring before toggling.
 
-With libgpiod 1.x, `gpioset` sets the line and exits, which is what `spdm_test.sh` relies on (the chip is a positional argument):
+With libgpiod 1.x, `gpioset` drives the line and then, in its default mode, releases the request when it exits (the chip is a positional argument). The pulse below holds each level only while the board's pull resistor does, which is what `spdm_test.sh` relies on on the tested boards:
 
 ```sh
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
@@ -462,7 +462,7 @@ wolfTPM can also drive the reset from code: build with `--enable-hal-reset` and 
 
 Both Nuvoton and Nations TPMs implement the TCG "TPM Communication over SPDM Secure Session" binding. It carries each message as an SPDM `VENDOR_DEFINED_REQUEST` (request code `0xFE`) answered by a `VENDOR_DEFINED_RESPONSE` (response code `0x7E`), with `StandardID=0x0001` (TCG). The vendor code (VdCode) inside the message is an 8-byte ASCII string.
 
-The published TCG table defines `GET_PUBK`, `GIVE_PUB`, `TPM2_CMD`, and optional locality-specific `TPM2CMD0` through `TPM2CMD4` values. `GET_STS_`, `SPDMONLY`, `PSK_SET_`, and `PSK_CLR_` are implementation or vendor extensions, not TCG-defined commands. Exact vendor-extension wire details for the two vendor adapters live in the wolfSPDM submodule, which was not present in the tree used to review this page.
+The published TCG table defines `GET_PUBK`, `GIVE_PUB`, `TPM2_CMD`, and optional locality-specific `TPM2CMD0` through `TPM2CMD4` values. `GET_STS_`, `SPDMONLY`, `PSK_SET_`, and `PSK_CLR_` are implementation or vendor extensions, not TCG-defined commands. The exact vendor-extension wire details for the two vendor adapters live in the `lib/wolfSPDM` submodule.
 
 | VdCode | Command | Defined by | Vendor | Description |
 |--------|---------|------------|--------|-------------|
@@ -491,14 +491,7 @@ The published TCG table defines `GET_PUBK`, `GIVE_PUB`, `TPM2_CMD`, and optional
 !!! note
     On some NS350 firmware versions, `--status` may report "Identity Key: not provisioned" even when the key is present. The `--connect` command is the definitive test: if the ECDHE handshake succeeds, the identity key is provisioned.
 
-PSK vendor error codes, as given in the Nations integration guide. They are vendor extensions, and this project could not confirm the values against public Nations material or the source tree, so check them against your firmware's documentation:
-
-| Code | Name | Description |
-|------|------|-------------|
-| 0xA1 | Vd_PSKAlreadySet | PSK already provisioned (must PSK_CLEAR first) |
-| 0xA2 | Vd_InternalFailure | SPDM session layer internal error |
-| 0xA3 | Vd_PSKNotSet | No PSK provisioned |
-| 0xA5 | Vd_AuthFail | ClearAuth SHA-384 doesn't match stored digest |
+Nations PSK operations can return vendor-specific error codes, for example PSK already provisioned, no PSK provisioned, an internal SPDM session error, or a ClearAuth that does not match the stored digest. The exact numeric values are firmware specific; they are not defined in public Nations material or in the source tree, so take them from the Nations integration guide for your firmware revision rather than from a fixed table here.
 
 ### Auto-SPDM
 
@@ -520,7 +513,7 @@ Both `TPM2_SendCommand` (non-auth commands) and `TPM2_SendCommandAuth` (auth-ses
 ### Memory modes
 
 - Default: zero heap allocation. The SPDM context is a caller-owned inline context of about 32 KB. It is not necessarily static-duration storage; it lives wherever the caller places it.
-- Small stack (`--enable-smallstack`): the context and the per-command message buffers are allocated with `XMALLOC`. Useful on platforms with small stacks.
+- Small stack (`--enable-smallstack`): the wolfSPDM context and the SPDM request and response buffers are allocated with `XMALLOC`; some per-command buffers, such as the TPM response buffer and the TIS I/O buffer, stay on the stack. It also lowers three public message-size limits, so an oversized command or response can return `BUFFER_E`. Useful on platforms with small stacks; size payloads to the reduced limits.
 
 `wolfSPDM_New()` exists only when wolfSPDM is built with `WOLFSPDM_DYNAMIC_MEMORY`. Without it, use `wolfSPDM_InitStatic()` or `wolfSPDM_Init()` on caller-provided storage.
 
