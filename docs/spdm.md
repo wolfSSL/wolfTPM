@@ -27,14 +27,14 @@ make && sudo make install && sudo ldconfig && cd -
 # Build wolfTPM (submodule already present from the recursive clone)
 ./autogen.sh && ./configure --enable-spdm --enable-nuvoton && make
 
-# Enable SPDM (one-time), reset (see TPM reset pin control), connect
+# Enable SPDM (one-time), then reset the TPM, then connect
 ./examples/spdm/spdm_ctrl --enable
-timeout 0.1 gpioset --chip gpiochip0 4=0; gpioset --chip gpiochip0 --daemonize 4=1; sleep 2
+# reset the TPM now (see "TPM reset pin control" for the gpioset and reset-HAL commands)
 RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"
 ./examples/spdm/spdm_ctrl --responder-pubkey "$RESPONDER_PUBKEY" --connect
 ```
 
-The GPIO line above is the libgpiod 2.x form. See the TPM reset pin control section for the libgpiod 1.x form and caveats. `responder_pubkey.hex` holds the trusted raw P-384 X||Y point (192 hex characters) from your provisioning records.
+See the TPM reset pin control section for the reset commands and their caveats. `responder_pubkey.hex` holds the trusted raw P-384 X||Y point (192 hex characters) from your provisioning records.
 
 ### Nations NS350
 
@@ -220,7 +220,7 @@ Build it with the socket responder enabled:
 make
 ```
 
-Then start it in one of the SPDM modes. The fwTPM responder accepts a PSK of up to 64 bytes (128 hex characters) and rejects only an empty PSK or one longer than that; the exact 64-byte requirement applies to Nations hardware provisioning, not to this responder. The value below is the test PSK used by `spdm_test.sh`:
+Then start it in one of the SPDM modes. The fwTPM responder takes a non-empty PSK of at most 64 bytes (128 hex characters); the exact 64-byte requirement applies to Nations hardware provisioning, not to this responder. The value below is the test PSK used by `spdm_test.sh`:
 
 ```sh
 SPDM_PSK=dbc2192291d807742441b963f6712841f7697e2e39c45931f3abc53658c8b9338bd3561cab5d90cf9e493295bb5bd6b2c455e0fd19392e0ce4f3433cbcfc7047
@@ -290,7 +290,7 @@ Identity key mode (both vendors):
 ./examples/spdm/spdm_ctrl --status
 ```
 
-`--responder-pubkey` takes the trusted raw P-384 X||Y point as 192 hex characters. Obtain it from device provisioning records or another authenticated manufacturer channel. The examples here read these values into shell variables, for instance `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"`. The responder public key is not secret, but it is a trust anchor, so protect it from tampering. The PSK and ClearAuth are secrets: keep those files readable only by their owner (`chmod 600`).
+`--responder-pubkey` takes the trusted raw P-384 X||Y point as 192 hex characters. Obtain it from device provisioning records or another authenticated manufacturer channel. The examples here read these values into shell variables, for instance `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"`. The responder public key is not secret, but it is a trust anchor, so protect it from tampering. The PSK and ClearAuth are secrets: keep those files readable only by their owner (`chmod 600`). Passing a secret as a command-line argument (for example `--psk`) exposes it to other users on the host through `/proc/<pid>/cmdline`; these example CLIs are demonstration tools, so handle real secrets accordingly on a shared machine.
 
 !!! warning
     `--get-pubkey` is unauthenticated discovery and must not be used by itself to establish trust.
@@ -424,8 +424,15 @@ All `spdm_ctrl` options (the set accepted depends on the vendor adapters compile
 
 The `nv_bind` example is a focused, self-contained version of the `--policy-nv` idea. It provisions an NV index whose `authPolicy` is `TPM2_PolicyTransportSPDM`, stores a secret over an SPDM-PSK session, then shows that the identical read over a plain (non-SPDM) connection is refused with `TPM_RC_CHANNEL`.
 
+Start the responder in a separate terminal and leave it listening, then run `nv_bind` from another terminal. `--clear` deletes the fwTPM NV state file, so use a disposable instance.
+
 ```sh
-./src/fwtpm/fwtpm_server --spdm-psk --spdm-psk-hex "$SPDM_PSK" --clear &
+# terminal 1: responder
+./src/fwtpm/fwtpm_server --spdm-psk --spdm-psk-hex "$SPDM_PSK" --clear
+```
+
+```sh
+# terminal 2: once the responder is listening
 ./examples/spdm/nv_bind --psk "$SPDM_PSK"
 ```
 
@@ -446,21 +453,13 @@ With libgpiod 1.x, `gpioset` drives the line and then, in its default mode, rele
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 ```
 
-With libgpiod 2.x, the chip is given with `--chip`, and `gpioset` holds the line until the process exits, so a plain `&&` chain never reaches the release step. One way to pulse the line:
-
-```sh
-timeout 0.1 gpioset --chip gpiochip0 4=0
-gpioset --chip gpiochip0 --daemonize 4=1
-sleep 2
-```
-
-The 2.x form above was not run against the test harness, which uses the 1.x syntax. After `gpioset` exits, libgpiod does not guarantee the line state, so verify the reset line has a pull-up. For ST33 use line 24 instead of 4. For repeatable automation, prefer the wolfTPM reset HAL.
+With libgpiod 2.x the chip is given with `--chip`, and `gpioset` holds the line only while the process runs. A plain `&&` chain releases the line as each `gpioset` exits, and `--daemonize` does the opposite: it keeps the request and the line level held until the daemon is killed, which leaves the reset pin claimed and can block a later reset. Neither is a clean finite pulse. For a timed pulse, use `gpioset --toggle` (see the gpioset manual) so one process drives the line low, waits, drives it high, waits, and then exits; verify the sequence on your board first, because the released level depends on the pull resistor. For ST33 use line 24 instead of 4. For repeatable automation, prefer the wolfTPM reset HAL below.
 
 wolfTPM can also drive the reset from code: build with `--enable-hal-reset` and call `TPM2_IoCb_Reset(ctx, userCtx)`, which takes a `TPM2_CTX*` and a `void*`. The default line is ST33 GPIO24 and Nuvoton GPIO4. A Nations build also defaults to GPIO24 unless line 4 is supplied explicitly. See `hal/README.md` in the source tree.
 
 ## TCG SPDM vendor commands
 
-Both Nuvoton and Nations TPMs implement the TCG "TPM Communication over SPDM Secure Session" binding. It carries each message as an SPDM `VENDOR_DEFINED_REQUEST` (request code `0xFE`) answered by a `VENDOR_DEFINED_RESPONSE` (response code `0x7E`), with `StandardID=0x0001` (TCG). The vendor code (VdCode) inside the message is an 8-byte ASCII string.
+Both Nuvoton and Nations TPMs implement the TCG "TPM Communication over SPDM Secure Session" binding, though the Nuvoton flow omits the GET_CAPABILITIES and NEGOTIATE_ALGORITHMS negotiation that the Nations flow performs (see Identity key mode). It carries each message as an SPDM `VENDOR_DEFINED_REQUEST` (request code `0xFE`) answered by a `VENDOR_DEFINED_RESPONSE` (response code `0x7E`), with `StandardID=0x0001` (TCG). The vendor code (VdCode) inside the message is an 8-byte ASCII string.
 
 The published TCG table defines `GET_PUBK`, `GIVE_PUB`, `TPM2_CMD`, and optional locality-specific `TPM2CMD0` through `TPM2CMD4` values. `GET_STS_`, `SPDMONLY`, `PSK_SET_`, and `PSK_CLR_` are implementation or vendor extensions, not TCG-defined commands. The exact vendor-extension wire details for the two vendor adapters live in the `lib/wolfSPDM` submodule.
 

@@ -33,7 +33,7 @@ SPDM_PSK=dbc2192291d807742441b963f6712841f7697e2e39c45931f3abc53658c8b9338bd3561
 ./src/fwtpm/fwtpm_server --no-spdm                               # plaintext only (default)
 ```
 
-The responder accepts a PSK of up to 64 bytes (128 hex characters) and rejects only an empty PSK or one longer than that; the exact 64-byte requirement applies to Nations hardware provisioning, not to this responder. The value above is the test value used by `spdm_test.sh`. For a manual PSK test, give the requester the same value, for example `spdm_ctrl --psk "$SPDM_PSK"`.
+The responder takes a non-empty PSK of at most 64 bytes (128 hex characters); the exact 64-byte requirement applies to Nations hardware provisioning, not to this responder. The value above is the test value used by `spdm_test.sh`. For a manual PSK test, give the requester the same value, for example `spdm_ctrl --psk "$SPDM_PSK"`.
 
 ## Responder Identity Key
 

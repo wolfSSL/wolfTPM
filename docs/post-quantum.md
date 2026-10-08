@@ -100,7 +100,7 @@ With the fwTPM build above, `make check` runs the software-TPM suite, including 
 ./tests/pqc_mssim_e2e.sh
 ```
 
-With an fwTPM build, start `fwtpm_server` once in a separate terminal and leave it running while you run the individual examples below (including the TLS demo). It listens on `127.0.0.1:2321`. A SEALSQ build uses its configured hardware transport instead.
+With an fwTPM build, start `fwtpm_server` once in a separate terminal and leave it running while you run the individual examples below (including the TLS demo). It listens on `127.0.0.1:2321`. A SEALSQ build uses its configured hardware transport instead. The `--clear` flag below deletes the fwTPM NV state file before starting, which gives the examples a clean TPM; use it only on a disposable test instance, and omit it to keep an existing fwTPM's persistent state.
 
 ```sh
 # separate terminal; leave this running
@@ -140,7 +140,7 @@ For the fwTPM server's PQC internals (the eight v1.85 commands, primary-key deri
 
 Commands run left to right, so they can be chained. The functional `pqc_ctrl` builds only from an untrimmed PQC configuration: the wrapper plus both ML-DSA operations, both ML-KEM operations, and HashML-DSA. Build with `--enable-v185` (or `--enable-pqc`); a trimmed build such as `--enable-mldsa=verify-only` compiles out the CLI. Point it at the SEALSQ part with `--enable-sealsq`, or at the fwTPM with `--enable-fwtpm --enable-swtpm`.
 
-`pqc_ctrl.sh` runs the whole command set as a pass/fail suite (it mirrors `examples/spdm/spdm_test.sh`) when the device supports all parameter sets. The state-changing steps are opt-in via `PQC_CTRL_CLEAR=1` so the suite never changes a TPM unexpectedly:
+`pqc_ctrl.sh` runs the whole command set as a pass/fail suite (it mirrors `examples/spdm/spdm_test.sh`) when the device supports all parameter sets. The persistent state changes (the PCR 16 extend and `TPM2_Clear`) are opt-in via `PQC_CTRL_CLEAR=1`. The default run still flushes loaded transient objects, and every key operation flushes the transient object table, so do not run it alongside a workload whose transient TPM handles must stay valid:
 
 ```sh
 ./examples/pqc/pqc_ctrl.sh
