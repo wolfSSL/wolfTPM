@@ -54,7 +54,7 @@ RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"
 
 ## 概要と動作の仕組み
 
-`spdm_ctrl` ツールは、ホストと TPM の間に SPI 経由で SPDM セキュアセッションを確立し、AES-256-GCM で暗号化されたバス通信を可能にします。実装は Algorithm Set B (SHA-384 と AES-256-GCM) を使用し、アイデンティティ鍵モードではこれに ECDH P-384、ECDSA P-384、HKDF-SHA384 が加わります。セッション確立モードは 2 つサポートされています。
+`spdm_ctrl` ツールは、ホストと TPM の間に SPI または I2C 経由で SPDM セキュアセッションを確立し、AES-256-GCM で暗号化されたバス通信を可能にします。実装は Algorithm Set B (SHA-384 と AES-256-GCM) を使用し、アイデンティティ鍵モードではこれに ECDH P-384、ECDSA P-384、HKDF-SHA384 が加わります。セッション確立モードは 2 つサポートされています。
 
 SPDM の資格情報を受け付けるサンプルは `spdm_ctrl` と `nv_bind` です。その他の wolfTPM サンプルは、資格情報なしの `wolfTPM2_Init()` を使用しており、TPM が SPDM 専用モードでロックされている間は意図的に `WOLFSPDM_E_BAD_STATE` を返します。それらのサンプルを実行する前に、`spdm_ctrl` でロックを解除してください。
 
@@ -153,7 +153,7 @@ SPDM 専用モードは、TPM コマンドを暗号化された SPDM チャネ�
 
 ### 2. wolfSSL
 
-Nuvoton と Nations は同じ wolfSSL フラグを使用します。これらは SPDM Algorithm Set B のための暗号処理を提供します。wolfSSL 5.8.0 以降が必要で、wolfSPDM の configure チェックがこれを強制します。このチェックは `lib/wolfSPDM` サブモジュール内にあり、このページのレビューに使用したツリーには存在しなかったため、正確な最小バージョンはそちらで確認してください。
+Nuvoton と Nations は同じ wolfSSL フラグを使用します。これらは SPDM Algorithm Set B のための暗号処理を提供します。wolfSSL 5.8.0 以降が必要で、wolfSPDM の configure チェックがこれを強制します。このチェックは `lib/wolfSPDM` サブモジュール内にあります。
 
 ```sh
 cd ../wolfssl
@@ -197,11 +197,11 @@ wolfTPM の `configure` には `--disable-mctp` オプションはなく、追�
 | `--enable-spdm` | SPDM サポートを有効化 (必須) |
 | `--enable-tcg` | TCG SPDM Binding 仕様のハンドシェイク (fwtpm/nuvoton/nations が有効な場合は自動) |
 | `--enable-psk` | DSP0274 PSK ハンドシェイク (`--enable-nations` で自動、`--enable-tcg` が必要) |
-| `--enable-fwtpm` | SPDM レスポンダー付きの fwtpm_server をビルド (シリコン不要) |
+| `--enable-fwtpm` | SPDM レスポンダー付きの fwtpm_server をビルド (`--enable-spdm` とハンドシェイクモードが必要、シリコン不要) |
 | `--enable-nuvoton` | Nuvoton TPM ハードウェアサポートを有効化 (`--enable-tcg` を自動的に有効化) |
 | `--enable-nations` | Nations NS350 ハードウェアサポートを有効化 (`--enable-tcg --enable-psk` を自動的に有効化) |
 | `--enable-debug` | 詳細な SPDM トレース付きのデバッグ出力 |
-| `--enable-smallstack` | ヒープに確保される SPDM コンテキストとコマンドごとのメッセージバッファ (デフォルト: 呼び出し側が所有するインラインコンテキスト、約 32 KB) |
+| `--enable-smallstack` | SPDM コンテキストと SPDM リクエストおよびレスポンスのバッファをヒープに確保し、公開メッセージサイズの上限を引き下げます (デフォルト: 呼び出し側が所有するインラインコンテキスト、約 32 KB) |
 
 `configure` は、次の互換性のない組み合わせを拒否します。
 
@@ -220,7 +220,7 @@ wolfTPM の `configure` には `--disable-mctp` オプションはなく、追�
 make
 ```
 
-その後、SPDM モードのいずれかで起動します。PSK は 64 バイト (16 進数 128 文字) の完全な値でなければなりません。以下の値は `spdm_test.sh` で使用されるテスト用 PSK です。
+その後、SPDM モードのいずれかで起動します。fwTPM レスポンダーは最大 64 バイト (16 進数 128 文字) の PSK を受け付け、空の PSK とそれより長い PSK のみを拒否します。64 バイトちょうどという要件は Nations ハードウェアのプロビジョニングに適用されるものであり、このレスポンダーには適用されません。以下の値は `spdm_test.sh` で使用されるテスト用 PSK です。
 
 ```sh
 SPDM_PSK=dbc2192291d807742441b963f6712841f7697e2e39c45931f3abc53658c8b9338bd3561cab5d90cf9e493295bb5bd6b2c455e0fd19392e0ce4f3433cbcfc7047
@@ -290,7 +290,7 @@ Nations: アイデンティティ鍵モードが工場出荷時のデフォル�
 ./examples/spdm/spdm_ctrl --status
 ```
 
-`--responder-pubkey` は、信頼できる生の P-384 X||Y 点を 192 文字の 16 進数で受け取ります。デバイスのプロビジョニング記録、または認証されたその他の製造元チャネルから入手してください。ここでの例では、シークレットをシェル変数に読み込んでいます。たとえば `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"` のようにします。資格情報ファイルは、所有者のみが読み取れるようにしてください (`chmod 600`)。
+`--responder-pubkey` は、信頼できる生の P-384 X||Y 点を 192 文字の 16 進数で受け取ります。デバイスのプロビジョニング記録、または認証されたその他の製造元チャネルから入手してください。ここでの例では、これらの値をシェル変数に読み込んでいます。たとえば `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"` のようにします。レスポンダーの公開鍵はシークレットではありませんが、トラストアンカーであるため、改ざんから保護してください。PSK と ClearAuth はシークレットです。これらのファイルは、所有者のみが読み取れるようにしてください (`chmod 600`)。
 
 !!! warning
     `--get-pubkey` は認証なしの探索であり、それ単体で信頼を確立するために使用してはいけません。
@@ -384,8 +384,8 @@ NS350 では、PSK モードとアイデンティティ鍵モードは排他的�
 | `--status` | 両方 | SPDM の状態を照会 |
 | `--session-info` | 両方 | TPM から見た SPDM セッションを表示 (`TPM_CAP_SPDM_SESSION_INFO`) |
 | `--policy-nv` | 両方 | `TPM2_PolicyTransportSPDM` で保護された NV インデックスを定義し、セッション経由で書き込みと読み取りを行う |
-| `--lock` | 両方 | SPDM 専用モードをロック (`--connect` と併用、アクティブなセッションが必要) |
-| `--unlock` | 両方 | SPDM 専用モードのロックを解除 (`--connect` と併用、アクティブなセッションが必要) |
+| `--lock` | 両方 | SPDM 専用モードをロック (アクティブなセッションが必要: `--connect`、または Nations PSK では `--psk`) |
+| `--unlock` | 両方 | SPDM 専用モードのロックを解除 (アクティブなセッションが必要: `--connect`、または Nations PSK では `--psk`) |
 | `--psk` *hex* | Nations | PSK セッションを確立 (64 バイトの PSK) |
 | `--psk-set` *psk* *clearauth* | Nations | PSK をプロビジョニング (64 バイトの PSK、32 バイトの ClearAuth) |
 | `--psk-clear` *clearauth* | Nations | PSK をクリア (32 バイトの ClearAuth) |
@@ -440,7 +440,7 @@ SPDM の有効化/無効化および SPDM 専用モードの変更を反映す�
 
 リセットラインはボードごとに異なります。Raspberry Pi では、Nuvoton は GPIO4 を、ST33KTPM は GPIO24 (ピン 18) を使用します。テスト済みの NS350 ドーターボードでも GPIO4 が TPM_RST に配線されています。切り替える前に配線を確認してください。
 
-libgpiod 1.x では、`gpioset` はラインを設定して終了します。`spdm_test.sh` はこの動作に依存しています (チップは位置引数です)。
+libgpiod 1.x では、`gpioset` はラインを駆動し、デフォルトモードでは終了時にリクエストを解放します (チップは位置引数です)。以下のパルスは、ボードのプルレジスタが保持している間だけ各レベルを保持します。`spdm_test.sh` は、テスト済みのボードでこの動作に依存しています。
 
 ```sh
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
@@ -462,7 +462,7 @@ wolfTPM は、コードからリセットを駆動することもできます。
 
 Nuvoton と Nations の TPM は、どちらも TCG の "TPM Communication over SPDM Secure Session" バインディングを実装しています。このバインディングは、各メッセージを SPDM の `VENDOR_DEFINED_REQUEST` (リクエストコード `0xFE`) として運び、`VENDOR_DEFINED_RESPONSE` (レスポンスコード `0x7E`) で応答します。`StandardID=0x0001` (TCG) が使用されます。メッセージ内のベンダーコード (VdCode) は 8 バイトの ASCII 文字列です。
 
-公開されている TCG の表では、`GET_PUBK`、`GIVE_PUB`、`TPM2_CMD`、および任意のロカリティ固有の `TPM2CMD0` から `TPM2CMD4` までの値が定義されています。`GET_STS_`、`SPDMONLY`、`PSK_SET_`、`PSK_CLR_` は実装またはベンダーによる拡張であり、TCG が定義したコマンドではありません。2 つのベンダーアダプターにおけるベンダー拡張の正確なワイヤ形式の詳細は wolfSPDM サブモジュール内にありますが、このページのレビューに使用したツリーには存在しませんでした。
+公開されている TCG の表では、`GET_PUBK`、`GIVE_PUB`、`TPM2_CMD`、および任意のロカリティ固有の `TPM2CMD0` から `TPM2CMD4` までの値が定義されています。`GET_STS_`、`SPDMONLY`、`PSK_SET_`、`PSK_CLR_` は実装またはベンダーによる拡張であり、TCG が定義したコマンドではありません。2 つのベンダーアダプターにおけるベンダー拡張の正確なワイヤ形式の詳細は `lib/wolfSPDM` サブモジュール内にあります。
 
 | VdCode | コマンド | 定義元 | ベンダー | 説明 |
 |--------|---------|------------|--------|-------------|
@@ -491,14 +491,7 @@ Nuvoton と Nations の TPM は、どちらも TCG の "TPM Communication over S
 !!! note
     一部の NS350 ファームウェアバージョンでは、鍵が存在していても `--status` が "Identity Key: not provisioned" と報告することがあります。決定的なテストは `--connect` コマンドです。ECDHE ハンドシェイクが成功すれば、アイデンティティ鍵はプロビジョニングされています。
 
-PSK ベンダーエラーコードは、Nations の統合ガイドに記載されているとおりです。これらはベンダー拡張であり、本プロジェクトでは、Nations の公開資料やソースツリーに照らして値を確認できませんでした。お使いのファームウェアのドキュメントで確認してください。
-
-| コード | 名前 | 説明 |
-|------|------|-------------|
-| 0xA1 | Vd_PSKAlreadySet | PSK はすでにプロビジョニング済み (先に PSK_CLEAR が必要) |
-| 0xA2 | Vd_InternalFailure | SPDM セッション層の内部エラー |
-| 0xA3 | Vd_PSKNotSet | PSK がプロビジョニングされていない |
-| 0xA5 | Vd_AuthFail | ClearAuth の SHA-384 が保存されたダイジェストと一致しない |
+Nations の PSK 操作は、ベンダー固有のエラーコードを返すことがあります。たとえば、PSK がすでにプロビジョニング済み、PSK がプロビジョニングされていない、SPDM セッションの内部エラー、ClearAuth が保存されたダイジェストと一致しない、などです。正確な数値はファームウェア固有であり、Nations の公開資料やソースツリーでは定義されていません。ここに固定の表を載せるのではなく、お使いのファームウェアリビジョンに対応する Nations の統合ガイドから入手してください。
 
 ### Auto-SPDM
 
@@ -520,7 +513,7 @@ PSK ベンダーエラーコードは、Nations の統合ガイドに記載さ�
 ### メモリモード
 
 - デフォルト: ヒープ割り当てなし。SPDM コンテキストは約 32 KB の、呼び出し側が所有するインラインコンテキストです。必ずしも静的記憶域期間のストレージではなく、呼び出し側が配置した場所に存在します。
-- スモールスタック (`--enable-smallstack`): コンテキストとコマンドごとのメッセージバッファは `XMALLOC` で確保されます。スタックが小さいプラットフォームで有用です。
+- スモールスタック (`--enable-smallstack`): wolfSPDM コンテキストと SPDM リクエストおよびレスポンスのバッファは `XMALLOC` で確保されます。TPM レスポンスバッファや TIS I/O バッファなど、一部のコマンドごとのバッファはスタックに残ります。また、3 つの公開メッセージサイズの上限が引き下げられるため、サイズが大きすぎるコマンドやレスポンスは `BUFFER_E` を返すことがあります。スタックが小さいプラットフォームで有用です。ペイロードのサイズは引き下げられた上限に合わせてください。
 
 `wolfSPDM_New()` は、wolfSPDM が `WOLFSPDM_DYNAMIC_MEMORY` 付きでビルドされた場合にのみ存在します。それ以外の場合は、呼び出し側が提供するストレージに対して `wolfSPDM_InitStatic()` または `wolfSPDM_Init()` を使用してください。
 

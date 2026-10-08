@@ -1,6 +1,6 @@
 # ポスト量子暗号
 
-wolfTPM は、TCG TPM 2.0 Library Specification v1.85 で追加されたポスト量子暗号アルゴリズムを実装しており、wolfCrypt の FIPS 203 (ML-KEM) モジュールおよび FIPS 204 (ML-DSA) モジュールを基盤としています。このページでは、サポートされるアルゴリズム、ビルド方法、および `examples/pqc` に含まれる PQC サンプルについて説明します。
+wolfTPM は、TCG TPM 2.0 Library Specification v1.85 で追加されたポスト量子暗号アルゴリズムをサポートしています。クライアントライブラリは、v1.85 の新しいコマンドをマーシャリングして TPM に送信します。対象がツリー内のファームウェア TPM の場合、そのサーバーが wolfCrypt の FIPS 203 (ML-KEM) モジュールおよび FIPS 204 (ML-DSA) モジュールでアルゴリズムを実行します。対象が SEALSQ QVault などのハードウェア TPM の場合は、デバイスがチップ上で実行します。このページでは、サポートされるアルゴリズム、ビルド方法、および `examples/pqc` に含まれる PQC サンプルについて説明します。
 
 ## 概要
 
@@ -33,11 +33,11 @@ sudo make install
 ### fwTPM (ソフトウェア TPM)
 
 ```sh
-./configure --enable-fwtpm --enable-pqc
+./configure --enable-fwtpm --enable-swtpm --enable-pqc
 make
 ```
 
-fwTPM サーバーは v1.85 のコマンドセット全体を使用するため、configure は `--enable-pqc` を `--enable-v185` に引き上げます。両方のフラグを省略しても、wolfCrypt に ML-DSA と ML-KEM が含まれている場合、configure は v1.85 を自動的に有効にします。明示的に無効にするには `--disable-pqc` を指定してください。
+`--enable-swtpm` は、以下のサンプルが接続する `127.0.0.1:2321` の mssim ソケットトランスポートを使って `fwtpm_server` をビルドします。Linux の x86_64 と AArch64 ではソケットトランスポートがすでにデフォルトであるため、このフラグを指定することで、どのプラットフォームでもソケットサーバーを確実に利用できます。fwTPM サーバーは v1.85 のコマンドセット全体を使用するため、configure は `--enable-pqc` を `--enable-v185` に引き上げます。両方の PQC フラグを省略しても、wolfCrypt に ML-DSA と ML-KEM が含まれている場合、configure は v1.85 を自動的に有効にします。明示的に無効にするには `--disable-pqc` を指定してください。
 
 ### ハードウェア TPM: SEALSQ QVault
 
@@ -62,7 +62,7 @@ SHA-1 を使用しない TPM サンプルの例:
 
 ### PQC フットプリントの削減
 
-呼び出す操作だけをコンパイルする (バイナリが小さくなり、バッファの最大サイズも小さくなる) には、wolfSSL のフラグに合わせて指定します。
+呼び出す操作だけをコンパイルする (使用しないコードパスが除外され、バイナリが小さくなる) には、wolfSSL のフラグに合わせて指定します。
 
 ```sh
 # ML-DSA verify-only + ML-KEM encapsulate-only (no sign, no decapsulate)
@@ -75,7 +75,7 @@ SHA-1 を使用しない TPM サンプルの例:
 | `--enable-mlkem` | `all` (デフォルト) / `enc` / `dec` / `no` | 選択されていない ML-KEM 操作 |
 | `--disable-hash-mldsa` | なし | プリハッシュ ML-DSA 鍵のサポート |
 
-これらは `WOLFTPM_NO_MLDSA_SIGN`、`WOLFTPM_NO_MLKEM_DECAP` などの define に対応しており、組み込み開発者は autotools を使わずに `CFLAGS` で直接渡すこともできます。既存の `--enable-v185` ビルドには影響しません (すべての操作がデフォルトで有効です)。両方のアルゴリズムを無効にする (`--enable-mldsa=no --enable-mlkem=no`) と configure エラーになります。ポスト量子暗号のサポートを一切含めずにビルドするには `--disable-pqc` を使用してください。
+これらは `WOLFTPM_NO_MLDSA_SIGN`、`WOLFTPM_NO_MLKEM_DECAP` などの define に対応しており、組み込み開発者は autotools を使わずに `CFLAGS` で直接渡すこともできます。既存の `--enable-v185` ビルドには影響しません (すべての操作がデフォルトで有効です)。両方のアルゴリズムを無効にする (`--enable-mldsa=no --enable-mlkem=no`) と configure エラーになります。ポスト量子暗号のサポートを一切含めずにビルドするには `--disable-pqc` を使用してください。削減はコードパスを除外してバイナリを小さくしますが、公開されている TPM2B バッファの最大サイズは小さくなりません。これらは最大の v1.85 パラメータセットに合わせたサイズのままです。
 
 同じフラグは fwTPM サーバーの削減にも使えます。`--enable-fwtpm --enable-mldsa=verify-only` は、ML-DSA の署名コマンドのハンドラー、ディスパッチエントリー、暗号処理をコンパイルから除外します。ML-KEM は別に制御され、デフォルトの `all` のままです。したがって、PQC の対象が ML-DSA の verify のみであるサーバーをビルドするには、`--enable-mlkem=no` も指定してください。fwTPM は常に v1.85 仕様の全体をビルドするため、これらの削減は `WOLFTPM_V185` の上に適用されます。
 
@@ -91,7 +91,7 @@ make check
 上記の fwTPM ビルドでは、`make check` は PQC のカバレッジを含むソフトウェア TPM のテストスイートを実行します。
 
 - `tests/fwtpm_unit.test`: 30 件以上のインプロセス PQC ハンドラーテスト
-- `tests/fwtpm_check.sh`: サーバーを起動したうえで、`tests/unit.test` (mssim ソケット経由の PQC ラッパーテスト。ML-DSA Sign/Verify Sequence、ML-KEM Encap/Decap、EncryptSecret ML-KEM など)、`examples/run_examples.sh`、および tpm2-tools スイートを実行します
+- `tests/fwtpm_check.sh`: サーバーを起動したうえで、`tests/unit.test` (mssim ソケット経由の PQC ラッパーテスト。ML-DSA Sign/Verify Sequence、ML-KEM Encap/Decap、EncryptSecret ML-KEM など) と `examples/run_examples.sh` を実行します。ソケットトランスポートが有効で tpm2-tools がインストールされている場合は、tpm2-tools スイートも実行します
 - `tests/fwtpm_da_retry.sh`: ディクショナリアタックのリトライ確認 (`-DFWTPM_DA_USED_RETRY` を指定したビルドが必要)
 
 `make check` は `tests/pqc_mssim_e2e.sh` を実行しません。PQC に絞った高速なエンドツーエンドの確認には、このスクリプトを直接実行してください。
@@ -100,10 +100,11 @@ make check
 ./tests/pqc_mssim_e2e.sh
 ```
 
-fwTPM ビルドでは、以下の個別サンプルを実行する前に、`127.0.0.1:2321` で `fwtpm_server` を起動してください。SEALSQ ビルドでは、設定済みのハードウェアトランスポートを使用します。
+fwTPM ビルドでは、`fwtpm_server` を別のターミナルで一度だけ起動し、以下の個別サンプル (TLS デモを含む) を実行している間は起動したままにしてください。サーバーは `127.0.0.1:2321` で待ち受けます。SEALSQ ビルドでは、設定済みのハードウェアトランスポートを使用します。
 
 ```sh
-./src/fwtpm/fwtpm_server --clear &
+# separate terminal; leave this running
+./src/fwtpm/fwtpm_server --clear
 ```
 
 fwTPM サーバーの PQC 内部 (8 つの v1.85 コマンド、プライマリ鍵の導出、バッファ定数、仕様解釈上の判断) については、[docs/FWTPM.md](fwtpm/overview.md) を参照してください。
@@ -131,13 +132,13 @@ fwTPM サーバーの PQC 内部 (8 つの v1.85 コマンド、プライマリ�
 | `--pcrread[=idx]` | PCR の読み取り (SHA-256 バンク、なければ SHA-384 にフォールバック) |
 | `--pcrextend=idx` | テスト用ダイジェストで PCR を拡張 (インデックスの明示が必須) |
 | `--flush` | 操作の合間に、ロード済みのすべてのトランジェントオブジェクトをフラッシュ |
-| `--clear` | `TPM2_Clear`、オーナー階層を消去 |
+| `--clear` | `TPM2_Clear`。新しい Storage プライマリシードをインストールし、Storage オブジェクトと Endorsement オブジェクトおよび非プラットフォームの NV を削除し、オーナー、エンドースメント、ロックアウトの auth をリセットします |
 | `--mldsa[=44/65/87]` | Pure ML-DSA の署名/検証 (デフォルトは 65) |
 | `--hash-mldsa[=44/65/87]` | HashML-DSA (SHA-256 プリハッシュ) の署名/検証 |
 | `--mlkem[=512/768/1024]` | ML-KEM のカプセル化/デカプセル化 |
 | `--all` | caps + algs + selftest + getrandom + pcrread + すべての PQC セット |
 
-コマンドは左から右へ順に実行されるため、連結できます。`pqc_ctrl` には `--enable-v185` (または `--enable-pqc`) が必要です。SEALSQ のデバイスを対象にするには `--enable-sealsq` を、fwTPM を対象にするには `--enable-fwtpm --enable-swtpm` を指定してください。
+コマンドは左から右へ順に実行されるため、連結できます。機能する `pqc_ctrl` は、削減されていない PQC 構成からのみビルドされます。つまり、ラッパー、ML-DSA の両方の操作、ML-KEM の両方の操作、および HashML-DSA がすべて必要です。`--enable-v185` (または `--enable-pqc`) でビルドしてください。`--enable-mldsa=verify-only` のように削減したビルドでは、CLI がコンパイルから除外されます。SEALSQ のデバイスを対象にするには `--enable-sealsq` を、fwTPM を対象にするには `--enable-fwtpm --enable-swtpm` を指定してください。
 
 `pqc_ctrl.sh` は、デバイスがすべてのパラメータセットをサポートしている場合に、コマンドセット全体を合否判定付きのスイートとして実行します (`examples/spdm/spdm_test.sh` に倣っています)。状態を変更するステップは `PQC_CTRL_CLEAR=1` によるオプトインであり、スイートが意図せず TPM を変更することはありません。
 
@@ -147,7 +148,7 @@ PQC_CTRL_CLEAR=1 ./examples/pqc/pqc_ctrl.sh   # also extend PCR 16 and run TPM2_
 ```
 
 !!! warning
-    `PQC_CTRL_CLEAR=1` は 1 つではなく 2 つの処理を行います。まず PCR 16 を拡張します。これは PCR をリセットしない限り元に戻せません。次に `TPM2_Clear` を実行し、オーナー階層を消去します。使い捨てのテスト用 TPM、または状態をバックアップ済みのデバイスでのみ使用してください。
+    `PQC_CTRL_CLEAR=1` は 1 つではなく 2 つの処理を行います。まず PCR 16 を拡張します。これは PCR をリセットしない限り元に戻せません。次に `TPM2_Clear` を実行します。`TPM2_Clear` は新しい Storage プライマリシードをインストールするため、古いシードで保護されていたすべての鍵ブロブと封印済みオブジェクトは以後恒久的に使用できなくなり、ファイルのバックアップがあっても復元できません。使い捨てのテスト用 TPM でのみ使用してください。
 
 ### pqc_mssim_e2e
 
@@ -235,9 +236,9 @@ ML-KEM は制限付き復号 (ソルト) 鍵であり、対称アルゴリズム
 
 ### ポスト量子 TLS 1.3 (ML-KEM と TPM ML-DSA)
 
-これは、サーバーの ML-DSA アイデンティティ鍵が TPM 内にある、完全な TLS 1.3 ハンドシェイクです。サーバーは wolfTPM の crypto コールバックを介して、チップ上で CertificateVerify に署名します。クライアントは ML-KEM 鍵交換を行い、ソフトウェア CA に対してサーバーを検証します。
+これは、サーバーの ML-DSA アイデンティティ鍵が TPM 内にある、完全な TLS 1.3 ハンドシェイクです。サーバーは wolfTPM の crypto コールバックを介して、TPM 内で CertificateVerify に署名します。QVault などのハードウェア TPM では、この署名はチップ上で行われます。以下のコマンドはソフトウェアの fwTPM を使用します。クライアントは ML-KEM 鍵交換を行い、ソフトウェア CA に対してサーバーを検証します。
 
-これには、デバイス鍵 (秘密鍵が TPM 内にある) に対して `wc_MlDsaKey_SignCtx` を crypto コールバックにルーティングする wolfSSL が必要です。この変更は wolfSSL 5.9.4-stable 以降に含まれています。開発スナップショットを使用する場合は、wolfSSL のコミット `6b0c832284286dbaec8e5ab35581ff470e90826b` が含まれている必要があります。以下のコマンドは、このデモのためにツリー内の fwTPM を起動します。
+これには、デバイス鍵 (秘密鍵が TPM 内にある) に対して `wc_MlDsaKey_SignCtx` を crypto コールバックにルーティングする wolfSSL が必要です。この変更は wolfSSL 5.9.4-stable 以降に含まれています。開発スナップショットを使用する場合は、wolfSSL のコミット `6b0c832284286dbaec8e5ab35581ff470e90826b` が含まれている必要があります。以下のコマンドは、先ほど起動した `fwtpm_server` を再利用します。
 
 !!! warning
     これはデモです。アイデンティティ鍵は認証なし (空の auth) の決定論的な TPM プライマリ鍵であり、`gen_pqc_certs` とサーバーの双方がオーナー階層から再現できます。プライマリ鍵の鍵素材は、階層シードと作成時の入力から導出され、オブジェクトの auth 値はその導出を変えません。そのため、空でない auth 値やポリシーを追加するだけでは、オーナー階層配下で `CreatePrimary` を認可できる別の呼び出し元が同じ鍵を再作成することを防げません。実運用では、プロビジョニング済みの子オブジェクトまたは永続的なアイデンティティオブジェクトと、管理された階層の認可を組み合わせることを推奨します。クライアントはサーバーのチェーンをデモ CA に対して検証しますが、証明書をホスト名にバインドしません。そのため、デモはデフォルトの localhost に接続し、`-h=` を渡しません。`-h=` を指定すると、`wolfSSL_check_domain_name` を含む厳格な検証が有効になり、このリーフ証明書はそれを満たせません。実運用では、一致する subjectAltName を持つリーフ証明書を発行する必要があります。
@@ -249,7 +250,7 @@ ML-KEM は制限付き復号 (ソルト) 鍵であり、対称アルゴリズム
 - `examples/tls/tls_client -mldsa` は接続し、ML-KEM 鍵交換を行い、CA を検証します。
 
 ```sh
-./src/fwtpm/fwtpm_server --clear &
+# the fwtpm_server from "Running the examples" is already listening on 127.0.0.1:2321
 
 # 1. certificate chain bound to the TPM key (-mldsa must match the server)
 ./examples/pqc/gen_pqc_certs -mldsa=65
@@ -267,7 +268,7 @@ ML-KEM は制限付き復号 (ソルト) 鍵であり、対称アルゴリズム
 - `tls_server -p=<port> -mldsa=44/65/87`。
 - `tls_client -h=<host> -p=<port> -group=<name>`。`<name>` は `ML_KEM_512/768/1024`、またはハイブリッドの `SECP256R1MLKEM768` / `X25519MLKEM768` です (ハイブリッドには、対応する古典曲線が wolfSSL で有効になっている必要があります)。
 
-ワンショットのエンドツーエンドテストは 3 つすべてを駆動し、ML-KEM グループ、TPM 署名による ML-DSA 認証、CA の検証、アプリケーションデータを検証します。
+ワンショットのエンドツーエンドテストは 3 つすべてを駆動し、ML-KEM グループ、TPM 署名による ML-DSA 認証、CA の検証を検証します。
 
 ```sh
 ENABLE_PQC_TLS=1 ./examples/run_examples.sh   # includes the PQC TLS matrix
