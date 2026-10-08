@@ -25,19 +25,19 @@ see the [wolfSPDM](https://github.com/aidangarske/wolfSPDM) standalone library.
 
 ### Prerequisites
 
-wolfSSL with crypto algorithms required for SPDM Algorithm Set B:
+wolfSSL with crypto algorithms required for SPDM Algorithm Set B. wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there.
 
 ```bash
-cd wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
 make && sudo make install && sudo ldconfig
+cd ../..
 ```
 
 ### wolfTPM with Nuvoton SPDM
 
 ```bash
-cd wolfTPM
 ./autogen.sh
 ./configure --enable-spdm --enable-nuvoton
 make
@@ -46,7 +46,6 @@ make
 ### wolfTPM with Nations SPDM
 
 ```bash
-cd wolfTPM
 ./autogen.sh
 ./configure --enable-spdm --enable-nations
 make
