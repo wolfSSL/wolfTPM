@@ -1,6 +1,6 @@
 # ベンチマーク
 
-このページでは、`examples/bench/bench` プログラムで測定した、対応 TPM 2.0 デバイスにおける一般的な操作の処理速度と、SealSQ QVault シリコンによる初のポスト量子暗号の測定値を示します。
+このページでは、`examples/bench/bench` プログラムで測定した、対応 TPM 2.0 デバイスにおける一般的な操作の処理速度と、SEALSQ QVault シリコンによる初のポスト量子暗号の測定値を示します。
 
 ## これらの数値について
 
@@ -62,9 +62,9 @@ ECDHE    256 agree         16 ops took 1.055 sec, avg 65.948 ms, 15.164 ops/sec
 
 モードに対応していないデバイスでは、そのモードについて "not supported" と出力されます。
 
-## ポスト量子暗号 (SealSQ QVault)
+## ポスト量子暗号 (SEALSQ QVault)
 
-これらの数値は、SPI 経由で SealSQ QVault TPM を駆動する Raspberry Pi 5 上で `examples/bench/bench` を使って測定しました。これは、シリコンとして実現された初のポスト量子暗号対応 TPM です。
+これらの数値は、SPI 経由で SEALSQ QVault TPM を駆動する Raspberry Pi 5 上で `examples/bench/bench` を使って測定しました。SEALSQ は、この製品をシリコンとして実現された初のポスト量子暗号対応 TPM と位置付けています。
 
 | 操作 | 平均レイテンシ | スループット |
 |---|---|---|
@@ -75,7 +75,7 @@ ECDHE    256 agree         16 ops took 1.055 sec, avg 65.948 ms, 15.164 ops/sec
 | ML-KEM-768 カプセル化 | 211.8 ms | 4.72 ops/s |
 | ML-KEM-768 デカプセル化 | 425.5 ms | 2.35 ops/s |
 
-検証は高速で、ECDSA と同程度です。鍵生成はプロビジョニング時に 1 回だけ発生するコストです。
+鍵生成はプロビジョニング時に 1 回だけ発生するコストです。上記の ECDSA の値は、異なる TPM、ホストボード、バス、ファームウェアで取得したものであるため、これらの ML-DSA の値と同一条件での比較にはなりません。ECDSA と PQC のレイテンシを比較するには、同じ TPM、ホスト、バス、ビルドで両方について `./examples/bench/bench` を実行してください。
 
 ## 関連項目
 

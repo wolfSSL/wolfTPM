@@ -9,10 +9,10 @@ wolfTPM は、TCG TPM 2.0 Library Specification v1.85 で追加されたポス�
 | アルゴリズム | 規格 | パラメータセット |
 |---|---|---|
 | ML-DSA (署名) | FIPS 204 | ML-DSA-44 / 65 / 87 |
-| Hash-ML-DSA (プリハッシュ署名) | FIPS 204 | 呼び出し側ハッシュ付きの ML-DSA-44 / 65 / 87 |
+| HashML-DSA (プリハッシュ署名) | FIPS 204 | 呼び出し側ハッシュ付きの ML-DSA-44 / 65 / 87 |
 | ML-KEM (鍵カプセル化) | FIPS 203 | ML-KEM-512 / 768 / 1024 |
 
-wolfTPM は、これらの v1.85 PQC アルゴリズムをシリコンに搭載して出荷された最初の TPM 2.0 である SealSQ QVault TPM を公式にサポートしています。同じ PQC API は、ツリー内の fwTPM サーバーに対しても動作するため、CI やハードウェアが存在しない場合に便利です。QVault TPM における ML-DSA と ML-KEM の実測性能については、ベンチマークを参照してください。
+wolfTPM は SEALSQ QVault TPM をサポートしています。SEALSQ は、これを v1.85 の PQC アルゴリズムをシリコンに搭載した最初の TPM 2.0 デバイスと位置付けています。SEALSQ は QVault TPM-185 のエンジニアリングサンプルを提供可能としているため、現在の量産および認証の状況については SEALSQ に確認してください。同じ PQC API は、ツリー内の fwTPM サーバーに対しても動作するため、CI やハードウェアが存在しない場合に便利です。QVault TPM シリコンにおける ML-DSA と ML-KEM の実測性能については、このページの末尾にあるベンチマークのセクションを参照してください。
 
 ## ビルド
 
@@ -28,7 +28,7 @@ make
 sudo make install
 ```
 
-後述の PQC TLS 1.3 デモでは、`--enable-tls-mlkem-standalone` と `--enable-certgen` も追加してください。スタンドアロンの `ML_KEM_*` TLS グループにはスタンドアロンオプションが必要です。これがない場合、wolfSSL はハイブリッドグループのみを提供し、`wolfSSL_UseKeyShare` はクライアントのデフォルトを拒否します。`--enable-certgen` は `gen_pqc_certs` ツールに必要であり、`--enable-wolftpm` は TLS サーバーが使用する crypto コールバックと秘密鍵 ID のサポートを提供します。
+後述の PQC TLS 1.3 デモでは、`--enable-tls-mlkem-standalone` も追加してください。スタンドアロンの `ML_KEM_*` TLS グループにはこのスタンドアロンオプションが必要です。これがない場合、wolfSSL はハイブリッドグループのみを提供し、`wolfSSL_UseKeyShare` はクライアントのデフォルトを拒否します。`gen_pqc_certs` ツールには証明書生成が必要ですが、これは `--enable-wolftpm` がすでに有効にしています。また `--enable-wolftpm` は、TLS サーバーが使用する crypto コールバックと秘密鍵 ID のサポートも提供します。`--enable-pkcallbacks` は別の wolfSSL オプションであるため、そのまま指定してください。このデモには wolfSSL 5.9.4-stable 以降が必要です。
 
 ### fwTPM (ソフトウェア TPM)
 
@@ -39,9 +39,9 @@ make
 
 fwTPM サーバーは v1.85 のコマンドセット全体を使用するため、configure は `--enable-pqc` を `--enable-v185` に引き上げます。両方のフラグを省略しても、wolfCrypt に ML-DSA と ML-KEM が含まれている場合、configure は v1.85 を自動的に有効にします。明示的に無効にするには `--disable-pqc` を指定してください。
 
-### ハードウェア TPM: SealSQ QVault
+### ハードウェア TPM: SEALSQ QVault
 
-SealSQ QVault は、現在 v1.85 PQC でサポートされているハードウェア TPM です。
+SEALSQ QVault は、現在 v1.85 PQC でサポートされているハードウェア TPM です。
 
 ```sh
 ./configure --enable-sealsq --enable-pqc
@@ -62,7 +62,7 @@ SHA-1 を使用しない TPM サンプルの例:
 
 ### PQC フットプリントの削減
 
-呼び出す操作だけをコンパイルする (バイナリが小さくなり、malloc が不要になる) には、wolfSSL のフラグに合わせて指定します。
+呼び出す操作だけをコンパイルする (バイナリが小さくなり、バッファの最大サイズも小さくなる) には、wolfSSL のフラグに合わせて指定します。
 
 ```sh
 # ML-DSA verify-only + ML-KEM encapsulate-only (no sign, no decapsulate)
@@ -77,7 +77,10 @@ SHA-1 を使用しない TPM サンプルの例:
 
 これらは `WOLFTPM_NO_MLDSA_SIGN`、`WOLFTPM_NO_MLKEM_DECAP` などの define に対応しており、組み込み開発者は autotools を使わずに `CFLAGS` で直接渡すこともできます。既存の `--enable-v185` ビルドには影響しません (すべての操作がデフォルトで有効です)。両方のアルゴリズムを無効にする (`--enable-mldsa=no --enable-mlkem=no`) と configure エラーになります。ポスト量子暗号のサポートを一切含めずにビルドするには `--disable-pqc` を使用してください。
 
-同じフラグは fwTPM サーバーの削減にも使えます。`--enable-fwtpm --enable-mldsa=verify-only` は、ML-DSA の verify のみを実装するサーバーをビルドします (署名コマンドのハンドラー、ディスパッチエントリー、暗号処理はコンパイルから除外されます)。fwTPM は常に v1.85 仕様の全体をビルドするため、これらの削減は `WOLFTPM_V185` の上に適用されます。
+同じフラグは fwTPM サーバーの削減にも使えます。`--enable-fwtpm --enable-mldsa=verify-only` は、ML-DSA の署名コマンドのハンドラー、ディスパッチエントリー、暗号処理をコンパイルから除外します。ML-KEM は別に制御され、デフォルトの `all` のままです。したがって、PQC の対象が ML-DSA の verify のみであるサーバーをビルドするには、`--enable-mlkem=no` も指定してください。fwTPM は常に v1.85 仕様の全体をビルドするため、これらの削減は `WOLFTPM_V185` の上に適用されます。
+
+!!! note
+    削減を行っても、サンプルがアロケーションフリーになるわけではありません。サンプルは引き続き `XMALLOC` で署名バッファと暗号文バッファを確保します。fwTPM には別に `WOLFTPM2_NO_HEAP` オプションがあり、すべてのバッファをスタックに移しますが、その代わりスタック使用量が大幅に増えます。詳細は [fwTPM のビルド](fwtpm/building.md) を参照してください。
 
 ## サンプルの実行
 
@@ -88,17 +91,16 @@ make check
 上記の fwTPM ビルドでは、`make check` は PQC のカバレッジを含むソフトウェア TPM のテストスイートを実行します。
 
 - `tests/fwtpm_unit.test`: 30 件以上のインプロセス PQC ハンドラーテスト
-- `tests/unit.test`: mssim ソケット経由の PQC ラッパーテスト (ML-DSA Sign/Verify Sequence、ML-KEM Encap/Decap、EncryptSecret MLKEM など)
-- `tests/pqc_mssim_e2e.sh`: 専用の PQC エンドツーエンドのラウンドトリップ
+- `tests/fwtpm_check.sh`: サーバーを起動したうえで、`tests/unit.test` (mssim ソケット経由の PQC ラッパーテスト。ML-DSA Sign/Verify Sequence、ML-KEM Encap/Decap、EncryptSecret ML-KEM など)、`examples/run_examples.sh`、および tpm2-tools スイートを実行します
+- `tests/fwtpm_da_retry.sh`: ディクショナリアタックのリトライ確認 (`-DFWTPM_DA_USED_RETRY` を指定したビルドが必要)
 
-`make check` が呼び出す個別のスクリプトを直接実行することもでき、的を絞った反復作業が速くなります。
+`make check` は `tests/pqc_mssim_e2e.sh` を実行しません。PQC に絞った高速なエンドツーエンドの確認には、このスクリプトを直接実行してください。
 
 ```sh
-./tests/fwtpm_check.sh        # fwtpm_unit.test + unit.test + tpm2_tools suite
-./tests/pqc_mssim_e2e.sh      # PQC E2E only (fastest PQC-focused check)
+./tests/pqc_mssim_e2e.sh
 ```
 
-fwTPM ビルドでは、以下の個別サンプルを実行する前に、`127.0.0.1:2321` で `fwtpm_server` を起動してください。SealSQ ビルドでは、設定済みのハードウェアトランスポートを使用します。
+fwTPM ビルドでは、以下の個別サンプルを実行する前に、`127.0.0.1:2321` で `fwtpm_server` を起動してください。SEALSQ ビルドでは、設定済みのハードウェアトランスポートを使用します。
 
 ```sh
 ./src/fwtpm/fwtpm_server --clear &
@@ -110,7 +112,7 @@ fwTPM サーバーの PQC 内部 (8 つの v1.85 コマンド、プライマリ�
 
 ### pqc_ctrl
 
-`pqc_ctrl` は、PQC TPM (SealSQ QVault TPM または fwTPM) を操作して検証するための単一の CLI です。各コマンドは操作を実行し、ボードを制御します。すべての鍵操作は最初にトランジェントオブジェクトテーブルをフラッシュするため、オブジェクトメモリが小さい TPM (SealSQ QVault TPM など) でも、コマンドを連続して実行した際に `TPM_RC_OBJECT_MEMORY` が発生しません。
+`pqc_ctrl` は、PQC TPM (SEALSQ QVault TPM または fwTPM) を操作して検証するための単一の CLI です。各コマンドは TPM に対して操作を実行します。すべての鍵操作は最初にトランジェントオブジェクトテーブルをフラッシュするため、オブジェクトメモリが小さい TPM (SEALSQ QVault TPM など) でも、コマンドを連続して実行した際に `TPM_RC_OBJECT_MEMORY` が発生しません。
 
 ```sh
 ./examples/pqc/pqc_ctrl                 # --all (default)
@@ -128,28 +130,33 @@ fwTPM サーバーの PQC 内部 (8 つの v1.85 コマンド、プライマリ�
 | `--getrandom[=N]` | N バイトの乱数 (デフォルトは 16) |
 | `--pcrread[=idx]` | PCR の読み取り (SHA-256 バンク、なければ SHA-384 にフォールバック) |
 | `--pcrextend=idx` | テスト用ダイジェストで PCR を拡張 (インデックスの明示が必須) |
-| `--flush` | トランジェントオブジェクトのフラッシュ (操作間のボードリセット) |
+| `--flush` | 操作の合間に、ロード済みのすべてのトランジェントオブジェクトをフラッシュ |
 | `--clear` | `TPM2_Clear`、オーナー階層を消去 |
 | `--mldsa[=44/65/87]` | Pure ML-DSA の署名/検証 (デフォルトは 65) |
-| `--hash-mldsa[=44/65/87]` | Hash-ML-DSA (SHA-256 プリハッシュ) の署名/検証 |
+| `--hash-mldsa[=44/65/87]` | HashML-DSA (SHA-256 プリハッシュ) の署名/検証 |
 | `--mlkem[=512/768/1024]` | ML-KEM のカプセル化/デカプセル化 |
 | `--all` | caps + algs + selftest + getrandom + pcrread + すべての PQC セット |
 
-コマンドは左から右へ順に実行されるため、連結できます。`pqc_ctrl` には `--enable-v185` (または `--enable-pqc`) が必要です。SealSQ のデバイスを対象にするには `--enable-sealsq` を、fwTPM を対象にするには `--enable-fwtpm --enable-swtpm` を指定してください。
+コマンドは左から右へ順に実行されるため、連結できます。`pqc_ctrl` には `--enable-v185` (または `--enable-pqc`) が必要です。SEALSQ のデバイスを対象にするには `--enable-sealsq` を、fwTPM を対象にするには `--enable-fwtpm --enable-swtpm` を指定してください。
 
-`pqc_ctrl.sh` は、デバイスがすべてのパラメータセットをサポートしている場合に、コマンドセット全体を合否判定付きのスイートとして実行します (`examples/spdm/spdm_test.sh` に倣っています)。破壊的な `--clear` は `PQC_CTRL_CLEAR=1` によるオプトインであり、スイートが意図せず TPM を消去することはありません。
+`pqc_ctrl.sh` は、デバイスがすべてのパラメータセットをサポートしている場合に、コマンドセット全体を合否判定付きのスイートとして実行します (`examples/spdm/spdm_test.sh` に倣っています)。状態を変更するステップは `PQC_CTRL_CLEAR=1` によるオプトインであり、スイートが意図せず TPM を変更することはありません。
 
 ```sh
 ./examples/pqc/pqc_ctrl.sh
-PQC_CTRL_CLEAR=1 ./examples/pqc/pqc_ctrl.sh   # also exercise TPM2_Clear
+PQC_CTRL_CLEAR=1 ./examples/pqc/pqc_ctrl.sh   # also extend PCR 16 and run TPM2_Clear
 ```
+
+!!! warning
+    `PQC_CTRL_CLEAR=1` は 1 つではなく 2 つの処理を行います。まず PCR 16 を拡張します。これは PCR をリセットしない限り元に戻せません。次に `TPM2_Clear` を実行し、オーナー階層を消去します。使い捨てのテスト用 TPM、または状態をバックアップ済みのデバイスでのみ使用してください。
 
 ### pqc_mssim_e2e
 
-mssim ソケット経由のエンドツーエンドのクライアントテストです。2 つのラウンドトリップを実行します。
+mssim ソケット経由のエンドツーエンドのクライアントテストです。次の 4 つのチェックを順に実行します。
 
-1. MLKEM-768 の `CreatePrimary`、`Encapsulate`、`Decapsulate`。暗号文が 1088 バイトであること、および 2 つの共有秘密がバイト単位で一致することを検証します。
-2. HashMLDSA-65 (SHA-256) の `CreatePrimary`、`SignDigest`、`VerifyDigestSignature`。署名が 3309 バイトであること、および検証チケットのタグが `TPM_ST_DIGEST_VERIFIED` であることを検証します。
+1. ML-KEM-768 の `CreatePrimary`、`Encapsulate`、`Decapsulate`。暗号文が 1088 バイトであること、および 2 つの共有秘密がバイト単位で一致することを検証します。
+2. HashML-DSA-65 (SHA-256) の `CreatePrimary`、`SignDigest`、`VerifyDigestSignature`。署名が 3309 バイトであること、および検証チケットのタグが `TPM_ST_DIGEST_VERIFIED` であることを検証します。
+3. ML-KEM の `MakeCredential` と `ActivateCredential` のラウンドトリップ。
+4. ML-DSA の `Quote`。
 
 ```sh
 ./examples/pqc/pqc_mssim_e2e
@@ -160,17 +167,17 @@ mssim ソケット経由のエンドツーエンドのクライアントテス�
 ML-KEM カプセル化のラウンドトリップです。ML-KEM のプライマリ鍵を作成して `Encapsulate` を実行し、生成された暗号文を `Decapsulate` して、共有秘密が一致することを確認します。
 
 ```sh
-./examples/pqc/mlkem_encap                # default: MLKEM-768
+./examples/pqc/mlkem_encap                # default: ML-KEM-768
 ./examples/pqc/mlkem_encap -mlkem=512
 ./examples/pqc/mlkem_encap -mlkem=1024
 ```
 
 ### mldsa_sign
 
-Pure ML-DSA の署名と検証のラウンドトリップです。ML-DSA のプライマリ鍵を作成し、`SignSequenceStart` と `SignSequenceComplete` で固定メッセージに署名します。Pure ML-DSA は Part 3 Sec.17.5 によりワンショットであるため、メッセージは Complete のバッファで渡されます。続いて `VerifySequenceStart`、`VerifySequenceUpdate`、`VerifySequenceComplete` で検証します (Sec.20.3 は検証シーケンスでの Update を許可しています)。返された検証チケットのタグが `TPM_ST_MESSAGE_VERIFIED` であることを検証します。
+Pure ML-DSA の署名と検証のラウンドトリップです。ML-DSA のプライマリ鍵を作成し、`SignSequenceStart` と `SignSequenceComplete` で固定メッセージに署名します。Pure ML-DSA のシーケンスはストリーミング可能であり、メッセージを `SequenceUpdate` 経由で渡すこともできますが、このサンプルでは署名時にメッセージ全体を Complete のバッファで渡します。続いて `VerifySequenceStart`、`VerifySequenceUpdate`、`VerifySequenceComplete` で検証します。返された検証チケットのタグが `TPM_ST_MESSAGE_VERIFIED` であることを検証します。
 
 ```sh
-./examples/pqc/mldsa_sign                 # default: MLDSA-65
+./examples/pqc/mldsa_sign                 # default: ML-DSA-65
 ./examples/pqc/mldsa_sign -mldsa=44
 ./examples/pqc/mldsa_sign -mldsa=87
 ```
@@ -197,7 +204,7 @@ Pure ML-DSA の署名と検証のラウンドトリップです。ML-DSA のプ�
 ./examples/keygen/keyload keyblob.bin
 ```
 
-読み込みに成功すると、トランジェント鍵ハンドルが表示されます。完全な 18 通りのマトリクス (3 種類のバリアント × 3 つのパラメータセット) は、`config.h` で v1.85 が検出された場合に `examples/run_examples.sh` によって実行されます。この汎用スイートは、それぞれ固有の TPM 要件を持つ非 PQC の操作もカバーします。
+読み込みに成功すると、トランジェント鍵ハンドルが表示されます。完全なマトリクス (3 種類のバリアント × 3 つのパラメータセットで 9 通りの鍵構成。それぞれを keygen と keyload で実行) は、`config.h` で v1.85 が検出された場合に `examples/run_examples.sh` によって実行されます。この汎用スイートは、それぞれ固有の TPM 要件を持つ非 PQC の操作もカバーします。
 
 ### パラメータ暗号化のための PQC 鍵
 
@@ -222,7 +229,7 @@ ML-KEM は制限付き復号 (ソルト) 鍵であり、対称アルゴリズム
 `examples/keygen/create_primary` は ML-DSA プライマリ鍵を作成できます。
 
 ```sh
-./examples/keygen/create_primary -mldsa            # default MLDSA-65
+./examples/keygen/create_primary -mldsa            # default ML-DSA-65
 ./examples/keygen/create_primary -mldsa=87 -oh
 ```
 
@@ -230,10 +237,10 @@ ML-KEM は制限付き復号 (ソルト) 鍵であり、対称アルゴリズム
 
 これは、サーバーの ML-DSA アイデンティティ鍵が TPM 内にある、完全な TLS 1.3 ハンドシェイクです。サーバーは wolfTPM の crypto コールバックを介して、チップ上で CertificateVerify に署名します。クライアントは ML-KEM 鍵交換を行い、ソフトウェア CA に対してサーバーを検証します。
 
-これには、デバイス鍵 (秘密鍵が TPM 内にある) に対して `wc_MlDsaKey_SignCtx` を crypto コールバックにルーティングする wolfSSL が必要です。この対応はすでにアップストリームに取り込まれているため、master またはそれ以降のリリースであれば動作します。以下のコマンドは、このデモのためにツリー内の fwTPM を起動します。
+これには、デバイス鍵 (秘密鍵が TPM 内にある) に対して `wc_MlDsaKey_SignCtx` を crypto コールバックにルーティングする wolfSSL が必要です。この変更は wolfSSL 5.9.4-stable 以降に含まれています。開発スナップショットを使用する場合は、wolfSSL のコミット `6b0c832284286dbaec8e5ab35581ff470e90826b` が含まれている必要があります。以下のコマンドは、このデモのためにツリー内の fwTPM を起動します。
 
 !!! warning
-    これはデモです。アイデンティティ鍵は認証なし (空の auth) の決定論的な TPM プライマリ鍵であり、`gen_pqc_certs` とサーバーの双方がオーナー階層から再現できます。実運用では、公開証明書から再作成できないよう、アイデンティティ鍵を空でない auth 値またはポリシーで保護する必要があります。クライアントはサーバーのチェーンをデモ CA に対して検証しますが、証明書をホスト名にバインドしません。そのため、デモはデフォルトの localhost に接続し、`-h=` を渡しません。`-h=` を指定すると、`wolfSSL_check_domain_name` を含む厳格な検証が有効になり、このリーフ証明書はそれを満たせません。実運用では、一致する subjectAltName を持つリーフ証明書を発行する必要があります。
+    これはデモです。アイデンティティ鍵は認証なし (空の auth) の決定論的な TPM プライマリ鍵であり、`gen_pqc_certs` とサーバーの双方がオーナー階層から再現できます。プライマリ鍵の鍵素材は、階層シードと作成時の入力から導出され、オブジェクトの auth 値はその導出を変えません。そのため、空でない auth 値やポリシーを追加するだけでは、オーナー階層配下で `CreatePrimary` を認可できる別の呼び出し元が同じ鍵を再作成することを防げません。実運用では、プロビジョニング済みの子オブジェクトまたは永続的なアイデンティティオブジェクトと、管理された階層の認可を組み合わせることを推奨します。クライアントはサーバーのチェーンをデモ CA に対して検証しますが、証明書をホスト名にバインドしません。そのため、デモはデフォルトの localhost に接続し、`-h=` を渡しません。`-h=` を指定すると、`wolfSSL_check_domain_name` を含む厳格な検証が有効になり、このリーフ証明書はそれを満たせません。実運用では、一致する subjectAltName を持つリーフ証明書を発行する必要があります。
 
 関与するプログラムは 3 つです。
 
@@ -268,7 +275,7 @@ ENABLE_PQC_TLS=1 ./examples/run_examples.sh   # includes the PQC TLS matrix
 
 ## ベンチマーク
 
-`examples/bench/bench` で取得した、SealSQ QVault TPM シリコン上での ML-DSA と ML-KEM のレイテンシ実測値 (鍵生成、署名、検証、カプセル化、デカプセル化) は、[benchmarks.md](benchmarks.md) に掲載されています。検証は高速 (ECDSA に匹敵) であり、鍵生成は一度だけのプロビジョニングコストです。
+`examples/bench/bench` で取得した、SEALSQ QVault TPM シリコン上での ML-DSA と ML-KEM のレイテンシ実測値 (鍵生成、署名、検証、カプセル化、デカプセル化) は、[benchmarks.md](benchmarks.md) に掲載されています。鍵生成は一度だけのプロビジョニングコストです。ML-DSA と ECDSA の数値を比較する前に、それらをどのように取得したかを同ページで確認してください。
 
 ## 関連項目
 

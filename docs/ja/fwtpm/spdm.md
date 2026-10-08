@@ -1,6 +1,6 @@
 # fwTPM の SPDM レスポンダ
 
-fwTPM には SPDM 1.3 レスポンダが同梱されているため、シリコンの裏付けがない TPM に対して SPDM スタック全体を検証できます。TCG 証明書ハンドシェイクと、DSP0274 の事前共有鍵 (PSK) ハンドシェイクの両方をサポートしています。これにより、実際のハードウェアが利用可能になる前に、CI やワークステーション上で SPDM で保護された TPM 通信を開発およびテストできます。ライブラリ全体の SPDM に関する概要については、[SPDM](../spdm.md)を参照してください。
+fwTPM には SPDM 1.3 レスポンダが同梱されているため、シリコンの裏付けがない TPM に対して SPDM スタック全体を検証できます。TCG の raw 公開鍵ハンドシェイク (GET_PUBK と GIVE_PUB、証明書なし) と、DSP0274 の事前共有鍵 (PSK) ハンドシェイクの両方をサポートしています。これにより、実際のハードウェアが利用可能になる前に、CI やワークステーション上で SPDM で保護された TPM 通信を開発およびテストできます。ライブラリ全体の SPDM に関する概要については、[SPDM](../spdm.md)を参照してください。
 
 ## 動作の仕組み
 
@@ -11,7 +11,7 @@ SPDM が有効な場合、レスポンダは既存のトランスポート HAL �
 | `0x8101` | クリア (保護されていない) SPDM メッセージ |
 | `0x8201` | セキュア SPDM メッセージ |
 
-平文の TPM フレームは、リクエスタが `SPDMONLY LOCK` を発行するまで、通常のコマンドディスパッチャに渡されます。その後は `GetCapability` のみが平文で許可され、これは Nuvoton および Nations のシリコンの動作と一致します。
+平文の TPM フレームは、リクエスタが `SPDMONLY LOCK` を発行するまで、通常のコマンドディスパッチャに渡されます。その後は `TPM2_GetCapability` のみが平文で許可され、これは Nuvoton および Nations のシリコンの動作と一致します。
 
 ## ビルド
 
@@ -27,11 +27,13 @@ make
 サーバーは 3 つのモードのいずれかで起動します。
 
 ```sh
-./src/fwtpm/fwtpm_server --spdm-tcg              # TCG cert handshake
-./src/fwtpm/fwtpm_server --spdm-psk \
-    --spdm-psk-hex dbc2192291d807742441b963f6712841...   # PSK handshake
-./src/fwtpm/fwtpm_server --no-spdm               # plaintext only (default)
+SPDM_PSK=dbc2192291d807742441b963f6712841f7697e2e39c45931f3abc53658c8b9338bd3561cab5d90cf9e493295bb5bd6b2c455e0fd19392e0ce4f3433cbcfc7047
+./src/fwtpm/fwtpm_server --spdm-tcg                              # TCG raw public key handshake
+./src/fwtpm/fwtpm_server --spdm-psk --spdm-psk-hex "$SPDM_PSK"   # PSK handshake
+./src/fwtpm/fwtpm_server --no-spdm                               # plaintext only (default)
 ```
+
+PSK は 64 バイト (16 進数 128 文字) の完全な値でなければなりません。上記の値は `spdm_test.sh` で使用されるテスト値です。手動で PSK をテストする場合は、リクエスタにも同じ値を指定してください (例: `spdm_ctrl --psk "$SPDM_PSK"`)。
 
 ## レスポンダの ID 鍵
 
