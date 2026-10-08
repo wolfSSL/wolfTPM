@@ -87,7 +87,7 @@ The handles used by the examples are defined in `./examples/tpm_test.h`.
 The RSA and ECC test keys and certificates use an index offset added to a base address:
 
 | Define | Index | Handle | Type |
-| --- | --- | --- | --- |
+|----------------------------------------|----------|----------------------------|----------------------|
 | `TPM2_DEMO_RSA_KEY_HANDLE` | `0x20` | `0x81000000 + 0x20` | Persistent key |
 | `TPM2_DEMO_RSA_CERT_HANDLE` | `0x20` | `0x01800000 + 0x20` | NV index |
 | `TPM2_DEMO_ECC_KEY_HANDLE` | `0x21` | `0x81000000 + 0x21` | Persistent key |

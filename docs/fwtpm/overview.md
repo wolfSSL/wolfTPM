@@ -279,14 +279,14 @@ These gates are independent and there is intentionally no umbrella macro: pick e
 Medium (moderate logic, builds on existing infrastructure):
 
 | Command | Spec Section | Difficulty | Notes |
-|---------|-------------|------------|-------|
+|------------------------------------------|--------|--------|------------------------------------------|
 | `TPM2_SetCommandCodeAuditStatus` | 21.2 | Medium | Manage list of commands that are audited. Needs audit bitmap in context |
 | `TPM2_PP_Commands` | 26.2 | Medium | Manage physical presence command list. Needs PP command bitmap |
 
 Hard (complex crypto or new subsystems):
 
 | Command | Spec Section | Difficulty | Notes |
-|---------|-------------|------------|-------|
+|------------------------------------------|--------|--------|------------------------------------------|
 | `TPM2_GetSessionAuditDigest` | 18.5 | Hard | Sign session audit digest. Requires session audit tracking (running hash of all commands in session). New subsystem |
 | `TPM2_GetCommandAuditDigest` | 18.6 | Hard | Sign command audit digest. Requires command audit log with running hash. New subsystem |
 | `TPM2_Commit` | 19.2 | Hard | DAA and anonymous attestation ephemeral key. Complex ECC point math (K, L, E generation). Needs DAA support in wolfCrypt |
@@ -300,7 +300,7 @@ Hard (complex crypto or new subsystems):
 `TPM2_MAC` shares command code 0x155 with `TPM2_HMAC`, and `TPM2_MAC_Start` shares 0x15B with `TPM2_HMAC_Start`, so they add no new codes. The source shows only the HMAC form (no CMAC handling was found), so the symmetric-key MAC form is not confirmed as supported.
 
 | Command | Spec Section | Difficulty | Notes |
-|---------|-------------|------------|-------|
+|------------------------------------------|--------|--------|------------------------------------------|
 | `TPM2_MAC` | 15.6 | Medium | Block cipher MAC (CMAC). Like HMAC but uses symmetric key. Needs wolfCrypt CMAC |
 | `TPM2_MAC_Start` | 17.3 | Medium | Start MAC sequence. Mirrors HMAC_Start for CMAC |
 | `TPM2_CertifyX509` | 18.8 | Hard | Generate partial X.509 certificate. Complex ASN.1 construction, caller provides tbsCert template. Deprecated in Version 184 |
@@ -314,7 +314,7 @@ Hard (complex crypto or new subsystems):
 Version 184 marks `CreateLoaded`, `AC_GetCapability`, `AC_Send`, `Policy_AC_SendSelect`, and `CertifyX509` as deprecated. `CreateLoaded` is still implemented here.
 
 | Command | Spec Section | Difficulty | Notes |
-|---------|-------------|------------|-------|
+|------------------------------------------|--------|--------|------------------------------------------|
 | `TPM2_ECC_Encrypt` | 14.8 | Medium | ECC-based encryption using the TPM-defined construction from Part 1 Annex C (ephemeral ECDH point, KDF-derived masking, and integrity data). The command does not expose a choice of scheme. |
 | `TPM2_ECC_Decrypt` | 14.9 | Medium | ECC-based decryption. Paired with ECC_Encrypt |
 | `TPM2_PolicyCapability` | 23.x | Easy | Assert TPM capability value in policy session |

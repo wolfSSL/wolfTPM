@@ -141,7 +141,7 @@ Enabling `--enable-pqc` (or `--enable-v185`) lifts several internal buffers to a
 **Buffer sizes by enabled parameter set:**
 
 | Macro | Classical | MLDSA-44 + MLKEM-512 | MLDSA-65 + MLKEM-768 | MLDSA-87 + MLKEM-1024 |
-|-------|-----------|----------------------|----------------------|------------------------|
+|----------------------------|------------|--------------------|--------------------|--------------------|
 | `FWTPM_TIS_FIFO_SIZE`     | 4096 | 4096 | 8192 | 8192 |
 | `FWTPM_MAX_COMMAND_SIZE`  | 4096 | 4096 | 8192 | 8192 |
 | `FWTPM_MAX_PUB_BUF`       | 512  | 1440 | 2080 | 2720 |
