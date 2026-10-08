@@ -27,14 +27,14 @@ make && sudo make install && sudo ldconfig && cd -
 # Build wolfTPM (submodule already present from the recursive clone)
 ./autogen.sh && ./configure --enable-spdm --enable-nuvoton && make
 
-# Enable SPDM (one-time), reset (see TPM reset pin control), connect
+# Enable SPDM (one-time), then reset the TPM, then connect
 ./examples/spdm/spdm_ctrl --enable
-timeout 0.1 gpioset --chip gpiochip0 4=0; gpioset --chip gpiochip0 --daemonize 4=1; sleep 2
+# reset the TPM now (see "TPM reset pin control" for the gpioset and reset-HAL commands)
 RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"
 ./examples/spdm/spdm_ctrl --responder-pubkey "$RESPONDER_PUBKEY" --connect
 ```
 
-上記の GPIO ラインの指定は libgpiod 2.x 形式です。libgpiod 1.x 形式と注意事項については、TPM リセットピン制御のセクションを参照してください。`responder_pubkey.hex` には、プロビジョニング記録から得た、信頼できる生の P-384 X||Y 点 (192 文字の 16 進数) が格納されています。
+リセットのコマンドとその注意事項については、TPM リセットピン制御のセクションを参照してください。`responder_pubkey.hex` には、プロビジョニング記録から得た、信頼できる生の P-384 X||Y 点 (192 文字の 16 進数) が格納されています。
 
 ### Nations NS350
 
@@ -220,7 +220,7 @@ wolfTPM の `configure` には `--disable-mctp` オプションはなく、追�
 make
 ```
 
-その後、SPDM モードのいずれかで起動します。fwTPM レスポンダーは最大 64 バイト (16 進数 128 文字) の PSK を受け付け、空の PSK とそれより長い PSK のみを拒否します。64 バイトちょうどという要件は Nations ハードウェアのプロビジョニングに適用されるものであり、このレスポンダーには適用されません。以下の値は `spdm_test.sh` で使用されるテスト用 PSK です。
+その後、SPDM モードのいずれかで起動します。fwTPM レスポンダーは、空でない最大 64 バイト (16 進数 128 文字) の PSK を受け付けます。64 バイトちょうどという要件は Nations ハードウェアのプロビジョニングに適用されるものであり、このレスポンダーには適用されません。以下の値は `spdm_test.sh` で使用されるテスト用 PSK です。
 
 ```sh
 SPDM_PSK=dbc2192291d807742441b963f6712841f7697e2e39c45931f3abc53658c8b9338bd3561cab5d90cf9e493295bb5bd6b2c455e0fd19392e0ce4f3433cbcfc7047
@@ -290,7 +290,7 @@ Nations: アイデンティティ鍵モードが工場出荷時のデフォル�
 ./examples/spdm/spdm_ctrl --status
 ```
 
-`--responder-pubkey` は、信頼できる生の P-384 X||Y 点を 192 文字の 16 進数で受け取ります。デバイスのプロビジョニング記録、または認証されたその他の製造元チャネルから入手してください。ここでの例では、これらの値をシェル変数に読み込んでいます。たとえば `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"` のようにします。レスポンダーの公開鍵はシークレットではありませんが、トラストアンカーであるため、改ざんから保護してください。PSK と ClearAuth はシークレットです。これらのファイルは、所有者のみが読み取れるようにしてください (`chmod 600`)。
+`--responder-pubkey` は、信頼できる生の P-384 X||Y 点を 192 文字の 16 進数で受け取ります。デバイスのプロビジョニング記録、または認証されたその他の製造元チャネルから入手してください。ここでの例では、これらの値をシェル変数に読み込んでいます。たとえば `RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"` のようにします。レスポンダーの公開鍵はシークレットではありませんが、トラストアンカーであるため、改ざんから保護してください。PSK と ClearAuth はシークレットです。これらのファイルは、所有者のみが読み取れるようにしてください (`chmod 600`)。シークレットをコマンドライン引数として渡すと (たとえば `--psk`)、`/proc/<pid>/cmdline` を通じてホスト上の他のユーザーに露出します。これらのサンプル CLI はデモ用ツールであるため、共有マシンでは実際のシークレットを適切に取り扱ってください。
 
 !!! warning
     `--get-pubkey` は認証なしの探索であり、それ単体で信頼を確立するために使用してはいけません。
@@ -368,7 +368,7 @@ NS350 では、PSK モードとアイデンティティ鍵モードは排他的�
 
 ### コマンドリファレンス
 
-`spdm_ctrl` のすべてのオプション:
+`spdm_ctrl` のすべてのオプション (受け付けられるオプションは、コンパイルされているベンダーアダプターによって異なります):
 
 | オプション | ベンダー | 説明 |
 |--------|--------|-------------|
@@ -424,8 +424,15 @@ NS350 では、PSK モードとアイデンティティ鍵モードは排他的�
 
 `nv_bind` サンプルは、`--policy-nv` の考え方に焦点を当てた、自己完結型のバージョンです。`authPolicy` が `TPM2_PolicyTransportSPDM` である NV インデックスをプロビジョニングし、SPDM-PSK セッション経由でシークレットを保存したうえで、通常の (SPDM ではない) 接続経由での同一の読み取りが `TPM_RC_CHANNEL` で拒否されることを示します。
 
+レスポンダーを別のターミナルで起動してリッスンさせたままにし、別のターミナルから `nv_bind` を実行します。`--clear` は fwTPM の NV 状態ファイルを削除するため、使い捨てのインスタンスを使用してください。
+
 ```sh
-./src/fwtpm/fwtpm_server --spdm-psk --spdm-psk-hex "$SPDM_PSK" --clear &
+# terminal 1: responder
+./src/fwtpm/fwtpm_server --spdm-psk --spdm-psk-hex "$SPDM_PSK" --clear
+```
+
+```sh
+# terminal 2: once the responder is listening
 ./examples/spdm/nv_bind --psk "$SPDM_PSK"
 ```
 
@@ -446,21 +453,13 @@ libgpiod 1.x では、`gpioset` はラインを駆動し、デフォルトモー
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 ```
 
-libgpiod 2.x では、チップは `--chip` で指定し、`gpioset` はプロセスが終了するまでラインを保持するため、単純な `&&` の連鎖では解放ステップに到達しません。ラインにパルスを与える方法の一例を示します。
-
-```sh
-timeout 0.1 gpioset --chip gpiochip0 4=0
-gpioset --chip gpiochip0 --daemonize 4=1
-sleep 2
-```
-
-上記の 2.x 形式は、1.x の構文を使用するテストハーネスに対しては実行していません。`gpioset` の終了後、libgpiod はラインの状態を保証しないため、リセットラインにプルアップがあることを確認してください。ST33 の場合は、4 の代わりにライン 24 を使用します。繰り返し可能な自動化には、wolfTPM のリセット HAL を使用することを推奨します。
+libgpiod 2.x では、チップは `--chip` で指定し、`gpioset` はプロセスが実行されている間だけラインを保持します。単純な `&&` の連鎖では、各 `gpioset` が終了するたびにラインが解放されます。一方、`--daemonize` はその逆で、デーモンが終了されるまでリクエストとラインのレベルを保持し続けるため、リセットピンが確保されたままになり、後続のリセットを妨げる可能性があります。どちらも、きれいな有限のパルスにはなりません。タイミングを指定したパルスには、`gpioset --toggle` を使用してください (gpioset のマニュアルを参照)。1 つのプロセスがラインを Low にし、待機し、High にし、待機してから終了します。解放後のレベルはプルレジスタに依存するため、事前にお使いのボードでこの手順を確認してください。ST33 の場合は、4 の代わりにライン 24 を使用します。繰り返し可能な自動化には、後述の wolfTPM のリセット HAL を使用することを推奨します。
 
 wolfTPM は、コードからリセットを駆動することもできます。`--enable-hal-reset` を付けてビルドし、`TPM2_IoCb_Reset(ctx, userCtx)` を呼び出します。この関数は `TPM2_CTX*` と `void*` を受け取ります。デフォルトのラインは、ST33 が GPIO24、Nuvoton が GPIO4 です。Nations のビルドも、ライン 4 を明示的に指定しない限り、デフォルトは GPIO24 です。ソースツリーの `hal/README.md` を参照してください。
 
 ## TCG SPDM ベンダーコマンド
 
-Nuvoton と Nations の TPM は、どちらも TCG の "TPM Communication over SPDM Secure Session" バインディングを実装しています。このバインディングは、各メッセージを SPDM の `VENDOR_DEFINED_REQUEST` (リクエストコード `0xFE`) として運び、`VENDOR_DEFINED_RESPONSE` (レスポンスコード `0x7E`) で応答します。`StandardID=0x0001` (TCG) が使用されます。メッセージ内のベンダーコード (VdCode) は 8 バイトの ASCII 文字列です。
+Nuvoton と Nations の TPM は、どちらも TCG の "TPM Communication over SPDM Secure Session" バインディングを実装していますが、Nuvoton のフローでは、Nations のフローが行う GET_CAPABILITIES と NEGOTIATE_ALGORITHMS のネゴシエーションが省略されます (アイデンティティ鍵モードを参照)。このバインディングは、各メッセージを SPDM の `VENDOR_DEFINED_REQUEST` (リクエストコード `0xFE`) として運び、`VENDOR_DEFINED_RESPONSE` (レスポンスコード `0x7E`) で応答します。`StandardID=0x0001` (TCG) が使用されます。メッセージ内のベンダーコード (VdCode) は 8 バイトの ASCII 文字列です。
 
 公開されている TCG の表では、`GET_PUBK`、`GIVE_PUB`、`TPM2_CMD`、および任意のロカリティ固有の `TPM2CMD0` から `TPM2CMD4` までの値が定義されています。`GET_STS_`、`SPDMONLY`、`PSK_SET_`、`PSK_CLR_` は実装またはベンダーによる拡張であり、TCG が定義したコマンドではありません。2 つのベンダーアダプターにおけるベンダー拡張の正確なワイヤ形式の詳細は `lib/wolfSPDM` サブモジュール内にあります。
 
