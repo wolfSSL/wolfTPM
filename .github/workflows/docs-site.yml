@@ -2,7 +2,7 @@ name: Build manual with documentation tooling
 
 on:
   pull_request:
-    paths:
+    paths: &doc_paths
       - 'docs/**'
       - 'mkdocs.yml'
       - 'mkdocs-ja.yml'
@@ -10,16 +10,21 @@ on:
       - 'tools/docs-manual/**'
       - 'docker/docs/**'
       - '.github/workflows/docs-site.yml'
+      - 'README.md'
+      - 'docs/Doxyfile'
+      - 'examples/README.md'
+      - 'examples/pcr/README.md'
+      - 'examples/attestation/README.md'
+      - 'examples/boot/README.md'
+      - 'hal/README.md'
+      - 'hal/tpm_io.h'
+      - 'wolftpm/tpm2.h'
+      - 'wolftpm/tpm2_wrap.h'
+      - 'wolftpm/tpm2_crypto.h'
+      - 'wolftpm/fwtpm/*.h'
   push:
     branches: [master]
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'mkdocs-ja.yml'
-      - 'tools/docs_manual.py'
-      - 'tools/docs-manual/**'
-      - 'docker/docs/**'
-      - '.github/workflows/docs-site.yml'
+    paths: *doc_paths
   workflow_dispatch:
 
 permissions:
@@ -56,20 +61,30 @@ jobs:
             docker build --pull -t "$image" docker/docs
           fi
           echo "DOCS_IMAGE=$image" >> "$GITHUB_ENV"
-      - name: Build and validate HTML and PDF
+      - name: Build and validate HTML and PDF (English and Japanese)
         run: |
+          tools/check-docs-no-internal-links.sh --selftest
           tools/check-docs-no-internal-links.sh
           docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/work/wolfTPM" \
             --workdir /work/wolfTPM "$DOCS_IMAGE" \
-            sh -c 'python3 tools/docs_manual.py build --documentation-root /work/wolfTPM/build/documentation --source-root /work/wolfTPM --target all'
-          test -s build/documentation/wolfTPM/html/index.html
+            sh -c '
+              set -e
+              python3 tools/docs_manual.py build --documentation-root /work/wolfTPM/build/documentation --source-root /work/wolfTPM --target all
+              test -s build/documentation/wolfTPM/html/index.html
+              test -s build/documentation/wolfTPM/wolfTPM-Manual.pdf
+              python3 tools/docs_manual.py build --documentation-root /work/wolfTPM/build/documentation --source-root /work/wolfTPM --lang ja --target all
+              test -s build/documentation/wolfTPM/html/index.html
+              test -s build/documentation/wolfTPM/wolfTPM-Manual-jp.pdf
+            '
           test -s build/documentation/wolfTPM/wolfTPM-Manual.pdf
+          test -s build/documentation/wolfTPM/wolfTPM-Manual-jp.pdf
       - uses: actions/upload-artifact@v4
         with:
           name: wolftpm-manual
           path: |
             build/documentation/wolfTPM/html/
             build/documentation/wolfTPM/wolfTPM-Manual.pdf
+            build/documentation/wolfTPM/wolfTPM-Manual-jp.pdf
           if-no-files-found: error
           retention-days: 14

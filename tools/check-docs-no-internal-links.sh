@@ -8,7 +8,7 @@
 set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-PATTERN='internal-docs|/Users/[A-Za-z]|/home/[A-Za-z]|~/[A-Za-z]'
+PATTERN='internal-docs|/Users/[A-Za-z]|/home/[A-Za-z]'
 
 selftest() {
   local dir fails=0

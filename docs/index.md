@@ -44,8 +44,8 @@ Portable TPM 2.0 project designed for embedded use. This manual covers building 
 
 | Area | Status | Enable flag | Page |
 | --- | --- | --- | --- |
-| TPM 2.0 specification | All TPM 2.0 commands implemented in the native API, with wrappers for common operations | Always built | [API Reference](api-reference.md) |
-| TCG TPM 2.0 Library Specification v1.59 / v1.84 / v1.85 | v1.85 post-quantum commands implemented in the client library and fwTPM server | `--enable-v185` (full v1.85) | [Build Options](build-options.md) |
+| TPM 2.0 specification | Native API for the TPM 2.0 command set, with wrappers for common operations | Always built | [API Reference](api-reference.md) |
+| TCG TPM 2.0 Library Specification revision 1.85 | Post-quantum commands implemented in the client library and fwTPM server | `--enable-v185` (full v1.85) | [Build Options](build-options.md) |
 | Post-quantum: ML-DSA (FIPS 204) and ML-KEM (FIPS 203) | Client library and fwTPM server; SealSQ QVault in silicon | `--enable-pqc` (ML-DSA / ML-KEM only), `--enable-mldsa`, `--enable-mlkem` | [Post-Quantum Cryptography](post-quantum.md) |
 | SPDM attestation (TCG certificate handshake and DSP0274 PSK handshake) | Client library, plus an SPDM 1.3 responder in fwTPM | `--enable-spdm` | [SPDM Attestation](spdm.md) |
 | Parameter encryption (AES-CFB or XOR) | Supported, along with salted unbound and HMAC sessions | Set up per session at run time | [API Reference](api-reference.md) |

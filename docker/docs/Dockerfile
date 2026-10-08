@@ -12,10 +12,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # doxybook2 (wolfSSL fork) turns the Doxygen XML into the API-reference markdown.
-RUN git clone --depth 1 https://github.com/pantor/inja /tmp/inja \
+# Both sources are pinned so this content-addressed image rebuilds identically.
+RUN git clone --depth 1 --branch v3.5.0 https://github.com/pantor/inja /tmp/inja \
     && cmake -S /tmp/inja -B /tmp/inja/build -DBUILD_TESTING=OFF -DINJA_BUILD_TESTS=OFF \
     && cmake --install /tmp/inja/build \
-    && git clone --depth 1 https://github.com/dgarske/doxybook2 /tmp/doxybook2 \
+    && git clone https://github.com/dgarske/doxybook2 /tmp/doxybook2 \
+    && git -C /tmp/doxybook2 checkout d2edb6eda200f8e62d5f46553e5da1161a4f19b3 \
     && cmake -S /tmp/doxybook2 -B /tmp/doxybook2/build \
     && cmake --build /tmp/doxybook2/build --target install \
     && rm -rf /tmp/inja /tmp/doxybook2

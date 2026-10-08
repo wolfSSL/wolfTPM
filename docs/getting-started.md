@@ -37,9 +37,20 @@ For hardware specific build steps, see [Supported Hardware](supported-hardware.m
 
 ## Run your first example
 
+A TPM must be reachable before you run any example. With the default Linux x86_64 and aarch64 build, the examples talk to a software TPM over a socket, and `make` builds that TPM (`fwtpm_server`) but does not start it. In a separate terminal, start it from the wolfTPM directory:
+
+```sh
+./src/fwtpm/fwtpm_server --clear
+```
+
+The `--clear` option deletes any saved NV state so you begin with a fresh TPM. Leave the server running.
+
+!!! note
+    A software TPM must be running before `caps` or any other example can connect. If you built for hardware instead, connect the TPM module and skip this step.
+
 The simplest example reads the TPM capabilities and searches for persistent handles:
 
-```
+```sh
 ./examples/wrap/caps
 TPM2 Get Capabilities
 wolfSSL Entering wolfCrypt_Init
@@ -47,7 +58,7 @@ Mfg NSG (0), Vendor NS350, Fw 30.30 (0x24042510), FIPS 140-2 1, CC-EAL4 0
 Found 2 persistent handles
 ```
 
-The output shows the manufacturer and firmware details of your TPM, so it will differ on other modules.
+The output shown is illustrative. It reports the manufacturer and firmware details of the TPM you connect to, so it will differ between modules and for the software TPM.
 
 Other examples go further. `./examples/native/native_test` calls the native `TPM2_*` APIs directly (startup, self test, random numbers, hashing, PCR operations, and more). The PKCS #7 and TLS examples require generating CSRs and signing them with a test script. See `examples/README.md` in the source tree for details.
 

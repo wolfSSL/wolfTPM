@@ -4,7 +4,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 ## Project Features
 
-* Full TPM 2.0 API in compliance with the TCG TPM 2.0 Library Specification, including the revision 1.59 (CertifyX509), 1.84, and 1.85 additions. Revision 1.85 adds the post-quantum ML-DSA (FIPS 204) and ML-KEM (FIPS 203) commands.
+* TPM 2.0 API built on the TCG TPM 2.0 Library Specification, including the revision 1.85 post-quantum additions: ML-DSA (FIPS 204) and ML-KEM (FIPS 203).
 * Wrappers that simplify Key Generation and Loading, RSA encrypt and decrypt, ECC sign and verify, ECDH, NV, Hashing and HMAC, AES, Sealing and Unsealing, Attestation, PCR Extend and Quote, and Secure Root of Trust.
 * TPM Interface Specification (TIS) communication over SPI or a memory mapped I/O range, with I2C and LPC available through the Linux kernel driver.
 * Runtime module auto-detection on Linux between the kernel TPM driver (`/dev/tpmX`) and direct SPI access.

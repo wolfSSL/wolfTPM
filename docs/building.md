@@ -137,9 +137,7 @@ Example `user_settings.h` for wolfTPM:
 #define SP_INT_BITS 4096
 /* #define SP_WORD_SIZE 32 */
 
-/* SHA options */
-#define NO_SHA /* on by default */
-#define NO_SHA256 /* on by default */
+/* SHA options: SHA-256 stays enabled, so do not define NO_SHA256 */
 #define WOLFSSL_SHA512
 #define WOLFSSL_SHA384
 
@@ -172,13 +170,16 @@ Example `user_settings.h` for wolfTPM:
 #define CUSTOM_RAND_GENERATE_SEED my_rng_seed
 ```
 
+!!! warning
+    The `NO_*` macros disable algorithms. wolfTPM wrappers and sessions need SHA-256, so never define `NO_SHA256` in this file.
+
 If you use `CUSTOM_RAND_GENERATE_SEED`, implement your own RNG seed function. This example gets the seed from the TPM with parameter encryption enabled:
 
 ```c
 int my_rng_seed(byte* seed, word32 sz)
 {
     int rc;
-    (void)os;
+
     /* enable parameter encryption for the RNG request */
     rc = wolfTPM2_SetAuthSession(&wolftpm_dev, 0, &wolftpm_session,
         (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
@@ -355,13 +356,13 @@ To reduce the memory footprint in constrained environments, consider these optio
 #define MAX_RSA_BITS 2048
 ```
 
-If you know your TPM module type at compile time, select it:
+If you know your TPM module type at compile time, select it. Select exactly one module variant, not several:
 
 ```c
-/* For Infineon */
+/* For Infineon, pick exactly one of these */
 #define WOLFTPM_SLB9670
-#define WOLFTPM_SLB9672
-#define WOLFTPM_SLB9673
+/* #define WOLFTPM_SLB9672 */
+/* #define WOLFTPM_SLB9673 */
 
 /* For ST ST33 */
 #define WOLFTPM_ST33

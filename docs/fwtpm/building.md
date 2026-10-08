@@ -65,7 +65,6 @@ make
 | `--enable-fwtpm-only` | Build only `fwtpm_server` (no client library, examples, or tests) |
 | `--enable-swtpm` | Use SWTPM TCP socket transport (ports 2321 and 2322) |
 | `--enable-fwtpm-nv-appendonly` | Append-only NV journal for write-once flash ports (off by default) |
-| `--enable-fwtpm-small-ctx` | Reduced-size fwTPM context for small targets |
 | `--enable-pqc` (alias `--enable-v185`) | TPM 2.0 v1.85 post-quantum support (see [Post-Quantum Support](post-quantum.md)) |
 | `--enable-spdm` | SPDM responder (with `--enable-tcg` or `--enable-psk`; see [SPDM Responder](spdm.md)) |
 | `--enable-fuzz` | Fuzzing build |
@@ -95,12 +94,12 @@ All macros are compile-time overridable (for example `-DFWTPM_MAX_OBJECTS=8`).
 |-------|---------|-------------|
 | `FWTPM_MAX_COMMAND_SIZE` | 4096 | Maximum command and response buffer size (bytes) |
 | `FWTPM_MAX_RANDOM_BYTES` | 48 | Maximum bytes per `GetRandom` call |
-| `FWTPM_MAX_OBJECTS` | 16 | Maximum concurrently loaded transient objects |
+| `FWTPM_MAX_OBJECTS` | 3 | Maximum concurrently loaded transient objects |
 | `FWTPM_MAX_PERSISTENT` | 8 | Maximum persistent objects (via `EvictControl`) |
-| `FWTPM_MAX_PRIVKEY_DER` | 2048 | Maximum DER-encoded private key size (bytes) |
+| `FWTPM_MAX_PRIVKEY_DER` | 1280 (256 with `NO_RSA`) | Maximum DER-encoded private key size (bytes) |
 | `FWTPM_MAX_HASH_SEQ` | 4 | Maximum concurrent hash and HMAC sequences |
-| `FWTPM_MAX_PRIMARY_CACHE` | 16 | Cached primary keys per hierarchy and template |
-| `FWTPM_MAX_SESSIONS` | 8 | Maximum concurrent auth sessions |
+| `FWTPM_MAX_PRIMARY_CACHE` | 4 | Cached primary keys per hierarchy and template |
+| `FWTPM_MAX_SESSIONS` | 4 | Maximum concurrent auth sessions |
 | `FWTPM_MAX_NV_INDICES` | 16 | Maximum NV RAM index slots; omitted from `FWTPM_CTX` with `FWTPM_NO_NV` |
 | `FWTPM_MAX_NV_DATA` | 2048 | Maximum data per NV index (bytes) |
 | `FWTPM_DA_DEFAULT_MAX_TRIES` | 32 | DA failed-auth count before lockout |
