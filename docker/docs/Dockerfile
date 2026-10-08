@@ -8,6 +8,7 @@ RUN apt-get update \
         doxygen build-essential cmake \
         libfmt-dev nlohmann-json3-dev libspdlog-dev libcxxopts-dev \
         pandoc texlive-xetex texlive-latex-extra texlive-fonts-recommended \
+        texlive-lang-chinese texlive-lang-japanese \
         fonts-noto-core fonts-noto-mono fonts-noto-cjk lmodern \
     && rm -rf /var/lib/apt/lists/*
 
