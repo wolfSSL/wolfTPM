@@ -49,8 +49,8 @@ wolfTPM のサンプルは、ネイティブの `TPM2_*` API と `wolfTPM2_*` �
 
 暗号化できるのは TPM コマンドの最初のパラメータだけで、その型は `TPM2B_DATA` である必要があります。たとえば TPM 鍵のパスワード認証や、TPM2.0 Quote の qualifying data が該当します。リクエストとレスポンスは、同時にも別々にも暗号化できます。これは `sessionAttributes` で制御します。
 
-* `TPMA_SESSION_encrypt`: コマンドのリクエスト用
-* `TPMA_SESSION_decrypt`: コマンドのレスポンス用
+* `TPMA_SESSION_decrypt`: コマンドのリクエスト用
+* `TPMA_SESSION_encrypt`: コマンドのレスポンス用
 
 どちらか一方だけ、または同じ認可セッションで両方を設定できます。どれを使うかは開発者が決めます。
 

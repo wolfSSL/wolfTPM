@@ -49,8 +49,8 @@ To enable parameter encryption in the examples, use `-aes` for AES-CFB mode or `
 
 Only the first parameter of a TPM command can be encrypted, and it must be of type `TPM2B_DATA`. Examples are the password auth of a TPM key or the qualifying data of a TPM2.0 Quote. The request and the response can be encrypted together or separately. The `sessionAttributes` control this:
 
-* `TPMA_SESSION_encrypt` for the command request
-* `TPMA_SESSION_decrypt` for the command response
+* `TPMA_SESSION_decrypt` for the command request
+* `TPMA_SESSION_encrypt` for the command response
 
 Either one can be set alone, or both can be set in the same authorization session. This is up to the developer.
 

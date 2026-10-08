@@ -105,9 +105,19 @@ SPI トランスポートと SPI フラッシュの NV を使用するベアメ�
 
 ```c
 FWTPM_CTX ctx;
+XMEMSET(&ctx, 0, sizeof(ctx));
+
+/* Set custom NV storage before FWTPM_Init, which loads NV state through it */
+FWTPM_NV_HAL nvHal = {
+    .read = spi_flash_read,
+    .write = spi_flash_write,
+    .ctx = &flashHandle
+};
+FWTPM_NV_SetHAL(&ctx, &nvHal);
+
 FWTPM_Init(&ctx);
 
-/* Set custom IO transport */
+/* Set custom IO transport after FWTPM_Init, which does not preserve the IO HAL */
 FWTPM_IO_HAL ioHal = {
     .send = spi_slave_send,
     .recv = spi_slave_recv,
@@ -117,14 +127,6 @@ FWTPM_IO_HAL ioHal = {
     .ctx = &spiHandle
 };
 FWTPM_IO_SetHAL(&ctx, &ioHal);
-
-/* Set custom NV storage */
-FWTPM_NV_HAL nvHal = {
-    .read = spi_flash_read,
-    .write = spi_flash_write,
-    .ctx = &flashHandle
-};
-FWTPM_NV_SetHAL(&ctx, &nvHal);
 
 /* Initialize IO and run */
 FWTPM_IO_Init(&ctx);

@@ -85,7 +85,8 @@ jobs:
         with:
           name: wolftpm-manual
           path: |
-            build/documentation/wolfTPM/html/
+            build/documentation/wolfTPM/html-en/
+            build/documentation/wolfTPM/html-ja/
             build/documentation/wolfTPM/wolfTPM-Manual.pdf
             build/documentation/wolfTPM/wolfTPM-Manual-jp.pdf
           if-no-files-found: error
