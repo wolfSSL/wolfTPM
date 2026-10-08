@@ -119,7 +119,7 @@ Host                                TPM (Nations NS350)
   |<== TPM2_RSP (AES-256-GCM) ========|
 ```
 
-NS350 では、PSK モードとアイデンティティ鍵モードは排他的です。アイデンティティ鍵は工場出荷時にプロビジョニングされており、PSK を使用する前に解除する必要があります。[PSK ライフサイクル](#psk-ライフサイクル-nations)を参照してください。
+NS350 では、PSK モードとアイデンティティ鍵モードは排他的です。アイデンティティ鍵は工場出荷時にプロビジョニングされており、PSK を使用する前に解除する必要があります。PSK ライフサイクルを参照してください。
 
 ### SPDM 専用モード (暗号化バスの強制)
 
@@ -135,7 +135,7 @@ SPDM 専用モードは、すべての TPM コマンドを暗号化された SPD
 7. Reset              (TPM back to normal cleartext mode)
 ```
 
-アプリケーションが `wolfTPM2_InitWithSpdmKey()` を通じてレスポンダー鍵を提供した後、wolfTPM は平文での起動結果にかかわらず、レスポンダーを認証して暗号化セッションを確立します。詳細は [Auto-SPDM](#auto-spdm) を参照してください。
+アプリケーションが `wolfTPM2_InitWithSpdmKey()` を通じてレスポンダー鍵を提供した後、wolfTPM は平文での起動結果にかかわらず、レスポンダーを認証して暗号化セッションを確立します。詳細は Auto-SPDM を参照してください。
 
 リセット方法はベンダーによって異なります。
 
@@ -146,7 +146,7 @@ SPDM 専用モードは、すべての TPM コマンドを暗号化された SPD
 
 ### 1. wolfSPDM サブモジュールを含めてクローンする
 
-[クイックスタート](#クイックスタート)を参照してください。SPDM は `lib/wolfSPDM` サブモジュールからビルドされるため、wolfTPM を再帰的にクローンするか、既存のチェックアウトで `git submodule update --init lib/wolfSPDM` を実行してください。
+クイックスタートを参照してください。SPDM は `lib/wolfSPDM` サブモジュールからビルドされるため、wolfTPM を再帰的にクローンするか、既存のチェックアウトで `git submodule update --init lib/wolfSPDM` を実行してください。
 
 ### 2. wolfSSL
 
@@ -279,7 +279,7 @@ Nations: アイデンティティ鍵モードが工場出荷時のデフォル�
 !!! warning
     `--get-pubkey` は認証なしの探索であり、それ単体で信頼を確立するために使用してはいけません。
 
-PSK モード (Nations) では、先に PSK をプロビジョニングする必要があります。[PSK ライフサイクル](#psk-ライフサイクル-nations)を参照してください。
+PSK モード (Nations) では、先に PSK をプロビジョニングする必要があります。PSK ライフサイクルを参照してください。
 
 ```sh
 # Establish PSK session (VERSION, CAPS, ALGO, PSK_EXCHANGE, PSK_FINISH)

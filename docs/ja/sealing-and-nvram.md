@@ -53,7 +53,7 @@ mySecretMessage
 
 ### 署名付きポリシーによる PCR へのシール
 
-固定の PCR 値に伴う脆弱性なしにシークレットを PCR にシールするには、外部キーが想定される PCR の状態に署名します。下記の [Secure boot root of trust](#secure-boot-root-of-trust) と、次のセクションの `seal_policy_auth` サンプルを参照してください。
+固定の PCR 値に伴う脆弱性なしにシークレットを PCR にシールするには、外部キーが想定される PCR の状態に署名します。下記の Secure boot root of trust と、次のセクションの `seal_policy_auth` サンプルを参照してください。
 
 ## シールのサンプル
 
@@ -247,7 +247,7 @@ Extraction of key from NVRAM at index 0x1800202 succeeded
 | `counter.c` | NV カウンターを作成してインクリメントします。 |
 | `extend.c` | PolicyOR によるバス保護を示す NV extend のサンプルです。 |
 | `policy_nv.c` | データを NV に保存し、TPM2_PolicyNV ベースの認可をテストします。 |
-| `seal_nv.c` | PCR ポリシーで保護されたシークレットを NV に保存します ([シールのサンプル](#seal-examples) を参照)。 |
+| `seal_nv.c` | PCR ポリシーで保護されたシークレットを NV に保存します (シールのサンプル を参照)。 |
 
 ## セキュアブートのルートオブトラスト
 

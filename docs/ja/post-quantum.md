@@ -12,7 +12,7 @@ wolfTPM は、TCG TPM 2.0 Library Specification v1.85 で追加されたポス�
 | Hash-ML-DSA (プリハッシュ署名) | FIPS 204 | 呼び出し側ハッシュ付きの ML-DSA-44 / 65 / 87 |
 | ML-KEM (鍵カプセル化) | FIPS 203 | ML-KEM-512 / 768 / 1024 |
 
-wolfTPM は、これらの v1.85 PQC アルゴリズムをシリコンに搭載して出荷された最初の TPM 2.0 である SealSQ QVault TPM を公式にサポートしています。同じ PQC API は、ツリー内の fwTPM サーバーに対しても動作するため、CI やハードウェアが存在しない場合に便利です。QVault TPM における ML-DSA と ML-KEM の実測性能については、[ベンチマーク](#ベンチマーク)を参照してください。
+wolfTPM は、これらの v1.85 PQC アルゴリズムをシリコンに搭載して出荷された最初の TPM 2.0 である SealSQ QVault TPM を公式にサポートしています。同じ PQC API は、ツリー内の fwTPM サーバーに対しても動作するため、CI やハードウェアが存在しない場合に便利です。QVault TPM における ML-DSA と ML-KEM の実測性能については、ベンチマークを参照してください。
 
 ## ビルド
 

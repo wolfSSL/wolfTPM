@@ -8,10 +8,10 @@ wolfTPM は、[TPM-Rev-2.0-Part-4-Supporting-Routines-01.38-code](https://truste
 
 動作を確認済みのソフトウェア TPM 実装:
 
-* [Official TCG Reference](https://github.com/TrustedComputingGroup/TPM): TCG が管理している仕様のリファレンスコードです。[TCG TPM](#tcg-tpm) を参照してください。
-* [IBM (ibmswtpm2) / Ken Goldman](https://github.com/kgoldman/ibmswtpm2): IBM が管理しているリファレンスコードのフォークです (公式の TCG コードと 93% 同一)。[ibmswtpm2](#ibmswtpm2) を参照してください。
-* [Microsoft ms-tpm-20-ref](https://github.com/microsoft/ms-tpm-20-ref): Microsoft が管理しているリファレンスコードのフォークです (公式の TCG コードと 100% 同一)。[ms-tpm-20-ref](#ms-tpm-20-ref) を参照してください。
-* [libtpms/swtpm by Stefan Berger](https://github.com/stefanberger/swtpm): libtpms のフロントエンドインターフェースを使用します。[swtpm](#swtpm) を参照してください。
+* [Official TCG Reference](https://github.com/TrustedComputingGroup/TPM): TCG が管理している仕様のリファレンスコードです。TCG TPM を参照してください。
+* [IBM (ibmswtpm2) / Ken Goldman](https://github.com/kgoldman/ibmswtpm2): IBM が管理しているリファレンスコードのフォークです (公式の TCG コードと 93% 同一)。ibmswtpm2 を参照してください。
+* [Microsoft ms-tpm-20-ref](https://github.com/microsoft/ms-tpm-20-ref): Microsoft が管理しているリファレンスコードのフォークです (公式の TCG コードと 100% 同一)。ms-tpm-20-ref を参照してください。
+* [libtpms/swtpm by Stefan Berger](https://github.com/stefanberger/swtpm): libtpms のフロントエンドインターフェースを使用します。swtpm を参照してください。
 
 ソフトウェア TPM のトランスポートは、既定ではソケット接続です。UART もサポートされています。この実装が使用するのは TPM コマンドインターフェース (通常はポート 2321) のみで、プラットフォームインターフェース (通常はポート 2322) はサポートしません。
 
