@@ -68,7 +68,7 @@ runs:
             "${{ inputs.make-target }}" \
             "${{ inputs.cc }}" | $HASH_CMD | cut -c1-16)
         echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-        echo "cache-key=wolfcose-${{ runner.os }}-${SHA}-${CFGHASH}-v1" >> "$GITHUB_OUTPUT"
+        echo "cache-key=wolfcose-${{ runner.os }}-${SHA}-${CFGHASH}-${WOLFTPM_CI_IMAGE:-native}-v1" >> "$GITHUB_OUTPUT"
         echo "wolfCOSE ${{ inputs.ref }} -> $SHA (cfg $CFGHASH)"
 
     - name: Restore wolfCOSE build cache

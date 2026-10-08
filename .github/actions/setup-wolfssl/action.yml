@@ -72,7 +72,7 @@ runs:
             "${{ inputs.cc }}" \
             "${{ inputs.prefix }}" | $HASH_CMD | cut -c1-16)
         echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-        echo "cache-key=wolfssl-${{ runner.os }}-${SHA}-${CFGHASH}-v1" >> "$GITHUB_OUTPUT"
+        echo "cache-key=wolfssl-${{ runner.os }}-${SHA}-${CFGHASH}-${WOLFTPM_CI_IMAGE:-native}-v1" >> "$GITHUB_OUTPUT"
         echo "wolfSSL ${{ inputs.ref }} -> $SHA (cfg $CFGHASH)"
 
     - name: Restore wolfSSL build cache

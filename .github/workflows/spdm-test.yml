@@ -20,6 +20,8 @@ on:
       - 'src/tpm2.c'
       - 'configure.ac'
       - '.github/workflows/spdm-test.yml'
+      - '.github/docker/wolftpm-ci/**'
+      - 'scripts/ci/spdm.sh'
       - 'tests/unit_tests.c'
   pull_request:
     branches: [master]
@@ -69,51 +71,38 @@ jobs:
           submodules: true
           persist-credentials: false
 
-      - name: Setup wolfSSL
-        uses: ./.github/actions/setup-wolfssl
+      - name: Resolve wolfSSL master
+        id: wolfssl_rev
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/wolfSSL/wolfssl.git refs/heads/master | awk 'NR==1 {print $1}')
+          test -n "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Cache wolfSSL build
+        id: wolfssl_cache
+        uses: actions/cache@v4
         with:
-          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-aescfb
-          cflags: -DWC_RSA_NO_PADDING
-          prefix: $HOME/wolfssl-install
+          path: wolfssl
+          key: wolfssl-spdm-docker-v1.1-${{ steps.wolfssl_rev.outputs.sha }}
 
-      - name: Build wolfTPM (${{ matrix.name }})
+      - name: Build and test SPDM in Docker (${{ matrix.name }})
+        env:
+          CI_IMAGE: ghcr.io/wolfssl/wolftpm-ci:v1.1
+          WOLFSSL_SHA: ${{ steps.wolfssl_rev.outputs.sha }}
+          WOLFSSL_CACHE_HIT: ${{ steps.wolfssl_cache.outputs.cache-hit }}
+          SPDM_NAME: ${{ matrix.name }}
+          SPDM_CONFIG: ${{ matrix.wolftpm_config }}
+          SPDM_MODE: build
         run: |
-          ./autogen.sh
-          ./configure ${{ matrix.wolftpm_config }} \
-                      --with-wolfcrypt=$HOME/wolfssl-install
-          make -j"$(nproc)"
-
-      - name: Compile against the installed headers (${{ matrix.name }})
-        run: |
-          set -e
-          make install DESTDIR="$PWD/inst" >/dev/null
-          printf '%s\n' '#include <wolftpm/tpm2_wrap.h>' \
-              '#include <wolftpm/spdm/spdm.h>' '#include <wolfspdm/spdm.h>' \
-              'int main(void) { return 0; }' > consumer.c
-          cc -c consumer.c -o consumer.o -I"$PWD/inst/usr/local/include" \
-              -I"$HOME/wolfssl-install/include"
-          printf '%s\n' '#include <wolfspdm/spdm.h>' \
-              'int main(void) { return 0; }' > consumer2.c
-          cc -c consumer2.c -o consumer2.o -I"$PWD/inst/usr/local/include" \
-              -I"$HOME/wolfssl-install/include"
-
-      - name: Test unavailable vendor rejection (${{ matrix.name }})
-        if: matrix.name == 'spdm-nuvoton' || matrix.name == 'spdm-nations'
-        run: |
-          set -eo pipefail
-          if [ "${{ matrix.name }}" = "spdm-nuvoton" ]; then
-            vendor=nations
-            expected="Nations adapter is not available in this build"
-          else
-            vendor=nuvoton
-            expected="Nuvoton adapter is not available in this build"
-          fi
-          if output=$(./examples/spdm/spdm_ctrl \
-              "--vendor=$vendor" --status 2>&1); then
-            echo "Expected unavailable vendor rejection"
-            exit 1
-          fi
-          grep -F "$expected" <<< "$output"
+          mkdir -p "$RUNNER_TEMP/spdm-logs"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --env WOLFSSL_SHA --env WOLFSSL_CACHE_HIT --env SPDM_NAME \
+            --env SPDM_CONFIG --env SPDM_MODE \
+            --env GIT_CONFIG_GLOBAL=/tmp/wolftpm-ci.gitconfig \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --mount "type=bind,source=$RUNNER_TEMP/spdm-logs,target=/tmp" \
+            --workdir /workspace "$CI_IMAGE" bash scripts/ci/spdm.sh
 
   # End-to-end matrix: same protocol coverage as the old hw-spdm-test, but
   # against fwtpm_server instead of real silicon. fwtpm-tcg covers pinned and
@@ -144,41 +133,38 @@ jobs:
           submodules: true
           persist-credentials: false
 
-      - name: Setup wolfSSL
-        uses: ./.github/actions/setup-wolfssl
+      - name: Resolve wolfSSL master
+        id: wolfssl_rev
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/wolfSSL/wolfssl.git refs/heads/master | awk 'NR==1 {print $1}')
+          test -n "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Cache wolfSSL build
+        id: wolfssl_cache
+        uses: actions/cache@v4
         with:
-          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-aescfb
-          cflags: -DWC_RSA_NO_PADDING
-          prefix: $HOME/wolfssl-install
+          path: wolfssl
+          key: wolfssl-spdm-docker-v1.1-${{ steps.wolfssl_rev.outputs.sha }}
 
-      - name: Build wolfTPM with full SPDM + vendor support
-        # spdm_ctrl's --connect/--status/--lock CLI dispatch is gated on
-        # WOLFSPDM_NUVOTON (TCG flow) and the --psk-set/--psk-clear CLI
-        # on WOLFSPDM_NATIONS (PSK flow). Build with both vendor flags so
-        # the same binary drives both fwtpm-tcg and fwtpm-psk sequences.
-        run: |
-          ./autogen.sh
-          ./configure --enable-fwtpm --enable-spdm \
-                      --enable-tcg --enable-psk \
-                      --enable-nuvoton --enable-nations \
-                      --enable-debug --enable-swtpm \
-                      --with-wolfcrypt=$HOME/wolfssl-install
-          make -j"$(nproc)"
-
-      - name: Run wolfTPM make check (unit tests)
+      - name: Build and test SPDM in Docker (${{ matrix.name }})
         env:
-          LD_LIBRARY_PATH: ${{ format('{0}/wolfssl-install/lib', env.HOME) }}
+          CI_IMAGE: ghcr.io/wolfssl/wolftpm-ci:v1.1
+          WOLFSSL_SHA: ${{ steps.wolfssl_rev.outputs.sha }}
+          WOLFSSL_CACHE_HIT: ${{ steps.wolfssl_cache.outputs.cache-hit }}
+          SPDM_NAME: ${{ matrix.name }}
+          SPDM_CONFIG: ''
+          SPDM_MODE: ${{ matrix.mode }}
         run: |
-          set -eo pipefail
-          make check 2>&1 | tee make-check-${{ matrix.name }}.log
-
-      - name: Run spdm_test.sh ${{ matrix.mode }}
-        env:
-          LD_LIBRARY_PATH: ${{ format('{0}/wolfssl-install/lib', env.HOME) }}
-        run: |
-          set -eo pipefail
-          ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl ${{ matrix.mode }} 2>&1 \
-              | tee spdm-${{ matrix.mode }}.log
+          mkdir -p "$RUNNER_TEMP/spdm-logs"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --env WOLFSSL_SHA --env WOLFSSL_CACHE_HIT --env SPDM_NAME \
+            --env SPDM_CONFIG --env SPDM_MODE \
+            --env GIT_CONFIG_GLOBAL=/tmp/wolftpm-ci.gitconfig \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --mount "type=bind,source=$RUNNER_TEMP/spdm-logs,target=/tmp" \
+            --workdir /workspace "$CI_IMAGE" bash scripts/ci/spdm.sh
 
       - name: Upload logs on failure
         if: failure()
@@ -190,5 +176,5 @@ jobs:
             config.log
             test-suite.log
             tests/*.log
-            /tmp/fwtpm_spdm_test.*
+            ${{ runner.temp }}/spdm-logs/fwtpm_spdm_test.*
           retention-days: 14

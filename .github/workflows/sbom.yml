@@ -23,6 +23,11 @@ jobs:
   sbom:
     name: wolfTPM SBOM generation (linux)
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     steps:
       - name: Checkout wolftpm
@@ -42,14 +47,6 @@ jobs:
           repository: wolfSSL/wolfssl
           ref: ${{ github.event.inputs.wolfssl_ref || 'master' }}
           path: wolfssl
-
-      - name: Install build tooling and SBOM validator (pyspdxtools)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential autoconf automake libtool \
-              pkg-config
-          python3 -m pip install --user 'spdx-tools==0.8.*'
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build and install wolfssl
         working-directory: wolfssl
@@ -152,6 +149,11 @@ jobs:
   # differs from that revision.
   wolfglass_drift:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
 
     steps:

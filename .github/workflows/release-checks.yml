@@ -25,6 +25,11 @@ jobs:
     name: Build wolfSSL
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
     steps:
       # Cache the wolfSSL install prefix keyed on the resolved upstream commit
@@ -38,7 +43,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/wolfssl-install
-          key: wolfssl-release-checks-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
+          key: wolfssl-release-checks-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1-ci-v1.1
 
       - name: Checkout wolfSSL
         if: steps.wolfssl_cache.outputs.cache-hit != 'true'
@@ -73,6 +78,11 @@ jobs:
     name: C++ build (CC=g++)
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
     needs: build_wolfssl
     steps:
@@ -113,12 +123,11 @@ jobs:
     name: scan-build (clang static analysis)
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # clang-tools (scan-build) baked into the CI image — no apt mirror.
+    defaults:
+      run:
+        shell: bash
     container:
-      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
     timeout-minutes: 15
     needs: build_wolfssl
     steps:
@@ -165,6 +174,11 @@ jobs:
     name: Source distribution build
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     steps:
       - name: Checkout wolfTPM

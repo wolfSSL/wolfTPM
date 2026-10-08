@@ -24,6 +24,11 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: discover
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +40,6 @@ jobs:
         # wolftpm_cflags: ""
         # test_command: "true"
         # needs_swtpm: true
-        # needs_mono: false
         # needs_dist: false
         # needs_install: false
         # csharp_test: false
@@ -43,6 +47,7 @@ jobs:
         include:
           # Default build with simulator
           - name: default
+            wolftpm_cc: ''
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
             needs_dist: true
             needs_install: true
@@ -55,7 +60,6 @@ jobs:
           # CSharp wrapper tests
           - name: csharp
             test_command: "true"
-            needs_mono: true
             needs_install: true
             csharp_test: true
 
@@ -417,7 +421,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wolfssl-old
-          key: wolfssl-old-${{ runner.os }}-v4.7.0-stable-${{ hashFiles('.github/workflows/wolfssl-v4.7.0.patch') }}-v1
+          key: wolfssl-old-${{ runner.os }}-v4.7.0-stable-${{ hashFiles('.github/workflows/wolfssl-v4.7.0.patch') }}-v1-ci-v1.1
       - name: Checkout old wolfSSL
         if: matrix.name == 'old-wolfssl' && steps.wolfssl_old_cache.outputs.cache-hit != 'true'
         uses: actions/checkout@master
@@ -447,6 +451,10 @@ jobs:
       - name: Setup ibmswtpm2
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
         uses: ./.github/actions/setup-ibmswtpm
+        with:
+          # The shared image includes tpm2-tools, so make check also runs
+          # its compatibility suite. ESYS needs extra transient object slots.
+          max-loaded-objects: 7
 
       - name: Generate TPM port
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
@@ -457,21 +465,6 @@ jobs:
           echo "TPM_PORT=$TPM_PORT" >> $GITHUB_ENV
           echo "TPM2_SWTPM_PORT=$TPM_PORT" >> $GITHUB_ENV
           echo "Generated TPM port: $TPM_PORT (matrix: ${{ matrix.name }})"
-
-      - name: Start TPM simulator
-        if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
-        working-directory: ./ibmswtpm2/src
-        run: |
-          echo "Starting TPM simulator on port $TPM_PORT"
-          ./tpm_server -port $TPM_PORT &
-
-      # Mono is a large, niche package set not baked into the CI image; just
-      # make apt resilient to mirror timeouts.
-      - name: Install mono
-        if: matrix.needs_mono == true
-        uses: ./.github/actions/apt-retry
-        with:
-          packages: mono-mcs mono-tools-devel nunit nunit-console
 
       - name: Build wolfTPM
         run: |
@@ -498,29 +491,42 @@ jobs:
           fi
           make -j"$(nproc)"
 
-      - name: Run tests
-        if: matrix.test_command && matrix.test_command != 'true'
-        run: ${{ matrix.test_command }}
-
-      - name: Install
-        if: matrix.needs_install == true
+      - name: Test, install, and check distribution
+        env:
+          NEEDS_SWTPM: ${{ matrix.needs_swtpm == true || matrix.needs_swtpm == null }}
+          TEST_COMMAND: ${{ matrix.test_command || 'true' }}
+          NEEDS_INSTALL: ${{ matrix.needs_install == true }}
+          CSHARP_TEST: ${{ matrix.csharp_test == true }}
+          NEEDS_DIST: ${{ matrix.needs_dist == true }}
         run: |
-          sudo make install
-          sudo ldconfig
-
-      - name: Build CSharp wrapper
-        if: matrix.csharp_test == true
-        working-directory: ./wrapper/CSharp
-        run: |
-          mcs wolfTPM.cs wolfTPM-tests.cs -r:/usr/lib/cli/nunit.framework-2.6.3/nunit.framework.dll -t:library
-          LD_LIBRARY_PATH=../../src/.libs/:../../wolfssl/src/.libs/ nunit-console wolfTPM.dll -run=tpm_csharp_test.WolfTPMTest.TrySelfTest
-          LD_LIBRARY_PATH=../../src/.libs/:../../wolfssl/src/.libs/ nunit-console wolfTPM.dll
-
-      - name: Make dist
-        if: matrix.needs_dist == true
-        run: |
-          make dist
-          make distcheck
+          if [ "$NEEDS_SWTPM" = true ]; then
+            (cd ibmswtpm2/src && exec ./tpm_server -port "$TPM_PORT") > /tmp/ibmswtpm.log 2>&1 &
+            server_pid=$!
+            trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+            for _ in $(seq 1 500); do
+              ss -tln | grep -q ":$TPM_PORT " && break
+              sleep 0.01
+            done
+            kill -0 "$server_pid"
+            ss -tln | grep -q ":$TPM_PORT "
+          fi
+          bash -eo pipefail -c "$TEST_COMMAND"
+          if [ "$NEEDS_INSTALL" = true ]; then
+            sudo make install
+            sudo ldconfig
+          fi
+          if [ "$CSHARP_TEST" = true ]; then
+            (
+              cd wrapper/CSharp
+              mcs wolfTPM.cs wolfTPM-tests.cs -r:/usr/lib/cli/nunit.framework-2.6.3/nunit.framework.dll -t:library
+              LD_LIBRARY_PATH=../../src/.libs/:../../wolfssl/src/.libs/ nunit-console wolfTPM.dll -run=tpm_csharp_test.WolfTPMTest.TrySelfTest
+              LD_LIBRARY_PATH=../../src/.libs/:../../wolfssl/src/.libs/ nunit-console wolfTPM.dll
+            )
+          fi
+          if [ "$NEEDS_DIST" = true ]; then
+            make dist
+            make distcheck
+          fi
 
       - name: Upload failure logs
         if: failure()

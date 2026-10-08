@@ -20,12 +20,19 @@ jobs:
   fwtpm-examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ${{ matrix.os }}
+    container:
+      image: ${{ startsWith(matrix.os, 'ubuntu-') && 'ghcr.io/wolfssl/wolftpm-ci:v1.1' || '' }}
+      options: --cap-add=SYS_ADMIN --cap-add=NET_ADMIN --cap-add=NET_RAW
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
           # fwTPM with socket/swtpm transport
           - name: fwtpm-socket
+            extra_ldflags: ''
             os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm --enable-debug
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
@@ -285,14 +292,6 @@ jobs:
         with:
           submodules: true
 
-      # Matrix includes a macOS leg, so this job stays on the host runner;
-      # apt is made resilient rather than moving into the Linux CI image.
-      - name: Install tpm2-tools
-        if: ${{ !matrix.build_only && runner.os != 'macOS' }}
-        uses: ./.github/actions/apt-retry
-        with:
-          packages: tpm2-tools libtss2-tcti-mssim0
-
       - name: macOS build deps (skip tpm2-tools)
         if: ${{ !matrix.build_only && runner.os == 'macOS' }}
         run: |
@@ -402,6 +401,11 @@ jobs:
   fwtpm-gated-runtime:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -492,6 +496,11 @@ jobs:
   # ----------------------------------------------------------------
   fwtpm-da-retry:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
@@ -529,18 +538,15 @@ jobs:
   ibmswtpm-tpm2tools:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # Host runner: tpm2-tools activatecredential hits a tpm2-tools OpenSSL
-    # credential-integrity quirk inside a container, so stay on the host
-    # (where it passes) and just make apt resilient to mirror timeouts.
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@master
         with:
           submodules: true
-
-      - name: Install tpm2-tools
-        uses: ./.github/actions/apt-retry
-        with:
-          packages: tpm2-tools libtss2-tcti-mssim0
 
       - name: Build IBM SW TPM
         uses: ./.github/actions/setup-ibmswtpm
@@ -556,12 +562,10 @@ jobs:
         run: |
           ibmswtpm2/src/tpm_server &
           TPM_PID=$!
+          trap 'kill "$TPM_PID" 2>/dev/null || true; wait "$TPM_PID" 2>/dev/null || true' EXIT
           sleep 1
           kill -0 "$TPM_PID"
           scripts/tpm2_tools_test.sh --no-start
-          rc=$?
-          kill "$TPM_PID" 2>/dev/null || true
-          exit $rc
 
   # ----------------------------------------------------------------
   # fwTPM STM32 emulator test (m33mu Cortex-M33 simulator)
@@ -569,7 +573,10 @@ jobs:
   fwtpm-emulator:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    container: ghcr.io/wolfssl/m33mu-ci:1.9
+    defaults:
+      run:
+        shell: bash
+    container: ghcr.io/wolfssl/wolftpm-ci:v1.1
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
@@ -588,14 +595,6 @@ jobs:
           repository: wolfssl/wolftpm-examples
           ref: fwtpm_stm32h5
           path: wolftpm-examples
-
-      # Runs inside the m33mu CI container (already root, no sudo); just make
-      # apt resilient to mirror timeouts.
-      - name: Install build dependencies
-        uses: ./.github/actions/apt-retry
-        with:
-          packages: autoconf automake libtool
-          sudo: "false"
 
       - name: Install STM32Cube H5 SDK
         run: |
@@ -650,13 +649,11 @@ jobs:
   fwtpm-valgrind:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # Deps baked into the CI image — no apt mirror on the happy path. The added
-    # caps let the fwtpm tests create a network namespace (unshare --net).
+    defaults:
+      run:
+        shell: bash
     container:
-      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
       options: --cap-add=SYS_ADMIN --cap-add=NET_ADMIN --cap-add=NET_RAW
     timeout-minutes: 30
     strategy:
