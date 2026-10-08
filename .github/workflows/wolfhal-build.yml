@@ -21,17 +21,17 @@ jobs:
     name: Cross compile (arm-none-eabi)
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Install ARM toolchain
-        uses: ./.github/actions/apt-retry
-        with:
-          packages: gcc-arm-none-eabi
 
       - name: Checkout wolfHAL
         uses: actions/checkout@v4
@@ -123,6 +123,11 @@ jobs:
     name: Autotools (--enable-wolfhal)
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     steps:
       - name: Checkout wolfTPM

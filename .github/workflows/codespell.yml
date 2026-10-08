@@ -18,6 +18,11 @@ jobs:
     name: Check spelling
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 5
     steps:
       - name: Checkout wolfTPM
@@ -26,7 +31,7 @@ jobs:
           submodules: true
 
       - name: Run codespell
-        uses: codespell-project/actions-codespell@v2
-        with:
-          skip: .git,./IDE,./certs,./m4,*.der,*.pem,*prebuilt_bindings.rs
-          ignore_words_list: inh,inout,keypair,nd,parm,rcv,ser,loadIn,importIn,certifyIn,bu,fo,daa,pris,hsi,fram,hart,cna
+        run: |
+          codespell --count \
+            --skip '.git,./IDE,./certs,./m4,*.der,*.pem,*prebuilt_bindings.rs' \
+            --ignore-words-list 'inh,inout,keypair,nd,parm,rcv,ser,loadIn,importIn,certifyIn,bu,fo,daa,pris,hsi,fram,hart,cna'
