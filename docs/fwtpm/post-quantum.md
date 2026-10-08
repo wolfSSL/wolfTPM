@@ -8,9 +8,9 @@ Enable it with `--enable-pqc` (alias `--enable-v185`) at configure time. It is a
 
 | Alg | Parameter Sets | Use |
 |---|---|---|
-| `TPM_ALG_MLKEM` (0x00A0) | MLKEM-512 / 768 / 1024 | Key encapsulation (decrypt-only keys) |
-| `TPM_ALG_MLDSA` (0x00A1) | MLDSA-44 / 65 / 87 | Pure ML-DSA message signing |
-| `TPM_ALG_HASH_MLDSA` (0x00A2) | MLDSA-44 / 65 / 87 | Pre-hashed ML-DSA signing |
+| `TPM_ALG_MLKEM` (0x00A0) | ML-KEM-512 / 768 / 1024 | Key encapsulation (decrypt-only keys) |
+| `TPM_ALG_MLDSA` (0x00A1) | ML-DSA-44 / 65 / 87 | Pure ML-DSA message signing |
+| `TPM_ALG_HASH_MLDSA` (0x00A2) | HashML-DSA-44 / 65 / 87 | Pre-hashed ML-DSA signing |
 
 ## Commands
 
@@ -24,7 +24,7 @@ The eight v1.85 PQC commands live in `src/fwtpm/fwtpm_command.c`:
 | `TPM2_SignSequenceComplete` | `0x000001A4` | Finalize sign sequence with message buffer |
 | `TPM2_VerifySequenceStart` | `0x000001A9` | Begin ML-DSA verify sequence |
 | `TPM2_VerifySequenceComplete` | `0x000001A3` | Finalize verify sequence, returns TPMT_TK_VERIFIED |
-| `TPM2_SignDigest` | `0x000001A6` | One-shot digest sign (Hash-ML-DSA or ext-mu ML-DSA) |
+| `TPM2_SignDigest` | `0x000001A6` | One-shot digest sign (HashML-DSA or ext-mu ML-DSA) |
 | `TPM2_VerifyDigestSignature` | `0x000001A5` | Verify digest signature |
 
 ## Primary Key Derivation
@@ -32,7 +32,7 @@ The eight v1.85 PQC commands live in `src/fwtpm/fwtpm_command.c`:
 PQC primary keys follow the same deterministic derivation model as RSA and ECC: hierarchy seed and template, then a KDFa-derived seed, then FIPS 203 or FIPS 204 key expansion.
 
 - **ML-DSA:** `KDFa(nameAlg, seed, "MLDSA", hashUnique)` gives a 32-byte Xi. `wc_MlDsaKey_MakeKeyFromSeed` turns that into the public key and the expanded private key. The wire format stores only the 32-byte Xi per TCG Part 2 Table 210.
-- **Hash-ML-DSA:** the label is `"HASH_MLDSA"`, with the same seed size and expansion.
+- **HashML-DSA:** the label is `"HASH_MLDSA"`, with the same seed size and expansion.
 - **ML-KEM:** `KDFa(nameAlg, seed, "MLKEM", hashUnique)` gives a 64-byte value (d followed by z). `wc_MlKemKey_MakeKeyWithRandom` turns that into the encapsulation and decapsulation keys. The wire format stores only the 64-byte seed per TCG Part 2 Table 206.
 
 !!! note
@@ -40,14 +40,14 @@ PQC primary keys follow the same deterministic derivation model as RSA and ECC: 
 
 ## Sign and Verify Sequences
 
-Pure ML-DSA is one-shot. `TPM2_SequenceUpdate` on a Pure ML-DSA sign sequence returns `TPM_RC_ONE_SHOT_SIGNATURE`, and the message must arrive through the `buffer` parameter of `TPM2_SignSequenceComplete`. Verify sequences accumulate the message through `TPM2_SequenceUpdate`, because `TPM2_VerifySequenceComplete` has no buffer parameter.
+Pure ML-DSA sequences are streamable on both sign and verify, so `TPM2_SequenceUpdate` is accepted. `TPM_RC_ONE_SHOT_SIGNATURE` applies to multi-pass schemes such as EdDSA, not to pure ML-DSA. A caller can also pass the whole message through the `buffer` parameter of `TPM2_SignSequenceComplete`. Verify sequences accumulate the message through `TPM2_SequenceUpdate`, because `TPM2_VerifySequenceComplete` has no buffer parameter.
 
-Hash-ML-DSA sequences (both sign and verify) use wolfCrypt's `wc_HashAlg` context to stream the message into the key's hash algorithm. `TPM2_SignSequenceComplete` finalizes the hash and calls `wc_MlDsaKey_SignCtxHash`.
+HashML-DSA sequences (both sign and verify) use wolfCrypt's `wc_HashAlg` context to stream the message into the key's hash algorithm. `TPM2_SignSequenceComplete` finalizes the hash and calls `wc_MlDsaKey_SignCtxHash`.
 
 Signature wire formats differ per spec Part 2 Table 217:
 
 - **Pure ML-DSA:** `TPM2B_SIGNATURE_MLDSA`, laid out as `sigAlg + size + bytes`
-- **Hash-ML-DSA:** `TPMS_SIGNATURE_HASH_MLDSA`, laid out as `sigAlg + hashAlg + size + bytes`
+- **HashML-DSA:** `TPMS_SIGNATURE_HASH_MLDSA`, laid out as `sigAlg + hashAlg + size + bytes`
 
 ## Buffer Constants
 
@@ -69,8 +69,8 @@ These are the worst-case values. The defaults shrink at compile time to match th
 The v1.85 commands are implemented for post-quantum keys only. Non-PQC key types are rejected with `TPM_RC_KEY` or `TPM_RC_SCHEME`, even when the v1.85 spec defines the commands generically:
 
 - `TPM2_Encapsulate` and `TPM2_Decapsulate`: ML-KEM only. ECC DHKEM (the Table 100 `ecdh` arm with a non-NULL KDF) is not implemented.
-- `TPM2_SignSequenceStart`, `TPM2_VerifySequenceStart`, `TPM2_SignSequenceComplete`, and `TPM2_VerifySequenceComplete`: ML-DSA and Hash-ML-DSA only. Classical schemes (RSASSA, RSAPSS, ECDSA, SM2, ECSCHNORR, HMAC) that the spec also permits through these commands are not supported.
-- `TPM2_SignDigest` and `TPM2_VerifyDigestSignature`: ML-DSA and Hash-ML-DSA only. Classical digest signing (RSASSA, RSAPSS, ECDSA) over these new commands is not supported. Use the existing `TPM2_Sign` and `TPM2_VerifySignature` commands for those schemes.
+- `TPM2_SignSequenceStart`, `TPM2_VerifySequenceStart`, `TPM2_SignSequenceComplete`, and `TPM2_VerifySequenceComplete`: ML-DSA and HashML-DSA only. Classical schemes (RSASSA, RSAPSS, ECDSA, SM2, ECSCHNORR, HMAC) that the spec also permits through these commands are not supported.
+- `TPM2_SignDigest` and `TPM2_VerifyDigestSignature`: ML-DSA and HashML-DSA only. Classical digest signing (RSASSA, RSAPSS, ECDSA) over these new commands is not supported. Use the existing `TPM2_Sign` and `TPM2_VerifySignature` commands for those schemes.
 
 ## Deferred and Out of Scope
 
@@ -84,12 +84,12 @@ Three v1.85 features are deferred, each for a documented reason:
 
 `tests/fwtpm_unit_tests.c` includes ten PQC tests that exercise the full path:
 
-- CreatePrimary for MLKEM-768 and MLDSA-65
+- CreatePrimary for ML-KEM-768 and ML-DSA-65
 - Full Encapsulate and Decapsulate round-trip (shared secret byte match)
-- Hash-ML-DSA SignDigest and VerifyDigestSignature round-trip
+- HashML-DSA SignDigest and VerifyDigestSignature round-trip
 - Pure ML-DSA sign sequence and verify sequence round-trip
-- Dual-source known-answer tests (NIST ACVP and wolfSSL internal vectors) for MLDSA-44 verify, MLDSA-44 keygen determinism, MLKEM-512 encapsulation with pinned randomness, and MLKEM-512 keygen determinism
-- LoadExternal of a NIST ACVP MLDSA-44 public key through the fwTPM handler
+- Dual-source known-answer tests (NIST ACVP and wolfSSL internal vectors) for ML-DSA-44 verify, ML-DSA-44 keygen determinism, ML-KEM-512 encapsulation with pinned randomness, and ML-KEM-512 keygen determinism
+- LoadExternal of a NIST ACVP ML-DSA-44 public key through the fwTPM handler
 
 ## See Also
 

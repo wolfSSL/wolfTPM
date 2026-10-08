@@ -235,18 +235,25 @@ wolfTPM source files:
 
 ```
 wolftpm/src/tpm2.c
+wolftpm/src/tpm2_util.c
 wolftpm/src/tpm2_packet.c
 wolftpm/src/tpm2_tis.c
 wolftpm/src/tpm2_wrap.c
+wolftpm/src/tpm2_asn.c
+wolftpm/src/tpm2_crypto.c
 wolftpm/src/tpm2_param_enc.c
+wolftpm/src/tpm2_cryptocb.c
+wolftpm/src/tpm2_linux.c
 ```
+
+This list matches `src_libwolftpm_la_SOURCES` in `src/include.am`. `tpm2_swtpm.c`, `tpm2_winapi.c` and `tpm2_spdm.c` are only needed for their respective optional builds. The HAL source (one of the `hal/tpm_io*.c` files, see below) is added separately.
 
 ### Step 5: Implement the SPI HAL callback
 
 wolfTPM needs a single SPI transmit and receive callback to communicate with the TPM module. Implement it for your hardware platform. Reference implementations are in the `hal/` directory of the wolfTPM repository:
 
 - [hal/tpm_io_xilinx.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_xilinx.c) for Xilinx Microblaze
-- [hal/tpm_io_stm32.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_stm32.c) for STM32
+- [hal/tpm_io_st.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_st.c) for STM32
 - [hal/tpm_io_infineon.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_infineon.c) for Infineon Tricore
 - [hal/tpm_io_microchip.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_microchip.c) for Microchip
 

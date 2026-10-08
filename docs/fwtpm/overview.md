@@ -1,13 +1,13 @@
 # fwTPM Overview
 
-The wolfTPM fwTPM (also called fTPM or swtpm-compatible) is a real firmware TPM 2.0 built entirely on wolfCrypt cryptographic primitives. It is not only an emulator for tests. It is a portable, standards-compliant TPM 2.0 command processor that runs as a standalone server process (`fwtpm_server`) or is linked into an embedded firmware image. It implements 105 of the 113 commands in the TPM 2.0 v1.38 specification (93% coverage), rising to 113 commands once the v1.85 post-quantum commands are enabled.
+The wolfTPM fwTPM (also called fTPM) is a firmware TPM 2.0 built on wolfCrypt cryptographic primitives. It is not only an emulator for tests. It is a portable TPM 2.0 command processor that runs as a standalone server process (`fwtpm_server`) or is linked into an embedded firmware image. A default build with RSA, ECC, AES, and every feature group enabled has 103 of the 112 TPM 2.0 Revision 1.38 command codes in its dispatch table. The eight Version 185 post-quantum commands raise that to 111. See Command Coverage below for the counting convention and the documented limitations, such as the minimal self-test and the missing `SU_STATE` resume support.
 
-Because it is a complete TPM implementation and not a stub, the fwTPM can be used for testing and also for production, security-critical, and isolated deployments where a discrete TPM chip is not available or not wanted. It also brings post-quantum cryptography and SPDM to platforms without TPM silicon.
+The fwTPM can be used for testing, and it can also be used in production, security-critical, and isolated deployments where a discrete TPM chip is not available or not wanted. In those deployments the security of the TPM depends on the platform that hosts it. A firmware TPM does not provide the physical isolation of a discrete TPM chip on its own, so the integrator must supply the isolation (a separate core, a TrustZone secure world, or similar) and must protect the NV storage. The default file-based NV store keeps hierarchy seeds, authorization values, and private keys in plaintext, and `fwtpm_server` itself is a development and test tool. The fwTPM also brings post-quantum cryptography and SPDM to platforms without TPM silicon.
 
-The fwTPM can replace a hardware TPM for:
+Example integration models:
 
 - **Embedded and IoT platforms** without a discrete TPM chip (bare-metal via an SPI or I2C TIS HAL)
-- **Isolated deployments**, such as a TPM running on a separate core, a TrustZone secure world, or a lock-step real-time core next to a Linux application processor
+- **Isolated deployments**, such as a TPM running on a separate core, a TrustZone secure world, or a lock-step real-time core next to a Linux application processor. The isolation comes from the platform, not from the fwTPM.
 - **Development and testing** of TPM-dependent applications (drop-in for swtpm or the Microsoft TPM simulator)
 - **CI/CD pipelines** that need TPM functionality (socket transport compatible with tpm2-tools)
 - **Prototyping** TPM workflows before hardware is available
@@ -15,44 +15,47 @@ The fwTPM can replace a hardware TPM for:
 
 ## Features
 
-- Standards-compliant TPM 2.0 command processor (105 of 113 v1.38 commands).
+- TPM 2.0 command processor covering 103 of the 112 Revision 1.38 command codes in a default build, with the limitations listed in Command Coverage.
 - TCP socket transport using the Microsoft TPM simulator protocol, compatible with wolfTPM examples and tpm2-tools. Both the mssim and swtpm TCTI protocols are auto-detected on the command port.
 - TIS register-level transport over POSIX shared memory, or over SPI or I2C for bare-metal integration.
-- HAL abstractions for IO and NV storage, so the core logic does not change when porting. See [HAL and Porting](hal-and-porting.md).
-- Post-quantum cryptography with `--enable-pqc` (alias `--enable-v185`): ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation per TCG TPM 2.0 Library Specification v1.85. Configure auto-detects PQC when `--enable-fwtpm` is built against a wolfCrypt that has both. See [Post-Quantum Support](post-quantum.md).
+- HAL abstractions for I/O and NV storage, so the core logic does not change when porting. See [HAL and Porting](hal-and-porting.md).
+- Post-quantum cryptography with `--enable-pqc`: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation per TCG TPM 2.0 Library Specification Version 185. `--enable-pqc` and `--enable-v185` are distinct project-wide modes, but configure promotes `--enable-pqc` to the full Version 185 mode when building the fwTPM, so the two behave the same for the fwTPM. Configure auto-detects PQC when `--enable-fwtpm` is built against a wolfCrypt that has both. See [Post-Quantum Support](post-quantum.md).
 - SPDM 1.3 responder for testing the SPDM stack without silicon. See [SPDM Responder](spdm.md).
 - Compile-time feature gates (`FWTPM_NO_*`) to shrink the build for constrained targets. See [Building](building.md).
 
 ## Architecture
 
 ```
-+---------------------+          +---------------------------+
-| wolfTPM Client App  |          |  fwtpm_server             |
-| (examples, tests)   |          |                           |
-+----------+----------+          |  +---------------------+  |
-           |                     |  | fwtpm_command.c      | |
-     TCP (SWTPM protocol)        |  | (command processor)  | |
-     or TIS shared memory        |  +----------+----------+  |
-           |                     |             |             |
-+----------v----------+          |  +----------v----------+  |
-| Transport Layer     +--------->+  | wolfCrypt           |  |
-| (socket or TIS HAL) |          |  | (RSA, ECC, SHA,     |  |
-+---------------------+          |  |  HMAC, RNG, AES)    |  |
-                                 |  +---------------------+  |
-                                 |             |             |
-                                 |  +----------v----------+  |
-                                 |  | fwtpm_nv.c           | |
-                                 |  | (persistent storage) | |
-                                 |  +---------------------+  |
-                                 +---------------------------+
++---------------------+     +-------------------------------+
+| wolfTPM Client App  |     |  fwtpm_server (or embedded)   |
+| (examples, tests)   |     |                               |
++----------+----------+     |  +-------------------------+  |
+           |                |  | Transport Layer         |  |
+     TCP (SWTPM protocol)   |  | (socket or TIS)         |  |
+     or TIS shared memory   |  +------------+------------+  |
+     or SPI/I2C TIS         |               |               |
+           |                |  +------------v------------+  |
+           +--------------->|  | FWTPM_ProcessCommand    |  |
+                            |  | (fwtpm_command.c)       |  |
+                            |  +------+-----------+------+  |
+                            |         |           |         |
+                            |  +------v-----+ +---v------+  |
+                            |  | wolfCrypt  | | NV       |  |
+                            |  | (RSA, ECC, | | backend  |  |
+                            |  |  SHA, HMAC,| | (fwtpm_  |  |
+                            |  |  RNG, AES) | |  nv.c)   |  |
+                            |  +------------+ +----------+  |
+                            +-------------------------------+
 ```
+
+Both the socket and TIS transports pass each command to `FWTPM_ProcessCommand`. The command handlers then use wolfCrypt and the NV backend. The flow is the same for the standalone server and for an embedded integration.
 
 **Components:**
 
 | File | Role |
 |------|------|
-| `fwtpm_command.c` | TPM 2.0 command processor and dispatch table (~9500 lines) |
-| `fwtpm_io.c` | Transport layer: SWTPM TCP socket protocol (default) |
+| `fwtpm_command.c` | TPM 2.0 command processor and dispatch table |
+| `fwtpm_io.c` | Transport layer: SWTPM TCP socket protocol (enabled by the swtpm configuration; builds without it use the TIS path) |
 | `fwtpm_nv.c` | NV storage: file-based (default); HAL-abstracted, with a built-in append-only mode for write-once flash |
 | `fwtpm_tis.c` | TIS register state machine (transport-agnostic) |
 | `fwtpm_tis_shm.c` | POSIX shared memory and semaphore TIS transport |
@@ -63,7 +66,7 @@ The fwTPM can replace a hardware TPM for:
 
 ## Supported TPM 2.0 Commands
 
-This section is a command-coverage reference. A default build (no `FWTPM_NO_*` macro set) includes every group below. Setting a gate macro removes that group's commands from the dispatch table, from `TPM2_GetCapability(TPM_CAP_COMMANDS)`, and from the `TPM_PT_TOTAL_COMMANDS` count. See [Building](building.md) for the gates.
+This section lists representative commands and is not exhaustive. It omits supported commands such as `PCR_Event`, `PCR_Allocate`, `ClockRateAdjust`, several policy commands, and some algorithm-dependent commands. The Command Coverage section below has the dispatch-table breakdown. A default build (no `FWTPM_NO_*` macro set) includes every group below. Setting a gate macro removes that group's commands from the dispatch table, from `TPM2_GetCapability(TPM_CAP_COMMANDS)`, and from the `TPM_PT_TOTAL_COMMANDS` count. See [Building](building.md) for the gates.
 
 ### Startup and Self-Test
 
@@ -71,8 +74,8 @@ This section is a command-coverage reference. A default build (no `FWTPM_NO_*` m
 |---------|-------------|
 | `TPM2_Startup` | Initialize TPM (SU_CLEAR or SU_STATE) |
 | `TPM2_Shutdown` | Save state and prepare for power-off |
-| `TPM2_SelfTest` | Execute full self-test |
-| `TPM2_IncrementalSelfTest` | Incremental algorithm self-test |
+| `TPM2_SelfTest` | Minimal self-test: a SHA-256 known-answer test and an RNG check. The source calls this nonconformant. |
+| `TPM2_IncrementalSelfTest` | No-op stub that returns an empty to-do list |
 | `TPM2_GetTestResult` | Return self-test result |
 
 ### Random Number Generation
@@ -99,7 +102,7 @@ This section is a command-coverage reference. A default build (no `FWTPM_NO_*` m
 | `TPM2_LoadExternal` | Load external (software) key |
 | `TPM2_Import` | Import externally wrapped key |
 | `TPM2_Duplicate` | Export key for transfer (inner and outer wrapping) |
-| `TPM2_Rewrap` | Re-wrap key under new parent (placeholder) |
+| `TPM2_Rewrap` | Re-wrap a duplicated object from the old parent to a new parent |
 | `TPM2_FlushContext` | Unload a transient object or session |
 | `TPM2_ContextSave` | Save object or session context |
 | `TPM2_ContextLoad` | Restore saved context |
@@ -108,7 +111,7 @@ This section is a command-coverage reference. A default build (no `FWTPM_NO_*` m
 | `TPM2_EvictControl` | Make transient key persistent (or remove) |
 | `TPM2_HierarchyControl` | Enable or disable a hierarchy |
 | `TPM2_HierarchyChangeAuth` | Change hierarchy authorization value |
-| `TPM2_Clear` | Clear hierarchy (Owner or Platform) |
+| `TPM2_Clear` | Regenerate the storage primary seed, reset owner and endorsement authorization and policy state, and schedule eligible objects for removal. Does not regenerate the platform seed or the endorsement seed. |
 | `TPM2_ChangePPS` | Replace platform primary seed |
 | `TPM2_ChangeEPS` | Replace endorsement primary seed |
 
@@ -190,23 +193,23 @@ This section is a command-coverage reference. A default build (no `FWTPM_NO_*` m
 | `TPM2_DictionaryAttackParameters` | Set `maxTries`, `recoveryTime`, `lockoutRecovery` |
 | `TPM2_DictionaryAttackLockReset` | Reset the failed-tries counter (lockoutAuth) |
 
-The fwTPM follows the TPM 2.0 spec (Part 1 Sec.19.8). A failed authorization of a DA-protected entity increments `failedTries`. Once it reaches `maxTries` the TPM returns `TPM_RC_LOCKOUT`. `failedTries` is persisted in NV on every failure, so a power cycle cannot reset it.
+The fwTPM implements dictionary-attack protection modeled on the TPM 2.0 specification (Part 1, Section 19.8). A failed authorization of a DA-protected entity increments `failedTries`. Once it reaches `maxTries` the TPM returns `TPM_RC_LOCKOUT`. `failedTries` is persisted in NV on every failure, so a power cycle cannot reset it.
 
-When a clock HAL is registered (`FWTPM_Clock_SetHAL`), the counter self-heals one try per `recoveryTime` seconds, and a non-orderly shutdown adds a one-try penalty. On clockless builds neither applies: recovery is only through `DictionaryAttackLockReset` or `Clear`, so routine unclean power-off cannot accumulate into lockout.
+When a clock HAL is registered (`FWTPM_Clock_SetHAL`), the counter self-heals one try per `recoveryTime` seconds, and a non-orderly shutdown adds a one-try penalty. On clockless builds neither applies: the persisted `failedTries` counter does not self-heal, and recovery is only through `DictionaryAttackLockReset` or `Clear`, so routine unclean power-off cannot accumulate into lockout.
 
-A failed `lockoutAuth` locks the lockout hierarchy. That lock persists across reboot and clears after `lockoutRecovery` seconds, except when `lockoutRecovery` is 0 (reboot-only recovery). The clock HAL reports milliseconds since boot, so this timer measures continuous post-boot uptime, not wall-clock time across reboots. A device that reboots more often than `lockoutRecovery` extends its effective recovery window.
+A failed `lockoutAuth` locks the lockout hierarchy. On a build with a clock HAL, that lock persists across reboot and clears after `lockoutRecovery` seconds, except when `lockoutRecovery` is 0 (reboot-only recovery). On a clockless build, the failed-`lockoutAuth` lock is cleared on every startup. With a clock HAL, the clock HAL reports milliseconds since boot, so this timer measures continuous post-boot uptime, not wall-clock time across reboots. A device that reboots more often than `lockoutRecovery` extends its effective recovery window.
 
-The lock only blocks commands authorized through `lockoutAuth` (`DictionaryAttackLockReset`, `DictionaryAttackParameters`, and lockout-authorized `Clear`). The platform hierarchy is always an escape hatch: `TPM2_ClearControl(platformAuth, clearDisable=NO)` followed by `TPM2_Clear(platformAuth)` recovers even when `disableClear` was set. `Startup` and `Shutdown` are never DA-gated, so a reboot in lockout can always recover. Entities marked `noDA` (`TPMA_OBJECT_noDA` on objects, `TPMA_NV_NO_DA` on NV indices) never feed the counter and stay usable during lockout.
+There are two separate gates. A failed `lockoutAuth` blocks later uses of `lockoutAuth` (`DictionaryAttackLockReset`, `DictionaryAttackParameters`, and lockout-authorized `Clear`). Reaching `maxTries` blocks authorization of DA-protected objects, NV indices, and bound entities, and the TPM returns `TPM_RC_LOCKOUT`. The platform hierarchy is always an escape hatch: `TPM2_ClearControl(platformAuth, clearDisable=NO)` followed by `TPM2_Clear(platformAuth)` recovers even when `disableClear` was set. `Startup` and `Shutdown` are never DA-gated, so a reboot in lockout can always recover. Entities marked `noDA` (`TPMA_OBJECT_noDA` on objects, `TPMA_NV_NO_DA` on NV indices) never feed the counter and stay usable during lockout.
 
 `TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES)` reports `TPM_PT_MAX_AUTH_FAIL`, `TPM_PT_LOCKOUT_INTERVAL`, `TPM_PT_LOCKOUT_RECOVERY`, `TPM_PT_LOCKOUT_COUNTER`, and the `inLockout` bit of `TPM_PT_PERMANENT`.
 
-Durable accounting writes the NV FLAGS entry on each DA-protected failure (and on the first DA-protected auth use per boot). This is bounded per boot, because the lockout gate stops counting once locked. On flash-backed targets it still adds wear and makes failed-auth latency NV-bound, so size the NV backend accordingly.
+Durable accounting writes the NV FLAGS entry on each DA-protected failure (and on the first DA-protected auth use per boot). The counter stops increasing while it is at `maxTries`, but clock-based self-healing can lower it, which allows further failed attempts and NV writes in the same boot, so the number of writes per boot is not strictly bounded. On flash-backed targets it still adds wear and makes failed-auth latency NV-bound, so size the NV backend accordingly.
 
-The first use of a DA-protected (non-`noDA`) authorization after startup makes a real TPM persist a `daUsed` flag to NV and return `TPM_RC_RETRY` ("resubmit the identical command") while it writes. Build with `FWTPM_DA_USED_RETRY` to emulate this so clients exercise their resubmit and retry handling. It is off by default, and DA accounting and persistence are active regardless. Compile out all DA logic with `FWTPM_NO_DA`.
+The first use of a DA-protected (non-`noDA`) authorization after startup can make a TPM persist a `daUsed` flag to NV and return `TPM_RC_RETRY` ("resubmit the identical command") while it writes. The TCG architecture describes this as one possible implementation approach, not a requirement for every TPM. Build with `FWTPM_DA_USED_RETRY` to emulate it so clients exercise their resubmit and retry handling. It is off by default, and DA accounting and persistence are active regardless. Compile out all DA logic with `FWTPM_NO_DA`.
 
 Coverage: DA, noDA, lockout, self-heal, and persistence unit tests in `tests/fwtpm_unit_tests.c`, the `examples/management/da_check` end-to-end example (add `-lockout` for the destructive lockout and recovery path), and the `tests/fwtpm_da_retry.sh` harness that exercises the `TPM_RC_RETRY` path against a `FWTPM_DA_USED_RETRY` build.
 
-### NV RAM
+### Non-Volatile Storage (NV)
 
 | Command | Description |
 |---------|-------------|
@@ -221,7 +224,6 @@ Coverage: DA, noDA, lockout, self-heal, and persistence unit tests in `tests/fwt
 | `TPM2_NV_ReadLock` | Lock NV index for reads |
 | `TPM2_NV_SetBits` | OR bits into NV bit field index |
 | `TPM2_NV_ChangeAuth` | Change NV index authorization value |
-| `TPM2_NV_Certify` | Certify NV index contents |
 
 ### Attestation and Credentials
 
@@ -231,14 +233,15 @@ Coverage: DA, noDA, lockout, self-heal, and persistence unit tests in `tests/fwt
 | `TPM2_Certify` | Certify a loaded key |
 | `TPM2_CertifyCreation` | Prove key was created by this TPM |
 | `TPM2_GetTime` | Signed attestation of TPM clock |
+| `TPM2_NV_Certify` | Certify NV index contents |
 | `TPM2_MakeCredential` | Create credential blob for a key |
 | `TPM2_ActivateCredential` | Unwrap credential blob |
 
 ## Command Coverage
 
-### Implemented (105 commands)
+### Implemented (103 Revision 1.38 command codes)
 
-The fwTPM implements 105 of the 113 commands in the v1.38 baseline (93% coverage).
+This page counts command codes, not command names, and excludes `TPM_CC_Vendor_TCG_Test` from standard totals. Revision 1.38 defines 112 standard command codes. With RSA, ECC, AES, and all feature groups enabled, the dispatch table holds 103 of them, which is about 92% of the Revision 1.38 set. The Version 185 post-quantum commands add 8. Reaching 113 entries requires `WOLFTPM_SPDM` (one more command, `PolicyTransportSPDM`) and the test-only vendor command as well.
 
 **Core set, never gated (36 commands):**
 Startup, Shutdown, SelfTest, IncrementalSelfTest, GetTestResult, GetRandom, StirRandom, GetCapability, TestParms, PCR_Read, PCR_Extend, PCR_Reset, PCR_Event, PCR_Allocate, PCR_SetAuthPolicy, PCR_SetAuthValue, CreatePrimary, FlushContext, ReadPublic, Clear, ClearControl, ChangeEPS, ChangePPS, HierarchyControl, HierarchyChangeAuth, SetPrimaryPolicy, EvictControl, Create, ObjectChangeAuth, Load, Sign, VerifySignature, StartAuthSession, Unseal, LoadExternal, CreateLoaded
@@ -253,9 +256,9 @@ RSA_Encrypt, RSA_Decrypt, ECDH_KeyGen, ECDH_ZGen, ECC_Parameters, EC_Ephemeral, 
 
 **Conditional on feature macros:**
 
-- `FWTPM_NO_POLICY`: PolicyGetDigest, PolicyRestart, PolicyPCR, PolicyPassword, PolicyAuthValue, PolicyCommandCode, PolicyOR, PolicySecret, PolicyAuthorize, PolicyLocality, PolicySigned, PolicyNV, PolicyPhysicalPresence, PolicyCpHash, PolicyNameHash, PolicyDuplicationSelect, PolicyNvWritten, PolicyTemplate, PolicyCounterTimer, PolicyTicket, PolicyAuthorizeNV (21 commands)
-- `FWTPM_NO_NV`: NV_DefineSpace, NV_UndefineSpace, NV_UndefineSpaceSpecial, NV_ReadPublic, NV_Write, NV_Read, NV_Extend, NV_Increment, NV_WriteLock, NV_ReadLock, NV_SetBits, NV_ChangeAuth, NV_GlobalWriteLock (13 commands). Also gates PolicyNV and PolicyAuthorizeNV when policy is enabled and removes the in-memory NV index slots from `FWTPM_CTX`.
-- `FWTPM_NO_ATTESTATION`: Quote, Certify, CertifyCreation, GetTime, NV_Certify
+- `FWTPM_NO_POLICY`: PolicyGetDigest, PolicyRestart, PolicyPCR, PolicyPassword, PolicyAuthValue, PolicyCommandCode, PolicyOR, PolicySecret, PolicyAuthorize, PolicyLocality, PolicySigned, PolicyNV, PolicyPhysicalPresence, PolicyCpHash, PolicyNameHash, PolicyDuplicationSelect, PolicyNvWritten, PolicyTemplate, PolicyCounterTimer, PolicyTicket, PolicyAuthorizeNV (21 commands). Also gates the conditional `PolicyTransportSPDM` command.
+- `FWTPM_NO_NV`: NV_DefineSpace, NV_UndefineSpace, NV_UndefineSpaceSpecial, NV_ReadPublic, NV_Write, NV_Read, NV_Extend, NV_Increment, NV_WriteLock, NV_ReadLock, NV_SetBits, NV_ChangeAuth, NV_GlobalWriteLock (13 commands). Also gates PolicyNV and PolicyAuthorizeNV when policy is enabled and removes the in-memory NV index slots from `FWTPM_CTX`. NV_Certify is gated by `FWTPM_NO_NV` as well as `FWTPM_NO_ATTESTATION`.
+- `FWTPM_NO_ATTESTATION`: Quote, Certify, CertifyCreation, GetTime, NV_Certify (NV_Certify is also removed by `FWTPM_NO_NV`)
 - `FWTPM_NO_CREDENTIAL`: MakeCredential, ActivateCredential
 - `FWTPM_NO_DA`: DictionaryAttackLockReset, DictionaryAttackParameters (2 commands)
 - `FWTPM_NO_PARAM_ENC`: Disables parameter encryption and decryption for command and response parameters. Sessions still work for HMAC auth, but encrypted transport is disabled. Reduces code size by removing AES-CFB and XOR parameter encryption.
@@ -265,12 +268,13 @@ RSA_Encrypt, RSA_Decrypt, ECDH_KeyGen, ECDH_ZGen, ECC_Parameters, EC_Ephemeral, 
 - `FWTPM_NO_CONTEXT`: ContextSave, ContextLoad (2 commands). FlushContext is retained. Also drops the per-boot context protection key and the saved-context replay list from `FWTPM_CTX`.
 - `FWTPM_NO_SYM_ENCRYPT`: EncryptDecrypt, EncryptDecrypt2 (2 commands). Nests inside `NO_AES`. AES itself is retained for session parameter encryption, AES-GCM, and (unless `FWTPM_NO_CONTEXT` is also set) context protection.
 - `FWTPM_NO_CLOCK`: ReadClock, ClockSet, ClockRateAdjust (3 commands). GetTime is under `FWTPM_NO_ATTESTATION`, not this flag.
+- `FWTPM_NO_PP`: PolicyPhysicalPresence and physical-presence enforcement. Drops the physical-presence HAL, the platform latch, and `FWTPM_PP_SetHAL`.
 
-These gates are independent and there is intentionally no umbrella macro: pick exactly the groups your fTPM does not need. Applying all of them plus `FWTPM_NO_POLICY`, `FWTPM_NO_ATTESTATION`, `FWTPM_NO_CREDENTIAL`, `FWTPM_NO_DA`, and `FWTPM_NO_PARAM_ENC` (keeping NV, or adding `FWTPM_NO_NV` to drop it) leaves a core fTPM: Startup, GetCapability, GetRandom, PCR, Create, Load, Sign, VerifySignature, NV, and sessions. See the MicroBlaze V example in the `wolftpm-examples` repository (listed in [Usage](usage.md)) for a worked selection.
+These gates are independent and there is intentionally no umbrella macro: pick exactly the groups your fTPM does not need. Applying every gate leaves the core set of 36 always-present commands, plus whatever the algorithm configuration keeps (keeping NV, or adding `FWTPM_NO_NV` to drop it). See the MicroBlaze V example in the `wolftpm-examples` repository (listed in [Usage](usage.md)) for a worked selection.
 
 ### Missing Commands
 
-#### v1.38 baseline (8 missing commands)
+#### Revision 1.38 baseline (9 missing command codes)
 
 Medium (moderate logic, builds on existing infrastructure):
 
@@ -291,23 +295,27 @@ Hard (complex crypto or new subsystems):
 | `TPM2_FieldUpgradeData` | 27.3 | Hard | Firmware upgrade data blocks. Vendor-specific |
 | `TPM2_FirmwareRead` | 27.4 | Hard | Read firmware for backup. Vendor-specific |
 
-#### v1.59 additions (7 commands)
+#### Revision 1.59 additions (5 new command codes)
+
+`TPM2_MAC` shares command code 0x155 with `TPM2_HMAC`, and `TPM2_MAC_Start` shares 0x15B with `TPM2_HMAC_Start`, so they add no new codes. The source shows only the HMAC form (no CMAC handling was found), so the symmetric-key MAC form is not confirmed as supported.
 
 | Command | Spec Section | Difficulty | Notes |
 |---------|-------------|------------|-------|
 | `TPM2_MAC` | 15.6 | Medium | Block cipher MAC (CMAC). Like HMAC but uses symmetric key. Needs wolfCrypt CMAC |
 | `TPM2_MAC_Start` | 17.3 | Medium | Start MAC sequence. Mirrors HMAC_Start for CMAC |
-| `TPM2_CertifyX509` | 18.8 | Hard | Generate partial X.509 certificate. Complex ASN.1 construction, caller provides tbsCert template. Deprecated in v1.84 |
-| `TPM2_AC_GetCapability` | 32.2 | Hard | Attached component capability query. Hardware-specific, rarely needed for software TPM |
-| `TPM2_AC_Send` | 32.3 | Hard | Send data to attached component. Hardware-specific |
-| `TPM2_Policy_AC_SendSelect` | 32.4 | Medium | Policy for AC_Send. Like other policy commands |
+| `TPM2_CertifyX509` | 18.8 | Hard | Generate partial X.509 certificate. Complex ASN.1 construction, caller provides tbsCert template. Deprecated in Version 184 |
+| `TPM2_AC_GetCapability` | 32.2 | Hard | Deprecated in Version 184. Attached component capability query. Hardware-specific, rarely needed for software TPM |
+| `TPM2_AC_Send` | 32.3 | Hard | Deprecated in Version 184. Send data to attached component. Hardware-specific |
+| `TPM2_Policy_AC_SendSelect` | 32.4 | Medium | Deprecated in Version 184. Policy for AC_Send. Like other policy commands |
 | `TPM2_ACT_SetTimeout` | 33.2 | Medium | Set authenticated countdown timer. Needs ACT state and timer infrastructure |
 
-#### v1.84 additions (9 commands)
+#### Version 184 additions (9 command codes, 8 missing)
+
+Version 184 marks `CreateLoaded`, `AC_GetCapability`, `AC_Send`, `Policy_AC_SendSelect`, and `CertifyX509` as deprecated. `CreateLoaded` is still implemented here.
 
 | Command | Spec Section | Difficulty | Notes |
 |---------|-------------|------------|-------|
-| `TPM2_ECC_Encrypt` | 14.8 | Medium | ECC-based encryption (ECIES or ElGamal). wolfCrypt ECIES support available |
+| `TPM2_ECC_Encrypt` | 14.8 | Medium | ECC-based encryption using the TPM-defined construction from Part 1 Annex C (ephemeral ECDH point, KDF-derived masking, and integrity data). The command does not expose a choice of scheme. |
 | `TPM2_ECC_Decrypt` | 14.9 | Medium | ECC-based decryption. Paired with ECC_Encrypt |
 | `TPM2_PolicyCapability` | 23.x | Easy | Assert TPM capability value in policy session |
 | `TPM2_PolicyParameters` | 23.x | Easy | Assert command parameters in policy session |
@@ -315,41 +323,50 @@ Hard (complex crypto or new subsystems):
 | `TPM2_NV_DefineSpace2` | 31.x | Medium | Extended NV space definition (larger attribute field). Extends existing NV_DefineSpace |
 | `TPM2_NV_ReadPublic2` | 31.x | Easy | Extended NV public read. Extends existing NV_ReadPublic |
 | `TPM2_ReadOnlyControl` | 24.x | Easy | Toggle TPM read-only mode. Simple flag |
-| `TPM2_PolicyTransportSPDM` | 23.x | Hard | SPDM transport policy. Requires SPDM protocol support |
+
+#### Conditionally implemented
+
+`TPM2_PolicyTransportSPDM` has a handler and a dispatch-table entry whenever `WOLFTPM_SPDM` is enabled, and it is removed by `FWTPM_NO_POLICY`. It is not missing. See [SPDM Responder](spdm.md).
 
 ### Coverage Summary
 
-The eight v1.85 PQC commands (`TPM2_Encapsulate`, `TPM2_Decapsulate`, `TPM2_SignDigest`, `TPM2_VerifyDigestSignature`, `TPM2_SignSequenceStart`, `TPM2_SignSequenceComplete`, `TPM2_VerifySequenceStart`, `TPM2_VerifySequenceComplete`) are implemented under `--enable-pqc` (alias `--enable-v185`). See [Post-Quantum Support](post-quantum.md) for the PQC-only restriction on these commands.
+The eight Version 185 PQC commands (`TPM2_Encapsulate`, `TPM2_Decapsulate`, `TPM2_SignDigest`, `TPM2_VerifyDigestSignature`, `TPM2_SignSequenceStart`, `TPM2_SignSequenceComplete`, `TPM2_VerifySequenceStart`, `TPM2_VerifySequenceComplete`) are implemented under `--enable-pqc`. See [Post-Quantum Support](post-quantum.md) for the PQC-only restriction on these commands.
 
-| Spec Version | Total Commands | Implemented | Missing | Coverage |
-|-------------|---------------|-------------|---------|----------|
-| v1.38 | 113 | 105 | 8 | 93% |
-| v1.59 | 120 | 105 | 15 | 88% |
-| v1.84 | 129 | 105 | 24 | 81% |
-| v1.85 | 137 | 113 | 24 | 82% |
+| Spec Version | Total Command Codes | Implemented (default build) | Missing | Coverage |
+|-------------|---------------------|-----------------------------|---------|----------|
+| Revision 1.38 | 112 | 103 | 9 | 92% |
+| Revision 1.59 | 117 | 103 | 14 | 88% |
+| Version 184 | 126 | 103 | 23 | 82% |
+| Version 185 | 134 | 111 | 23 | 83% |
+
+Implemented counts assume RSA, ECC, AES, and all feature groups, with SPDM, PQC (except in the Version 185 row), and the vendor test command disabled. Enabling `WOLFTPM_SPDM` adds `PolicyTransportSPDM` (one more implemented code). The Version 185 row includes the eight PQC commands.
+
+Known limitations: `TPM2_SelfTest` is a minimal smoke test and `TPM2_IncrementalSelfTest` is a stub, as noted above, and `SU_STATE` resume is not supported (see the lifecycle section). The command coverage above should not be read as full conformance with the TCG specification.
 
 ## Startup and Shutdown Lifecycle
 
 1. **First boot:** `FWTPM_NV_Init` finds no NV file, generates random hierarchy seeds, and saves the initial state.
-2. **`TPM2_Startup(SU_CLEAR)`:** Flushes transient objects and sessions and resets PCRs. Required before any other TPM command.
+2. **`TPM2_Startup(SU_CLEAR)`:** Flushes transient objects and sessions and resets PCRs. Required before most other TPM commands. `TPM2_GetCapability` is accepted before `Startup`.
 3. **Normal operation:** Commands are processed through `FWTPM_ProcessCommand`.
 4. **`TPM2_Shutdown`:** Saves NV state but does not clear the "started" flag. The TPM remains logically powered on.
 5. **Server restart** (process exit and relaunch) constitutes a power cycle. Only after a power cycle can `TPM2_Startup` be called again.
 
 Calling `TPM2_Startup` on an already-started TPM returns `TPM_RC_INITIALIZE`.
 
+Known limitation: `Startup(SU_STATE)` is accepted without checking that a matching `Shutdown(SU_STATE)` came before it, and a process restart zeroes `FWTPM_CTX` and reloads only NV-backed state. Transient objects and sessions are therefore not preserved across a restart, which a conforming TPM Resume requires. This stays a limitation until volatile state serialization and the shutdown and startup sequence checks are implemented.
+
 ## Primary Key Derivation
 
-Primary keys are deterministically derived from the hierarchy seed per TPM 2.0 Part 1 Section 26. The same seed and the same template always produce the same key:
+Primary keys are deterministically derived from the hierarchy seed from the hierarchy seed using KDFa-based formulas that are specific to this implementation. The same seed, the same public template, and the same `sensitiveCreate.data` always produce the same key. Revision 1.38 discusses primary-object creation in Clause 27.
 
 - **RSA:** Primes p and q are derived by iterative KDFa with the labels `"RSA p"` and `"RSA q"`, then primality testing, then CRT computation.
 - **ECC:** The private scalar d is derived with `KDFa(nameAlg, seed, "ECC", hashUnique, counter)`, and the public point is Q = d*G.
-- **KEYEDHASH and SYMCIPHER:** Key bytes are derived with `KDFa(nameAlg, seed, label, hashUnique)`.
-- **hashUnique:** `H(sensitiveCreate.data || inPublic.unique)` per Section 26.1.
+- **KEYEDHASH and SYMCIPHER:** Key bytes are derived with `KDFa(nameAlg, seed, label, hashUnique)`. For KEYEDHASH, nonempty `sensitiveCreate.data` is used directly and is not derived.
+- **hashUnique:** `H(sensitiveCreate.data || inPublic.unique)`. Because `sensitiveCreate.data` feeds `hashUnique` and the cache digest, a different value gives a different key.
 
 A primary key cache (SHA-256 of the template, `FWTPM_MAX_PRIMARY_CACHE` slots) avoids re-deriving expensive RSA keys on repeated `CreatePrimary` calls.
 
-Hierarchy seeds are managed by `ChangePPS` (platform) and `ChangeEPS` (endorsement). `Clear` regenerates the owner and endorsement seeds. The null seed is re-randomized on every `Startup(CLEAR)`. For post-quantum primary keys, see [Post-Quantum Support](post-quantum.md).
+Hierarchy seeds are managed by `ChangePPS` (platform) and `ChangeEPS` (endorsement). `Clear` regenerates the owner (storage primary) seed and resets endorsement authorization and policy state, but it leaves the endorsement seed and the platform seed unchanged; use `ChangeEPS` to replace the endorsement seed. The null seed is re-randomized on every `Startup(CLEAR)`. For post-quantum primary keys, see [Post-Quantum Support](post-quantum.md).
 
 ## See Also
 

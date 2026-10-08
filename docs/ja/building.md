@@ -235,18 +235,25 @@ wolfTPM のソースファイル:
 
 ```
 wolftpm/src/tpm2.c
+wolftpm/src/tpm2_util.c
 wolftpm/src/tpm2_packet.c
 wolftpm/src/tpm2_tis.c
 wolftpm/src/tpm2_wrap.c
+wolftpm/src/tpm2_asn.c
+wolftpm/src/tpm2_crypto.c
 wolftpm/src/tpm2_param_enc.c
+wolftpm/src/tpm2_cryptocb.c
+wolftpm/src/tpm2_linux.c
 ```
+
+このリストは `src/include.am` の `src_libwolftpm_la_SOURCES` に対応します。`tpm2_swtpm.c`、`tpm2_winapi.c`、`tpm2_spdm.c` は、それぞれのオプションビルドでのみ必要です。HAL のソース (`hal/tpm_io*.c` のいずれか、後述) は別途追加します。
 
 ### 手順 5: SPI HAL コールバックを実装する
 
 wolfTPM が TPM モジュールと通信するには、SPI の送受信コールバックが 1 つ必要です。お使いのハードウェアプラットフォーム向けに実装してください。参考実装は wolfTPM リポジトリの `hal/` ディレクトリにあります。
 
 - [hal/tpm_io_xilinx.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_xilinx.c): Xilinx Microblaze 向け
-- [hal/tpm_io_stm32.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_stm32.c): STM32 向け
+- [hal/tpm_io_st.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_st.c): STM32 向け
 - [hal/tpm_io_infineon.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_infineon.c): Infineon Tricore 向け
 - [hal/tpm_io_microchip.c](https://github.com/wolfSSL/wolfTPM/blob/master/hal/tpm_io_microchip.c): Microchip 向け
 

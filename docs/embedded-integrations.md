@@ -272,7 +272,7 @@ For questions, email support@wolfssl.com.
 
 ## IAR-EWARM
 
-The `IDE/IAR-EWARM` directory holds an IAR Embedded Workbench for ARM project for the TPM 2.0 wrapper API. It has no README.
+The `IDE/IAR-EWARM` directory holds an IAR Embedded Workbench for ARM project for the TPM 2.0 wrapper API. It has no README, so the notes below come from the project files.
 
 | Path | Contents |
 | --- | --- |
@@ -284,8 +284,28 @@ The `IDE/IAR-EWARM` directory holds an IAR Embedded Workbench for ARM project fo
 
 Open `ewarm-tpm2.eww` in IAR Embedded Workbench to build. The example uses fixed handles for the storage key (`0x81000000`), RSA key (`0x81000010`), RSA public key (`0x81000011`), and an NV certificate index (`0x01800000`).
 
+### IAR Project Settings
+
+These settings come from `ewarm-tpm2.ewp`. The project uses the ARM toolchain and has Debug and Release configurations.
+
+| Setting | Value |
+| --- | --- |
+| Include paths | `$PROJ_DIR$\..\..` (the wolfTPM root, so `#include <wolftpm/tpm2.h>` resolves) and `$PROJ_DIR$\header` |
+| Debug preprocessor define | `WOLFTPM2_NO_WOLFCRYPT` |
+| Release preprocessor define | `NDEBUG` |
+| wolfTPM sources in the `lib/wolftpm` group | `src/tpm2.c`, `src/tpm2_packet.c`, `src/tpm2_tis.c`, `src/tpm2_wrap.c` |
+| Application sources | `source/main.c`, `source/tpm_main.c` |
+
+The project does not add wolfSSL sources or include paths, and it does not define `WOLFTPM_USER_SETTINGS`. The Debug configuration builds wolfTPM without wolfCrypt through `WOLFTPM2_NO_WOLFCRYPT`. The Release configuration does not define it, so a Release build needs wolfSSL headers and sources added to the project. Adjust the include paths and defines to match how you build wolfSSL for your target.
+
 !!! note
-    This section needs expansion: required wolfSSL and wolfTPM settings, the HAL used, and tested IAR versions.
+    The project file does not set a device or core. Select your target device in Options, General Options, Target before building. The project file was last saved by IAR EWARM 8.30.1 (build 17146). No other IAR versions are recorded in the repository, so none are listed as tested.
+
+### IAR HAL
+
+The project compiles `src/tpm2_tis.c`, so it uses the standard TPM TIS layer with the IO callback HAL (see [HAL I/O Callback](hal-io-callback.md)). It does not include a ready-made SPI driver. `source/tpm_main.c` defines a stub callback, `TPM2_IoCb`, that returns `TPM_RC_FAILURE` until you replace the `TODO` line with a call to your own SPI transfer routine. The callback is passed to `wolfTPM2_Init` in `TPM2_Cust_Example`.
+
+The example then reads the persistent storage key at `0x81000000`. If it is missing, it creates an RSA primary storage key, makes it persistent, and does the same for the RSA key at `0x81000010`. It uses the passwords `ThisIsMyStorageKeyAuth` and `ThisIsMyKeyAuth`, and it unloads both handles and calls `wolfTPM2_Cleanup` before it returns.
 
 ## Visual Studio
 
@@ -295,8 +315,39 @@ All build settings are in `IDE/VisualStudio/user_settings.h`. The projects assum
 
 The solution supports the FIPS Ready bundle from the wolfSSL website. To use it, enable the `#if 0` FIPS section in `user_settings.h`. See `wolfssl/IDE/WIN10/README.txt` in the wolfSSL source for how to set the FIPS integrity check in `fips_test.c` at run time.
 
-!!! note
-    This section needs expansion: step-by-step build instructions and the TPM interface used on Windows. For TBS, see [Windows TBS](system-interfaces.md).
+### Build Steps
+
+1. Place the `wolftpm` and `wolfssl` source directories next to each other. The projects use include paths such as `../../` and `../../../wolfssl/`.
+2. Open `IDE/VisualStudio/wolftpm.sln`. The projects specify platform toolset `v110`, so Visual Studio asks to retarget them to the toolset you have installed.
+3. Choose a configuration (`Debug`, `Release`, `DLL Debug`, or `DLL Release`) and a platform (`Win32` or `x64`).
+4. Build the solution. `wolftpm` references the `wolfssl` project, so wolfSSL builds first.
+
+The wolfTPM CI workflow builds the solution from the command line with MSBuild and the `v142` toolset, using the `Debug` configuration on `x64`:
+
+```sh
+msbuild /m /p:PlatformToolset=v142 /p:Platform=x64 /p:Configuration=Debug wolftpm\IDE\VisualStudio\wolftpm.sln
+```
+
+The solution contains five projects: `wolfssl`, `wolftpm`, `wolfcrypt_test`, `wrap_test` (built from `examples/wrap/wrap_test.c`), and `tls_server`.
+
+### Role of user_settings.h
+
+The `wolftpm` project defines `WOLFSSL_USER_SETTINGS` and `WOLFTPM_USER_SETTINGS`, so both libraries read `IDE/VisualStudio/user_settings.h` instead of a generated `options.h`. The file is a template for wolfTPM with TLS 1.2 and 1.3. Settings that matter to wolfTPM include:
+
+| Define | Purpose |
+| --- | --- |
+| `WOLFTPM_WINAPI` | Set when `_WIN32` is defined. Selects the Windows TBS transport. |
+| `WOLFSSL_AES_CFB` | Required for TPM parameter encryption. |
+| `WOLFSSL_PUBLIC_MP` | Exposes `mp_` math functions, needed for TPM ECC secret encryption. |
+| `WOLFTPM_AUTODETECT` | Supports any TPM model with safe defaults. |
+| `WOLF_CRYPTO_CB` and `HAVE_PK_CALLBACKS` | Callbacks used to run crypto on the TPM. |
+| `WOLFSSL_CERT_GEN`, `WOLFSSL_CERT_REQ`, `WOLFSSL_CERT_EXT` | Certificate and CSR generation. |
+
+The file also has a disabled `#if 0` FIPS section, a math option (`WOLFSSL_SP_MATH_ALL` without FIPS), and a debug section with `DEBUG_WOLFSSL` turned on.
+
+### Windows TPM Transport
+
+The Visual Studio projects use the Windows TBS (TPM Base Services) interface, not SPI or a simulator. `user_settings.h` defines `WOLFTPM_WINAPI` on Windows, `wolftpm.vcxproj` compiles `src/tpm2_winapi.c`, and the example projects (`wrap_test`, `tls_server`) and the DLL configurations of `wolftpm` link `tbs.lib`. In this mode wolfTPM calls the TBS API from `tbs.h`. It rejects an IO callback or user context, so pass `NULL` for both to `wolfTPM2_Init`. See [Windows TBS](system-interfaces.md) for NV access limits and how to run the examples.
 
 ## U-Boot
 

@@ -73,9 +73,11 @@ jobs:
               python3 tools/docs_manual.py build --documentation-root /work/wolfTPM/build/documentation --source-root /work/wolfTPM --target all
               test -s build/documentation/wolfTPM/html/index.html
               test -s build/documentation/wolfTPM/wolfTPM-Manual.pdf
+              cp -r build/documentation/wolfTPM/html build/documentation/wolfTPM/html-en
               python3 tools/docs_manual.py build --documentation-root /work/wolfTPM/build/documentation --source-root /work/wolfTPM --lang ja --target all
               test -s build/documentation/wolfTPM/html/index.html
               test -s build/documentation/wolfTPM/wolfTPM-Manual-jp.pdf
+              cp -r build/documentation/wolfTPM/html build/documentation/wolfTPM/html-ja
             '
           test -s build/documentation/wolfTPM/wolfTPM-Manual.pdf
           test -s build/documentation/wolfTPM/wolfTPM-Manual-jp.pdf

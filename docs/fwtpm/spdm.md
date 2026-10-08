@@ -1,6 +1,6 @@
 # fwTPM SPDM Responder
 
-The fwTPM ships an SPDM 1.3 responder, so the full SPDM stack can be exercised against a TPM that has no silicon behind it. It supports both the TCG certificate handshake and the DSP0274 pre-shared key (PSK) handshake. This lets you develop and test SPDM-secured TPM communication in CI or on a workstation before real hardware is available. For the library-wide SPDM view, see [SPDM](../spdm.md).
+The fwTPM ships an SPDM 1.3 responder, so the full SPDM stack can be exercised against a TPM that has no silicon behind it. It supports both the TCG raw public key handshake (GET_PUBK and GIVE_PUB, no certificates) and the DSP0274 pre-shared key (PSK) handshake. This lets you develop and test SPDM-secured TPM communication in CI or on a workstation before real hardware is available. For the library-wide SPDM view, see [SPDM](../spdm.md).
 
 ## How It Works
 
@@ -11,7 +11,7 @@ When SPDM is on, the responder sits above the existing transport HAL and dispatc
 | `0x8101` | Clear (unsecured) SPDM message |
 | `0x8201` | Secured SPDM message |
 
-Plaintext TPM frames fall through to the regular command dispatcher until the requester issues `SPDMONLY LOCK`. After that, only `GetCapability` is allowed through in plaintext, which matches the behavior of Nuvoton and Nations silicon.
+Plaintext TPM frames fall through to the regular command dispatcher until the requester issues `SPDMONLY LOCK`. After that, only `TPM2_GetCapability` is allowed through in plaintext, which matches the behavior of Nuvoton and Nations silicon.
 
 ## Building
 
@@ -27,11 +27,13 @@ make
 Start the server in one of three modes:
 
 ```sh
-./src/fwtpm/fwtpm_server --spdm-tcg              # TCG cert handshake
-./src/fwtpm/fwtpm_server --spdm-psk \
-    --spdm-psk-hex dbc2192291d807742441b963f6712841...   # PSK handshake
-./src/fwtpm/fwtpm_server --no-spdm               # plaintext only (default)
+SPDM_PSK=dbc2192291d807742441b963f6712841f7697e2e39c45931f3abc53658c8b9338bd3561cab5d90cf9e493295bb5bd6b2c455e0fd19392e0ce4f3433cbcfc7047
+./src/fwtpm/fwtpm_server --spdm-tcg                              # TCG raw public key handshake
+./src/fwtpm/fwtpm_server --spdm-psk --spdm-psk-hex "$SPDM_PSK"   # PSK handshake
+./src/fwtpm/fwtpm_server --no-spdm                               # plaintext only (default)
 ```
+
+The PSK must be a complete 64-byte value (128 hex characters); the one above is the test value used by `spdm_test.sh`. For a manual PSK test, give the requester the same value, for example `spdm_ctrl --psk "$SPDM_PSK"`.
 
 ## Responder Identity Key
 

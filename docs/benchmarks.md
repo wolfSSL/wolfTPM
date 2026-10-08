@@ -1,6 +1,6 @@
 # Benchmarks
 
-This page shows how fast the supported TPM 2.0 devices run common operations, measured with the `examples/bench/bench` program, plus the first post-quantum numbers from SealSQ QVault silicon.
+This page shows how fast the supported TPM 2.0 devices run common operations, measured with the `examples/bench/bench` program, plus the first post-quantum numbers from SEALSQ QVault silicon.
 
 ## About these numbers
 
@@ -62,9 +62,9 @@ ECDHE    256 agree         16 ops took 1.055 sec, avg 65.948 ms, 15.164 ops/sec
 
 Devices that do not support a mode print "not supported" for it.
 
-## Post-quantum (SealSQ QVault)
+## Post-quantum (SEALSQ QVault)
 
-These numbers were measured with `examples/bench/bench` on a Raspberry Pi 5 driving the SealSQ QVault TPM over SPI. This is the first post-quantum TPM in silicon.
+These numbers were measured with `examples/bench/bench` on a Raspberry Pi 5 driving the SEALSQ QVault TPM over SPI. SEALSQ positions this part as the first post-quantum TPM in silicon.
 
 | Operation | Avg latency | Throughput |
 |---|---|---|
@@ -75,7 +75,7 @@ These numbers were measured with `examples/bench/bench` on a Raspberry Pi 5 driv
 | ML-KEM-768 encapsulate | 211.8 ms | 4.72 ops/s |
 | ML-KEM-768 decapsulate | 425.5 ms | 2.35 ops/s |
 
-Verification is fast, comparable to ECDSA. Key generation is a one-off provisioning cost.
+Key generation is a one-off provisioning cost. The ECDSA figures above come from different TPMs, host boards, buses, and firmware, so they are not a like-for-like comparison with these ML-DSA numbers. To compare ECDSA and PQC latencies, run `./examples/bench/bench` for both on the same TPM, host, bus, and build.
 
 ## See Also
 
