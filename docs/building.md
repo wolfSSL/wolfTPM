@@ -10,7 +10,7 @@ wolfSSL must be built and installed first. It can be downloaded from the [downlo
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
-./configure --enable-wolftpm
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
@@ -360,7 +360,7 @@ To reduce the memory footprint in constrained environments, consider these optio
 #define WOLFTPM2_NO_WRAPPER
 
 /* Use smaller RSA key sizes only */
-#define MAX_RSA_BITS 2048
+#define MAX_RSA_KEY_BITS 2048
 ```
 
 If you know your TPM module type at compile time, select it. Select exactly one module variant, not several:
@@ -381,7 +381,7 @@ If you know your TPM module type at compile time, select it. Select exactly one 
 #define WOLFTPM_MICROCHIP
 ```
 
-If no module is specified, wolfTPM attempts to auto-detect it at runtime using `WOLFTPM_AUTODETECT` (the default).
+If no module is specified, define `WOLFTPM_AUTODETECT` to detect the module at runtime. That is the default under `./configure`, but a `user_settings.h` build with no module and no `WOLFTPM_AUTODETECT` falls back to the Infineon SLB9672 (SPI) or SLB9673 (I2C), so define `WOLFTPM_AUTODETECT` explicitly for runtime detection.
 
 For TPM modules connected via I2C instead of SPI:
 

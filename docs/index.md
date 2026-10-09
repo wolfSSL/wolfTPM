@@ -8,7 +8,7 @@ Portable TPM 2.0 project designed for embedded use. This manual covers building 
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
 * Any TPM 2.0 compliant module is supported. Tested modules include Infineon SLB9670, SLB9672, SLB9673, STMicroelectronics ST33KTPM2XSPI, ST33KTPM2I, ST33TPHF2XSPI, ST33TPHF2XI2C, Microchip ATTPM20, Nations Technologies/NSING Z32H330, NS350, Nuvoton NPCT650, NPCT750, and SealSQ QVault TPM (first TPM with post-quantum ML-DSA/ML-KEM in silicon).
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
-* On Linux, wolfTPM auto-detects between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime. A simple `./configure && make` works with either interface.
+* On Linux, wolfTPM can auto-detect between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime. Enable it with `--enable-autodetect` (a bare `./configure` on a common host defaults to the software TPM instead).
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX, Infineon TriCore, wolfHAL and Barebox.
 * The design allows for easy portability to different platforms:

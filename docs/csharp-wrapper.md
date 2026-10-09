@@ -113,7 +113,7 @@ Methods that produce data return a positive size on success: `KeyBlob.GetKeyBlob
 
 `Template` fills a native key template: `GetKeyTemplate_RSA`, `GetKeyTemplate_ECC`, `GetKeyTemplate_Symmetric`, the EK, SRK, and AIK variants (`GetKeyTemplate_RSA_EK`, `GetKeyTemplate_ECC_EK`, `GetKeyTemplate_RSA_SRK`, `GetKeyTemplate_ECC_SRK`, `GetKeyTemplate_RSA_AIK`, `GetKeyTemplate_ECC_AIK`), and `SetKeyTemplate_Unique`.
 
-For a one-call certificate request, use `Device.GenerateCSR` with a subject string, a key usage string, and an `X509_Format`. For more control, build a `Csr` with `SetSubject`, `SetKeyUsage`, and `SetCustomExtension`, then call `MakeAndSign`. Set the `selfSign` argument of the extended overloads to a non-zero value to get a self-signed certificate instead of a request.
+For a one-call certificate request, use `Device.GenerateCSR` with a subject string, a key usage string, and an `X509_Format`. For more control, build a `Csr` with `SetSubject`, `SetKeyUsage`, and `SetCustomExtension`, then call `MakeAndSign`. Set the `selfSign` argument of the extended overloads to a non-zero value to get a self-signed certificate instead of a request. The extended `Csr.MakeAndSign(..., sigType, selfSign)` overload currently throws on every successful call (it treats the returned output size as an error), so for a self-signed certificate use `Device.GenerateCSR(..., selfSignCert)` until the wrapper is fixed.
 
 ### Other Device Methods
 

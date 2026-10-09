@@ -8,7 +8,9 @@ PDF := wolfTPM-Manual.pdf
 DOXYBOOK := "$(WT_SOURCE)/tools/docs-manual/doxybook.cfg"
 
 .PHONY: all api html-prep pdf-prep
-all: pdf html
+# html-prep must run before pdf-prep: pdf-prep rewrites api/md in place, and
+# html-prep copies those pages, so the HTML must be staged from the pristine set.
+all: html pdf
 
 # Generate the API reference markdown straight from the in-tree headers.
 # Doxyfile INPUT paths are repo-root relative, so run doxygen from WT_SOURCE and

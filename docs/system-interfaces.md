@@ -293,7 +293,7 @@ If you need to control TPM startup state, you need `/dev/tpm0` and exclusive use
 
 Two behaviors matter if you use `TPM2_Init` or `TPM2_Init_ex` directly rather than the `wolfTPM2_*` wrapper.
 
-The kernel device wins over your callback. If `/dev/tpmrm0` or `/dev/tpm0` opens, every command is routed there and the HAL IO callback you passed is never invoked. On a host that has both a kernel-bound TPM and a discrete SPI part, that means you now talk to a different TPM than a pre-autodetect build did. Pin the part you want with `--enable-devtpm`, `--enable-spi` or `--enable-<vendor>`, or `-DTPM2_LINUX_DEV`.
+The kernel device wins over your callback. If `/dev/tpmrm0` or `/dev/tpm0` opens, every command is routed there and the HAL IO callback you passed is never invoked. On a host that has both a kernel-bound TPM and a discrete SPI part, that means you now talk to a different TPM than a pre-autodetect build did. `--enable-spi` on its own does not pin SPI, because it leaves autodetect on and the kernel device still wins. Pin the part you want with `--enable-devtpm`, `--enable-<vendor>`, `--enable-spi --disable-autodetect`, or `-DTPM2_LINUX_DEV`.
 
 Init now acquires a descriptor. `TPM2_Init*` opens the device on autodetect builds, and `TPM2_Cleanup()` is what closes it. Native callers that skipped cleanup previously leaked nothing, but now they leak a descriptor per context. This matters most on hosts exposing only the raw `/dev/tpm0`, which permits a single open. A context that merely initialized holds the TPM exclusively for its lifetime, and a second context in the same process falls through to a different transport.
 
@@ -340,7 +340,7 @@ Only one transport can be enabled at a time. `--enable-devtpm` conflicts with `-
 
 A bare `./configure` on Linux x86_64 or aarch64 does not produce a build that talks to `/dev/tpmX`. On those hosts wolfTPM auto-enables the software TPMs (swTPM and fwTPM) so that `make check` passes with no hardware attached, and defining `WOLFTPM_SWTPM` suppresses the kernel-device autodetect path. The result talks to a simulator on TCP port 2321.
 
-Selecting any hardware path explicitly turns that default back off: `--enable-autodetect`, `--enable-devtpm`, or any `--enable-<vendor>`. Configure prints a notice when the software default is taken, so check the end of its output if a build unexpectedly fails to find your TPM.
+Selecting any hardware path explicitly turns that default back off: `--enable-autodetect`, `--enable-devtpm`, `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-winapi`, `--enable-wintbs`, or any `--enable-<vendor>`. Configure prints a notice when the software default is taken, so check the end of its output if a build unexpectedly fails to find your TPM.
 
 This matters most on single-board aarch64 machines with a firmware TPM, where the kernel device is the only transport there is.
 

@@ -137,7 +137,7 @@ configure が強制する関連ルールは次のとおりです。
 | `--enable-mlkem[=all\|enc\|dec\|no]` | all | ML-KEM を制限します。`enc` は `WOLFTPM_NO_MLKEM_DECAP` を、`dec` は `WOLFTPM_NO_MLKEM_ENCAP` を、`no` は `WOLFTPM_NO_MLKEM` を定義します。 |
 | `--disable-hash-mldsa` | pre-hash enabled | プリハッシュ ML-DSA キーのサポートを除外します。`WOLFTPM_NO_HASH_MLDSA` を定義します。 |
 
-自動検出を含め、ポスト量子サポートを無効にするには `--disable-v185` または `--disable-pqc` を使用します。`--enable-mldsa=no` と `--enable-mlkem=no` の両方を指定するとエラーになります。wolfCrypt が有効な場合、PQC には ML-DSA (`--enable-mldsa`、または wolfSSL のエイリアス `--enable-dilithium`) と ML-KEM (`--enable-mlkem`) を有効にしてビルドした wolfSSL 5.8.0 以降が必要です。`--disable-wolfcrypt` の場合、PQC はコマンドのマーシャリングのみとなります。
+自動検出を含め、ポスト量子サポートを無効にするには `--disable-v185` または `--disable-pqc` を使用します。`--enable-mldsa=no` と `--enable-mlkem=no` の両方を指定するとエラーになります。wolfCrypt が有効な場合、PQC には ML-DSA (`--enable-mldsa`、または wolfSSL のエイリアス `--enable-dilithium`) と ML-KEM (`--enable-mlkem`) を有効にしてビルドした wolfSSL 5.9.2-stable 以降が必要です。`--disable-wolfcrypt` の場合、PQC はコマンドのマーシャリングのみとなります。
 
 ## プリプロセッサ定義
 

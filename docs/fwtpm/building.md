@@ -28,7 +28,7 @@ This produces `src/fwtpm/fwtpm_server` and builds the wolfTPM client library wit
 **TIS and shared-memory transport (for fwTPM HAL integration):**
 
 ```sh
-./configure --enable-fwtpm
+./configure --enable-fwtpm --disable-swtpm
 make
 ```
 
@@ -65,7 +65,7 @@ make
 | `--enable-fwtpm-only` | Build only `fwtpm_server` (no client library, examples, or tests) |
 | `--enable-swtpm` | Use SWTPM TCP socket transport (ports 2321 and 2322) |
 | `--enable-fwtpm-nv-appendonly` | Append-only NV journal for write-once flash ports (off by default) |
-| `--enable-pqc` (alias `--enable-v185`) | TPM 2.0 v1.85 post-quantum support (see [Post-Quantum Support](post-quantum.md)) |
+| `--enable-pqc` (the fwTPM build promotes it to `--enable-v185`) | TPM 2.0 v1.85 post-quantum support (see [Post-Quantum Support](post-quantum.md)) |
 | `--enable-spdm` | SPDM responder (with `--enable-tcg` or `--enable-psk`; see [SPDM Responder](spdm.md)) |
 | `--enable-fuzz` | Fuzzing build |
 | `--enable-debug` | Enable debug logging |
@@ -74,8 +74,8 @@ make
 |---------------|--------|
 | `WOLFTPM_FWTPM` | Automatically set for the `fwtpm_server` target only |
 | `WOLFTPM_SWTPM` | `--enable-swtpm` |
-| `WOLFTPM_FWTPM_HAL` | `--enable-fwtpm` without `--enable-swtpm` |
-| `WOLFTPM_FWTPM_TIS` | `--enable-fwtpm` without `--enable-swtpm` |
+| `WOLFTPM_FWTPM_HAL` | `--enable-fwtpm --disable-swtpm` |
+| `WOLFTPM_FWTPM_TIS` | `--enable-fwtpm --disable-swtpm` |
 | `WOLFTPM_ADV_IO` | Set with `WOLFTPM_FWTPM_HAL` |
 | `WOLFTPM_FWTPM_NV_APPEND_ONLY` | `--enable-fwtpm-nv-appendonly` (CMake `WOLFTPM_FWTPM_NV_APPEND_ONLY=yes`) |
 | `WOLFTPM_FWTPM_TCG_TEST` | Manually (`CFLAGS=-DWOLFTPM_FWTPM_TCG_TEST`); off by default |

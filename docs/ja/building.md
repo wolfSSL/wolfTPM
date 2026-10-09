@@ -10,7 +10,7 @@ wolfTPM は wolfSSL (wolfCrypt) の上に構築されており、autotools、CMa
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
-./configure --enable-wolftpm
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
@@ -360,7 +360,7 @@ int main(void)
 #define WOLFTPM2_NO_WRAPPER
 
 /* Use smaller RSA key sizes only */
-#define MAX_RSA_BITS 2048
+#define MAX_RSA_KEY_BITS 2048
 ```
 
 コンパイル時に TPM モジュールの種類が分かっている場合は、それを選択します。複数ではなく、モジュールのバリアントを 1 つだけ選択してください。

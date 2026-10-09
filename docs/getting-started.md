@@ -10,7 +10,7 @@ wolfTPM needs wolfSSL (wolfCrypt) built with the wolfTPM options. Build and inst
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
-./configure --enable-wolftpm
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
@@ -31,13 +31,13 @@ make
 ```
 
 !!! note
-    On Linux x86_64 and aarch64, a bare `./configure` automatically enables the software TPM backends (swTPM and fwTPM). This lets `make check` run without any TPM hardware attached. Selecting a hardware path, such as `--enable-devtpm` or `--enable-autodetect`, turns this default off. See [System Interfaces](system-interfaces.md).
+    On any non-Windows x86_64/aarch64 host (Linux, macOS, or BSD), a bare `./configure` automatically enables the software TPM backends (swTPM and fwTPM). This lets `make check` run without any TPM hardware attached. Selecting a hardware path turns this default off: any `--enable-<vendor>`, or `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-devtpm`, `--enable-autodetect`, `--enable-winapi`, or `--enable-wintbs`. See [System Interfaces](system-interfaces.md).
 
 For hardware specific build steps, see [Supported Hardware](supported-hardware.md).
 
 ## Run your first example
 
-A TPM must be reachable before you run any example. With the default Linux x86_64 and aarch64 build, the examples talk to a software TPM over a socket, and `make` builds that TPM (`fwtpm_server`) but does not start it. In a separate terminal, start it from the wolfTPM directory:
+A TPM must be reachable before you run any example. With the default build on a non-Windows x86_64/aarch64 host (Linux, macOS, or BSD), the examples talk to a software TPM over a socket, and `make` builds that TPM (`fwtpm_server`) but does not start it. In a separate terminal, start it from the wolfTPM directory:
 
 ```sh
 ./src/fwtpm/fwtpm_server --clear

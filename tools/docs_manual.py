@@ -87,8 +87,20 @@ def stage(documentation_root, source_root, lang):
         path = manual / name
         if path.exists():
             shutil.rmtree(path)
-    shutil.copytree(source_docs, manual / "src",
-                    ignore=shutil.ignore_patterns(*EXCLUDE_DIRS, *EXCLUDE_FILES))
+    keep_suffixes = (".md", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".css")
+
+    def ignore(directory, names):
+        ignored = set(shutil.ignore_patterns(*EXCLUDE_DIRS, *EXCLUDE_FILES)(
+            directory, names))
+        for name in names:
+            full = os.path.join(directory, name)
+            if os.path.isdir(full):
+                continue
+            if not name.lower().endswith(keep_suffixes):
+                ignored.add(name)
+        return ignored
+
+    shutil.copytree(source_docs, manual / "src", ignore=ignore)
     shutil.copyfile(manual / "src" / "index.md", manual / "src" / "Home.md")
     (manual / "build").mkdir()
     ordered = ["Home.md" if page == "index.md" else page for page in pages]

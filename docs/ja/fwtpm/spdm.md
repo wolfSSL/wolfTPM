@@ -18,7 +18,7 @@ SPDM が有効な場合、レスポンダは既存のトランスポート HAL �
 `--enable-fwtpm --enable-spdm` に加えて、`--enable-tcg` または `--enable-psk` の少なくとも一方を指定してビルドします。
 
 ```sh
-./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk
+./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk --enable-nuvoton --enable-nations
 make
 ```
 

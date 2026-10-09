@@ -18,7 +18,7 @@ Plaintext TPM frames fall through to the regular command dispatcher until the re
 Build with `--enable-fwtpm --enable-spdm` plus at least one of `--enable-tcg` or `--enable-psk`:
 
 ```sh
-./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk
+./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk --enable-nuvoton --enable-nations
 make
 ```
 

@@ -1,8 +1,8 @@
 # fwTPM Post-Quantum Support (TPM 2.0 v1.85)
 
-The fwTPM implements the post-quantum additions from TCG TPM 2.0 Library Specification v1.85, using wolfCrypt's FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) modules. This brings post-quantum keys, signing, and key encapsulation to platforms that have no TPM silicon. These v1.85 commands raise the implemented count from 105 to 113 commands. For the library-wide post-quantum view, see [Post-Quantum](../post-quantum.md).
+The fwTPM implements the post-quantum additions from TCG TPM 2.0 Library Specification v1.85, using wolfCrypt's FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) modules. This brings post-quantum keys, signing, and key encapsulation to platforms that have no TPM silicon. These v1.85 commands raise the implemented count from 103 to 111 commands. For the library-wide post-quantum view, see [Post-Quantum](../post-quantum.md).
 
-Enable it with `--enable-pqc` (alias `--enable-v185`) at configure time. It is also auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has both ML-DSA and ML-KEM available. Both flags set the internal `WOLFTPM_V185` macro that gates the implementation. Pass `--disable-pqc` to opt out when auto-detect would otherwise enable it.
+Enable it with `--enable-pqc`, which the fwTPM build promotes to the full `--enable-v185`, at configure time. It is also auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has both ML-DSA and ML-KEM available. Both flags set the internal `WOLFTPM_V185` macro that gates the implementation. Pass `--disable-pqc` to opt out when auto-detect would otherwise enable it.
 
 ## Algorithms
 

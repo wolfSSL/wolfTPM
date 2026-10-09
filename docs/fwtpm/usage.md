@@ -19,7 +19,7 @@ This page covers running the fwTPM server, connecting clients, transport modes, 
 | `--clear` | Start with cleared NV |
 | `--spdm-tcg`, `--spdm-psk`, `--no-spdm` | SPDM responder mode (see [SPDM Responder](spdm.md)) |
 
-The `--port` and `--platform-port` options are socket-mode only and are not available in TIS builds (`--enable-fwtpm` without `--enable-swtpm`).
+The `--port` and `--platform-port` options are socket-mode only and are not available in TIS builds (`--enable-fwtpm --disable-swtpm`).
 
 **Example:**
 
@@ -113,7 +113,7 @@ wolfTPM clients connect through the standard SWTPM interface, which is compatibl
 
 ### TIS / Shared Memory
 
-Built with `--enable-fwtpm` (without `--enable-swtpm`). This mode uses POSIX shared memory and named semaphores to emulate TIS (TPM Interface Specification) register-level access. It simulates an SPI-attached TPM.
+Built with `--enable-fwtpm --disable-swtpm`. This mode uses POSIX shared memory and named semaphores to emulate TIS (TPM Interface Specification) register-level access. It simulates an SPI-attached TPM.
 
 **Shared memory layout** (`FWTPM_TIS_SHM`):
 
@@ -164,7 +164,7 @@ All tests below run in GitHub Actions CI. Run them manually before PR submission
 | Name | wolfTPM Config | Extra | Notes |
 |------|---------------|-------|-------|
 | fwtpm-socket | `--enable-fwtpm --enable-swtpm --enable-debug` | | Primary test |
-| fwtpm-tis | `--enable-fwtpm --enable-debug` | | TIS/SHM transport |
+| fwtpm-tis | `--enable-fwtpm --disable-swtpm --enable-debug` | | TIS/SHM transport |
 | fwtpm-v185 | `--enable-fwtpm --enable-v185` | | PQC: wrapper and handler unit tests |
 | fwtpm-macos-socket | `--enable-fwtpm --enable-swtpm --enable-debug` | | macOS runner |
 

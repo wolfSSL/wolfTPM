@@ -175,7 +175,7 @@ cd -   # back to the wolfTPM checkout
 make
 ```
 
-Build with `--enable-spdm` plus at least one handshake mode: `--enable-tcg` for the TCG raw public key handshake, `--enable-psk` for the PSK handshake. Vendor wire-format adapters are optional (`--enable-nuvoton`, `--enable-nations`).
+Build with `--enable-spdm` plus at least one handshake mode: `--enable-tcg` for the TCG raw public key handshake, `--enable-psk` for the PSK handshake. Vendor wire-format adapters (`--enable-nuvoton`, `--enable-nations`) are optional for PSK mode and the fwTPM responder, but an identity-key session needs the matching vendor adapter; without one, `wolfTPM2_InitWithSpdmKey_ex()` returns `WOLFSPDM_E_NOT_AVAILABLE`.
 
 ### The wolfTPM SPDM profile
 
@@ -216,7 +216,7 @@ The profile does not define `WOLFSPDM_NO_MCTP`, so the MCTP secured-message fram
 Build it with the socket responder enabled:
 
 ```sh
-./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk
+./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk --enable-nuvoton --enable-nations
 make
 ```
 

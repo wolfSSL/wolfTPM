@@ -216,7 +216,7 @@ wolfTPM の `configure` には `--disable-mctp` オプションはなく、追�
 ソケットレスポンダーを有効にしてビルドします。
 
 ```sh
-./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk
+./configure --enable-fwtpm --enable-swtpm --enable-spdm --enable-tcg --enable-psk --enable-nuvoton --enable-nations
 make
 ```
 

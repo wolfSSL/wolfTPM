@@ -137,7 +137,7 @@ Related rules enforced by configure:
 | `--enable-mlkem[=all\|enc\|dec\|no]` | all | Limit ML-KEM. `enc` defines `WOLFTPM_NO_MLKEM_DECAP`, `dec` defines `WOLFTPM_NO_MLKEM_ENCAP`, and `no` defines `WOLFTPM_NO_MLKEM`. |
 | `--disable-hash-mldsa` | pre-hash enabled | Drops pre-hash ML-DSA key support. Defines `WOLFTPM_NO_HASH_MLDSA`. |
 
-Use `--disable-v185` or `--disable-pqc` to turn off post-quantum support, including the auto-detect. Setting both `--enable-mldsa=no` and `--enable-mlkem=no` is an error. With wolfCrypt enabled, PQC needs wolfSSL 5.8.0 or later built with ML-DSA (`--enable-mldsa`, or the wolfSSL alias `--enable-dilithium`) and ML-KEM (`--enable-mlkem`). With `--disable-wolfcrypt`, PQC is command marshaling only.
+Use `--disable-v185` or `--disable-pqc` to turn off post-quantum support, including the auto-detect. Setting both `--enable-mldsa=no` and `--enable-mlkem=no` is an error. With wolfCrypt enabled, PQC needs wolfSSL 5.9.2-stable or later built with ML-DSA (`--enable-mldsa`, or the wolfSSL alias `--enable-dilithium`) and ML-KEM (`--enable-mlkem`). With `--disable-wolfcrypt`, PQC is command marshaling only.
 
 ## Preprocessor defines
 

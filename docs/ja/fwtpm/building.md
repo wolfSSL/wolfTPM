@@ -28,7 +28,7 @@ make
 **TIS および共有メモリトランスポート (fwTPM HAL 統合向け):**
 
 ```sh
-./configure --enable-fwtpm
+./configure --enable-fwtpm --disable-swtpm
 make
 ```
 
@@ -65,7 +65,7 @@ make
 | `--enable-fwtpm-only` | `fwtpm_server` のみをビルドします (クライアントライブラリ、サンプル、テストなし) |
 | `--enable-swtpm` | SWTPM の TCP ソケットトランスポートを使用します (ポート 2321 と 2322) |
 | `--enable-fwtpm-nv-appendonly` | 書き込み一回限りのフラッシュ移植向けの追記専用 NV ジャーナル (既定では無効) |
-| `--enable-pqc` (別名 `--enable-v185`) | TPM 2.0 v1.85 のポスト量子サポート ([ポスト量子サポート](post-quantum.md)を参照) |
+| `--enable-pqc` (fwTPM ビルドでは `--enable-v185` に昇格) | TPM 2.0 v1.85 のポスト量子サポート ([ポスト量子サポート](post-quantum.md)を参照) |
 | `--enable-spdm` | SPDM レスポンダ (`--enable-tcg` または `--enable-psk` とあわせて使用。[SPDM レスポンダ](spdm.md)を参照) |
 | `--enable-fuzz` | ファジング用ビルド |
 | `--enable-debug` | デバッグログを有効にします |
@@ -74,8 +74,8 @@ make
 |---------------|--------|
 | `WOLFTPM_FWTPM` | `fwtpm_server` ターゲットに対してのみ自動的に設定されます |
 | `WOLFTPM_SWTPM` | `--enable-swtpm` |
-| `WOLFTPM_FWTPM_HAL` | `--enable-swtpm` を指定しない `--enable-fwtpm` |
-| `WOLFTPM_FWTPM_TIS` | `--enable-swtpm` を指定しない `--enable-fwtpm` |
+| `WOLFTPM_FWTPM_HAL` | `--enable-fwtpm --disable-swtpm` |
+| `WOLFTPM_FWTPM_TIS` | `--enable-fwtpm --disable-swtpm` |
 | `WOLFTPM_ADV_IO` | `WOLFTPM_FWTPM_HAL` とあわせて設定されます |
 | `WOLFTPM_FWTPM_NV_APPEND_ONLY` | `--enable-fwtpm-nv-appendonly` (CMake では `WOLFTPM_FWTPM_NV_APPEND_ONLY=yes`) |
 | `WOLFTPM_FWTPM_TCG_TEST` | 手動で設定 (`CFLAGS=-DWOLFTPM_FWTPM_TCG_TEST`)。既定では無効 |

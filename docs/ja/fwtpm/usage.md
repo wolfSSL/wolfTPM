@@ -164,7 +164,7 @@ scripts/tpm2_tools_test.sh  # tpm2-tools only (311 tests)
 | 名前 | wolfTPM の設定 | 追加 | 備考 |
 |------|---------------|-------|-------|
 | fwtpm-socket | `--enable-fwtpm --enable-swtpm --enable-debug` | | 主要なテスト |
-| fwtpm-tis | `--enable-fwtpm --enable-debug` | | TIS/SHM トランスポート |
+| fwtpm-tis | `--enable-fwtpm --disable-swtpm --enable-debug` | | TIS/SHM トランスポート |
 | fwtpm-v185 | `--enable-fwtpm --enable-v185` | | PQC: ラッパーとハンドラーのユニットテスト |
 | fwtpm-macos-socket | `--enable-fwtpm --enable-swtpm --enable-debug` | | macOS ランナー |
 

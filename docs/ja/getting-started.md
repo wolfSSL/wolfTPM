@@ -10,7 +10,7 @@ wolfTPM には、wolfTPM 用オプションを有効にしてビルドした wol
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
-./configure --enable-wolftpm
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 sudo ldconfig
