@@ -1,0 +1,110 @@
+.md-header{
+    background-color: #fff;
+}
+
+.md-ellipsis{
+    color: #1fbeca;
+    font-size: 1.1rem;
+}
+
+.md-ellipsis-nav {
+    margin-right: 3%;
+    color: #1fbeca;
+    font-size: 16px;
+    width: 450px;
+}
+
+.md-ellipsis-nav a{
+    color:#fff;
+    background-color: #1fbeca;
+    padding: 6px;
+    border-radius: 3.5px;
+    margin-left: 3px;
+}
+
+.md-ellipsis-nav a:hover{
+    color: #1fbeca;
+    background-color: #000;
+}
+
+@media screen and (max-width: 800px)
+{   .md-ellipsis-nav { display: none; } }
+
+.md-search__input {
+    background: #f2f2f2;
+    border: 2px solid #dfdfdf;
+    color: black;
+}
+
+.md-search__inner {
+    max-width: 400px;
+}
+
+::placeholder {
+    color: gray !important;
+}
+
+.md-content {
+    min-height: 550px;
+}
+
+.md-nav__link {
+    color: #c46715;
+}
+
+.md-nav__link:is(:focus, :hover){
+    color: #1fbeca;
+}
+
+.md-nav__item .md-nav__link--active {
+    color: #1fbeca;
+}
+
+.md-header__button.md-logo :is(img, svg){
+    height: 80px;
+    width: 80px;
+}
+
+.md-typeset a:focus, .md-typeset a{    
+    color: #c46715;
+}
+
+.md-typeset a:hover {
+     color: #1fbeca;
+}
+
+.md-footer {
+    background-color: #fff;
+    box-shadow: 0 0 .2rem rgba(0,0,0,.1),0 .2rem .4rem rgba(0,0,0,.2);
+}
+
+.md-icon svg {
+    fill: #1fbeca;
+}
+
+.md-footer-meta {
+    background-color: #ccc;
+    height: 30px;
+}
+
+.md-footer-meta__inner{
+    bottom: 0;
+    position: absolute;
+}
+
+.md-copyright__highlight {
+    font-size: 0.6rem;
+    color: black;
+}
+
+.md-copyright {
+    color: black;
+}
+
+html .md-footer-meta.md-typeset a {
+    color: black;
+}
+
+html .md-footer-meta.md-typeset a:is(:focus, :hover) {
+    color: #c46715;
+}
