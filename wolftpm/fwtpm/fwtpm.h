@@ -750,7 +750,7 @@ struct FWTPM_PP_HAL_S {
 
 /* fwTPM context - holds all TPM state */
 typedef struct FWTPM_CTX {
-    volatile int running;       /* Server running flag (volatile for signal handler) */
+    volatile int running;       /* Server-loop state; signals use a sig_atomic_t flag */
 
 #ifndef WOLFTPM_FWTPM_TIS
     /* Socket transport configuration (not used in TIS mode) */
