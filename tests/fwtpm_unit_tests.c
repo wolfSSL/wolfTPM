@@ -1814,6 +1814,12 @@ static void test_fwtpm_getcap_handles_ordered(void)
 #else
     #define FW_GATED_ECDH 0
 #endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH) && \
+    !defined(FWTPM_NO_ZGEN_2PHASE)
+    #define FW_GATED_ZGEN_2PHASE 1
+#else
+    #define FW_GATED_ZGEN_2PHASE 0
+#endif
 #ifdef FWTPM_NO_HASH_CMDS
     #define FW_GATED_HASH_CMDS 0
 #else
@@ -1882,7 +1888,8 @@ static const FwGateCase fwGateCases[] = {
     { TPM_CC_Duplicate,          FW_GATED_KEY_MIGRATION, "Duplicate" },
     { TPM_CC_Rewrap,             FW_GATED_KEY_MIGRATION, "Rewrap" },
     { TPM_CC_ECC_Parameters,     FW_GATED_ECDH,          "ECC_Parameters" },
-    { TPM_CC_EC_Ephemeral,       FW_GATED_ECDH,          "EC_Ephemeral" },
+    { TPM_CC_EC_Ephemeral,       FW_GATED_ZGEN_2PHASE,    "EC_Ephemeral" },
+    { TPM_CC_ZGen_2Phase,        FW_GATED_ZGEN_2PHASE,    "ZGen_2Phase" },
     { TPM_CC_Hash,               FW_GATED_HASH_CMDS,     "Hash" },
     { TPM_CC_HashSequenceStart,  FW_GATED_HASH_CMDS,     "HashSequenceStart" },
     { TPM_CC_SequenceComplete,   FW_GATED_HASH_CMDS,     "SequenceComplete" },
@@ -13031,7 +13038,7 @@ static void test_fwtpm_ecdh_zgen_signkey_returns_attributes(void)
 }
 #endif /* !FWTPM_NO_ECDH */
 
-#ifndef FWTPM_NO_ECDH
+#if !defined(FWTPM_NO_ECDH) && !defined(FWTPM_NO_ZGEN_2PHASE)
 static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
 {
     FWTPM_CTX ctx;
@@ -13064,7 +13071,7 @@ static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tZGen_2Phase(sign key) rejected:\tPassed\n");
 }
-#endif /* !FWTPM_NO_ECDH */
+#endif /* !FWTPM_NO_ECDH && !FWTPM_NO_ZGEN_2PHASE */
 
 /* Quote requires a restricted signing key per Part 3 Sec.18.4. Build the
  * command once and run it against keys that violate each requirement. */
@@ -16508,6 +16515,7 @@ static void test_fwtpm_decrypt_primitives_reject_storage_key(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
 
+#ifndef FWTPM_NO_ZGEN_2PHASE
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ZGen_2Phase);
     PutU32BE(gCmd + pos, keyH); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
@@ -16521,6 +16529,7 @@ static void test_fwtpm_decrypt_primitives_reject_storage_key(void)
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
     FlushHandle(&ctx, keyH);
 #endif
 
@@ -18991,7 +19000,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_ECDH
     test_fwtpm_ecdh_keygen_signkey_returns_attributes();
     test_fwtpm_ecdh_zgen_signkey_returns_attributes();
+#ifndef FWTPM_NO_ZGEN_2PHASE
     test_fwtpm_zgen_2phase_signkey_returns_attributes();
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* !FWTPM_NO_ECDH */
     test_fwtpm_quote_decrypt_key_returns_key();
     test_fwtpm_quote_unrestricted_sign_returns_attributes();

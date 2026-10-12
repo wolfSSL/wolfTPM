@@ -3679,6 +3679,7 @@ int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key)
     return FwImportEccPubFromPublic(&obj->pub, key);
 }
 
+#ifndef FWTPM_NO_ZGEN_2PHASE
 /* Compute ECDH shared point R = priv.k * peer.pub, returning both x and y
  * coordinates. wc_ecc_shared_secret only returns x; ZGen_2Phase marshals a
  * full TPM2B_ECC_POINT and TPM_ALG_ECMQV requires y as well.
@@ -3693,8 +3694,8 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     const ecc_set_type* dp;
     int primeInit = 0, aInit = 0, orderInit = 0;
 
-    if (priv == NULL || peer == NULL || xBuf == NULL || xSz == NULL ||
-        yBuf == NULL || ySz == NULL) {
+    if (priv == NULL || peer == NULL || rng == NULL || xBuf == NULL ||
+        xSz == NULL || yBuf == NULL || ySz == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -3727,24 +3728,8 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     if (rc == 0)
         rc = mp_read_radix(&order, dp->order, MP_RADIX_HEX);
     if (rc == 0) {
-    #ifdef WOLFSSL_PUBLIC_ECC_ADD_DBL
-        /* RNG-blinded scalar multiply bound to the curve order. Fall back to
-         * the base multiply if no RNG is available so a NULL rng cannot be
-         * dereferenced. */
-        if (rng != NULL) {
-            rc = wc_ecc_mulmod_ex2(ecc_get_k(priv), &peer->pubkey, R, &a,
-                &prime, &order, rng, 1, NULL);
-        }
-        else {
-            rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a,
-                &prime, 1);
-        }
-    #else
-        /* wc_ecc_mulmod_ex2 is public only with WOLFSSL_PUBLIC_ECC_ADD_DBL;
-         * fall back to the base multiply when it is unavailable */
-        (void)rng;
-        rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a, &prime, 1);
-    #endif
+        rc = wc_ecc_mulmod_ex2(ecc_get_k(priv), &peer->pubkey, R, &a,
+            &prime, &order, rng, 1, NULL);
     }
 
     /* Export x and y with fixed-size left-zero padding to the curve byte
@@ -3770,6 +3755,7 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     wc_ecc_del_point(R);
     return rc;
 }
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* HAVE_ECC */
 
 #ifndef NO_RSA

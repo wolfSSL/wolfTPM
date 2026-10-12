@@ -1212,7 +1212,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 rc = TPM_RC_FAILURE;
             }
 #endif
-#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ZGEN_2PHASE)
             ctx->ecEphemeralCounter = 0;
             ctx->ecEphemeralKeySz = 0;
 #endif
@@ -17655,6 +17655,7 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+#ifndef FWTPM_NO_ZGEN_2PHASE
 /* --- TPM2_EC_Ephemeral (CC 0x018E) --- */
 /* Generate an ephemeral ECC key pair Q = [r]G and return Q + counter.
  * The private key r is stored for the subsequent ZGen_2Phase call.
@@ -17989,6 +17990,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_VAR(peerPub);
     return rc;
 }
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* !FWTPM_NO_ECDH */
 #endif /* HAVE_ECC */
 
@@ -20095,8 +20097,10 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #ifndef FWTPM_NO_ECDH
     { TPM_CC_ECDH_KeyGen,        FwCmd_ECDH_KeyGen,          1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ECDH_ZGen,          FwCmd_ECDH_ZGen,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#ifndef FWTPM_NO_ZGEN_2PHASE
     { TPM_CC_EC_Ephemeral,       FwCmd_EC_Ephemeral,         0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ZGen_2Phase,        FwCmd_ZGen_2Phase,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* !FWTPM_NO_ECDH */
 #endif
     /* --- Sessions --- */
