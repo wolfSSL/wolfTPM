@@ -977,7 +977,8 @@ typedef struct FWTPM_CTX {
 /*!
     \ingroup wolfTPM_fwTPM
     \brief Initialize a fwTPM context. Seeds the RNG, clears TPM state,
-    and prepares the context for FWTPM_NV_Init / FWTPM_IO_Init.
+    and initializes NV storage through a previously registered HAL or the
+    default file backend.
 
     \return 0 on success
     \return TPM_RC_MEMORY if RNG initialization fails

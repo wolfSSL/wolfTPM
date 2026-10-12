@@ -174,9 +174,10 @@ WOLFTPM_API int FWTPM_NV_Save(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV
-    \brief Register a custom NV HAL. Call after FWTPM_Init and before
-    FWTPM_NV_Init to replace the default file-based backend. Typical
-    use is a flash / EEPROM driver on embedded targets.
+    \brief Register a custom NV HAL after zeroing the context and before
+    FWTPM_Init. FWTPM_Init preserves the registered HAL and initializes NV
+    storage through it. Typical use is a flash / EEPROM driver on embedded
+    targets.
 
     \return 0 on success
     \return BAD_FUNC_ARG if ctx or hal is NULL
