@@ -179,9 +179,10 @@ typedef struct FWTPM_TIS_HAL {
      * Returns 0 on success. */
     int (*init)(void* ctx, FWTPM_TIS_REGS** regs);
 
-    /* Block until a register access request is available.
-     * Returns 0 on success, negative on error/shutdown.
-     * Return -1 with errno==EINTR to continue the loop. */
+    /* Block until a register access request is available. Returns 0 when a
+     * request is ready; -1 is reserved for a transient/interrupted wait and
+     * makes the server retry without examining errno. Any other negative
+     * value is fatal and ends the server loop. */
     int (*wait_request)(void* ctx);
 
     /* Signal that a register access response is ready. */
