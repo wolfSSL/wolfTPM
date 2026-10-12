@@ -2831,6 +2831,27 @@ static int BuildCreatePrimaryCmd(byte* buf, TPM_ALG_ID algType)
 }
 
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+/* Replace the empty authPolicy in a command produced by
+ * BuildCreatePrimaryCmdEx. That builder has a fixed prefix through the
+ * TPMT_PUBLIC authPolicy field for every supported public type. */
+static int SetCreatePublicAuthPolicy(byte* buf, int cmdSz,
+    const byte* policy, UINT16 policySz)
+{
+    const int publicSizeOffset = TPM2_HEADER_SIZE + 4 + 4 + 9 + 6;
+    const int policySizeOffset = publicSizeOffset + 2 + 2 + 2 + 4;
+    const int policyOffset = policySizeOffset + 2;
+    UINT16 publicSz = GetU16BE(buf + publicSizeOffset);
+
+    memmove(buf + policyOffset + policySz, buf + policyOffset,
+        (size_t)(cmdSz - policyOffset));
+    PutU16BE(buf + policySizeOffset, policySz);
+    memcpy(buf + policyOffset, policy, policySz);
+    PutU16BE(buf + publicSizeOffset, (UINT16)(publicSz + policySz));
+    cmdSz += policySz;
+    PutU32BE(buf + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
 static void test_fwtpm_create_primary_rsa(void)
 {
     FWTPM_CTX ctx;
@@ -2863,6 +2884,31 @@ static void test_fwtpm_create_primary_rsa(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("CreatePrimary(RSA-2048):", 0);
+}
+
+/* A non-empty object authPolicy must match the nameAlg digest size. Accepting
+ * a different size creates an object that NV persistence later rejects. */
+static void test_fwtpm_object_auth_policy_size_rejected(void)
+{
+    FWTPM_CTX ctx;
+    byte badPolicy[20];
+    int rc, rspSize, cmdSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(badPolicy, 0xA5, sizeof(badPolicy));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA);
+    cmdSz = SetCreatePublicAuthPolicy(gCmd, cmdSz, badPolicy,
+        (UINT16)sizeof(badPolicy));
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Object authPolicy size mismatch rejected:", 0);
 }
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN */
 
@@ -18634,6 +18680,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Key operations */
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_create_primary_rsa();
+    test_fwtpm_object_auth_policy_size_rejected();
 #endif
 #if defined(WOLFTPM_V185) && !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_create_primary_limited_attrs();

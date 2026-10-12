@@ -2612,18 +2612,26 @@ static int FwMlkemPubKeySize(TPMI_MLKEM_PARAMETER_SET ps)
 }
 #endif /* WOLFTPM_MLKEM */
 
-/* Validate an ML-DSA / Hash-ML-DSA / ML-KEM public template. Rejects
+/* Validate constraints shared by TPMT_PUBLIC object templates, followed by
+ * ML-DSA / Hash-ML-DSA / ML-KEM-specific parameters. A non-empty authPolicy
+ * must match the nameAlg digest size (TPM_RC_SIZE). ML templates reject
  * unsupported parameter sets (TPM_RC_PARMS), an out-of-range allowExternalMu
  * (TPM_RC_VALUE), external-mu requests fwTPM cannot honor (TPM_RC_EXT_MU), an
  * invalid Hash-ML-DSA hash (TPM_RC_HASH), and invalid ML-KEM symmetric
  * parameters (TPM_RC_SYMMETRIC). When checkPubSize is set, the caller-supplied
  * unique public key must match the parameter set (TPM_RC_KEY_SIZE). Non-ML
- * types pass through. TCG v1.85 Part 2 Tables 204/207/208/229-231. */
-static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
+ * types otherwise pass through. */
+static TPM_RC FwValidatePublicTemplate(const TPMT_PUBLIC* pub,
+    int checkPubSize)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
-    (void)pub;
     (void)checkPubSize;
+
+    if (pub->authPolicy.size > 0 &&
+            (int)pub->authPolicy.size !=
+                TPM2_GetHashDigestSize(pub->nameAlg)) {
+        return TPM_RC_SIZE;
+    }
 
     switch (pub->type) {
 #ifdef WOLFTPM_MLDSA
@@ -4075,7 +4083,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
     }
     if (rc == 0) {
         rc = FwValidateCreateAttributes(&inPublic->publicArea, NULL,
@@ -6990,7 +6998,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
     }
     if (rc == 0) {
         rc = FwValidateCreateAttributes(&inPublic->publicArea, parent,
@@ -7469,7 +7477,7 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic.publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic.publicArea, 0);
     }
 #ifdef WOLFTPM_V185
     if (rc == 0) {
@@ -7696,7 +7704,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Validate ML public parameters and the supplied public key size before
      * the object is created (Part 3 Sec.18.4). */
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic.publicArea, 1);
+        rc = FwValidatePublicTemplate(&inPublic.publicArea, 1);
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -7994,7 +8002,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&objectPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&objectPublic->publicArea, 0);
     }
     if (rc == 0 && (objectPublic->publicArea.objectAttributes &
             (TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent)) != 0) {
@@ -9139,7 +9147,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * Tables 204/207/208/229-231). The unique public key is produced by
      * key generation, so no size check applies here. */
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
     }
 
     /* Generate key -- same logic as Create */
