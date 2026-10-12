@@ -14821,6 +14821,10 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         ctx->phNvDisabled) {
         rc = TPM_RC_HIERARCHY;
     }
+    if (rc == 0 && (publicInfo.nvPublic.attributes &
+            FWTPM_NV_RESERVED_ATTR_MASK) != 0) {
+        rc = TPM_RC_RESERVED_BITS;
+    }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, publicInfo.nvPublic.authPolicy.buffer,
             publicInfo.nvPublic.authPolicy.size);

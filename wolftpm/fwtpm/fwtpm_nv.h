@@ -38,6 +38,8 @@
 /* NV file header magic and version */
 #define FWTPM_NV_MAGIC     0x66775450  /* "fwTP" */
 #define FWTPM_NV_VERSION   4           /* TLV journal format */
+/* Reserved TPMA_NV bits [9:8] and [24:20]. */
+#define FWTPM_NV_RESERVED_ATTR_MASK  0x01F00300UL
 
 /* Hierarchy seed size (SHA-384 digest length) */
 #define FWTPM_SEED_SIZE    TPM_SHA384_DIGEST_SIZE

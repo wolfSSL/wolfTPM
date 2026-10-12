@@ -17268,7 +17268,6 @@ static void test_fwtpm_nv_append_atomic(void)
     fwtpm_pass("NV append atomic on commit failure:", 0);
 }
 
-#ifndef FWTPM_NO_DA
 static void PutU32LE(byte* p, UINT32 v)
 {
     p[0] = (byte)(v & 0xFF);
@@ -17276,6 +17275,164 @@ static void PutU32LE(byte* p, UINT32 v)
     p[2] = (byte)((v >> 16) & 0xFF);
     p[3] = (byte)((v >> 24) & 0xFF);
 }
+
+static void PutU16LE(byte* p, UINT16 v)
+{
+    p[0] = (byte)(v & 0xFF);
+    p[1] = (byte)((v >> 8) & 0xFF);
+}
+
+static int NvLoadCraftedEntry(FWTPM_CTX* ctx, UINT16 tag,
+    const byte* value, UINT16 valueLen)
+{
+    FWTPM_NV_HAL hal;
+    word32 writePos = (word32)sizeof(FWTPM_NV_HEADER) + 4 + valueLen;
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    PutU32LE(gMockNvStore + 0, 0x66775450);   /* magic "fwTP" */
+    PutU32LE(gMockNvStore + 4, 4);            /* version (TLV journal) */
+    PutU32LE(gMockNvStore + 8, writePos);
+    PutU32LE(gMockNvStore + 12, MOCK_NV_SIZE);
+    gMockNvStore[16] = (byte)(tag & 0xFF);
+    gMockNvStore[17] = (byte)((tag >> 8) & 0xFF);
+    gMockNvStore[18] = (byte)(valueLen & 0xFF);
+    gMockNvStore[19] = (byte)((valueLen >> 8) & 0xFF);
+    if (valueLen > 0) {
+        memcpy(gMockNvStore + 20, value, valueLen);
+    }
+
+    memset(ctx, 0, sizeof(*ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(ctx, &hal), 0);
+    return FWTPM_NV_Init(ctx);
+}
+
+static void test_fwtpm_nv_malformed_entry_rejected(void)
+{
+    FWTPM_CTX ctx;
+    byte malformedCache[40];
+    byte malformedObject[8];
+    const byte validAuth[2] = {0, 0};
+    const byte shortAuth[1] = {0};
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_OWNER_AUTH,
+        validAuth, (UINT16)sizeof(validAuth)), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.ownerAuth.size, 0);
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_OWNER_AUTH,
+        shortAuth, (UINT16)sizeof(shortAuth)), TPM_RC_FAILURE);
+
+    /* The TPM2B_PUBLIC size must bound parsing. These records declare room for
+     * only the public type, so nameAlg must not be read from the next field. */
+    XMEMSET(malformedObject, 0, sizeof(malformedObject));
+    PutU32LE(malformedObject, PERSISTENT_FIRST);
+    malformedObject[5] = 2;
+    malformedObject[7] = TPM_ALG_RSA;
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_PERSISTENT,
+        malformedObject, (UINT16)sizeof(malformedObject)), TPM_RC_FAILURE);
+
+    XMEMSET(malformedCache, 0, sizeof(malformedCache));
+    PutU32LE(malformedCache, TPM_RH_OWNER);
+    malformedCache[37] = 2;
+    malformedCache[39] = TPM_ALG_RSA;
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_PRIMARY_CACHE,
+        malformedCache, (UINT16)sizeof(malformedCache)), TPM_RC_FAILURE);
+
+    fwtpm_pass("NV malformed entry rejected:", 0);
+}
+
+static void test_fwtpm_nv_reserved_attributes_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int cmdSz;
+    int rspSize = 0;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        FWTPM_NV_RESERVED_ATTR_MASK;
+
+    XMEMSET(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    cmdSz = BuildNvDefineCmd(gCmd, 0x01500071, 8, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_RESERVED_BITS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV reserved attributes rejected:", 0);
+}
+
+static void test_fwtpm_nv_semantic_entry_skipped(void)
+{
+    FWTPM_CTX ctx;
+    byte valid[19];
+    byte value[19];
+    FWTPM_NV_HAL hal;
+    word32 writePos;
+    word32 pos = 0;
+    int i;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        FWTPM_NV_RESERVED_ATTR_MASK;
+
+    XMEMSET(value, 0, sizeof(value));
+    PutU32LE(value + pos, 0x01500072); pos += 4;
+    PutU16LE(value + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32LE(value + pos, attrs); pos += 4;
+    PutU16LE(value + pos, 0); pos += 2; /* authPolicy */
+    PutU16LE(value + pos, 0); pos += 2; /* dataSize */
+    PutU16LE(value + pos, 0); pos += 2; /* authValue */
+    value[pos++] = 0;                   /* written */
+    PutU16LE(value + pos, 0); pos += 2; /* data length */
+    AssertIntEQ(pos, sizeof(value));
+
+    XMEMCPY(valid, value, sizeof(valid));
+    PutU32LE(valid + 6, attrs & ~FWTPM_NV_RESERVED_ATTR_MASK);
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_NV_INDEX,
+        value, (UINT16)sizeof(value)), TPM_RC_SUCCESS);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        AssertIntEQ(ctx.nvIndices[i].inUse, 0);
+    }
+
+    /* A semantically invalid newer snapshot must also discard an earlier
+     * snapshot of the same index rather than restoring stale authorization or
+     * data. */
+    XMEMSET(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    writePos = (word32)sizeof(FWTPM_NV_HEADER) + 8 + sizeof(valid) +
+        sizeof(value);
+    PutU32LE(gMockNvStore + 0, 0x66775450);
+    PutU32LE(gMockNvStore + 4, 4);
+    PutU32LE(gMockNvStore + 8, writePos);
+    PutU32LE(gMockNvStore + 12, MOCK_NV_SIZE);
+    PutU16LE(gMockNvStore + 16, FWTPM_NV_TAG_NV_INDEX);
+    PutU16LE(gMockNvStore + 18, (UINT16)sizeof(valid));
+    XMEMCPY(gMockNvStore + 20, valid, sizeof(valid));
+    PutU16LE(gMockNvStore + 20 + sizeof(valid), FWTPM_NV_TAG_NV_INDEX);
+    PutU16LE(gMockNvStore + 22 + sizeof(valid), (UINT16)sizeof(value));
+    XMEMCPY(gMockNvStore + 24 + sizeof(valid), value, sizeof(value));
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_Init(&ctx), TPM_RC_SUCCESS);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        AssertIntEQ(ctx.nvIndices[i].inUse, 0);
+    }
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_NV_INDEX,
+        value, 10), TPM_RC_FAILURE);
+
+    TPM2_ForceZero(&ctx, sizeof(ctx));
+    fwtpm_pass("NV semantic journal entry skipped:", 0);
+}
+
+#ifndef FWTPM_NO_DA
 
 /* Build a minimal NV journal (header + one FLAGS entry) in gMockNvStore and
  * load it through the mock HAL (no integrity key, so the MAC check is skipped).
@@ -18650,6 +18807,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();
+    test_fwtpm_nv_malformed_entry_rejected();
+    test_fwtpm_nv_reserved_attributes_rejected();
+    test_fwtpm_nv_semantic_entry_skipped();
     test_fwtpm_nv_counter();
 #ifndef FWTPM_NO_ATTESTATION
     test_fwtpm_nv_certify_digest_mode();
