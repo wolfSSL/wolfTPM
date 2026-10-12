@@ -150,7 +150,7 @@ typedef struct FWTPM_NV_HEADER {
     the file backend or the registered HAL) or creates a new empty one.
 
     \return 0 on success
-    \return negative on I/O or format error
+    \return a nonzero error code on I/O or format error
 
     \param ctx pointer to an initialized FWTPM_CTX
 
@@ -166,7 +166,7 @@ WOLFTPM_API int FWTPM_NV_Init(FWTPM_CTX* ctx);
     below the compaction threshold.
 
     \return 0 on success
-    \return negative on I/O error
+    \return a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
 */
@@ -203,7 +203,7 @@ WOLFTPM_API int FWTPM_NV_SetHAL(FWTPM_CTX* ctx, FWTPM_NV_HAL* hal);
     excluded because it is re-randomized and never persisted.
 
     \return 0 on success
-    \return negative on I/O error
+    \return a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
 */
@@ -214,7 +214,7 @@ WOLFTPM_API int FWTPM_NV_SaveSeeds(FWTPM_CTX* ctx);
     \brief Append a single hierarchy auth value to the NV journal.
 
     \return 0 on success
-    \return negative on I/O error
+    \return a nonzero error code on I/O error
     \return BAD_FUNC_ARG for unknown hierarchy
 
     \param ctx pointer to an initialized FWTPM_CTX
@@ -227,7 +227,7 @@ WOLFTPM_API int FWTPM_NV_SaveAuth(FWTPM_CTX* ctx, UINT32 hierarchy);
     \ingroup wolfTPM_fwTPM_NV
     \brief Append the current PCR bank state and update counter.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
 */
@@ -237,7 +237,7 @@ WOLFTPM_API int FWTPM_NV_SavePcrState(FWTPM_CTX* ctx);
     \ingroup wolfTPM_fwTPM_NV
     \brief Append per-PCR auth values and policies to the NV journal.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
 */
@@ -247,7 +247,7 @@ WOLFTPM_API int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx);
     \ingroup wolfTPM_fwTPM_NV
     \brief Append the flags blob (disableClear, DA parameters, etc.).
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
 */
@@ -258,7 +258,7 @@ WOLFTPM_API int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx);
     \brief Append the TPM clock offset to the NV journal so that time
     survives a reboot.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
 */
@@ -269,7 +269,7 @@ WOLFTPM_API int FWTPM_NV_SaveClock(FWTPM_CTX* ctx);
     \brief Append a single hierarchy policy (digest + alg) to the NV
     journal.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param hierarchy one of TPM_RH_OWNER, TPM_RH_ENDORSEMENT,
@@ -282,7 +282,7 @@ WOLFTPM_API int FWTPM_NV_SaveHierarchyPolicy(FWTPM_CTX* ctx,
     \ingroup wolfTPM_fwTPM_NV
     \brief Append the contents of one NV index slot to the NV journal.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param slot index into ctx->nvIndices
@@ -294,7 +294,7 @@ WOLFTPM_API int FWTPM_NV_SaveNvIndex(FWTPM_CTX* ctx, int slot);
     \brief Mark an NV index as deleted in the NV journal. Space is
     reclaimed on the next compaction.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param nvHandle NV index handle (0x01xxxxxx)
@@ -305,7 +305,7 @@ WOLFTPM_API int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle);
     \ingroup wolfTPM_fwTPM_NV
     \brief Append a persistent object slot to the NV journal.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param slot index into ctx->persistent
@@ -316,7 +316,7 @@ WOLFTPM_API int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot);
     \ingroup wolfTPM_fwTPM_NV
     \brief Mark a persistent object as deleted in the NV journal.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param handle persistent object handle (0x81xxxxxx)
@@ -328,7 +328,7 @@ WOLFTPM_API int FWTPM_NV_DeletePersistent(FWTPM_CTX* ctx, UINT32 handle);
     \brief Append a primary-key cache entry to the NV journal. The
     primary-key cache ensures CreatePrimary is deterministic per seed.
 
-    \return 0 on success; negative on I/O error
+    \return 0 on success; a nonzero error code on I/O error
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param slot index into ctx->primaryCache
