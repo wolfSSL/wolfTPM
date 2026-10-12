@@ -44,6 +44,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <errno.h>
 
 /* Signal handler does only async-signal-safe work: it calls
  * FWTPM_IO_RequestStop(), which sets a volatile sig_atomic_t. The server
@@ -303,7 +304,11 @@ int main(int argc, char* argv[])
     /* Delete NV state file if --clear was requested */
     if (clearNv) {
         printf("Clearing NV state file: %s\n", FWTPM_NV_FILE);
-        (void)remove(FWTPM_NV_FILE);
+        if (remove(FWTPM_NV_FILE) != 0 && errno != ENOENT) {
+            fprintf(stderr, "Failed to clear NV state file %s: %s\n",
+                FWTPM_NV_FILE, strerror(errno));
+            return 1;
+        }
     }
 
     /* Initialize fwTPM */
