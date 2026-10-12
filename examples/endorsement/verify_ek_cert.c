@@ -128,7 +128,6 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
     int      sigSz = (int)sizeof(sig);
     uint8_t* sigDigest; /* offset to digest in signature */
     int      sigDigestSz = 0;
-
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&nvPublic, 0, sizeof(nvPublic));
     XMEMSET(&issuer, 0, sizeof(issuer));
@@ -302,7 +301,7 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
 
         /* Compare certificate hash with signature hash */
         if (sigDigestSz == (int)hashSz &&
-                memcmp(sigDigest, hashBuf, hashSz) == 0) {
+                XMEMCMP(sigDigest, hashBuf, hashSz) == 0) {
             printf("Certificate signature is valid\n");
         }
         else {
