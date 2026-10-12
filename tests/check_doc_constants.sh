@@ -2,7 +2,8 @@
 # tests/check_doc_constants.sh — verify doc / header constant parity.
 #
 # Greps every FWTPM_MAX_* / FWTPM_NV_* / FWTPM_SEED_* compile-time constant
-# from wolftpm/fwtpm/fwtpm.h and asserts that docs/FWTPM.md mentions each one.
+# from wolftpm/fwtpm/fwtpm.h and asserts that the fwTPM manual under docs/fwtpm/
+# mentions each one.
 # Catches doc drift when a constant is bumped (e.g. v1.85 lifted
 # FWTPM_MAX_COMMAND_SIZE 4096->8192) but the docs still cite the old value.
 #
@@ -12,9 +13,9 @@
 set -u
 
 HEADER="wolftpm/fwtpm/fwtpm.h"
-DOC="docs/FWTPM.md"
+DOC="docs/fwtpm"
 
-if [ ! -f "$HEADER" ] || [ ! -f "$DOC" ]; then
+if [ ! -f "$HEADER" ] || [ ! -d "$DOC" ]; then
     echo "SKIP: $HEADER or $DOC not found"
     exit 77
 fi
@@ -45,7 +46,7 @@ echo "Checking ${#CONSTS[@]} FWTPM_* constants in $DOC..."
 
 MISSING=()
 for c in "${CONSTS[@]}"; do
-    if ! grep -qF "$c" "$DOC"; then
+    if ! grep -qrF "$c" "$DOC"; then
         MISSING+=("$c")
     fi
 done
@@ -54,7 +55,7 @@ if [ "${#MISSING[@]}" -gt 0 ]; then
     echo "ERROR: the following constants are defined in $HEADER but NOT mentioned in $DOC:"
     printf '  %s\n' "${MISSING[@]}"
     echo ""
-    echo "Add a row for each to the Configuration Macros table in $DOC."
+    echo "Document each one in the fwTPM manual under $DOC (for example docs/fwtpm/building.md)."
     exit 1
 fi
 

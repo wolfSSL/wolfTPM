@@ -17,6 +17,7 @@ libtool
 Makefile
 !/wrapper/rust/Makefile
 !/wrapper/rust/wolftpm/Makefile
+!/tools/docs-manual/Makefile
 wolftpm-config
 .dirstamp
 *.la

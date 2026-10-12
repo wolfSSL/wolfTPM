@@ -1,0 +1,20 @@
+/* Keep inline code spans (configure options, property names, etc.) on a
+ * single line inside tables. The code column then sizes to its content and
+ * prose columns absorb the wrapping instead. Opt in per manual via the
+ * extra_css list in its mkdocs.yml. */
+/* display: inline-block is required for WebKit (Safari): it otherwise sizes
+ * table columns using the hyphen break opportunities inside code spans, then
+ * line-breaks the span (e.g. --enable-slhdsa) even under white-space: nowrap.
+ * As an inline-block atom the span's full width feeds into column sizing.
+ * The word-break/hyphens resets guard the wrapped-prose case (Notes columns),
+ * where WebKit can still honor the theme's `code { word-break: break-word }`
+ * break opportunities inside a nowrap inline element. */
+.md-typeset table:not([class]) th code,
+.md-typeset table:not([class]) td code {
+    display: inline-block;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+    -webkit-hyphens: none;
+    hyphens: none;
+}

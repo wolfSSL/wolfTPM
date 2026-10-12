@@ -1,0 +1,91 @@
+site_name: wolfTPM Manual
+site_description: Portable TPM 2.0 stack for embedded use, with a firmware TPM, post-quantum, and SPDM
+site_url: https://www.wolfssl.com/documentation/manuals/wolftpm/
+repo_url: https://github.com/wolfSSL/wolfTPM
+edit_uri: edit/master/docs/
+docs_dir: docs
+copyright: Copyright © 2026 wolfSSL Inc.
+use_directory_urls: false
+
+# docs/dev/ holds maintainer notes, not manual pages; docs/ja/ is the Japanese
+# mirror built from mkdocs-ja.yml. Keep both out of the English site.
+exclude_docs: |
+  dev/
+  ja/
+
+nav:
+  - Overview:
+      - Introduction: index.md
+      - TPM 2.0 Overview: tpm2-overview.md
+      - Project Structure: project-structure.md
+  - Getting Started:
+      - Getting Started: getting-started.md
+      - Building: building.md
+      - Build Options: build-options.md
+      - System Interfaces: system-interfaces.md
+  - Hardware:
+      - Supported Hardware: supported-hardware.md
+      - HAL IO Callback: hal-io-callback.md
+  - Usage:
+      - Examples Overview: examples-overview.md
+      - Key Management: key-management.md
+      - Attestation: attestation.md
+      - Sealing and NVRAM: sealing-and-nvram.md
+      - TLS and Certificates: tls-and-certificates.md
+      - Firmware Update: firmware-update.md
+      - Management and GPIO: management-and-gpio.md
+  - Post-Quantum:
+      - Post-Quantum: post-quantum.md
+  - SPDM:
+      - SPDM: spdm.md
+  - Firmware TPM:
+      - Overview: fwtpm/overview.md
+      - Building: fwtpm/building.md
+      - Usage: fwtpm/usage.md
+      - HAL and Porting: fwtpm/hal-and-porting.md
+      - Post-Quantum: fwtpm/post-quantum.md
+      - SPDM: fwtpm/spdm.md
+  - Wrappers:
+      - Rust Wrapper: rust-wrapper.md
+      - C# Wrapper: csharp-wrapper.md
+  - Integrations:
+      - STM32Cube: stm32cube.md
+      - Embedded Integrations: embedded-integrations.md
+  - Reference:
+      - API Reference: api-reference.md
+      - TPM2 API: group__TPM2__Proprietary.md
+      - TPM2 Wrapper API: group__wolfTPM2__Wrappers.md
+      - TPM2 Header File: tpm2_8h.md
+      - TPM2 Wrapper Header File: tpm2__wrap_8h.md
+      - TPM2 HAL IO: tpm__io_8h.md
+      - Testing: testing.md
+      - Benchmarks: benchmarks.md
+      - SBOM and Compliance: sbom-and-compliance.md
+      - Release Notes: release-notes.md
+      - Cited Sources: cited-sources.md
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    primary: indigo
+    accent: indigo
+
+extra_css:
+  - assets/skin.css
+  - assets/table-code.css
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - admonition
+  - toc:
+      permalink: true
+
+plugins:
+  - search

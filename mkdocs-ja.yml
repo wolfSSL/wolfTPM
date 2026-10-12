@@ -1,0 +1,89 @@
+site_name: wolfTPM マニュアル
+site_description: 組み込み向けポータブル TPM 2.0 スタック。ファームウェア TPM、ポスト量子暗号、SPDM に対応
+site_url: https://www.wolfssl.com/documentation/manuals/wolftpm/
+repo_url: https://github.com/wolfSSL/wolfTPM
+edit_uri: edit/master/docs/ja/
+docs_dir: docs/ja
+copyright: Copyright © 2026 wolfSSL Inc.
+use_directory_urls: false
+
+exclude_docs: |
+  dev/
+
+nav:
+  - 概要:
+      - はじめに: index.md
+      - TPM 2.0 の概要: tpm2-overview.md
+      - プロジェクト構成: project-structure.md
+  - 始めましょう:
+      - 始めましょう: getting-started.md
+      - ビルド: building.md
+      - ビルドオプション: build-options.md
+      - システムインターフェース: system-interfaces.md
+  - ハードウェア:
+      - サポートされるハードウェア: supported-hardware.md
+      - HAL IO コールバック: hal-io-callback.md
+  - 使い方:
+      - サンプル概要: examples-overview.md
+      - 鍵管理: key-management.md
+      - アテステーション: attestation.md
+      - シーリングと NVRAM: sealing-and-nvram.md
+      - TLS と証明書: tls-and-certificates.md
+      - ファームウェアアップデート: firmware-update.md
+      - 管理と GPIO: management-and-gpio.md
+  - ポスト量子暗号:
+      - ポスト量子暗号: post-quantum.md
+  - SPDM:
+      - SPDM: spdm.md
+  - ファームウェア TPM:
+      - 概要: fwtpm/overview.md
+      - ビルド: fwtpm/building.md
+      - 使い方: fwtpm/usage.md
+      - HAL とポーティング: fwtpm/hal-and-porting.md
+      - ポスト量子暗号: fwtpm/post-quantum.md
+      - SPDM: fwtpm/spdm.md
+  - ラッパー:
+      - Rust ラッパー: rust-wrapper.md
+      - C# ラッパー: csharp-wrapper.md
+  - 統合:
+      - STM32Cube: stm32cube.md
+      - 組み込み統合: embedded-integrations.md
+  - リファレンス:
+      - API リファレンス: api-reference.md
+      - TPM2 API: group__TPM2__Proprietary.md
+      - TPM2 ラッパー API: group__wolfTPM2__Wrappers.md
+      - TPM2 ヘッダーファイル: tpm2_8h.md
+      - TPM2 ラッパーヘッダーファイル: tpm2__wrap_8h.md
+      - TPM2 HAL IO: tpm__io_8h.md
+      - テスト: testing.md
+      - ベンチマーク: benchmarks.md
+      - SBOM とコンプライアンス: sbom-and-compliance.md
+      - リリースノート: release-notes.md
+      - 引用元: cited-sources.md
+
+theme:
+  name: material
+  language: ja
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    primary: indigo
+    accent: indigo
+
+extra_css:
+  - assets/skin.css
+  - assets/table-code.css
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - admonition
+  - toc:
+      permalink: true
+
+plugins:
+  - search
