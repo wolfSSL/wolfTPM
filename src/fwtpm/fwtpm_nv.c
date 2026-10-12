@@ -1029,6 +1029,7 @@ static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, macOut);
     }
+    wc_ForceZero(chunk, sizeof(chunk));
     wc_HmacFree(hmac);
     FWTPM_FREE_VAR(hmac);
     return rc;
