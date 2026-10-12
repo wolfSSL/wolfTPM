@@ -405,6 +405,7 @@ static int bench_pqc_mlkem(WOLFTPM2_DEV* dev, double maxDuration,
     if (rc != 0) goto exit;
 
 exit:
+    wc_ForceZero(secret, sizeof(secret));
     wolfTPM2_UnloadHandle(dev, &mlkemKey.handle);
     return rc;
 }
