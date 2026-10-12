@@ -56,7 +56,9 @@ int FwGetMgfType(UINT16 hashAlg);
 int FwComputeUniqueHash(TPMI_ALG_HASH nameAlg, const byte* keyData,
     int keyDataSz, byte* outBuf);
 
-/* hashUnique = H(sensitiveCreate.data || unique_bytes) for primary derivation */
+/* hashUnique = H(sensitiveCreate.data || unique_bytes) for primary derivation.
+ * Returns the digest size, TPM_RC_MEMORY on allocation failure, or 0 for any
+ * other error. */
 int FwComputeHashUnique(TPMI_ALG_HASH nameAlg,
     const byte* sensData, int sensDataSz,
     const byte* uniqueData, int uniqueDataSz,

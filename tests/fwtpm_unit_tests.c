@@ -631,6 +631,100 @@ static void test_fwtpm_zero_size_command(void)
     fwtpm_pass("Zero-size command (MEDIUM-4):", 0);
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+static int gFwTpmAllocFailCount;
+
+int FWTPM_TestShouldFailAlloc(void)
+{
+    if (gFwTpmAllocFailCount > 0) {
+        gFwTpmAllocFailCount--;
+        return gFwTpmAllocFailCount == 0;
+    }
+    return 0;
+}
+
+static void fwtpm_test_fail_next_alloc(void)
+{
+    gFwTpmAllocFailCount = 1;
+}
+
+static void test_fwtpm_crypto_alloc_failure(void)
+{
+    byte hash[WC_SHA256_DIGEST_SIZE];
+    byte der[1];
+    int derSz = 0;
+    int rc;
+    FWTPM_CTX ctx;
+    FWTPM_Object parent;
+    TPM2B_NAME name;
+    TPM2B_AUTH auth;
+    TPM2B_PRIVATE privateBlob;
+    UINT16 sensitiveType = 0;
+    byte aesKey[WC_SHA256_DIGEST_SIZE];
+    byte macKey[WC_SHA256_DIGEST_SIZE];
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    TPM2B_PUBLIC_KEY_RSA rsaPub;
+    byte seed[FWTPM_SEED_SIZE];
+#endif
+#ifdef HAVE_ECC
+    TPMS_ECC_POINT eccPub;
+#endif
+
+    fwtpm_test_fail_next_alloc();
+    rc = FwComputeHashUnique(TPM_ALG_SHA256, NULL, 0, NULL, 0, hash);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    memset(&rsaPub, 0, sizeof(rsaPub));
+    fwtpm_test_fail_next_alloc();
+    rc = FwGenerateRsaKey(NULL, 2048, WC_RSA_EXPONENT, &rsaPub,
+        der, sizeof(der), &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    memset(seed, 0, sizeof(seed));
+    fwtpm_test_fail_next_alloc();
+    rc = FwDeriveRsaPrimaryKey(TPM_ALG_SHA256, seed, hash, sizeof(hash),
+        2048, WC_RSA_EXPONENT, NULL, &rsaPub, der, sizeof(der), &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+#endif
+
+#ifdef HAVE_ECC
+    memset(&eccPub, 0, sizeof(eccPub));
+    fwtpm_test_fail_next_alloc();
+    rc = FwGenerateEccKey(NULL, TPM_ECC_NIST_P256, &eccPub,
+        der, sizeof(der), &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&parent, 0, sizeof(parent));
+    memset(&name, 0, sizeof(name));
+    memset(&auth, 0, sizeof(auth));
+    memset(&privateBlob, 0, sizeof(privateBlob));
+    parent.hierarchy = TPM_RH_OWNER;
+    parent.privKeySize = 1;
+    name.size = 1;
+    fwtpm_test_fail_next_alloc();
+    rc = FwDeriveWrapKey(&ctx, &parent, &name, aesKey, macKey);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    fwtpm_test_fail_next_alloc();
+    rc = FwWrapPrivate(&ctx, &parent, NULL, &name, TPM_ALG_RSA, &auth,
+        der, 0, &privateBlob);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    memset(&privateBlob, 0, sizeof(privateBlob));
+    privateBlob.size = 2 + WC_SHA256_DIGEST_SIZE + AES_BLOCK_SIZE + 2;
+    PutU16BE(privateBlob.buffer, WC_SHA256_DIGEST_SIZE);
+    fwtpm_test_fail_next_alloc();
+    rc = FwUnwrapPrivate(&ctx, &parent, &name, &privateBlob,
+        &sensitiveType, &auth, der, &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    fwtpm_pass("Crypto allocation failures preserved:", 0);
+}
+#endif
+
 /* ================================================================== */
 /* 4. GetRandom / StirRandom                                           */
 /* ================================================================== */
@@ -18375,6 +18469,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
     }
 #endif
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    if (argc == 2 && XSTRCMP(argv[1], "crypto-alloc-failure") == 0) {
+        test_fwtpm_crypto_alloc_failure();
+        return 0;
+    }
+#endif
+
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();
         return 0;
@@ -18456,6 +18557,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Security fix regressions */
     test_fwtpm_auth_area_oversize();
     test_fwtpm_zero_size_command();
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_crypto_alloc_failure();
+#endif
 
     /* GetRandom / StirRandom */
     test_fwtpm_getrandom();

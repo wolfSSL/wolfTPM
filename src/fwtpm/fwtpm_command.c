@@ -4193,6 +4193,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         hashUniqueSz = FwComputeHashUnique(inPublic->publicArea.nameAlg,
             sensData, (int)sensDataSize, uBuf, uSz, hashUnique);
+        if (hashUniqueSz == TPM_RC_MEMORY) {
+            rc = TPM_RC_MEMORY;
+            hashUniqueSz = 0;
+        }
     }
 
     /* Hash the public template + sensData for cache lookup */

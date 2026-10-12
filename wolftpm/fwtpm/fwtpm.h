@@ -439,12 +439,23 @@
  *   FWTPM_FREE_BUF(buf);                     // cleanup
  */
 #ifdef WOLFTPM_SMALL_STACK
+    #ifdef WOLFTPM_FWTPM_UNIT_TEST
+        int FWTPM_TestShouldFailAlloc(void);
+        #define FWTPM_TEST_ALLOC_FAIL() FWTPM_TestShouldFailAlloc()
+    #else
+        #define FWTPM_TEST_ALLOC_FAIL() 0
+    #endif
     #define FWTPM_DECLARE_VAR(name, type) \
         type* name = NULL
     #define FWTPM_ALLOC_VAR(name, type) \
         do { \
-            (name) = (type*)XMALLOC(sizeof(type), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (type*)XMALLOC(sizeof(type), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
         } while (0)
     /* Allocate AND zero-initialize. Use this when the variable will be
