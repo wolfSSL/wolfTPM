@@ -92,7 +92,7 @@ for PS in 44 65 87; do
     run_test "ML-DSA-$PS sign/verify" "ML-DSA-$PS" "$PQC_CTRL" --mldsa=$PS
 done
 
-# Hash-ML-DSA (SHA-256 pre-hash) — every parameter set
+# Hash-ML-DSA (SHA-256/384/512 pre-hash for 44/65/87) — every parameter set
 for PS in 44 65 87; do
     run_test "Hash-ML-DSA-$PS sign/verify" "HashML-DSA-$PS" \
         "$PQC_CTRL" --hash-mldsa=$PS

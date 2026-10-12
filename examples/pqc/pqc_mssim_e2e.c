@@ -6,8 +6,8 @@
  * Two round-trips in one binary:
  *   1. CreatePrimary MLKEM-768 + Encapsulate + Decapsulate.
  *      Asserts ciphertext is 1088 bytes and the two shared secrets match.
- *   2. CreatePrimary HashMLDSA-65 (SHA-256) + SignDigest + VerifyDigestSignature.
- *      Asserts the signature is 3309 bytes and the validation ticket
+ *   2. CreatePrimary HashMLDSA-44 (SHA-256) + SignDigest + VerifyDigestSignature.
+ *      Asserts the signature is 2420 bytes and the validation ticket
  *      returns TPM_ST_DIGEST_VERIFIED.
  *
  * Proves client marshaling + mssim framing + fwtpm_server unmarshaling +
@@ -140,7 +140,7 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
     WOLFTPM2_KEY mldsa;
     TPMT_PUBLIC tpl;
     int rc;
-    byte digest[32];
+    byte digest[TPM_SHA256_DIGEST_SIZE];
     /* MLDSA-87 sig = 4627 bytes — heap-alloc to keep stack small. */
     byte* sig = NULL;
     int sigBufSz = MAX_MLDSA_SIG_SIZE;
@@ -158,7 +158,7 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&tpl,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth,
-        TPM_MLDSA_65, TPM_ALG_SHA256);
+        TPM_MLDSA_44, TPM_ALG_SHA256);
     if (rc != 0) {
         printf("GetKeyTemplate_HASH_MLDSA rc=%d\n", rc);
         XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -167,7 +167,7 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &mldsa, TPM_RH_OWNER, &tpl, NULL, 0);
     if (rc != 0) {
-        printf("CreatePrimary(HashMLDSA-65) rc=%d\n", rc);
+        printf("CreatePrimary(HashMLDSA-44) rc=%d\n", rc);
         XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return rc;
     }
@@ -175,7 +175,7 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
     /* HashMLDSA shares the mldsa arm of TPMU_PUBLIC_ID. */
     rc = check_pub_populated("mldsa.unique",
         mldsa.pub.publicArea.unique.mldsa.buffer,
-        mldsa.pub.publicArea.unique.mldsa.size, 1952);
+        mldsa.pub.publicArea.unique.mldsa.size, 1312);
     if (rc != 0) goto cleanup;
 
     rc = wolfTPM2_SignDigest(dev, &mldsa,
@@ -186,8 +186,8 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
         printf("SignDigest rc=%d\n", rc);
         goto cleanup;
     }
-    if (sigSz != 3309) {
-        printf("HashMLDSA-65 sig size=%d (expected 3309)\n", sigSz);
+    if (sigSz != 2420) {
+        printf("HashMLDSA-44 sig size=%d (expected 2420)\n", sigSz);
         rc = -1;
         goto cleanup;
     }
@@ -209,7 +209,7 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
         goto cleanup;
     }
 
-    printf("[E2E] HashMLDSA-65 SignDigest/Verify over mssim: "
+    printf("[E2E] HashMLDSA-44 SignDigest/Verify over mssim: "
            "sig=%d bytes, ticket=DIGEST_VERIFIED\n", sigSz);
 
 cleanup:

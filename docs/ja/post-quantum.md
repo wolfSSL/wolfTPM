@@ -134,7 +134,7 @@ fwTPM サーバーの PQC 内部 (8 つの v1.85 コマンド、プライマリ�
 | `--flush` | 操作の合間に、ロード済みのすべてのトランジェントオブジェクトをフラッシュ |
 | `--clear` | `TPM2_Clear`。新しい Storage プライマリシードをインストールし、Storage オブジェクトと Endorsement オブジェクトおよび非プラットフォームの NV を削除し、オーナー、エンドースメント、ロックアウトの auth をリセットします |
 | `--mldsa[=44/65/87]` | Pure ML-DSA の署名/検証 (デフォルトは 65) |
-| `--hash-mldsa[=44/65/87]` | HashML-DSA (SHA-256 プリハッシュ) の署名/検証 |
+| `--hash-mldsa[=44/65/87]` | HashML-DSA の署名/検証 (44/65/87 で SHA-256/384/512 プリハッシュ) |
 | `--mlkem[=512/768/1024]` | ML-KEM のカプセル化/デカプセル化 |
 | `--all` | caps + algs + selftest + getrandom + pcrread + すべての PQC セット |
 
@@ -155,7 +155,7 @@ PQC_CTRL_CLEAR=1 ./examples/pqc/pqc_ctrl.sh   # also extend PCR 16 and run TPM2_
 mssim ソケット経由のエンドツーエンドのクライアントテストです。次の 4 つのチェックを順に実行します。
 
 1. ML-KEM-768 の `CreatePrimary`、`Encapsulate`、`Decapsulate`。暗号文が 1088 バイトであること、および 2 つの共有秘密がバイト単位で一致することを検証します。
-2. HashML-DSA-65 (SHA-256) の `CreatePrimary`、`SignDigest`、`VerifyDigestSignature`。署名が 3309 バイトであること、および検証チケットのタグが `TPM_ST_DIGEST_VERIFIED` であることを検証します。
+2. HashML-DSA-44 (SHA-256) の `CreatePrimary`、`SignDigest`、`VerifyDigestSignature`。署名が 2420 バイトであること、および検証チケットのタグが `TPM_ST_DIGEST_VERIFIED` であることを検証します。
 3. ML-KEM の `MakeCredential` と `ActivateCredential` のラウンドトリップ。
 4. ML-DSA の `Quote`。
 
@@ -189,14 +189,14 @@ Pure ML-DSA の署名と検証のラウンドトリップです。ML-DSA のプ�
 
 ```sh
 ./examples/keygen/keygen keyblob.bin -mldsa=65           # Pure ML-DSA
-./examples/keygen/keygen keyblob.bin -hash_mldsa=65      # SHA-256 pre-hash
+./examples/keygen/keygen keyblob.bin -hash_mldsa=65      # SHA-384 pre-hash
 ./examples/keygen/keygen keyblob.bin -mlkem=768          # ML-KEM
 ```
 
 パラメータセット:
 
 - `-mldsa=44|65|87` (デフォルトは 65)
-- `-hash_mldsa=44|65|87` (デフォルトは 65、SHA-256 プリハッシュ)
+- `-hash_mldsa=44|65|87` (デフォルトは 65、44/65/87 で SHA-256/384/512 プリハッシュ)
 - `-mlkem=512|768|1024` (デフォルトは 768)
 
 生成されたブロブが `TPM2_Create` と `TPM2_Load` を経由してラウンドトリップできることは、読み込み直すことで確認できます。

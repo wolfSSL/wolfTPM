@@ -689,6 +689,7 @@ static void test_fwtpm_getcap_algorithms(void)
     int foundMlkem = 0;
     int foundMldsa = 0;
     int foundHashMldsa = 0;
+    int foundSha512 = 0;
     int algListValid;
 #endif
 
@@ -731,6 +732,9 @@ static void test_fwtpm_getcap_algorithms(void)
         else if (alg == TPM_ALG_HASH_MLDSA) {
             foundHashMldsa = 1;
         }
+        else if (alg == TPM_ALG_SHA512) {
+            foundSha512 = 1;
+        }
     }
 #ifdef WOLFTPM_MLKEM
     AssertIntEQ(foundMlkem, 1);
@@ -746,6 +750,12 @@ static void test_fwtpm_getcap_algorithms(void)
     AssertIntEQ(foundHashMldsa, 1);
 #else
     AssertIntEQ(foundHashMldsa, 0);
+#endif
+    /* HashML-DSA-87 needs SHA-512, so it must be advertised when built */
+#ifdef WOLFSSL_SHA512
+    AssertIntEQ(foundSha512, 1);
+#else
+    AssertIntEQ(foundSha512, 0);
 #endif
 #endif /* WOLFTPM_V185 && WOLFTPM_PQC */
 
@@ -785,6 +795,43 @@ static void test_fwtpm_getcap_algorithms(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GetCapability(ALGS):", 0);
+}
+
+/* TPM_PT_MAX_DIGEST must cover the largest advertised hash (SHA-512). */
+static void test_fwtpm_getcap_max_digest(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_MAX_DIGEST); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* moreData(1) | capability(4) | count(4) | property(4) | value(4) */
+    pos = TPM2_HEADER_SIZE + 1 + 4;
+    AssertIntEQ(pos + 12 <= rspSize, 1);
+    AssertIntEQ(GetU32BE(gRsp + pos), 1); pos += 4;
+    AssertIntEQ(GetU32BE(gRsp + pos), TPM_PT_MAX_DIGEST); pos += 4;
+#if defined(WOLFSSL_SHA512)
+    AssertIntEQ(GetU32BE(gRsp + pos), TPM_SHA512_DIGEST_SIZE);
+#elif defined(WOLFSSL_SHA384)
+    AssertIntEQ(GetU32BE(gRsp + pos), TPM_SHA384_DIGEST_SIZE);
+#else
+    AssertIntEQ(GetU32BE(gRsp + pos), TPM_SHA256_DIGEST_SIZE);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability MAX_DIGEST:", 1);
 }
 
 static void test_fwtpm_getcap_commands(void)
@@ -2602,7 +2649,7 @@ static int BuildCreatePrimaryCmdEx(byte* buf, TPM_ALG_ID algType,
         PutU16BE(buf + pos, 0); pos += 2;
     }
     else if (algType == TPM_ALG_HASH_MLDSA) {
-        /* HashML-DSA-65 with SHA-256 pre-hash. sign-only attributes. */
+        /* HashML-DSA-44 with SHA-256 pre-hash. sign-only attributes. */
         PutU16BE(buf + pos, TPM_ALG_HASH_MLDSA); pos += 2;
         PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
         if (objectAttributes == 0) {
@@ -2611,7 +2658,7 @@ static int BuildCreatePrimaryCmdEx(byte* buf, TPM_ALG_ID algType,
         PutU32BE(buf + pos, objectAttributes); pos += 4;
         PutU16BE(buf + pos, 0); pos += 2; /* authPolicy */
         /* TPMS_HASH_MLDSA_PARMS: parameterSet + hashAlg */
-        PutU16BE(buf + pos, TPM_MLDSA_65); pos += 2;
+        PutU16BE(buf + pos, TPM_MLDSA_44); pos += 2;
         PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
         /* unique.mldsa: size=0 */
         PutU16BE(buf + pos, 0); pos += 2;
@@ -4056,7 +4103,7 @@ static void test_fwtpm_hash_mldsa_quote_namealg_digest(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* CreatePrimary Hash-ML-DSA-65: nameAlg SHA-384, pre-hash SHA-256,
+    /* CreatePrimary Hash-ML-DSA-44: nameAlg SHA-384, pre-hash SHA-256,
      * restricted sign. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
@@ -4078,7 +4125,7 @@ static void test_fwtpm_hash_mldsa_quote_namealg_digest(void)
     PutU16BE(gCmd + pos, TPM_ALG_SHA384); pos += 2;   /* nameAlg */
     PutU32BE(gCmd + pos, 0x00050072); pos += 4;       /* restricted|sign|... */
     PutU16BE(gCmd + pos, 0); pos += 2;                /* authPolicy */
-    PutU16BE(gCmd + pos, TPM_MLDSA_65); pos += 2;     /* parameterSet */
+    PutU16BE(gCmd + pos, TPM_MLDSA_44); pos += 2;     /* parameterSet */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;   /* pre-hash */
     PutU16BE(gCmd + pos, 0); pos += 2;                /* unique */
     PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
@@ -5319,7 +5366,7 @@ static void test_fwtpm_verifysequence_long_message(void)
     fwtpm_pass("Sign/VerifySequence ECDSA 4KB long-message:", 1);
 }
 
-/* Layer D: Hash-MLDSA-65 SignDigest → VerifyDigestSignature round-trip.
+/* Layer D: Hash-MLDSA-44 SignDigest → VerifyDigestSignature round-trip.
  * Verifies the signature-ticket validation path (Bug M-4 metadata field). */
 #ifdef WOLFTPM_HASH_MLDSA
 static void test_fwtpm_mldsa_digest_roundtrip(void)
@@ -5337,7 +5384,7 @@ static void test_fwtpm_mldsa_digest_roundtrip(void)
     rc = fwtpm_test_startup(&ctx);
     AssertIntEQ(rc, 0);
 
-    /* CreatePrimary(Hash-MLDSA-65 / SHA-256) */
+    /* CreatePrimary(Hash-MLDSA-44 / SHA-256) */
     cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
@@ -5386,7 +5433,7 @@ static void test_fwtpm_mldsa_digest_roundtrip(void)
     sigHash = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(sigHash, TPM_ALG_SHA256);
     sigSz   = GetU16BE(gRsp + pos); pos += 2;
-    AssertIntEQ(sigSz, 3309); /* MLDSA-65 signature size per Table 207 */
+    AssertIntEQ(sigSz, 2420); /* MLDSA-44 signature size per Table 207 */
     memcpy(sig, gRsp + pos, sigSz);
 
     /* VerifyDigestSignature command:
@@ -6407,7 +6454,7 @@ static void test_fwtpm_signdigest_malformed_hashcheck_tag(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* Hash-MLDSA-65 primary — unrestricted by default. */
+    /* Hash-MLDSA-44 primary — unrestricted by default. */
     cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
@@ -6612,7 +6659,7 @@ static void test_fwtpm_sequenceupdate_neg(void)
 /* ---- TCG compliance: v1.85 spec-RC fixtures -------------------------- */
 
 #ifdef WOLFTPM_HASH_MLDSA
-/* Build a CreatePrimary(TPM_ALG_HASH_MLDSA, MLDSA-65, SHA-256) command with
+/* Build a CreatePrimary(TPM_ALG_HASH_MLDSA, MLDSA-44, SHA-256) command with
  * caller-supplied objectAttributes. Used by the attribute-driven negative
  * fixtures below where the default 0x00040072 (sign-only) mask does not
  * trigger the check under test. */
@@ -6643,7 +6690,7 @@ static int BuildCreatePrimaryHashMldsaAttrs(byte* buf, UINT32 attributes)
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
     PutU32BE(buf + pos, attributes); pos += 4;
     PutU16BE(buf + pos, 0); pos += 2;
-    PutU16BE(buf + pos, TPM_MLDSA_65); pos += 2;
+    PutU16BE(buf + pos, TPM_MLDSA_44); pos += 2;
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
     PutU16BE(buf + pos, 0); pos += 2;
     pubAreaLen = pos - pubAreaStart - 2;
@@ -6873,7 +6920,7 @@ static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
 #endif /* !FWTPM_NO_HASH_CMDS */
 
 /* F-4: VerifyDigestSignature rejects sigHashAlg != key's hashAlg with
- * TPM_RC_SCHEME per Part 3 Sec.20.4.1. Key is Hash-ML-DSA-65/SHA-256; wire
+ * TPM_RC_SCHEME per Part 3 Sec.20.4.1. Key is Hash-ML-DSA-44/SHA-256; wire
  * signature carries sigHashAlg=SHA-384. Full signature bytes follow the
  * header but are irrelevant — the scheme-mismatch check fires first. */
 static void test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme(void)
@@ -7495,7 +7542,7 @@ static void test_fwtpm_verifydigest_ticket_uses_context_hash(void)
 }
 #endif /* ECC and digest-signature command support */
 
-/* Build a Hash-MLDSA-65/SHA-256 CreatePrimary in a caller-chosen
+/* Build a Hash-MLDSA-44/SHA-256 CreatePrimary in a caller-chosen
  * hierarchy. Used to exercise the per-object hierarchy capture path
  * since BuildCreatePrimaryCmd hardcodes TPM_RH_OWNER. */
 static int BuildCreatePrimaryHashMldsaInHierarchy(byte* buf, UINT32 hierarchy)
@@ -7525,7 +7572,7 @@ static int BuildCreatePrimaryHashMldsaInHierarchy(byte* buf, UINT32 hierarchy)
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
     PutU32BE(buf + pos, 0x00040072); pos += 4; /* sign|fixed*|userWithAuth */
     PutU16BE(buf + pos, 0); pos += 2;
-    PutU16BE(buf + pos, TPM_MLDSA_65); pos += 2;
+    PutU16BE(buf + pos, TPM_MLDSA_44); pos += 2;
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
     PutU16BE(buf + pos, 0); pos += 2;
     pubAreaLen = pos - pubAreaStart - 2;
@@ -8747,8 +8794,8 @@ static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
 /* Extended CreatePrimary builder that overrides the default MLDSA/MLKEM
  * parameter set (BuildCreatePrimaryCmd uses 65/768). Used by max-buffer
  * tests to exercise MLDSA-87 (sig=4627) and MLKEM-1024 (ct=1568). */
-static int BuildCreatePrimaryCmdParam(byte* buf, TPM_ALG_ID algType,
-    UINT16 paramSet)
+static int BuildCreatePrimaryCmdParamHash(byte* buf, TPM_ALG_ID algType,
+    UINT16 paramSet, TPMI_ALG_HASH preHash)
 {
     int pos = 0, pubAreaStart, pubAreaLen, sensStart, sensLen;
 
@@ -8796,7 +8843,7 @@ static int BuildCreatePrimaryCmdParam(byte* buf, TPM_ALG_ID algType,
         PutU32BE(buf + pos, 0x00040072); pos += 4;
         PutU16BE(buf + pos, 0); pos += 2;
         PutU16BE(buf + pos, paramSet); pos += 2;
-        PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2; /* pre-hash alg */
+        PutU16BE(buf + pos, preHash); pos += 2; /* pre-hash alg */
         PutU16BE(buf + pos, 0); pos += 2;
     }
     else {
@@ -8809,6 +8856,23 @@ static int BuildCreatePrimaryCmdParam(byte* buf, TPM_ALG_ID algType,
     PutU32BE(buf + pos, 0); pos += 4;
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
+}
+
+/* Smallest pre-hash with lambda bits of collision strength (FIPS 204 5.4). */
+static TPMI_ALG_HASH MldsaPreHashFor(UINT16 paramSet)
+{
+    if (paramSet == TPM_MLDSA_87)
+        return TPM_ALG_SHA512;
+    if (paramSet == TPM_MLDSA_65)
+        return TPM_ALG_SHA384;
+    return TPM_ALG_SHA256;
+}
+
+static int BuildCreatePrimaryCmdParam(byte* buf, TPM_ALG_ID algType,
+    UINT16 paramSet)
+{
+    return BuildCreatePrimaryCmdParamHash(buf, algType, paramSet,
+        MldsaPreHashFor(paramSet));
 }
 
 /* ---- Max-buffer round-trips at MLDSA-87 and MLKEM-1024 ---------------
@@ -8976,18 +9040,23 @@ static void test_fwtpm_response_buffer_capacity(void)
  * parameter sets. Mirrors test_wc_dilithium_sign_vfy in wolfCrypt, but
  * through the TPM sequence-handler surface rather than direct crypto. */
 #ifdef WOLFTPM_HASH_MLDSA
-static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
+static void hash_mldsa_seq_roundtrip_hash(UINT16 paramSet, UINT16 preHash,
+    UINT16 expectedSigSz)
 {
     FWTPM_CTX ctx;
-    int rc, rspSize, cmdSz, pos, i;
+    int rc, rspSize, cmdSz, pos, i, oi, digestSz;
     UINT32 handle, seqHandle;
     UINT16 sigAlg, sigHash, sigSz;
     byte chunk[64];
+    byte msg[4 * 64];
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    FWTPM_Object* key = NULL;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    cmdSz = BuildCreatePrimaryCmdParam(gCmd, TPM_ALG_HASH_MLDSA, paramSet);
+    cmdSz = BuildCreatePrimaryCmdParamHash(gCmd, TPM_ALG_HASH_MLDSA, paramSet,
+        preHash);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
@@ -9012,6 +9081,7 @@ static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
     /* Feed 4 * 64 = 256 bytes via SequenceUpdate — Hash-MLDSA allows this. */
     for (i = 0; i < 4; i++) {
         memset(chunk, (byte)(0x10 + i), sizeof(chunk));
+        memcpy(msg + (i * sizeof(chunk)), chunk, sizeof(chunk));
         pos = 0;
         PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
         PutU32BE(gCmd + pos, 0); pos += 4;
@@ -9051,9 +9121,25 @@ static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
     sigAlg = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(sigAlg, TPM_ALG_HASH_MLDSA);
     sigHash = GetU16BE(gRsp + pos); pos += 2;
-    AssertIntEQ(sigHash, TPM_ALG_SHA256);
-    sigSz = GetU16BE(gRsp + pos);
+    AssertIntEQ(sigHash, preHash);
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(sigSz, expectedSigSz);
+    AssertIntEQ(pos + sigSz <= rspSize, 1);
+
+    /* Verify independently over a wolfCrypt digest of the streamed bytes. */
+    for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
+        if (ctx.objects[oi].handle == handle) {
+            key = &ctx.objects[oi];
+            break;
+        }
+    }
+    AssertNotNull(key);
+    digestSz = TPM2_GetHashDigestSize(preHash);
+    AssertIntGT(digestSz, 0);
+    AssertIntEQ(wc_Hash(FwGetWcHashType(preHash), msg, sizeof(msg), digest,
+        (word32)digestSz), 0);
+    AssertIntEQ(FwVerifyMldsaHash(paramSet, &key->pub.unique.mldsa, NULL, 0,
+        preHash, digest, digestSz, gRsp + pos, sigSz), TPM_RC_SUCCESS);
 
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
     PutU32BE(gCmd + 10, handle);
@@ -9063,14 +9149,287 @@ static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
     FWTPM_Cleanup(&ctx);
 }
 
+static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
+{
+    hash_mldsa_seq_roundtrip_hash(paramSet, MldsaPreHashFor(paramSet),
+        expectedSigSz);
+}
+
 static void test_fwtpm_hash_mldsa_seq_all_params(void)
 {
     hash_mldsa_seq_roundtrip_one(TPM_MLDSA_44, 2420);
     fwtpm_pass("HashMLDSA-44 seq roundtrip:", 1);
+#ifdef WOLFSSL_SHA384
     hash_mldsa_seq_roundtrip_one(TPM_MLDSA_65, 3309);
     fwtpm_pass("HashMLDSA-65 seq roundtrip:", 1);
+#endif
+#ifdef WOLFSSL_SHA512
     hash_mldsa_seq_roundtrip_one(TPM_MLDSA_87, 4627);
     fwtpm_pass("HashMLDSA-87 seq roundtrip:", 1);
+#endif
+#if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256) && \
+    !defined(WOLFSSL_NO_ML_DSA_44)
+    hash_mldsa_seq_roundtrip_hash(TPM_MLDSA_44, TPM_ALG_SHA3_256, 2420);
+    fwtpm_pass("HashMLDSA-44 SHA3-256 seq roundtrip:", 1);
+#endif
+#if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384) && \
+    !defined(WOLFSSL_NO_ML_DSA_65)
+    hash_mldsa_seq_roundtrip_hash(TPM_MLDSA_65, TPM_ALG_SHA3_384, 3309);
+    fwtpm_pass("HashMLDSA-65 SHA3-384 seq roundtrip:", 1);
+#endif
+#if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512) && \
+    !defined(WOLFSSL_NO_ML_DSA_87)
+    hash_mldsa_seq_roundtrip_hash(TPM_MLDSA_87, TPM_ALG_SHA3_512, 4627);
+    fwtpm_pass("HashMLDSA-87 SHA3-512 seq roundtrip:", 1);
+#endif
+}
+
+static TPM2B_MLDSA_SIGNATURE weakSig;
+static TPM2B_PUBLIC_KEY_MLDSA weakPub;
+
+/* Every allowed parameter-set / pre-hash pairing that is compiled in. */
+static const struct {
+    UINT16 ps;
+    UINT16 hashAlg;
+    UINT16 sigSz;
+} gPreHashMatrix[] = {
+#ifndef WOLFSSL_NO_ML_DSA_44
+    { TPM_MLDSA_44, TPM_ALG_SHA256, 2420 },
+    #ifdef WOLFSSL_SHA384
+    { TPM_MLDSA_44, TPM_ALG_SHA384, 2420 },
+    #endif
+    #ifdef WOLFSSL_SHA512
+    { TPM_MLDSA_44, TPM_ALG_SHA512, 2420 },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256)
+    { TPM_MLDSA_44, TPM_ALG_SHA3_256, 2420 },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384)
+    { TPM_MLDSA_44, TPM_ALG_SHA3_384, 2420 },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+    { TPM_MLDSA_44, TPM_ALG_SHA3_512, 2420 },
+    #endif
+#endif
+#ifndef WOLFSSL_NO_ML_DSA_65
+    #ifdef WOLFSSL_SHA384
+    { TPM_MLDSA_65, TPM_ALG_SHA384, 3309 },
+    #endif
+    #ifdef WOLFSSL_SHA512
+    { TPM_MLDSA_65, TPM_ALG_SHA512, 3309 },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384)
+    { TPM_MLDSA_65, TPM_ALG_SHA3_384, 3309 },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+    { TPM_MLDSA_65, TPM_ALG_SHA3_512, 3309 },
+    #endif
+#endif
+#ifndef WOLFSSL_NO_ML_DSA_87
+    #ifdef WOLFSSL_SHA512
+    { TPM_MLDSA_87, TPM_ALG_SHA512, 4627 },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+    { TPM_MLDSA_87, TPM_ALG_SHA3_512, 4627 },
+    #endif
+#endif
+    { 0, TPM_ALG_NULL, 0 } /* keeps the table non-empty in trimmed builds */
+};
+
+/* CreatePrimary, SignDigest, VerifyDigestSignature; a flipped digest bit must
+ * then fail verification. */
+static void hash_mldsa_digest_pair(FWTPM_CTX* ctx, UINT16 ps, UINT16 hashAlg,
+    UINT16 expectedSigSz, byte* sig)
+{
+    int cmdSz, rspSize, pos, digestSz, pass;
+    UINT32 handle;
+    UINT16 sigSz;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+
+    digestSz = TPM2_GetHashDigestSize(hashAlg);
+    AssertIntGT(digestSz, 0);
+    memset(digest, 0x5C, sizeof(digest));
+
+    cmdSz = BuildCreatePrimaryCmdParamHash(gCmd, TPM_ALG_HASH_MLDSA, ps,
+        hashAlg);
+    rspSize = 0;
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_SignDigest);
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2;                  /* context */
+    PutU16BE(gCmd + pos, (UINT16)digestSz); pos += 2;
+    memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;   /* NULL ticket */
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE + 4;
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_HASH_MLDSA); pos += 2;
+    AssertIntEQ(GetU16BE(gRsp + pos), hashAlg); pos += 2;
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigSz, expectedSigSz);
+    AssertIntEQ(pos + sigSz <= rspSize, 1);
+    memcpy(sig, gRsp + pos, sigSz);
+
+    for (pass = 0; pass < 2; pass++) {
+        if (pass == 1) {
+            digest[0] ^= 0x01;
+        }
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_VerifyDigestSignature);
+        PutU32BE(gCmd + pos, handle); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;              /* context */
+        PutU16BE(gCmd + pos, (UINT16)digestSz); pos += 2;
+        memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
+        PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+        PutU16BE(gCmd + pos, hashAlg); pos += 2;
+        PutU16BE(gCmd + pos, sigSz); pos += 2;
+        memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+        if (pass == 0) {
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        }
+        else {
+            AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        }
+    }
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handle);
+    rspSize = 0;
+    FWTPM_ProcessCommand(ctx, gCmd, 14, gRsp, &rspSize, 0);
+}
+
+static void test_fwtpm_hash_mldsa_prehash_matrix(void)
+{
+    FWTPM_CTX ctx;
+    int i;
+    FWTPM_DECLARE_BUF(sig, MAX_MLDSA_SIG_SIZE);
+
+    FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; gPreHashMatrix[i].ps != 0; i++) {
+        hash_mldsa_digest_pair(&ctx, gPreHashMatrix[i].ps,
+            gPreHashMatrix[i].hashAlg, gPreHashMatrix[i].sigSz, sig);
+    }
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sig);
+    fwtpm_pass("HashMLDSA pre-hash sign/verify matrix:", 1);
+}
+
+static const struct {
+    UINT16 ps;
+    UINT16 hashAlg;
+    TPM_RC rc;
+} gPreHashCases[] = {
+    { 0x0099, TPM_ALG_SHA256, TPM_RC_PARMS },
+#ifndef WOLFSSL_NO_ML_DSA_44
+    { TPM_MLDSA_44, TPM_ALG_SM3_256, TPM_RC_HASH },
+    #ifdef WOLFSSL_SHA512
+    { TPM_MLDSA_44, TPM_ALG_SHA512, TPM_RC_SUCCESS },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256)
+    { TPM_MLDSA_44, TPM_ALG_SHA3_256, TPM_RC_SUCCESS },
+    #endif
+#endif
+#ifndef WOLFSSL_NO_ML_DSA_65
+    { TPM_MLDSA_65, TPM_ALG_SHA256, TPM_RC_HASH },
+    #ifdef WOLFSSL_SHA384
+    { TPM_MLDSA_65, TPM_ALG_SHA384, TPM_RC_SUCCESS },
+    #endif
+    #ifdef WOLFSSL_SHA512
+    { TPM_MLDSA_65, TPM_ALG_SHA512, TPM_RC_SUCCESS },
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384)
+    { TPM_MLDSA_65, TPM_ALG_SHA3_384, TPM_RC_SUCCESS },
+    #endif
+#endif
+#ifndef WOLFSSL_NO_ML_DSA_87
+    { TPM_MLDSA_87, TPM_ALG_SHA384, TPM_RC_HASH },
+    { TPM_MLDSA_87, TPM_ALG_SHA3_384, TPM_RC_HASH },
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+    { TPM_MLDSA_87, TPM_ALG_SHA3_512, TPM_RC_SUCCESS },
+    #endif
+#endif
+};
+
+static void test_fwtpm_hash_mldsa_weak_prehash(void)
+{
+    FWTPM_CTX ctx;
+    int cmdSz, rspSize, pos, i;
+    byte seed[32];
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    XMEMSET(seed, 0x11, sizeof(seed));
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    XMEMSET(&weakPub, 0, sizeof(weakPub));
+    (void)cmdSz;
+
+#ifndef WOLFSSL_NO_ML_DSA_65
+    cmdSz = BuildCreatePrimaryCmdParamHash(gCmd, TPM_ALG_HASH_MLDSA,
+        TPM_MLDSA_65, TPM_ALG_SHA256);
+    AssertIntGT(cmdSz, 0);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HASH);
+
+    /* A weak key restored from NV skips template checks; sign must still
+     * refuse it. */
+    AssertIntEQ(FwSignMldsaHash(&ctx.rng, TPM_MLDSA_65, seed, NULL, 0,
+        TPM_ALG_SHA256, digest, TPM_SHA256_DIGEST_SIZE, &weakSig),
+        TPM_RC_HASH);
+#endif
+#ifndef WOLFSSL_NO_ML_DSA_87
+    cmdSz = BuildCreatePrimaryCmdParamHash(gCmd, TPM_ALG_HASH_MLDSA,
+        TPM_MLDSA_87, TPM_ALG_SHA384);
+    AssertIntGT(cmdSz, 0);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HASH);
+
+    AssertIntEQ(FwVerifyMldsaHash(TPM_MLDSA_87, &weakPub, NULL, 0,
+        TPM_ALG_SHA256, digest, TPM_SHA256_DIGEST_SIZE, weakSig.buffer, 0),
+        TPM_RC_HASH);
+#endif
+
+    for (i = 0; i < (int)(sizeof(gPreHashCases) / sizeof(gPreHashCases[0]));
+            i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+        PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+        PutU16BE(gCmd + pos, gPreHashCases[i].ps); pos += 2;
+        PutU16BE(gCmd + pos, gPreHashCases[i].hashAlg); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), gPreHashCases[i].rc);
+    }
+
+    /* An unknown parameter set stays TPM_RC_PARMS, not TPM_RC_HASH. */
+    AssertIntEQ(FwSignMldsaHash(&ctx.rng, 0x0099, seed, NULL, 0,
+        TPM_ALG_SHA256, digest, TPM_SHA256_DIGEST_SIZE, &weakSig),
+        TPM_RC_PARMS);
+    AssertIntEQ(FwVerifyMldsaHash(0x0099, &weakPub, NULL, 0,
+        TPM_ALG_SHA256, digest, TPM_SHA256_DIGEST_SIZE, weakSig.buffer, 0),
+        TPM_RC_PARMS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("HashMLDSA weak pre-hash rejected:", 1);
 }
 #endif /* WOLFTPM_HASH_MLDSA */
 
@@ -16970,6 +17329,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* GetCapability */
     test_fwtpm_getcap_algorithms();
     test_fwtpm_getcap_commands();
+    test_fwtpm_getcap_max_digest();
     test_fwtpm_getcap_commands_tpma();
 #if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA_SIGN) || \
     defined(WOLFTPM_MLDSA_VERIFY)
@@ -17189,6 +17549,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mlkem1024_maxbuf();
 #ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_hash_mldsa_seq_all_params();
+    test_fwtpm_hash_mldsa_weak_prehash();
+    test_fwtpm_hash_mldsa_prehash_matrix();
 #endif /* WOLFTPM_HASH_MLDSA */
 #endif
     test_fwtpm_read_public();

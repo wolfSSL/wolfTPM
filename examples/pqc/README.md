@@ -126,7 +126,7 @@ hit `TPM_RC_OBJECT_MEMORY` when commands are chained.
 | `--flush` | Flush transient objects (board reset between ops) |
 | `--clear` | `TPM2_Clear` — wipes the owner hierarchy |
 | `--mldsa[=44/65/87]` | Pure ML-DSA sign/verify (default 65) |
-| `--hash-mldsa[=44/65/87]` | Hash-ML-DSA (SHA-256 pre-hash) sign/verify |
+| `--hash-mldsa[=44/65/87]` | Hash-ML-DSA sign/verify (SHA-256/384/512 pre-hash for 44/65/87) |
 | `--mlkem[=512/768/1024]` | ML-KEM encapsulate/decapsulate |
 | `--all` | caps + algs + selftest + getrandom + pcrread + every PQC set |
 
@@ -167,8 +167,8 @@ End-to-end client test over the mssim socket. Two round-trips:
 
 1. MLKEM-768 `CreatePrimary` + `Encapsulate` + `Decapsulate`. Asserts
    ciphertext is 1088 bytes and the two shared secrets are byte-identical.
-2. HashMLDSA-65 (SHA-256) `CreatePrimary` + `SignDigest` +
-   `VerifyDigestSignature`. Asserts the signature is 3309 bytes and the
+2. HashMLDSA-44 (SHA-256) `CreatePrimary` + `SignDigest` +
+   `VerifyDigestSignature`. Asserts the signature is 2420 bytes and the
    validation ticket tag is `TPM_ST_DIGEST_VERIFIED`.
 
 ```
@@ -210,13 +210,13 @@ on verify sequences). Asserts the returned validation ticket tag is
 
 ```
 ./examples/keygen/keygen keyblob.bin -mldsa=65           # Pure ML-DSA
-./examples/keygen/keygen keyblob.bin -hash_mldsa=65      # SHA-256 pre-hash
+./examples/keygen/keygen keyblob.bin -hash_mldsa=65      # SHA-384 pre-hash
 ./examples/keygen/keygen keyblob.bin -mlkem=768          # ML-KEM
 ```
 
 Parameter sets:
 - `-mldsa=44|65|87` (default 65)
-- `-hash_mldsa=44|65|87` (default 65, SHA-256 pre-hash)
+- `-hash_mldsa=44|65|87` (default 65; SHA-256/384/512 pre-hash for 44/65/87)
 - `-mlkem=512|768|1024` (default 768)
 
 Verify the produced blob round-trips through `TPM2_Create` + `TPM2_Load`

@@ -219,6 +219,9 @@ TPM_RC FwVerifyMldsaMu(TPMI_MLDSA_PARAMETER_SET parameterSet,
     const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
     const byte* mu, int muSz, const byte* sig, int sigSz);
 
+int FwMldsaPreHashStrong(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    TPMI_ALG_HASH hashAlg);
+
 TPM_RC FwSignMldsaHash(WC_RNG* rng,
     TPMI_MLDSA_PARAMETER_SET parameterSet,
     const byte* seedXi,
