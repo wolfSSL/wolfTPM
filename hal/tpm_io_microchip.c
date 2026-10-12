@@ -201,6 +201,7 @@
 
             if (!queued) {
                 printf("error: i2c_read: I2C_BB_Read failed\n");
+                TPM2_ForceZero(i2cRdBuf, sizeof(i2cRdBuf));
                 return -1;
             }
 
