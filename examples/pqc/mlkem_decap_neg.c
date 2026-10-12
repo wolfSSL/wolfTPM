@@ -190,6 +190,9 @@ static int mlkem_decap_neg_run(int argc, char *argv[])
     }
 
 exit:
+    wc_ForceZero(secretEncap, sizeof(secretEncap));
+    wc_ForceZero(secretGood, sizeof(secretGood));
+    wc_ForceZero(secretBad, sizeof(secretBad));
     wolfTPM2_UnloadHandle(&dev, &mlkemKey.handle);
     wolfTPM2_Cleanup(&dev);
     return rc;
