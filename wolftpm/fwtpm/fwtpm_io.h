@@ -73,7 +73,8 @@ WOLFTPM_API int FWTPM_IO_SetHAL(FWTPM_CTX* ctx, FWTPM_IO_HAL* hal);
     ctx->platPort.
 
     \return 0 on success
-    \return negative on socket/bind error
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return TPM_RC_FAILURE on socket/bind error
 
     \param ctx pointer to an initialized FWTPM_CTX
 
@@ -98,7 +99,8 @@ WOLFTPM_API void FWTPM_IO_Cleanup(FWTPM_CTX* ctx);
     is cleared (by FWTPM_IO_RequestStop or a signal handler).
 
     \return 0 on clean shutdown
-    \return negative on fatal transport error
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return TPM_RC_FAILURE on fatal transport error
 
     \param ctx pointer to an initialized FWTPM_CTX
 

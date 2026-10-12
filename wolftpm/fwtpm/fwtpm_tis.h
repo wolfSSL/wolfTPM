@@ -221,7 +221,8 @@ WOLFTPM_API int FWTPM_TIS_SetHAL(struct FWTPM_CTX* ctx,
     HAL has been set, installs the default POSIX shared-memory HAL.
 
     \return 0 on success
-    \return negative on transport initialization error
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return TPM_RC_FAILURE on transport initialization error
 
     \param ctx pointer to an initialized FWTPM_CTX
 
@@ -247,7 +248,8 @@ WOLFTPM_API void FWTPM_TIS_Cleanup(struct FWTPM_CTX* ctx);
     dispatches completed commands to FWTPM_ProcessCommand.
 
     \return 0 on clean shutdown
-    \return negative on fatal transport error
+    \return BAD_FUNC_ARG if ctx is NULL or the HAL is incomplete
+    \return TPM_RC_FAILURE on fatal transport error
 
     \param ctx pointer to an initialized FWTPM_CTX
 
