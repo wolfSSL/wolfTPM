@@ -321,7 +321,28 @@ static int HandlePlatformCommand(FWTPM_CTX* ctx, SOCKET_T clientFd)
 /* --- Handle mssim signal on command port --- */
 static int HandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd, UINT32 tssCmd)
 {
+    int rc;
+    UINT32 dataSize;
     UINT32 netVal;
+
+    if (tssCmd == FWTPM_TCP_SIGNAL_HASH_DATA) {
+        rc = SocketRecv(clientFd, &netVal, (int)sizeof(netVal));
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
+        dataSize = FwTpmSwapU32(netVal);
+        if (dataSize > FWTPM_MAX_COMMAND_SIZE) {
+            return TPM_RC_COMMAND_SIZE;
+        }
+        if (dataSize > 0U) {
+            rc = SocketRecv(clientFd, ctx->cmdBuf, (int)dataSize);
+            TPM2_ForceZero(ctx->cmdBuf, dataSize);
+            if (rc != TPM_RC_SUCCESS) {
+                return rc;
+            }
+        }
+    }
+
     /* State-mutating signals (POWER_OFF/RESET) are rejected before reaching
      * here on the command port; only POWER_ON is handled. */
     if (tssCmd == FWTPM_TCP_SIGNAL_POWER_ON)
@@ -329,9 +350,20 @@ static int HandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd, UINT32 tssCmd)
 #ifdef DEBUG_WOLFTPM
     printf("fwTPM: Cmd-port signal %u (ack)\n", tssCmd);
 #endif
-    netVal = FwTpmSwapU32(0);
+    netVal = FwTpmSwapU32(tssCmd == FWTPM_TCP_SIGNAL_HASH_DATA ? 1U : 0U);
     return SocketSend(clientFd, &netVal, 4);
 }
+
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    UINT32 tssCmd);
+
+int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    UINT32 tssCmd)
+{
+    return HandleMssimSignal(ctx, clientFd, tssCmd);
+}
+#endif
 
 /* --- Process and send TPM command response --- */
 static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,

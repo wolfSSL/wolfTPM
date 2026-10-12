@@ -39,14 +39,29 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_param_enc.h>
+#include <wolftpm/tpm2_socket.h>
 #include <wolftpm/fwtpm/fwtpm.h>
 #include <wolftpm/fwtpm/fwtpm_command.h>
 #include <wolftpm/fwtpm/fwtpm_crypto.h>
+#include <wolftpm/fwtpm/fwtpm_io.h>
 
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 
 #include <stdio.h>
 #include <string.h>
+
+#ifndef _WIN32
+    #include <arpa/inet.h>
+    #include <errno.h>
+    #include <fcntl.h>
+    #include <sys/socket.h>
+    #include <unistd.h>
+#endif
+
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    UINT32 tssCmd);
+#endif
 
 /* Test Fail Helpers (same as unit_tests.c) */
 #ifndef NO_ABORT
@@ -17273,6 +17288,47 @@ static void test_fwtpm_nv_append_rebuild_probe(void)
 #endif
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
+static void test_fwtpm_mssim_hash_data_framing(void)
+{
+    static const byte payload[] = { 0x11, 0x22, 0x33, 0x44 };
+    FWTPM_CTX ctx;
+    UINT32 netLen = htonl((UINT32)sizeof(payload));
+    UINT32 ack = 1;
+    byte extra;
+    int sockets[2];
+    int flags;
+    int rc;
+    int got;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
+    AssertIntEQ((int)write(sockets[1], &netLen, sizeof(netLen)),
+        (int)sizeof(netLen));
+    AssertIntEQ((int)write(sockets[1], payload, sizeof(payload)),
+        (int)sizeof(payload));
+
+    rc = FWTPM_IO_TestHandleMssimSignal(&ctx, sockets[0],
+        FWTPM_TCP_SIGNAL_HASH_DATA);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)read(sockets[1], &ack, sizeof(ack)),
+        (int)sizeof(ack));
+    AssertIntEQ((int)ntohl(ack), 1);
+
+    flags = fcntl(sockets[0], F_GETFL, 0);
+    AssertIntNE(flags, -1);
+    AssertIntEQ(fcntl(sockets[0], F_SETFL, flags | O_NONBLOCK), 0);
+    errno = 0;
+    got = (int)read(sockets[0], &extra, sizeof(extra));
+    AssertIntEQ(got, -1);
+    AssertTrue(errno == EAGAIN || errno == EWOULDBLOCK);
+
+    (void)close(sockets[1]);
+    (void)close(sockets[0]);
+    fwtpm_pass("MSSIM unsupported hash-data framing:", 0);
+}
+#endif
+
 /* ================================================================== */
 /* main                                                                */
 /* ================================================================== */
@@ -17287,6 +17343,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Remove stale NV state to ensure clean test runs */
     (void)remove(FWTPM_NV_FILE);
+
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
+    if (argc == 2 && XSTRCMP(argv[1], "mssim-hash-data") == 0) {
+        test_fwtpm_mssim_hash_data_framing();
+        return 0;
+    }
+#endif
 
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();
@@ -17751,6 +17814,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_stclear_startup();
 #endif /* !FWTPM_NO_NV */
     test_fwtpm_clear();
+
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
+    test_fwtpm_mssim_hash_data_framing();
+#endif
 
     printf("\nAll fwTPM unit tests passed!\n");
     return 0;

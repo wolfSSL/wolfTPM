@@ -26,6 +26,7 @@ tests_fwtpm_unit_test_SOURCES = \
     src/fwtpm/fwtpm.c \
     src/fwtpm/fwtpm_command.c \
     src/fwtpm/fwtpm_crypto.c \
+    tests/fwtpm_io_test_adapter.c \
     src/fwtpm/fwtpm_nv.c \
     src/tpm2_util.c \
     src/tpm2_packet.c \
