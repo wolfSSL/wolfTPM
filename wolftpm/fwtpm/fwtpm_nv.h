@@ -197,8 +197,9 @@ WOLFTPM_API int FWTPM_NV_SetHAL(FWTPM_CTX* ctx, FWTPM_NV_HAL* hal);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV
-    \brief Append the four hierarchy seeds (owner, endorsement,
-    platform, null) to the NV journal.
+    \brief Append the three persistent hierarchy seeds (owner, endorsement,
+    platform) to the NV journal. The null hierarchy seed is intentionally
+    excluded because it is re-randomized and never persisted.
 
     \return 0 on success
     \return negative on I/O error
