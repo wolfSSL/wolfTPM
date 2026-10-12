@@ -780,6 +780,8 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    wc_ForceZero(cipher.buffer, sizeof(cipher.buffer));
+
     /* Cleanup all handles */
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
