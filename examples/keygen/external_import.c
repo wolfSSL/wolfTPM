@@ -233,6 +233,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         rc = writeKeyBlob(keyblobFile, rsaKey3);
         if (rc != TPM_RC_SUCCESS) {
             printf("Error saving keyblob.bin: %d\n", rc);
+            goto exit;
         }
     #endif
     }
