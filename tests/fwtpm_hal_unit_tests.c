@@ -27,6 +27,9 @@
     #include <config.h>
 #endif
 
+#define WOLFTPM_FWTPM
+#define WOLFTPM_FWTPM_TIS
+
 #include <wolftpm/tpm2.h>
 
 #include <stdio.h>
@@ -87,6 +90,51 @@ static sem_t* TestSemOpen(const char* name, int oflag, ...)
 #include "../hal/tpm_io_fwtpm.c"
 #undef sem_open
 #undef TPM2_ForceZero
+
+#include <wolftpm/fwtpm/fwtpm.h>
+
+void TestSetDefaultHAL(FWTPM_CTX* ctx);
+UINT32 TestByteArrayToU32(const BYTE* data);
+
+#define TPM2_ForceZero TestForceZero
+#define FWTPM_ProcessCommand TestProcessCommand
+#define FWTPM_IO_IsStopRequested TestStopRequested
+#define FWTPM_TIS_SetDefaultHAL TestSetDefaultHAL
+#define TPM2_Packet_ByteArrayToU32 TestByteArrayToU32
+#include "../src/fwtpm/fwtpm_tis.c"
+#undef TPM2_Packet_ByteArrayToU32
+#undef FWTPM_TIS_SetDefaultHAL
+#undef FWTPM_IO_IsStopRequested
+#undef FWTPM_ProcessCommand
+#undef TPM2_ForceZero
+
+int TestProcessCommand(FWTPM_CTX* ctx, const byte* cmdBuf, int cmdSize,
+    byte* rspBuf, int* rspSize, int locality)
+{
+    (void)ctx;
+    (void)cmdBuf;
+    (void)cmdSize;
+    (void)rspBuf;
+    (void)rspSize;
+    (void)locality;
+    return TPM_RC_FAILURE;
+}
+
+int TestStopRequested(void)
+{
+    return 0;
+}
+
+void TestSetDefaultHAL(FWTPM_CTX* ctx)
+{
+    (void)ctx;
+}
+
+UINT32 TestByteArrayToU32(const BYTE* data)
+{
+    return ((UINT32)data[0] << 24) | ((UINT32)data[1] << 16) |
+        ((UINT32)data[2] << 8) | (UINT32)data[3];
+}
 
 static void CleanupEndpoint(void)
 {
@@ -421,6 +469,45 @@ static int TestMetadataValidation(void)
     return 0;
 }
 
+static int TestBurstCountWriteIgnored(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_TIS_REGS regs;
+    UINT32 initialSts = 0x12345678U;
+    int failed = 0;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&regs, 0, sizeof(regs));
+    ctx.tisLocality = 0;
+    regs.sts = initialSts;
+    regs.cmd_len = 7;
+    regs.fifo_write_pos = 6;
+    regs.fifo_read_pos = 5;
+    regs.rsp_len = 4;
+    regs.reg_addr = FWTPM_TIS_BURST_COUNT_REG;
+    regs.reg_len = 1;
+    regs.reg_is_write = 1;
+    regs.reg_data[0] = FWTPM_STS_COMMAND_READY;
+
+    TisHandleRegAccess(&ctx, &regs);
+    if (regs.sts != initialSts || regs.cmd_len != 7 ||
+            regs.fifo_write_pos != 6 || regs.fifo_read_pos != 5 ||
+            regs.rsp_len != 4) {
+        failed = 1;
+    }
+
+    regs.reg_addr = FWTPM_TIS_STS;
+    TisHandleRegAccess(&ctx, &regs);
+    if (regs.cmd_len != 0 || regs.fifo_write_pos != 0 ||
+            regs.fifo_read_pos != 0 || regs.rsp_len != 0) {
+        failed = 1;
+    }
+
+    printf("%s: ignored writes to read-only burst count\n",
+        failed ? "FAIL" : "PASS");
+    return failed;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -455,6 +542,7 @@ int main(void)
     failures += ExpectAccepted();
     failures += ExpectDisconnectZeroized();
     failures += TestMetadataValidation();
+    failures += TestBurstCountWriteIgnored();
 
     CleanupEndpoint();
     printf("fwTPM HAL endpoint tests: %s\n",
