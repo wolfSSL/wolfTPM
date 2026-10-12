@@ -1738,6 +1738,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                     WOLFSSL_MSG("fwTPM NV: no free NV slot, entry dropped");
                 }
             }
+            wc_ForceZero(&nv, sizeof(nv));
             break;
         }
 
@@ -1794,6 +1795,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                         sizeof(FWTPM_Object));
                 }
             }
+            wc_ForceZero(&obj, sizeof(obj));
             break;
         }
 
@@ -1846,6 +1848,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                         sizeof(FWTPM_PrimaryCache));
                 }
             }
+            wc_ForceZero(&cache, sizeof(cache));
             break;
         }
 
