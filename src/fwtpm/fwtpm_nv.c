@@ -1005,11 +1005,13 @@ static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
     FWTPM_DECLARE_VAR(hmac, Hmac);
     byte chunk[256];
     word32 off = sizeof(FWTPM_NV_HEADER);
-    int rc;
+    int rc = 0;
 
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
-    rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    }
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, WC_SHA256, key, keySz);
     }

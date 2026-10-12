@@ -12598,6 +12598,23 @@ static void test_fwtpm_nv_journal_tamper_rejected(void)
     printf("Test fwTPM:\tNV journal tamper rejected:\tPassed\n");
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+static void test_fwtpm_nv_journal_mac_alloc_failure(void)
+{
+    FWTPM_CTX ctx;
+    int rc;
+
+    memset(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+
+    fwtpm_test_fail_next_alloc();
+    rc = FWTPM_NV_Save(&ctx);
+
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+    printf("Test fwTPM:\tNV journal MAC allocation failure:\tPassed\n");
+}
+#endif
+
 static void test_fwtpm_nv_counter(void)
 {
     FWTPM_CTX ctx;
@@ -18807,6 +18824,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_nv_journal_mac_alloc_failure();
+#endif
     test_fwtpm_nv_malformed_entry_rejected();
     test_fwtpm_nv_reserved_attributes_rejected();
     test_fwtpm_nv_semantic_entry_skipped();
