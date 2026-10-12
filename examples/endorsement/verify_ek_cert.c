@@ -318,6 +318,7 @@ exit:
             TPM2_GetRCString(rc), rc);
     }
 
+    wolfTPM2_UnloadHandle(&dev, &hash.handle);
     wolfTPM2_UnloadHandle(&dev, &issuer.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
     wolfTPM2_Cleanup(&dev);
