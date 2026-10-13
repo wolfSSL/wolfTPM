@@ -913,6 +913,7 @@ typedef struct FWTPM_CTX {
     /* Live (saved-but-not-yet-loaded) context sequences. A context loads at
      * most once and saved contexts may load in any order. */
     UINT64 contextLive[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
+    TPM_HANDLE contextLiveHandle[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
     int contextLiveCount;
 #endif
 

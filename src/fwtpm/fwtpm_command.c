@@ -3757,6 +3757,35 @@ static void FwFlushAllSessions(FWTPM_CTX* ctx)
     }
 }
 
+#ifndef FWTPM_NO_CONTEXT
+static void FwRemoveSavedContext(FWTPM_CTX* ctx, int idx)
+{
+    int i;
+
+    if (idx < 0 || idx >= ctx->contextLiveCount) {
+        return;
+    }
+    for (i = idx; i < ctx->contextLiveCount - 1; i++) {
+        ctx->contextLive[i] = ctx->contextLive[i + 1];
+        ctx->contextLiveHandle[i] = ctx->contextLiveHandle[i + 1];
+    }
+    ctx->contextLiveCount--;
+}
+
+static int FwFlushSavedSession(FWTPM_CTX* ctx, TPM_HANDLE handle)
+{
+    int i;
+
+    for (i = 0; i < ctx->contextLiveCount; i++) {
+        if (ctx->contextLiveHandle[i] == handle) {
+            FwRemoveSavedContext(ctx, i);
+            return 1;
+        }
+    }
+    return 0;
+}
+#endif
+
 void FWTPM_ResetCommandClient(FWTPM_CTX* ctx)
 {
 #if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
@@ -4326,7 +4355,13 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             (flushHandle & 0xFF000000) == POLICY_SESSION_FIRST) {
             FWTPM_Session* sess = FwFindSession(ctx, flushHandle);
             if (sess == NULL) {
+            #ifndef FWTPM_NO_CONTEXT
+                if (!FwFlushSavedSession(ctx, flushHandle)) {
+                    rc = TPM_RC_HANDLE;
+                }
+            #else
                 rc = TPM_RC_HANDLE;
+            #endif
             }
             else if (cmdTag != TPM_ST_SESSIONS) {
                 FwFreeSession(sess);
@@ -5379,7 +5414,9 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         ctx->contextSeqCounter++;
         if (isSession) {
             /* Record so this session context loads at most once, any order */
-            ctx->contextLive[ctx->contextLiveCount++] = ctx->contextSeqCounter;
+            ctx->contextLive[ctx->contextLiveCount] = ctx->contextSeqCounter;
+            ctx->contextLiveHandle[ctx->contextLiveCount] = saveHandle;
+            ctx->contextLiveCount++;
         }
         seqHi = (UINT32)(ctx->contextSeqCounter >> 32);
         seqLo = (UINT32)(ctx->contextSeqCounter & 0xFFFFFFFFu);
@@ -5727,13 +5764,7 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         printf("fwTPM: ContextLoad(handle=0x%x)\n", savedHandle);
     #endif
         /* Consume a loaded session context so it cannot be replayed. */
-        if (liveIdx >= 0 && liveIdx < ctx->contextLiveCount) {
-            for (liveScan = liveIdx; liveScan < ctx->contextLiveCount - 1;
-                    liveScan++) {
-                ctx->contextLive[liveScan] = ctx->contextLive[liveScan + 1];
-            }
-            ctx->contextLiveCount--;
-        }
+        FwRemoveSavedContext(ctx, liveIdx);
         TPM2_Packet_AppendU32(rsp, savedHandle);
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
