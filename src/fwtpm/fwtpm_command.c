@@ -3636,10 +3636,10 @@ static TPM_RC FwCmd_ClockSet(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* New time must be >= current (can only advance) */
     if (rc == 0) {
         UINT64 currentTime = FWTPM_Clock_GetMs(ctx);
-        /* Clock may move forward but at most 2^32-1 ms per call (Part 1
-         * Sec.17.5.3); reject a far-future value that would freeze it. */
+        /* The clock may only move forward and may not exceed the TPM's
+         * absolute clock limit. */
         if (newTime < currentTime ||
-                newTime > currentTime + 0xFFFFFFFFULL) {
+                newTime > 0xFFFF000000000000ULL) {
             rc = TPM_RC_VALUE;
         }
     }
