@@ -14953,16 +14953,26 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         byte oldData[TPM_MAX_DIGEST_SIZE];
         int oldWritten = nv->written;
         UINT32 oldAttrs = nv->nvPublic.attributes;
+        int hashRc;
         XMEMCPY(oldData, nv->data, hSz);
-        wc_HashUpdate(hashCtx, wcHash, nv->data, hSz);
-        wc_HashUpdate(hashCtx, wcHash, dataBuf, dataSize);
-        wc_HashFinal(hashCtx, wcHash, newVal);
-        XMEMCPY(nv->data, newVal, hSz);
+        hashRc = wc_HashUpdate(hashCtx, wcHash, nv->data, hSz);
+        if (hashRc == 0) {
+            hashRc = wc_HashUpdate(hashCtx, wcHash, dataBuf, dataSize);
+        }
+        if (hashRc == 0) {
+            hashRc = wc_HashFinal(hashCtx, wcHash, newVal);
+        }
+        if (hashRc != 0) {
+            rc = TPM_RC_FAILURE;
+        }
 
-        nv->written = 1;
-        nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
+        if (rc == 0) {
+            XMEMCPY(nv->data, newVal, hSz);
+            nv->written = 1;
+            nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
 
-        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+            rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        }
 
         if (rc == 0) {
             FwRspNoParams(rsp, cmdTag);
