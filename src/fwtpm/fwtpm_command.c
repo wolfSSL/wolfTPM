@@ -16170,7 +16170,10 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* creationTicket verification per TPM 2.0 Part 3 Section 18.3 */
-    if (rc == 0 && cmd->pos + 8 <= cmdSize) {
+    if (rc == 0 && cmd->pos + 8 > cmdSize) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+    if (rc == 0) {
         byte ticketDigest[TPM_MAX_DIGEST_SIZE];
 
         TPM2_Packet_ParseU16(cmd, &tag);
