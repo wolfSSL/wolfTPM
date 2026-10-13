@@ -5487,6 +5487,9 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     rc = TPM_RC_VALUE;
                 }
             }
+            if (rc == 0 && FwFindSession(ctx, restored.handle) != NULL) {
+                rc = TPM_RC_SESSION_HANDLES;
+            }
             if (rc == 0) {
                 /* Find a free session slot */
                 for (si = 0; si < FWTPM_MAX_SESSIONS; si++) {
