@@ -47,6 +47,10 @@
 
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+#include <wolfssl/wolfcrypt/memory.h>
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -15718,6 +15722,129 @@ static void test_fwtpm_param_enc_session_bound_to_auth(void)
 #endif /* !FWTPM_NO_PARAM_ENC && FWTPM_MAX_SESSIONS >= 2 */
 #endif /* !FWTPM_NO_HASH_CMDS */
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+static wolfSSL_Malloc_cb gFwtpmTestMalloc;
+static int gFwtpmTestAllocCount;
+static int gFwtpmTestFailAllocAt;
+
+static void* test_fwtpm_fail_malloc(size_t size
+#ifdef WOLFSSL_STATIC_MEMORY
+    , void* heap, int type
+#endif
+#ifdef WOLFSSL_DEBUG_MEMORY
+    , const char* func, unsigned int line
+#endif
+)
+{
+    gFwtpmTestAllocCount++;
+    if (gFwtpmTestFailAllocAt > 0 &&
+            gFwtpmTestAllocCount >= gFwtpmTestFailAllocAt) {
+        return NULL;
+    }
+#ifdef WOLFSSL_STATIC_MEMORY
+    #ifdef WOLFSSL_DEBUG_MEMORY
+    return gFwtpmTestMalloc(size, heap, type, func, line);
+    #else
+    return gFwtpmTestMalloc(size, heap, type);
+    #endif
+#else
+    #ifdef WOLFSSL_DEBUG_MEMORY
+    return gFwtpmTestMalloc(size, func, line);
+    #else
+    return gFwtpmTestMalloc(size);
+    #endif
+#endif
+}
+
+/* Small-stack helper allocations must preserve the documented memory error. */
+static void test_fwtpm_command_crypto_allocation_failure(void)
+{
+    wolfSSL_Malloc_cb oldMalloc;
+    wolfSSL_Free_cb oldFree;
+    wolfSSL_Realloc_cb oldRealloc;
+    FWTPM_CTX ctx;
+    FWTPM_Session sess;
+    TPM_HANDLE handles[1];
+    byte data[TPM2_HEADER_SIZE];
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    int digestSz = 0;
+#ifndef FWTPM_NO_POLICY
+    UINT32 sessH;
+    int authStart;
+    int pos;
+    int rspSize;
+    int rc;
+    int i;
+#endif
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(handles, 0, sizeof(handles));
+    XMEMSET(data, 0, sizeof(data));
+    XMEMSET(digest, 0, sizeof(digest));
+    sess.authHash = TPM_ALG_SHA256;
+
+    AssertIntEQ(wolfSSL_GetAllocators(&oldMalloc, &oldFree, &oldRealloc), 0);
+    gFwtpmTestMalloc = oldMalloc;
+    gFwtpmTestAllocCount = 0;
+    gFwtpmTestFailAllocAt = 1;
+    AssertIntEQ(wolfSSL_SetAllocators(test_fwtpm_fail_malloc, oldFree,
+        oldRealloc), 0);
+    AssertIntEQ(FwHashOneShot(TPM_ALG_SHA256, data, sizeof(data), NULL,
+        0, digest), TPM_RC_MEMORY);
+    AssertIntEQ(FwComputeRpHash(TPM_ALG_SHA256, TPM_CC_GetRandom,
+        data, sizeof(data), digest, &digestSz), TPM_RC_MEMORY);
+    AssertIntEQ(FwComputeCpHash(TPM_ALG_SHA256, TPM_CC_GetRandom,
+        data, sizeof(data), handles, 0, &ctx, 0, digest, &digestSz),
+        TPM_RC_MEMORY);
+    AssertIntEQ(FwComputeSessionHmac(&sess, data, sizeof(data), 0, NULL,
+        0, NULL, NULL, 0, digest, &digestSz), TPM_RC_MEMORY);
+    AssertIntEQ(wolfSSL_SetAllocators(oldMalloc, oldFree, oldRealloc), 0);
+
+#ifndef FWTPM_NO_POLICY
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_PolicyGetDigest);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(data)); pos += 2;
+    XMEMCPY(gCmd + pos, data, sizeof(data)); pos += sizeof(data);
+    gCmd[pos++] = TPMA_SESSION_continueSession;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    XMEMSET(gRsp, 0xA5, 64);
+    gFwtpmTestAllocCount = 0;
+    gFwtpmTestFailAllocAt = 1;
+    AssertIntEQ(wolfSSL_SetAllocators(test_fwtpm_fail_malloc, oldFree,
+        oldRealloc), 0);
+    rspSize = FWTPM_MAX_COMMAND_SIZE;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(wolfSSL_SetAllocators(oldMalloc, oldFree, oldRealloc), 0);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(rspSize, 0);
+    for (i = 0; i < TPM2_HEADER_SIZE + 4 + 2 + WC_SHA256_DIGEST_SIZE; i++) {
+        AssertIntEQ(gRsp[i], 0);
+    }
+
+    rspSize = FWTPM_MAX_COMMAND_SIZE;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_S0);
+    FWTPM_Cleanup(&ctx);
+#endif
+
+    fwtpm_pass("Command crypto allocation failures:", 0);
+}
+#endif /* WOLFTPM_FWTPM_UNIT_TEST && WOLFTPM_SMALL_STACK */
+
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
 static void test_fwtpm_ecc_parameters(void)
 {
@@ -17672,6 +17799,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    if (argc == 2 && XSTRCMP(argv[1], "command-crypto-allocation") == 0) {
+        test_fwtpm_command_crypto_allocation_failure();
+        return 0;
+    }
+#endif
+
     if (argc == 2 && XSTRCMP(argv[1], "evict-auth") == 0) {
         test_fwtpm_evict_control();
         return 0;
@@ -17960,6 +18094,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_param_enc_session_bound_to_auth();
 #endif
 #endif /* !FWTPM_NO_HASH_CMDS */
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_command_crypto_allocation_failure();
+#endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_parameters();
 #endif

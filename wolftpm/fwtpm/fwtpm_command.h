@@ -66,6 +66,27 @@ WOLFTPM_API int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 */
 WOLFTPM_API void FWTPM_ResetCommandClient(FWTPM_CTX* ctx);
 
+/* Internal crypto helpers exposed only to the fwTPM unit-test build. */
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+    #define WOLFTPM_TEST_VIS
+    int FwHashOneShot(TPMI_ALG_HASH hashAlg,
+        const byte* d1, word32 d1Sz, const byte* d2, word32 d2Sz,
+        byte* digestOut);
+    int FwComputeRpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
+        const byte* rpBytes, int rpSize, byte* hashOut, int* hashOutSz);
+    int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
+        const byte* cmdBuf, int cmdSize, const TPM_HANDLE* handles,
+        int handleCnt, FWTPM_CTX* ctx, int cpStart,
+        byte* hashOut, int* hashOutSz);
+    int FwComputeSessionHmac(FWTPM_Session* sess,
+        const byte* pHash, int pHashSz, UINT8 sessionAttributes,
+        const byte* authValue, int authValueSz,
+        const TPM2B_NONCE* nonceDecrypt, const TPM2B_NONCE* nonceEncrypt,
+        int isResponse, byte* hmacOut, int* hmacOutSz);
+#else
+    #define WOLFTPM_TEST_VIS static
+#endif
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif

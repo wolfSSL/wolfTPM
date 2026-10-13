@@ -511,7 +511,7 @@ static int FwParamEncryptRsp(FWTPM_CTX* ctx, FWTPM_Session* sess,
  * when wc_HashInit succeeded, so a failing Init cannot corrupt an
  * uninitialized context. Either input pointer may be NULL when its length
  * is zero. */
-static int FwHashOneShot(TPMI_ALG_HASH hashAlg,
+WOLFTPM_TEST_VIS int FwHashOneShot(TPMI_ALG_HASH hashAlg,
     const byte* d1, word32 d1Sz,
     const byte* d2, word32 d2Sz,
     byte* digestOut)
@@ -519,7 +519,7 @@ static int FwHashOneShot(TPMI_ALG_HASH hashAlg,
     FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
     enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
     int dSize = TPM2_GetHashDigestSize(hashAlg);
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     int initOk = 0;
 
     if (dSize <= 0)
@@ -527,7 +527,8 @@ static int FwHashOneShot(TPMI_ALG_HASH hashAlg,
 
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
-    rc = wc_HashInit(hashCtx, wcHash);
+    if (rc == 0)
+        rc = wc_HashInit(hashCtx, wcHash);
     if (rc == 0) {
         initOk = 1;
         if (d1 != NULL && d1Sz > 0)
@@ -548,7 +549,7 @@ static int FwHashOneShot(TPMI_ALG_HASH hashAlg,
 
 /* Compute rpHash = H(responseCode=0 || commandCode || responseParameters)
  * Per TPM 2.0 spec Part 1 Section 18.8 */
-static int FwComputeRpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
+WOLFTPM_TEST_VIS int FwComputeRpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
     const byte* rpBytes, int rpSize, byte* hashOut, int* hashOutSz)
 {
     FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
@@ -556,14 +557,18 @@ static int FwComputeRpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
     int dSize = TPM2_GetHashDigestSize(hashAlg);
     UINT32 rcZero = 0; /* responseCode is always 0 for success HMAC */
     UINT32 ccSwap;
-    int rc;
+    int rc = TPM_RC_SUCCESS;
+    int initOk = 0;
 
     if (dSize <= 0)
         return TPM_RC_FAILURE;
 
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
-    rc = wc_HashInit(hashCtx, wcHash);
+    if (rc == 0) {
+        rc = wc_HashInit(hashCtx, wcHash);
+        initOk = (rc == 0);
+    }
 
     /* responseCode = 0 (success) - in native byte order like client */
     if (rc == 0)
@@ -585,7 +590,8 @@ static int FwComputeRpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
     if (rc == 0)
         *hashOutSz = dSize;
 
-    wc_HashFree(hashCtx, wcHash);
+    if (initOk)
+        wc_HashFree(hashCtx, wcHash);
     FWTPM_FREE_VAR(hashCtx);
     return rc;
 }
@@ -785,7 +791,7 @@ static int FwCtRelCompare(const byte* a, const byte* b, int len)
 
 /* Compute cpHash = H(commandCode || name1 || ... || cpBuffer)
  * Per TPM 2.0 Part 1 Section 18.7 */
-static int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
+WOLFTPM_TEST_VIS int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
     const byte* cmdBuf, int cmdSize,
     const TPM_HANDLE* handles, int handleCnt,
     FWTPM_CTX* ctx, int cpStart,
@@ -795,15 +801,19 @@ static int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
     enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
     int dSize = TPM2_GetHashDigestSize(hashAlg);
     UINT32 ccSwap;
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     int i;
+    int initOk = 0;
 
     if (dSize <= 0)
         return TPM_RC_FAILURE;
 
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
-    rc = wc_HashInit(hashCtx, wcHash);
+    if (rc == 0) {
+        rc = wc_HashInit(hashCtx, wcHash);
+        initOk = (rc == 0);
+    }
 
     /* commandCode in big-endian */
     if (rc == 0) {
@@ -832,7 +842,8 @@ static int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
     if (rc == 0)
         *hashOutSz = dSize;
 
-    wc_HashFree(hashCtx, wcHash);
+    if (initOk)
+        wc_HashFree(hashCtx, wcHash);
     FWTPM_FREE_VAR(hashCtx);
     return rc;
 }
@@ -841,7 +852,7 @@ static int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
  * Command:  HMAC(key, cpHash  || nonceCaller || nonceTPM    || attrs)
  * Response: HMAC(key, rpHash  || nonceTPM    || nonceCaller || attrs)
  * The isResponse flag controls nonce order. */
-static int FwComputeSessionHmac(FWTPM_Session* sess,
+WOLFTPM_TEST_VIS int FwComputeSessionHmac(FWTPM_Session* sess,
     const byte* pHash, int pHashSz, UINT8 sessionAttributes,
     const byte* authValue, int authValueSz,
     const TPM2B_NONCE* nonceDecrypt, const TPM2B_NONCE* nonceEncrypt,
@@ -853,7 +864,8 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
     int dSize = TPM2_GetHashDigestSize(sess->authHash);
     byte hmacKey[TPM_MAX_DIGEST_SIZE * 2]; /* sessionKey || authValue */
     int hmacKeySz = 0;
-    int rc;
+    int rc = TPM_RC_SUCCESS;
+    int initOk = 0;
 
     if (dSize <= 0)
         return TPM_RC_FAILURE;
@@ -872,7 +884,10 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
 
     FWTPM_CALLOC_VAR(hmac, Hmac);
 
-    rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+        initOk = (rc == 0);
+    }
 
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, (int)hashType,
@@ -920,7 +935,8 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
         *hmacOutSz = dSize;
 
     TPM2_ForceZero(hmacKey, sizeof(hmacKey));
-    wc_HmacFree(hmac);
+    if (initOk)
+        wc_HmacFree(hmac);
     FWTPM_FREE_VAR(hmac);
     return rc;
 }
