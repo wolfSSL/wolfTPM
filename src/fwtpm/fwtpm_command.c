@@ -1122,25 +1122,27 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         ctx->daLockoutHealMs = FwDaNowMs(ctx);
     #endif
 
+        /* Every Startup invalidates transient objects, sessions, and
+         * in-progress sequences. */
+        FwFlushAllObjects(ctx);
+        FwFlushAllSessions(ctx);
+    #ifndef FWTPM_NO_HASH_CMDS
+        for (i = 0; i < FWTPM_MAX_HASH_SEQ; i++) {
+            if (ctx->hashSeq[i].used) {
+                FwFreeHashSeq(&ctx->hashSeq[i]);
+            }
+        }
+    #endif
+    #ifdef WOLFTPM_MLDSA
+        for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+            if (ctx->signSeq[i].used) {
+                FwFreeSignSeq(&ctx->signSeq[i]);
+            }
+        }
+    #endif
+
         if (startupType == TPM_SU_CLEAR) {
-            /* Flush all transient objects, sessions, hash sequences,
-             * primary cache, and reset PCRs */
-            FwFlushAllObjects(ctx);
-            FwFlushAllSessions(ctx);
-        #ifndef FWTPM_NO_HASH_CMDS
-            for (i = 0; i < FWTPM_MAX_HASH_SEQ; i++) {
-                if (ctx->hashSeq[i].used) {
-                    FwFreeHashSeq(&ctx->hashSeq[i]);
-                }
-            }
-        #endif
-        #ifdef WOLFTPM_MLDSA
-            for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
-                if (ctx->signSeq[i].used) {
-                    FwFreeSignSeq(&ctx->signSeq[i]);
-                }
-            }
-        #endif
+            /* Flush the primary cache and reset PCRs. */
             for (i = 0; i < FWTPM_MAX_PRIMARY_CACHE; i++) {
                 XMEMSET(&ctx->primaryCache[i], 0,
                     sizeof(ctx->primaryCache[i]));
