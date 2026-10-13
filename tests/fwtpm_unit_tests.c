@@ -14071,6 +14071,63 @@ static void test_fwtpm_nv_setbits_truncated(void)
     fwtpm_pass("NV_SetBits truncated command rejected:", 0);
 }
 
+/* Special NV types have fixed sizes mandated by the TPM specification. */
+static void test_fwtpm_nv_define_type_sizes(void)
+{
+    static const UINT32 nvTypes[] = {
+        TPM_NT_COUNTER,
+        TPM_NT_BITS,
+        TPM_NT_EXTEND,
+        TPM_NT_PIN_FAIL,
+        TPM_NT_PIN_PASS
+    };
+    static const UINT16 invalidSizes[] = {7, 7, 31, 7, 7};
+    static const TPM_RC expectedRc[] = {
+        TPM_RC_SIZE,
+        TPM_RC_SIZE,
+        TPM_RC_SIZE,
+        TPM_RC_ATTRIBUTES,
+        TPM_RC_ATTRIBUTES
+    };
+    FWTPM_CTX ctx;
+    UINT32 attrs;
+    UINT32 nvIdx = 0x01500010;
+    int i, cmdSz, rspSize;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    for (i = 0; i < (int)(sizeof(nvTypes) / sizeof(nvTypes[0])); i++) {
+        attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+            (nvTypes[i] << 4);
+        cmdSz = BuildNvDefineCmd(gCmd, nvIdx + (UINT32)i,
+            invalidSizes[i], attrs);
+        rspSize = 0;
+        AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize,
+            0), TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), expectedRc[i]);
+    }
+
+    attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        ((UINT32)TPM_NT_COUNTER << 4);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        ((UINT32)TPM_NT_EXTEND << 4);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx + 1, WC_SHA256_DIGEST_SIZE, attrs);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_DefineSpace type sizes:", 0);
+}
+
 /* ClearControl must not change disableClear or return success when its NV
  * update fails. */
 static void test_fwtpm_clear_control_nv_failure(void)
@@ -17856,6 +17913,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_nv_setbits_truncated();
         return 0;
     }
+    if (argc == 2 && XSTRCMP(argv[1], "nv-define-type-sizes") == 0) {
+        test_fwtpm_nv_define_type_sizes();
+        return 0;
+    }
     if (argc == 2 && XSTRCMP(argv[1], "nv-stclear") == 0) {
         test_fwtpm_nv_stclear_startup();
         return 0;
@@ -18304,6 +18365,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_NV
     test_fwtpm_global_write_lock_nv_failure();
     test_fwtpm_nv_setbits_truncated();
+    test_fwtpm_nv_define_type_sizes();
     test_fwtpm_clear_control_nv_failure();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();

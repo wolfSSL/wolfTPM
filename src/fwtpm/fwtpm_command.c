@@ -13924,6 +13924,17 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (nt > TPM_NT_PIN_PASS && nt != TPM_NT_PIN_FAIL) {
             rc = TPM_RC_ATTRIBUTES;
         }
+        else if ((nt == TPM_NT_COUNTER || nt == TPM_NT_BITS ||
+                  nt == TPM_NT_PIN_FAIL || nt == TPM_NT_PIN_PASS) &&
+                 publicInfo.nvPublic.dataSize != 8) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (nt == TPM_NT_EXTEND &&
+                 publicInfo.nvPublic.dataSize !=
+                    (UINT16)TPM2_GetHashDigestSize(
+                        publicInfo.nvPublic.nameAlg)) {
+            rc = TPM_RC_SIZE;
+        }
     }
 
     /* TPMA_NV_PLATFORMCREATE must be set under platform auth and clear under
