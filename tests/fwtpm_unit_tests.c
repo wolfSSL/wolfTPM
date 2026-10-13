@@ -15913,6 +15913,111 @@ static int BuildBoundHmacCmd(byte* buf, UINT32 keyH, const byte* name,
     return pos;
 }
 
+/* SequenceComplete must retain the sequence authValue until after the response
+ * HMAC is generated, then flush the sequence. */
+static void test_fwtpm_sequence_complete_response_hmac(void)
+{
+    FWTPM_CTX ctx;
+    static const byte seqAuth[] = {0x11, 0x22, 0x33, 0x44};
+    byte nonceCaller[16];
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    byte cpHash[WC_SHA256_DIGEST_SIZE];
+    byte rpHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte ccBuf[4];
+    byte params[6];
+    UINT16 nonceTPMSz = 0;
+    UINT16 rspNonceSz;
+    UINT16 rspHmacSz;
+    UINT8 attrs = TPMA_SESSION_continueSession;
+    UINT8 rspAttrs;
+    UINT32 seqH;
+    UINT32 sessH;
+    UINT32 rspParamSz;
+    int authStart;
+    int off;
+    int pos;
+    int rspSize = 0;
+    wc_Sha256 sha;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_HashSequenceStart);
+    PutU16BE(gCmd + pos, (UINT16)sizeof(seqAuth)); pos += 2;
+    XMEMCPY(gCmd + pos, seqAuth, sizeof(seqAuth)); pos += sizeof(seqAuth);
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    sessH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_NULL,
+        nonceTPM, &nonceTPMSz);
+    AssertIntNE(sessH, 0);
+    XMEMSET(nonceCaller, 0x5A, sizeof(nonceCaller));
+
+    PutU16BE(params, 0);
+    PutU32BE(params + 2, TPM_RH_OWNER);
+    PutU32BE(ccBuf, TPM_CC_SequenceComplete);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, ccBuf, sizeof(ccBuf)), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, params, sizeof(params)), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
+    wc_Sha256Free(&sha);
+    ComputeAuthHmac(seqAuth, (UINT16)sizeof(seqAuth), cpHash, nonceCaller,
+        (UINT16)sizeof(nonceCaller), nonceTPM, nonceTPMSz, NULL, 0, attrs,
+        authHmac);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_SequenceComplete);
+    PutU32BE(gCmd + pos, seqH); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(nonceCaller)); pos += 2;
+    XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+    pos += sizeof(nonceCaller);
+    gCmd[pos++] = attrs;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(authHmac)); pos += 2;
+    XMEMCPY(gCmd + pos, authHmac, sizeof(authHmac)); pos += sizeof(authHmac);
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    XMEMCPY(gCmd + pos, params, sizeof(params)); pos += sizeof(params);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    rspParamSz = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    XMEMSET(ccBuf, 0, sizeof(ccBuf));
+    AssertIntEQ(wc_Sha256Update(&sha, ccBuf, sizeof(ccBuf)), 0);
+    PutU32BE(ccBuf, TPM_CC_SequenceComplete);
+    AssertIntEQ(wc_Sha256Update(&sha, ccBuf, sizeof(ccBuf)), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, gRsp + TPM2_HEADER_SIZE + 4,
+        rspParamSz), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, rpHash), 0);
+    wc_Sha256Free(&sha);
+
+    off = RspSessOffset(gRsp, 0);
+    rspNonceSz = GetU16BE(gRsp + off);
+    AssertIntLE(rspNonceSz, TPM_MAX_DIGEST_SIZE);
+    rspAttrs = gRsp[off + 2 + rspNonceSz];
+    rspHmacSz = GetU16BE(gRsp + off + 3 + rspNonceSz);
+    AssertIntEQ(rspHmacSz, WC_SHA256_DIGEST_SIZE);
+    ComputeAuthHmac(seqAuth, (UINT16)sizeof(seqAuth), rpHash,
+        gRsp + off + 2, rspNonceSz, nonceCaller,
+        (UINT16)sizeof(nonceCaller), NULL, 0, rspAttrs, expected);
+    AssertIntEQ(XMEMCMP(expected, gRsp + off + 5 + rspNonceSz,
+        sizeof(expected)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SequenceComplete response HMAC uses sequence auth:", 0);
+}
+
 /* With an HMAC authorization first, its HMAC must also cover the nonceTPM
  * of a separate encrypt or decrypt session (Part 1 Sec.19.6.5). */
 static void test_fwtpm_param_enc_session_bound_to_auth(void)
@@ -18396,6 +18501,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_param_enc_session_selection();
     test_fwtpm_param_enc_session_bound_to_auth();
     test_fwtpm_bound_auth_change_response_hmac();
+    test_fwtpm_sequence_complete_response_hmac();
 #endif
 #endif /* !FWTPM_NO_HASH_CMDS */
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
