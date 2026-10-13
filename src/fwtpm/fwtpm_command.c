@@ -7114,15 +7114,12 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Re-wrap private key with new auth, then update the live object */
+    /* Re-wrap the private key; the loaded object keeps its current auth. */
     if (rc == 0) {
         rc = FwWrapPrivate(ctx, parent, &ctx->rng, &obj->name, obj->pub.type,
             &newAuth, obj->privKey, obj->privKeySize, &outPrivate);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
-        }
-        else {
-            XMEMCPY(&obj->authValue, &newAuth, sizeof(newAuth));
         }
     }
 
