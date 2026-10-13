@@ -15564,14 +15564,12 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Only SYMCIPHER keys supported */
     if (rc == 0) {
         if (obj->pub.type != TPM_ALG_SYMCIPHER) {
-            rc = TPM_RC_TYPE;
-        }
-    }
-    /* Verify key has decrypt attribute */
-    if (rc == 0) {
-        if (!(obj->pub.objectAttributes & TPMA_OBJECT_decrypt)) {
             rc = TPM_RC_KEY;
         }
+    }
+    if (rc == 0 &&
+            (obj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
+        rc = TPM_RC_ATTRIBUTES;
     }
     if (rc == 0) {
         if (obj->privKeySize <= 0 || obj->privKeySize > 32) {
@@ -15645,6 +15643,15 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    if (rc == 0 && decrypt != YES && decrypt != NO) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 &&
+            ((decrypt && !(obj->pub.objectAttributes & TPMA_OBJECT_decrypt)) ||
+             (!decrypt && !(obj->pub.objectAttributes & TPMA_OBJECT_sign)))) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
+
     /* Use a fixed key mode when present. A key without one requires the
      * caller to select an explicit supported mode. */
     if (rc == 0) {
@@ -15659,6 +15666,18 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (mode != keyMode) {
             rc = TPM_RC_MODE;
+        }
+    }
+
+    if (rc == 0) {
+        if (mode == TPM_ALG_ECB) {
+            if (ivSize != 0) {
+                rc = TPM_RC_SIZE;
+            }
+        }
+        else if ((mode == TPM_ALG_CFB || mode == TPM_ALG_CBC) &&
+                ivSize != AES_BLOCK_SIZE) {
+            rc = TPM_RC_SIZE;
         }
     }
 
@@ -15795,8 +15814,13 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_AppendBytes(rsp, inData, inDataSize);
 
         /* ivOut (TPM2B_IV) */
-        TPM2_Packet_AppendU16(rsp, (UINT16)sizeof(ivBuf));
-        TPM2_Packet_AppendBytes(rsp, ivBuf, sizeof(ivBuf));
+        if (mode == TPM_ALG_ECB) {
+            TPM2_Packet_AppendU16(rsp, 0);
+        }
+        else {
+            TPM2_Packet_AppendU16(rsp, (UINT16)sizeof(ivBuf));
+            TPM2_Packet_AppendBytes(rsp, ivBuf, sizeof(ivBuf));
+        }
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
