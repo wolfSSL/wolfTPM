@@ -10332,6 +10332,39 @@ static UINT32 StartSessionHelper(FWTPM_CTX* ctx, UINT8 sessType)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+int FWTPM_TestSessionIsBoundToEntity(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_HANDLE handle);
+
+static void test_fwtpm_bound_session_auth_change(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session sess;
+    static const byte oldAuth[] = {0x11, 0x22, 0x33, 0x44};
+    static const byte newAuth[] = {0x55, 0x66, 0x77, 0x88};
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&sess, 0, sizeof(sess));
+    ctx.ownerAuth.size = (UINT16)sizeof(oldAuth);
+    XMEMCPY(ctx.ownerAuth.buffer, oldAuth, sizeof(oldAuth));
+    sess.isBound = 1;
+    sess.bindName.size = 4;
+    PutU32BE(sess.bindName.name, TPM_RH_OWNER);
+    sess.bindAuth.size = (UINT16)sizeof(oldAuth);
+    XMEMCPY(sess.bindAuth.buffer, oldAuth, sizeof(oldAuth));
+
+    AssertIntEQ(FWTPM_TestSessionIsBoundToEntity(&ctx, &sess,
+        TPM_RH_OWNER), 1);
+    XMEMCPY(ctx.ownerAuth.buffer, newAuth, sizeof(newAuth));
+    AssertIntEQ(FWTPM_TestSessionIsBoundToEntity(&ctx, &sess,
+        TPM_RH_OWNER), 0);
+
+    TPM2_ForceZero(&ctx, sizeof(ctx));
+    TPM2_ForceZero(&sess, sizeof(sess));
+    fwtpm_pass("Bound session invalidated by auth change:", 0);
+}
+#endif
+
 #ifndef FWTPM_NO_POLICY
 /* Helper: send a policy command that takes only sessionHandle */
 static TPM_RC SendPolicyCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 sessHandle)
@@ -15702,23 +15735,135 @@ static void test_fwtpm_param_enc_session_selection(void)
     fwtpm_pass("Param-enc follows decrypt/encrypt session:", 0);
 }
 
-/* HMAC-SHA256 with an empty key over cpHash, nonces and attributes */
-static void ComputeAuthHmac(const byte* cpHash, const byte* nonceCaller,
-    const byte* nonceTPM, UINT16 nonceTPMSz, const byte* nonceExtra,
+/* HMAC-SHA256 over a parameter hash, nonces and session attributes. */
+static void ComputeAuthHmac(const byte* key, UINT16 keySz,
+    const byte* pHash, const byte* nonceFirst, UINT16 nonceFirstSz,
+    const byte* nonceSecond, UINT16 nonceSecondSz, const byte* nonceExtra,
     UINT16 nonceExtraSz, UINT8 attribs, byte* out)
 {
     Hmac hmac;
     AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
-    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, NULL, 0), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, cpHash, WC_SHA256_DIGEST_SIZE), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, nonceCaller, 16), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, nonceTPM, nonceTPMSz), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, key, keySz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, pHash, WC_SHA256_DIGEST_SIZE), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceFirst, nonceFirstSz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceSecond, nonceSecondSz), 0);
     if (nonceExtraSz > 0) {
         AssertIntEQ(wc_HmacUpdate(&hmac, nonceExtra, nonceExtraSz), 0);
     }
     AssertIntEQ(wc_HmacUpdate(&hmac, &attribs, 1), 0);
     AssertIntEQ(wc_HmacFinal(&hmac, out), 0);
     wc_HmacFree(&hmac);
+}
+
+/* A command that changes the bound entity's authValue must use the same
+ * request-time bound-session key decision for its response HMAC. */
+static void test_fwtpm_bound_auth_change_response_hmac(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    static const byte sessionKey[] = {0x10, 0x20, 0x30, 0x40};
+    static const byte newAuth[] = {0x51, 0x52, 0x53, 0x54};
+    byte nonceCaller[16];
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    byte cpHash[WC_SHA256_DIGEST_SIZE];
+    byte rpHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte hashInput[8];
+    UINT16 nonceTPMSz = 0;
+    UINT16 rspNonceSz;
+    UINT16 rspHmacSz;
+    UINT8 attrs = TPMA_SESSION_continueSession;
+    UINT8 rspAttrs;
+    UINT32 sessH;
+    int authStart;
+    int off;
+    int pos;
+    int rspSize = 0;
+    int i;
+    wc_Sha256 sha;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    sessH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_NULL,
+        nonceTPM, &nonceTPMSz);
+    AssertIntNE(sessH, 0);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+            break;
+        }
+    }
+    AssertNotNull(sess);
+    if (sess == NULL) {
+        FWTPM_Cleanup(&ctx);
+        return;
+    }
+    sess->isBound = 1;
+    sess->bindName.size = 4;
+    PutU32BE(sess->bindName.name, TPM_RH_OWNER);
+    sess->bindAuth.size = 0;
+    sess->sessionKey.size = (UINT16)sizeof(sessionKey);
+    XMEMCPY(sess->sessionKey.buffer, sessionKey, sizeof(sessionKey));
+
+    XMEMSET(nonceCaller, 0x6A, sizeof(nonceCaller));
+    PutU32BE(hashInput, TPM_CC_HierarchyChangeAuth);
+    PutU32BE(hashInput + 4, TPM_RH_OWNER);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, hashInput, sizeof(hashInput)), 0);
+    PutU16BE(hashInput, (UINT16)sizeof(newAuth));
+    XMEMCPY(hashInput + 2, newAuth, sizeof(newAuth));
+    AssertIntEQ(wc_Sha256Update(&sha, hashInput, 2 + sizeof(newAuth)), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
+    wc_Sha256Free(&sha);
+    ComputeAuthHmac(sessionKey, (UINT16)sizeof(sessionKey), cpHash,
+        nonceCaller, (UINT16)sizeof(nonceCaller), nonceTPM, nonceTPMSz,
+        NULL, 0, attrs, authHmac);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_HierarchyChangeAuth);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(nonceCaller)); pos += 2;
+    XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+    pos += sizeof(nonceCaller);
+    gCmd[pos++] = attrs;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(authHmac)); pos += 2;
+    XMEMCPY(gCmd + pos, authHmac, sizeof(authHmac)); pos += sizeof(authHmac);
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, (UINT16)sizeof(newAuth)); pos += 2;
+    XMEMCPY(gCmd + pos, newAuth, sizeof(newAuth)); pos += sizeof(newAuth);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.ownerAuth.size, sizeof(newAuth));
+    AssertIntEQ(XMEMCMP(ctx.ownerAuth.buffer, newAuth, sizeof(newAuth)), 0);
+
+    XMEMSET(hashInput, 0, sizeof(hashInput));
+    PutU32BE(hashInput + 4, TPM_CC_HierarchyChangeAuth);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, hashInput, sizeof(hashInput)), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, rpHash), 0);
+    wc_Sha256Free(&sha);
+    off = RspSessOffset(gRsp, 0);
+    rspNonceSz = GetU16BE(gRsp + off);
+    AssertIntLE(rspNonceSz, TPM_MAX_DIGEST_SIZE);
+    rspAttrs = gRsp[off + 2 + rspNonceSz];
+    rspHmacSz = GetU16BE(gRsp + off + 3 + rspNonceSz);
+    AssertIntEQ(rspHmacSz, WC_SHA256_DIGEST_SIZE);
+    ComputeAuthHmac(sessionKey, (UINT16)sizeof(sessionKey), rpHash,
+        gRsp + off + 2, rspNonceSz, nonceCaller,
+        (UINT16)sizeof(nonceCaller), NULL, 0, rspAttrs, expected);
+    AssertIntEQ(XMEMCMP(expected, gRsp + off + 5 + rspNonceSz,
+        sizeof(expected)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Bound auth change response HMAC:", 0);
 }
 
 /* TPM2_HMAC authorized by an HMAC session, plus a param-enc session. With
@@ -15747,7 +15892,7 @@ static int BuildBoundHmacCmd(byte* buf, UINT32 keyH, const byte* name,
     AssertIntEQ(wc_Sha256Update(&sha, params, 2 + dataSz + 2), 0);
     AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
     wc_Sha256Free(&sha);
-    ComputeAuthHmac(cpHash, nonceCaller, nonceH, nonceHSz,
+    ComputeAuthHmac(NULL, 0, cpHash, nonceCaller, 16, nonceH, nonceHSz,
         nonceE, bind ? nonceESz : 0, cont, authHmac);
 
     pos = BuildCmdHeader(buf, TPM_ST_SESSIONS, 0, TPM_CC_HMAC);
@@ -18249,6 +18394,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
     test_fwtpm_param_enc_session_selection();
     test_fwtpm_param_enc_session_bound_to_auth();
+    test_fwtpm_bound_auth_change_response_hmac();
 #endif
 #endif /* !FWTPM_NO_HASH_CMDS */
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
@@ -18271,6 +18417,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_start_hmac_session();
     test_fwtpm_start_policy_session();
     test_fwtpm_start_trial_session();
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+    test_fwtpm_bound_session_auth_change();
+#endif
 
     /* Auth */
     test_fwtpm_hierarchy_change_auth();

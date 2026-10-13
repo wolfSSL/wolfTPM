@@ -459,20 +459,27 @@ typedef struct FWTPM_EventHashCopies {
  * tpm2_param_enc.c (TPM2_KDFa, TPM2_KDFe, TPM2_ParamEnc_XOR,
  * TPM2_ParamEnc_AESCFB). See wolftpm/tpm2_param_enc.h */
 
+static int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_HANDLE handle);
+static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
+    const byte** authVal, int* authValSz);
+static int FwCtAuthCompare(const byte* password, int pwSz,
+    const byte* authVal, int avSz);
+
 #ifndef FWTPM_NO_PARAM_ENC
 /* Build the parameter-encryption key = sessionKey || authValue, where authValue
  * is the bind authValue when the encrypt session authorizes its own bind entity
  * (TPM 2.0 Part 1 "Symmetric Encrypt" - the encrypt key keeps the authorized
  * entity's authValue even when bound). authHandle is the handle the session
  * authorizes (0 for a secondary encrypt-only session). */
-static int FwBuildParamEncKey(FWTPM_Session* sess, TPM_HANDLE authHandle,
-    byte* keyBuf, int keyBufMax, int* keyBufSz)
+static int FwBuildParamEncKey(FWTPM_CTX* ctx, FWTPM_Session* sess,
+    TPM_HANDLE authHandle, byte* keyBuf, int keyBufMax, int* keyBufSz)
 {
     int sz = sess->sessionKey.size;
     if (sz < 0 || sz > keyBufMax)
         return TPM_RC_FAILURE;
     XMEMCPY(keyBuf, sess->sessionKey.buffer, sz);
-    if (sess->bindHandle != 0 && sess->bindHandle == authHandle &&
+    if (FwSessionIsBoundToEntity(ctx, sess, authHandle) &&
             sess->bindAuth.size > 0 && sz + sess->bindAuth.size <= keyBufMax) {
         XMEMCPY(keyBuf + sz, sess->bindAuth.buffer, sess->bindAuth.size);
         sz += sess->bindAuth.size;
@@ -489,8 +496,8 @@ static int FwParamDecryptCmd(FWTPM_CTX* ctx, FWTPM_Session* sess,
     byte keyBuf[TPM_MAX_DIGEST_SIZE * 2];
     int keyBufSz = 0;
 
-    rc = FwBuildParamEncKey(sess, authHandle, keyBuf, (int)sizeof(keyBuf),
-        &keyBufSz);
+    rc = FwBuildParamEncKey(ctx, sess, authHandle, keyBuf,
+        (int)sizeof(keyBuf), &keyBufSz);
     if (rc != 0)
         return rc;
 
@@ -513,7 +520,6 @@ static int FwParamDecryptCmd(FWTPM_CTX* ctx, FWTPM_Session* sess,
     }
 
     TPM2_ForceZero(keyBuf, sizeof(keyBuf));
-    (void)ctx;
     return rc;
 }
 
@@ -525,8 +531,8 @@ static int FwParamEncryptRsp(FWTPM_CTX* ctx, FWTPM_Session* sess,
     byte keyBuf[TPM_MAX_DIGEST_SIZE * 2];
     int keyBufSz = 0;
 
-    rc = FwBuildParamEncKey(sess, authHandle, keyBuf, (int)sizeof(keyBuf),
-        &keyBufSz);
+    rc = FwBuildParamEncKey(ctx, sess, authHandle, keyBuf,
+        (int)sizeof(keyBuf), &keyBufSz);
     if (rc != 0)
         return rc;
 
@@ -550,7 +556,6 @@ static int FwParamEncryptRsp(FWTPM_CTX* ctx, FWTPM_Session* sess,
     }
 
     TPM2_ForceZero(keyBuf, sizeof(keyBuf));
-    (void)ctx;
     return rc;
 }
 #endif /* !FWTPM_NO_PARAM_ENC */
@@ -692,6 +697,40 @@ static int FwGetEntityName(FWTPM_CTX* ctx, TPM_HANDLE handle,
     }
     return 0;
 }
+
+static int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_HANDLE handle)
+{
+    byte entityName[sizeof(sess->bindName.name)];
+    const byte* entityAuth = NULL;
+    int entityNameSz;
+    int entityAuthSz = 0;
+
+    if (!sess->isBound)
+        return 0;
+
+    entityNameSz = FwGetEntityName(ctx, handle, entityName,
+        (int)sizeof(entityName));
+    if (entityNameSz != (int)sess->bindName.size ||
+            XMEMCMP(entityName, sess->bindName.name, entityNameSz) != 0) {
+        return 0;
+    }
+
+    FwLookupEntityAuth(ctx, handle, &entityAuth, &entityAuthSz);
+    return FwCtAuthCompare(sess->bindAuth.buffer, sess->bindAuth.size,
+        entityAuth, entityAuthSz) == 0;
+}
+
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+int FWTPM_TestSessionIsBoundToEntity(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_HANDLE handle);
+
+int FWTPM_TestSessionIsBoundToEntity(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_HANDLE handle)
+{
+    return FwSessionIsBoundToEntity(ctx, sess, handle);
+}
+#endif
 
 /** \brief Look up the authValue for an entity by its TPM handle.
  *  Searches hierarchies, NV indices, loaded objects, and hash sequences. */
@@ -11338,6 +11377,7 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2B_AUTH bindAuth;
             const byte* bindAuthVal = NULL;
             int bindAuthSz = 0;
+            int bindNameSz;
 
             XMEMSET(&bindAuth, 0, sizeof(bindAuth));
             FwLookupEntityAuth(ctx, bind, &bindAuthVal, &bindAuthSz);
@@ -11353,10 +11393,22 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 if (bindAuthSz > 0) {
                     XMEMCPY(bindAuth.buffer, bindAuthVal, bindAuthSz);
                 }
-                sess->bindHandle = bind;
+                bindNameSz = FwGetEntityName(ctx, bind,
+                    sess->bindName.name,
+                    (int)sizeof(sess->bindName.name));
+                if (bindNameSz <= 0) {
+                    rc = TPM_RC_HANDLE;
+                }
+                else {
+                    sess->bindName.size = (UINT16)bindNameSz;
+                    sess->bindHandle = bind;
+                    sess->isBound = 1;
+                }
             #ifndef FWTPM_NO_DA
-                sess->isLockoutBound = bind == TPM_RH_LOCKOUT;
-                sess->isDaBound = !FwHandleIsNoDA(ctx, bind);
+                if (rc == 0) {
+                    sess->isLockoutBound = bind == TPM_RH_LOCKOUT;
+                    sess->isDaBound = !FwHandleIsNoDA(ctx, bind);
+                }
             #endif
             }
             if (rc == 0 && bindAuth.size > 0) {
@@ -19787,8 +19839,7 @@ static int FwAuthSlotDAUse(FWTPM_CTX* ctx, TPM_HANDLE entityH,
               (sess->isPasswordPolicy || sess->isAuthValuePolicy)))) {
         usesEntityAuth = 1;
     }
-    usesBindAuth = sess != NULL && cmdHmacSize > 0 &&
-        sess->bindHandle != 0;
+    usesBindAuth = sess != NULL && cmdHmacSize > 0 && sess->isBound;
     if (usesEntityAuth) {
         if (entityH == TPM_RH_LOCKOUT) {
             daUse |= FW_AUTH_USES_LOCKOUT;
@@ -20237,6 +20288,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         UINT16 passwordSize;
         byte cmdHmac[TPM_MAX_DIGEST_SIZE];  /* HMAC from command */
         UINT16 cmdHmacSize;
+        int omitAuthValue;      /* Request HMAC used the bound-session key */
     } cmdAuths[FWTPM_MAX_CMD_AUTHS];
     int cmdAuthCnt = 0;
     int cpStart = 0; /* Start of command parameters (after auth area) */
@@ -21021,6 +21073,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 authVal = NULL;
                 authValSz = 0;
             }
+            cmdAuths[hj].omitAuthValue =
+                hSess->sessionType == TPM_SE_HMAC &&
+                FwSessionIsBoundToEntity(ctx, hSess, entityH);
+            if (cmdAuths[hj].omitAuthValue) {
+                authVal = NULL;
+                authValSz = 0;
+            }
 
             /* Compute expected command HMAC (nonceCaller first, then nonceTPM) */
             rc = (TPM_RC)FwComputeSessionHmac(hSess, cpHash, cpHashSz,
@@ -21306,6 +21365,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                      * PolicyPassword (with sessionKey) or PolicyAuthValue */
                     if (sess->sessionType == TPM_SE_POLICY &&
                         !sess->isPasswordPolicy && !sess->isAuthValuePolicy) {
+                        authVal = NULL;
+                        authValSz = 0;
+                    }
+                    if (cmdAuths[j].omitAuthValue) {
                         authVal = NULL;
                         authValSz = 0;
                     }

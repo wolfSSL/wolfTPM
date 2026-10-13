@@ -603,7 +603,9 @@ typedef struct FWTPM_Session {
     TPM2B_NONCE nonceCaller;        /* Last caller nonce received */
     TPM2B_AUTH sessionKey;          /* Session HMAC key (from KDFa) */
     TPM2B_AUTH bindAuth;            /* Auth of bound entity */
+    TPM2B_NAME bindName;            /* Name of bound entity */
     TPM_HANDLE bindHandle;          /* Bound entity handle (0 if unbound) */
+    int isBound;                    /* Session has a bound entity */
 #ifndef FWTPM_NO_DA
     int isDaBound;                  /* Bound authValue has DA protection */
     int isLockoutBound;             /* Bound to the lockout hierarchy */
