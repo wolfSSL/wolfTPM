@@ -9756,8 +9756,13 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * non-NULL wire hash must match it (Part 3 Sec.17.4). A key with an
          * unbound (NULL) scheme lets the caller choose, defaulting to the
          * key's nameAlg. */
-        if (obj->pub.parameters.keyedHashDetail.scheme.scheme
-                != TPM_ALG_NULL) {
+        if (obj->pub.parameters.keyedHashDetail.scheme.scheme != TPM_ALG_NULL &&
+                obj->pub.parameters.keyedHashDetail.scheme.scheme !=
+                    TPM_ALG_HMAC) {
+            rc = TPM_RC_TYPE;
+        }
+        else if (obj->pub.parameters.keyedHashDetail.scheme.scheme
+                == TPM_ALG_HMAC) {
             if (hashAlg == TPM_ALG_NULL) {
                 hashAlg = obj->pub.parameters.keyedHashDetail.scheme
                     .details.hmac.hashAlg;
@@ -9771,10 +9776,12 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             hashAlg = obj->pub.nameAlg;
         }
 
-        ht = FwGetWcHashType(hashAlg);
-        wcHashType = (int)ht;
-        if (wcHashType == WC_HASH_TYPE_NONE) {
-            rc = TPM_RC_HASH;
+        if (rc == 0) {
+            ht = FwGetWcHashType(hashAlg);
+            wcHashType = (int)ht;
+            if (wcHashType == WC_HASH_TYPE_NONE) {
+                rc = TPM_RC_HASH;
+            }
         }
     }
 
@@ -9926,9 +9933,31 @@ static TPM_RC FwCmd_HMAC_Start(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
 
-        wcHashType = FwGetWcHashType(hashAlg);
-        if (wcHashType == WC_HASH_TYPE_NONE) {
-            rc = TPM_RC_HASH;
+        if (obj->pub.parameters.keyedHashDetail.scheme.scheme != TPM_ALG_NULL &&
+                obj->pub.parameters.keyedHashDetail.scheme.scheme !=
+                    TPM_ALG_HMAC) {
+            rc = TPM_RC_TYPE;
+        }
+        else if (obj->pub.parameters.keyedHashDetail.scheme.scheme
+                == TPM_ALG_HMAC) {
+            if (hashAlg == TPM_ALG_NULL) {
+                hashAlg = obj->pub.parameters.keyedHashDetail.scheme
+                    .details.hmac.hashAlg;
+            }
+            else if (hashAlg != obj->pub.parameters.keyedHashDetail.scheme
+                    .details.hmac.hashAlg) {
+                rc = TPM_RC_VALUE;
+            }
+        }
+        else if (hashAlg == TPM_ALG_NULL) {
+            rc = TPM_RC_VALUE;
+        }
+
+        if (rc == 0) {
+            wcHashType = FwGetWcHashType(hashAlg);
+            if (wcHashType == WC_HASH_TYPE_NONE) {
+                rc = TPM_RC_HASH;
+            }
         }
     }
 
