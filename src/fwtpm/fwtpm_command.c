@@ -2676,6 +2676,95 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
     return rc;
 }
 
+static TPM_RC FwValidateCreateAttributes(const TPMT_PUBLIC* pub,
+    const FWTPM_Object* parent, UINT16 sensitiveDataSz)
+{
+    UINT32 attrs = pub->objectAttributes;
+    UINT32 parentAttrs = (parent != NULL) ? parent->pub.objectAttributes : 0;
+    int fixedTpm = (attrs & TPMA_OBJECT_fixedTPM) != 0;
+    int fixedParent = (attrs & TPMA_OBJECT_fixedParent) != 0;
+    int sensitiveOrigin =
+        (attrs & TPMA_OBJECT_sensitiveDataOrigin) != 0;
+    int restricted = (attrs & TPMA_OBJECT_restricted) != 0;
+    int decrypt = (attrs & TPMA_OBJECT_decrypt) != 0;
+    int sign = (attrs & TPMA_OBJECT_sign) != 0;
+    int asymmetric = 0;
+
+    switch (pub->type) {
+    #ifndef NO_RSA
+        case TPM_ALG_RSA:
+            asymmetric = 1;
+            break;
+    #endif
+    #ifdef HAVE_ECC
+        case TPM_ALG_ECC:
+            asymmetric = 1;
+            break;
+    #endif
+    #ifdef WOLFTPM_MLDSA
+        case TPM_ALG_MLDSA:
+        case TPM_ALG_HASH_MLDSA:
+            asymmetric = 1;
+            break;
+    #endif
+    #ifdef WOLFTPM_MLKEM
+        case TPM_ALG_MLKEM:
+            asymmetric = 1;
+            break;
+    #endif
+        default:
+            break;
+    }
+
+    if ((sensitiveDataSz == 0) != sensitiveOrigin) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if (asymmetric && (!sensitiveOrigin || sensitiveDataSz != 0)) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if (pub->type == TPM_ALG_KEYEDHASH && !sign && !decrypt &&
+            sensitiveOrigin) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if ((pub->type == TPM_ALG_KEYEDHASH ||
+         pub->type == TPM_ALG_SYMCIPHER) && restricted &&
+            !sensitiveOrigin && (fixedParent || fixedTpm)) {
+        return TPM_RC_ATTRIBUTES;
+    }
+
+    if ((parent == NULL ||
+         (parentAttrs & TPMA_OBJECT_fixedTPM) != 0) &&
+            fixedTpm != fixedParent) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if (parent != NULL &&
+            (parentAttrs & TPMA_OBJECT_fixedTPM) == 0 && fixedTpm) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if (restricted && sign == decrypt) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if (pub->type != TPM_ALG_KEYEDHASH && !sign && !decrypt) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if (fixedTpm && (attrs & TPMA_OBJECT_encryptedDuplication) != 0) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    if (parent != NULL &&
+            (parentAttrs & TPMA_OBJECT_fixedTPM) == 0 &&
+            ((attrs ^ parentAttrs) &
+             TPMA_OBJECT_encryptedDuplication) != 0) {
+        return TPM_RC_ATTRIBUTES;
+    }
+#ifdef WOLFTPM_V185
+    if ((attrs & TPMA_OBJECT_x509sign) != 0 && (!asymmetric || !sign)) {
+        return TPM_RC_ATTRIBUTES;
+    }
+#endif
+
+    return TPM_RC_SUCCESS;
+}
+
 #ifdef WOLFTPM_V185
 /* fwTPM does not implement the firmware/SVN-bound hierarchy seeds and
  * proofs required by limited objects. */
@@ -3949,6 +4038,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+    }
+    if (rc == 0) {
+        rc = FwValidateCreateAttributes(&inPublic->publicArea, NULL,
+            sensDataSize);
     }
 #ifdef WOLFTPM_V185
     if (rc == 0) {
@@ -6848,6 +6941,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
+    if (rc == 0) {
+        rc = FwValidateCreateAttributes(&inPublic->publicArea, parent,
+            sensDataSize);
+    }
 #ifdef WOLFTPM_V185
     if (rc == 0) {
         rc = FwValidateLimitedAttributes(&inPublic->publicArea);
@@ -8956,6 +9053,11 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse inPublic (TPM2B_TEMPLATE = TPM2B_PUBLIC) */
     if (rc == 0) {
         TPM2_Packet_ParsePublic(cmd, inPublic);
+    }
+
+    if (rc == 0) {
+        rc = FwValidateCreateAttributes(&inPublic->publicArea, parent,
+            sensDataSize);
     }
 
 #ifdef WOLFTPM_V185
