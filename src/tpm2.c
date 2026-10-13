@@ -313,6 +313,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return rc;
             }
+            TPM2_ForceZero(&hash, sizeof(hash));
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
         }
 
