@@ -7773,6 +7773,10 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidateMlTemplate(&objectPublic->publicArea, 0);
     }
+    if (rc == 0 && (objectPublic->publicArea.objectAttributes &
+            (TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent)) != 0) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
 #ifdef WOLFTPM_V185
     if (rc == 0) {
         rc = FwValidateLimitedAttributes(&objectPublic->publicArea);
@@ -7842,6 +7846,12 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     (void)symMode;
+
+    if (rc == 0 && (objectPublic->publicArea.objectAttributes &
+            TPMA_OBJECT_encryptedDuplication) != 0 &&
+            (encKeySz == 0 || symSeedSz == 0 || symAlg == TPM_ALG_NULL)) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
 
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
