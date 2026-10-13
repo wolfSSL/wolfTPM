@@ -14417,11 +14417,11 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Validate NV type (TPM_NT) — reject reserved values */
     if (rc == 0) {
         UINT32 nt = (publicInfo.nvPublic.attributes & TPMA_NV_TPM_NT) >> 4;
-        if (nt > TPM_NT_PIN_PASS && nt != TPM_NT_PIN_FAIL) {
+        if (nt != TPM_NT_ORDINARY && nt != TPM_NT_COUNTER &&
+                nt != TPM_NT_BITS && nt != TPM_NT_EXTEND) {
             rc = TPM_RC_ATTRIBUTES;
         }
-        else if ((nt == TPM_NT_COUNTER || nt == TPM_NT_BITS ||
-                  nt == TPM_NT_PIN_FAIL || nt == TPM_NT_PIN_PASS) &&
+        else if ((nt == TPM_NT_COUNTER || nt == TPM_NT_BITS) &&
                  publicInfo.nvPublic.dataSize != 8) {
             rc = TPM_RC_SIZE;
         }
@@ -14694,14 +14694,11 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
-    /* Per TPM 2.0 Part 3 Section 31.3, NV_Write only valid for ordinary and PIN
-     * indices. Counter, Bits, and Extend types must use their dedicated
-     * commands (NV_Increment, NV_SetBits, NV_Extend). Allowing NV_Write on
-     * counters would let an attacker reset a monotonic counter to zero. */
+    /* Counter, Bits, and Extend use dedicated commands. PIN indices are not
+     * accepted until their counter/limit authorization semantics exist. */
     if (rc == 0) {
         UINT32 nt = (nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4;
-        if (nt != TPM_NT_ORDINARY && nt != TPM_NT_PIN_FAIL &&
-            nt != TPM_NT_PIN_PASS) {
+        if (nt != TPM_NT_ORDINARY) {
             rc = TPM_RC_ATTRIBUTES;
         }
     }

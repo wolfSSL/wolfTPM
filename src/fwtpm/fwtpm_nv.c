@@ -509,6 +509,13 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvUnmarshalU32(buf, pos, maxSz, &nvPub->attributes);
     }
+    if (rc == 0) {
+        UINT32 nt = (nvPub->attributes & TPMA_NV_TPM_NT) >> 4;
+        if (nt != TPM_NT_ORDINARY && nt != TPM_NT_COUNTER &&
+                nt != TPM_NT_BITS && nt != TPM_NT_EXTEND) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
     /* Reserved TPMA_NV bits [9:8] and [24:20] must be clear (Part 2
      * Sec.13.4); a crafted journal entry could otherwise install an index
      * with undefined access-control semantics. */
