@@ -20272,6 +20272,23 @@ static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
 /* Public API: FWTPM_ProcessCommand                                    */
 /* ================================================================== */
 
+/* Standard TPM command processing permits only Startup before Startup has
+ * completed. The locked SPDM plaintext capability probe is a vendor transport
+ * exception used to discover SPDM support before establishing a session. */
+static int FwAllowPreStartupSpdmProbe(FWTPM_CTX* ctx, TPM_CC cmdCode)
+{
+#ifdef FWTPM_SPDM_USE_RESPONDER
+    return cmdCode == TPM_CC_GetCapability &&
+        ctx->spdmMode != FWTPM_SPDM_MODE_OFF &&
+        !ctx->activeCmdOverSpdm && ctx->spdmRespCtx != NULL &&
+        wolfSPDM_RespIsLocked(ctx->spdmRespCtx);
+#else
+    (void)ctx;
+    (void)cmdCode;
+    return 0;
+#endif
+}
+
 int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     const byte* cmdBuf, int cmdSize,
     byte* rspBuf, int* rspSize, int locality)
@@ -20357,7 +20374,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     }
 
     if (!ctx->wasStarted && cmdCode != TPM_CC_Startup &&
-        cmdCode != TPM_CC_GetCapability) {
+            !FwAllowPreStartupSpdmProbe(ctx, cmdCode)) {
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_INITIALIZE);
         return TPM_RC_SUCCESS;
