@@ -3630,7 +3630,7 @@ static TPM_RC FwCmd_ClockSet(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Only owner or platform hierarchy can set clock */
     if (authHandle != TPM_RH_OWNER && authHandle != TPM_RH_PLATFORM) {
-        rc = TPM_RC_AUTH_TYPE;
+        rc = TPM_RC_VALUE;
     }
 
     /* New time must be >= current (can only advance) */
@@ -3686,7 +3686,7 @@ static TPM_RC FwCmd_ClockRateAdjust(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Only owner or platform can adjust clock rate */
     if (rc == 0 && authHandle != TPM_RH_OWNER &&
         authHandle != TPM_RH_PLATFORM) {
-        rc = TPM_RC_AUTH_TYPE;
+        rc = TPM_RC_VALUE;
     }
 
     if (rc == 0) {
