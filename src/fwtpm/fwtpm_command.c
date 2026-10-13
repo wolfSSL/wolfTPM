@@ -14744,6 +14744,7 @@ static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        int oldGlobalNvWriteLock = ctx->globalNvWriteLock;
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: NV_GlobalWriteLock(auth=0x%x)\n", authHandle);
     #endif
@@ -14752,6 +14753,8 @@ static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FWTPM_NV_SaveFlags(ctx);
         if (rc == 0)
             FwRspNoParams(rsp, cmdTag);
+        else
+            ctx->globalNvWriteLock = oldGlobalNvWriteLock;
     }
 
     return rc;

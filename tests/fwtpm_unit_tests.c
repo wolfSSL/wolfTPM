@@ -13979,6 +13979,30 @@ static int fail_nv_write(void* ctx, word32 offset, const byte* buf,
     return TPM_RC_FAILURE;
 }
 
+/* A failed global-lock persist must leave the live lock state unchanged. */
+static void test_fwtpm_global_write_lock_nv_failure(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL oldHal, failHal;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.globalNvWriteLock, 0);
+
+    oldHal = ctx.nvHal;
+    failHal = oldHal;
+    failHal.write = fail_nv_write;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &failHal), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_NV_GlobalWriteLock,
+        TPM_RH_OWNER), TPM_RC_FAILURE);
+    AssertIntEQ(ctx.globalNvWriteLock, 0);
+
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GlobalWriteLock NV failure rollback:", 0);
+}
+
 /* ClearControl must not change disableClear or return success when its NV
  * update fails. */
 static void test_fwtpm_clear_control_nv_failure(void)
@@ -17632,6 +17656,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #endif
 #ifndef FWTPM_NO_NV
+    if (argc == 2 && XSTRCMP(argv[1], "global-write-lock-failure") == 0) {
+        test_fwtpm_global_write_lock_nv_failure();
+        return 0;
+    }
     if (argc == 2 && XSTRCMP(argv[1], "nv-stclear") == 0) {
         test_fwtpm_nv_stclear_startup();
         return 0;
@@ -18069,6 +18097,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif /* !FWTPM_NO_HASH_CMDS */
     test_fwtpm_sessions_missing_authsize_command_size();
 #ifndef FWTPM_NO_NV
+    test_fwtpm_global_write_lock_nv_failure();
     test_fwtpm_clear_control_nv_failure();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
