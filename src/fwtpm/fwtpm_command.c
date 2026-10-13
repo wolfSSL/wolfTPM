@@ -1559,7 +1559,10 @@ static TPM_RC FwCmd_StirRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &inDataSize);
-        if (cmd->pos + inDataSize > cmdSize) {
+        if (inDataSize > MAX_SYM_DATA) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + inDataSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
     }
