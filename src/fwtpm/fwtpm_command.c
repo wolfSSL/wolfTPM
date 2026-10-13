@@ -5593,12 +5593,33 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+static int gFwTestClearRngFailure;
+
+void FWTPM_TestSetClearRngFailure(int enabled);
+
+void FWTPM_TestSetClearRngFailure(int enabled)
+{
+    gFwTestClearRngFailure = enabled;
+}
+#endif
+
+static int FwGenerateClearSeed(WC_RNG* rng, byte* seed, word32 seedSz)
+{
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+    if (gFwTestClearRngFailure)
+        return TPM_RC_FAILURE;
+#endif
+    return wc_RNG_GenerateBlock(rng, seed, seedSz);
+}
+
 /* --- TPM2_Clear (CC 0x0126) --- */
 static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 authHandle = 0;
+    byte newOwnerSeed[FWTPM_SEED_SIZE];
     int ci;
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
@@ -5628,22 +5649,21 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         printf("fwTPM: Clear(authHandle=0x%x)\n", authHandle);
     #endif
 
-        /* Defer object flush until after response auth is computed.
-         * Sessions must remain valid for response HMAC generation.
-         * Per TPM spec, Clear flushes transient objects but not sessions. */
-        ctx->pendingClear = 1;
-
-        /* Reset owner and endorsement auth */
-        XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
-        XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
-
         /* Generate new storage primary seed */
-        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->ownerSeed, FWTPM_SEED_SIZE);
+        rc = FwGenerateClearSeed(&ctx->rng, newOwnerSeed,
+            sizeof(newOwnerSeed));
         if (rc != 0) rc = TPM_RC_FAILURE;
 
-        /* Only commit state changes if seed generation succeeded —
-         * avoid partial mutation on RNG failure */
+        /* Only commit state changes if seed generation succeeded. */
         if (rc == 0) {
+            /* Defer object flush until after response auth is computed.
+             * Sessions must remain valid for response HMAC generation.
+             * Per TPM spec, Clear flushes transient objects but not sessions. */
+            ctx->pendingClear = 1;
+
+            XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
+            XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
+            XMEMCPY(ctx->ownerSeed, newOwnerSeed, sizeof(ctx->ownerSeed));
             ctx->endorsementProofVersion = 1;
             /* Flush owner and endorsement primary cache entries after
              * clearing hierarchy state. */
@@ -5723,15 +5743,11 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             (void)FWTPM_NV_SaveAuth(ctx, TPM_RH_LOCKOUT);
             (void)FWTPM_NV_SaveFlags(ctx);
         #endif
-
             FwRspNoParams(rsp, cmdTag);
-        }
-        else {
-            /* RNG failure: undo pendingClear so state is not corrupted */
-            ctx->pendingClear = 0;
         }
     }
 
+    TPM2_ForceZero(newOwnerSeed, sizeof(newOwnerSeed));
     return rc;
 }
 

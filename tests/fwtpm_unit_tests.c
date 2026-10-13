@@ -13928,6 +13928,46 @@ static void test_fwtpm_clear(void)
     fwtpm_pass("Clear preserves endorsement seed:", 0);
 }
 
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+void FWTPM_TestSetClearRngFailure(int enabled);
+
+/* A failed seed replacement must leave the live hierarchy state unchanged. */
+static void test_fwtpm_clear_rng_failure_atomic(void)
+{
+    FWTPM_CTX ctx;
+    TPM2B_AUTH ownerAuth;
+    TPM2B_AUTH endorsementAuth;
+    byte ownerSeed[FWTPM_SEED_SIZE];
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    ctx.ownerAuth.size = 4;
+    XMEMSET(ctx.ownerAuth.buffer, 0xA5, ctx.ownerAuth.size);
+    ctx.endorsementAuth.size = 4;
+    XMEMSET(ctx.endorsementAuth.buffer, 0x5A, ctx.endorsementAuth.size);
+    XMEMCPY(&ownerAuth, &ctx.ownerAuth, sizeof(ownerAuth));
+    XMEMCPY(&endorsementAuth, &ctx.endorsementAuth,
+        sizeof(endorsementAuth));
+    XMEMCPY(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
+
+    FWTPM_TestSetClearRngFailure(1);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_FAILURE);
+    FWTPM_TestSetClearRngFailure(0);
+    AssertIntEQ(ctx.pendingClear, 0);
+    AssertIntEQ(XMEMCMP(&ctx.ownerAuth, &ownerAuth, sizeof(ownerAuth)), 0);
+    AssertIntEQ(XMEMCMP(&ctx.endorsementAuth, &endorsementAuth,
+        sizeof(endorsementAuth)), 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, ownerSeed, sizeof(ownerSeed)), 0);
+
+    TPM2_ForceZero(&ownerAuth, sizeof(ownerAuth));
+    TPM2_ForceZero(&endorsementAuth, sizeof(endorsementAuth));
+    TPM2_ForceZero(ownerSeed, sizeof(ownerSeed));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear RNG failure is atomic:", 0);
+}
+#endif /* WOLFTPM_FWTPM_UNIT_TEST */
+
 #ifndef FWTPM_NO_NV
 static int fail_nv_write(void* ctx, word32 offset, const byte* buf,
     word32 size)
@@ -17572,6 +17612,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_clear();
         return 0;
     }
+    #ifdef WOLFTPM_FWTPM_UNIT_TEST
+    if (argc == 2 && XSTRCMP(argv[1], "clear-rng-failure") == 0) {
+        test_fwtpm_clear_rng_failure_atomic();
+        return 0;
+    }
+    #endif /* WOLFTPM_FWTPM_UNIT_TEST */
 #if !defined(FWTPM_NO_POLICY) && !defined(NO_RSA) && \
     defined(WOLFSSL_KEY_GEN)
     if (argc == 2 && XSTRCMP(argv[1], "clear-child") == 0) {
@@ -18030,6 +18076,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_delete_at_capacity();
     test_fwtpm_nv_stclear_startup();
 #endif /* !FWTPM_NO_NV */
+    #ifdef WOLFTPM_FWTPM_UNIT_TEST
+    test_fwtpm_clear_rng_failure_atomic();
+    #endif /* WOLFTPM_FWTPM_UNIT_TEST */
     test_fwtpm_clear();
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
