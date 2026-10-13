@@ -118,6 +118,9 @@ static FWTPM_HashSeq* FwFindHashSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
 static int    FwGetCmdCount(void);
 static TPM_CC FwGetCmdCcAt(int idx);
 static UINT32 FwGetCmdAttrsAt(int idx);
+#ifndef FWTPM_NO_POLICY
+static int    FwCommandIsImplemented(TPM_CC cc);
+#endif
 
 /* --- Response helpers using TPM2_Packet --- */
 
@@ -12107,6 +12110,9 @@ static TPM_RC FwCmd_PolicyCommandCode(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         sess->commandCode != commandCode) {
         rc = TPM_RC_VALUE;
     }
+    if (rc == 0 && !FwCommandIsImplemented(commandCode)) {
+        rc = TPM_RC_POLICY_CC;
+    }
 
     if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
@@ -20046,6 +20052,13 @@ static const FWTPM_CMD_ENTRY* FwFindCmdEntry(TPM_CC cc)
     }
     return NULL;
 }
+
+#ifndef FWTPM_NO_POLICY
+static int FwCommandIsImplemented(TPM_CC cc)
+{
+    return FwFindCmdEntry(cc) != NULL;
+}
+#endif
 
 static int FwTransientHandleLoaded(FWTPM_CTX* ctx, TPM_HANDLE handle)
 {
