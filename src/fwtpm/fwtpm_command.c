@@ -15419,8 +15419,9 @@ static TPM_RC FwCmd_DictionaryAttackParameters(FWTPM_CTX* ctx,
         TPM2_Packet_ParseU32(cmd, &lockoutRecovery);
     }
 
-    /* newMaxTries of 0 would permanently disable lockout enforcement */
-    if (rc == 0 && newMaxTries == 0) {
+    /* Reject values the NV loader cannot preserve across restart. */
+    if (rc == 0 && (newMaxTries == 0 ||
+            newMaxTries > FWTPM_DA_MAX_TRIES_LIMIT)) {
         rc = TPM_RC_VALUE;
     }
 
