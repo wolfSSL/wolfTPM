@@ -19886,6 +19886,24 @@ static const FWTPM_CMD_ENTRY* FwFindCmdEntry(TPM_CC cc)
     return NULL;
 }
 
+static int FwTransientHandleLoaded(FWTPM_CTX* ctx, TPM_HANDLE handle)
+{
+    if (FwFindObject(ctx, handle) != NULL) {
+        return 1;
+    }
+#ifndef FWTPM_NO_HASH_CMDS
+    if (FwFindHashSeq(ctx, handle) != NULL) {
+        return 1;
+    }
+#endif
+#ifdef WOLFTPM_MLDSA
+    if (FwFindSignSeq(ctx, handle) != NULL) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 #ifndef FWTPM_NO_DA
 /* Return 1 if the handle names an entity exempt from dictionary-attack
  * lockout: a permanent hierarchy other than lockout, a sequence, an NV index
@@ -20273,6 +20291,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int doEncRsp = 0;               /* Encrypt outgoing response param */
 #endif
     int pj, hj;                     /* Loop indices for auth validation */
+    int transientIdx;
+    TPM_HANDLE transientHandle;
     int authFail;                   /* Password comparison result */
     int rspCap;                     /* Caller's response buffer capacity */
     int rspTruncated = 0;           /* Response did not fit the buffer */
@@ -20379,6 +20399,20 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_AUTH_MISSING);
         return TPM_RC_SUCCESS;
+    }
+
+    /* Handle-area transient references are unmarshaled before dispatch. */
+    for (transientIdx = 0;
+            transientIdx < (int)entry->inHandleCnt && transientIdx < 4;
+            transientIdx++) {
+        transientHandle = FwLoadU32BE(cmdBuf + TPM2_HEADER_SIZE +
+            transientIdx * 4);
+        if ((transientHandle & HR_RANGE_MASK) == TRANSIENT_FIRST &&
+                !FwTransientHandleLoaded(ctx, transientHandle)) {
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_REFERENCE_H0 + transientIdx);
+            return TPM_RC_SUCCESS;
+        }
     }
 
     /* A disabled hierarchy makes its objects, NV indices and hierarchy handle
@@ -20582,7 +20616,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             /* Non-existent session handle — reject.
                              * Without this, sess remains NULL and all
                              * downstream HMAC/auth checks are skipped. */
-                            rc = TPM_RC_VALUE;
+                            rc = TPM_RC_REFERENCE_S0 + cmdAuthCnt;
                             break;
                         }
                     }

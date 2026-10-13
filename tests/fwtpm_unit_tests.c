@@ -6088,13 +6088,13 @@ static void test_fwtpm_encapsulate_neg(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* TPM_RC_HANDLE: no object at handle 0x80FFFFFF. */
+    /* TPM_RC_REFERENCE_H0: no object at handle 0x80FFFFFF. */
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_Encapsulate);
     PutU32BE(gCmd + 10, 0x80FFFFFFu);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     /* TPM_RC_KEY: key is not an MLKEM object (MLDSA is signing). */
     mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
@@ -6192,7 +6192,7 @@ static void test_fwtpm_signseqstart_neg(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
 
-    /* TPM_RC_HANDLE: invalid handle. */
+    /* TPM_RC_REFERENCE_H0: invalid handle. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -6204,7 +6204,7 @@ static void test_fwtpm_signseqstart_neg(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqStart negatives (KEY/HANDLE):", 1);
@@ -6303,7 +6303,7 @@ static void test_fwtpm_signseqcomplete_neg(void)
     mldsaHandle2 = mldsaHandle ^ 0x1u; /* different but likely unfindable */
     (void)mldsaHandle2;
 
-    /* Instead: trigger TPM_RC_HANDLE by passing bogus sequence handle. */
+    /* Instead: trigger TPM_RC_REFERENCE_H0 with a bogus sequence handle. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -6323,7 +6323,7 @@ static void test_fwtpm_signseqcomplete_neg(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     /* Clean up the allocated sequence slot. */
     (void)seqHandle;
@@ -6394,7 +6394,7 @@ static void test_fwtpm_verifyseqcomplete_neg(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* TPM_RC_HANDLE: unknown sequence handle. */
+    /* TPM_RC_REFERENCE_H0: unknown sequence handle. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -6405,12 +6405,12 @@ static void test_fwtpm_verifyseqcomplete_neg(void)
     PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
     PutU16BE(gCmd + pos, 0); pos += 2;
     gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
-    /* Empty signature area fine — handler returns RC_HANDLE before parsing. */
+    /* Empty signature area is fine: handle validation runs before parsing. */
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifySeqComplete negatives (HANDLE):", 1);
@@ -14407,15 +14407,26 @@ static void test_fwtpm_sessions_short_authcount_rejected(void)
 {
     FWTPM_CTX ctx;
     int rspSize, pos;
+    UINT32 seqH;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_HashSequenceStart);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
 
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_EventSequenceComplete); pos += 4;
-    PutU32BE(gCmd + pos, 0x80000000); pos += 4;      /* handle 1 */
+    PutU32BE(gCmd + pos, seqH); pos += 4;            /* handle 1 */
     PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;  /* handle 2 */
     pos = AppendPwAuth(gCmd, pos, NULL, 0);           /* single auth entry */
     PutU32BE(gCmd + 2, (UINT32)pos);
