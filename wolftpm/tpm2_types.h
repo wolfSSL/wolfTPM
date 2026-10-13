@@ -679,6 +679,11 @@ typedef int64_t  INT64;
     #define XTPM_WAIT() /* just poll without delay by default */
 #endif
 
+#if defined(WOLFSSL_ESPIDF) && !defined(XSLEEP_US)
+    #include <esp_rom_sys.h>
+    #define XSLEEP_US(us) esp_rom_delay_us((word32)(us))
+#endif
+
 /* sleep helper, used in firmware update */
 #ifndef XSLEEP_MS
     #if defined(WOLFTPM_ZEPHYR)

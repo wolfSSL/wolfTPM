@@ -136,17 +136,17 @@
 
 #define DELETE_I2C_ON_ERROR         0
 
-/* Number of milliseconds to wait between write and read,
+/* Number of microseconds to wait between write and read,
  * used in esp_tpm_register_read() */
-#define WRITE_TO_READ_GUARD_TIME    2
+#define WRITE_TO_READ_GUARD_TIME_US 250
 
-/* Number of milliseconds to wait after read.
+/* Number of microseconds to wait after read.
  * used in esp_tpm_register_read() */
-#define POST_READ_GUARD_TIME        2
+#define POST_READ_GUARD_TIME_US     250
 
-/* Number of milliseconds to wait after standard write.
+/* Number of microseconds to wait after standard write.
  * (see also write-then-read in esp_tpm_register_read, above) */
-#define POST_WRITE_GUARD_TIME       2
+#define POST_WRITE_GUARD_TIME_US    250
 
 /* Number of milliseconds to wait after read failure. */
 #define READ_RETRY_DELAY_TIME       2
@@ -282,7 +282,7 @@ static esp_err_t esp_tpm_register_read(uint32_t reg, uint8_t *data, size_t len)
 
     /* For read we always need this guard time.
      * (success wake or real read) */
-    XSLEEP_MS(WRITE_TO_READ_GUARD_TIME); /* guard time - should be min 250us */
+    XSLEEP_US(WRITE_TO_READ_GUARD_TIME_US);
 
     if (ret == ESP_OK) {
         timeout = TPM_I2C_TRIES;
@@ -299,7 +299,7 @@ static esp_err_t esp_tpm_register_read(uint32_t reg, uint8_t *data, size_t len)
             }
         } while ((ret != ESP_OK) && (--timeout > 0));
     }
-    XSLEEP_MS(POST_READ_GUARD_TIME); /* guard time - should be 250us */
+    XSLEEP_US(POST_READ_GUARD_TIME_US);
 
     if (ret == ESP_OK) {
 #ifdef DEBUG_WOLFSSL_VERBOSE
@@ -354,7 +354,7 @@ static esp_err_t esp_tpm_register_write(uint32_t reg,
             XSLEEP_MS(WRITE_RETRY_DELAY_TIME);
         }
     } while (result != ESP_OK && --timeout > 0);
-    XSLEEP_MS(POST_WRITE_GUARD_TIME); /* guard time - should be 250us */
+    XSLEEP_US(POST_WRITE_GUARD_TIME_US);
 
     if (result == ESP_OK) {
         ESP_LOGV(TAG, "Success! tpm_register_write wrote %d bytes after "
