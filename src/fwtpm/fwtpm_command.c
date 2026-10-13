@@ -11294,9 +11294,9 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* nonceCaller must carry at least the 16-octet minimum (Part 1
-     * Sec.19.6.8); a tiny/zero nonce weakens the param-encryption IV. */
-    if (rc == 0 && nonceCallerSize < 16) {
+    /* nonceCaller must be 16..digest(authHash) octets (Part 3 Sec.11.1.1). */
+    if (rc == 0 && (nonceCallerSize < 16 ||
+            nonceCallerSize > (UINT16)nonceSize)) {
         rc = TPM_RC_SIZE;
     }
 
