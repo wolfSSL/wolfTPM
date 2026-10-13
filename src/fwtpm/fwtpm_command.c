@@ -6636,6 +6636,16 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_HANDLE;
             }
         }
+        if (rc == 0 && (obj->hierarchy == TPM_RH_NULL ||
+                obj->privKeySize == 0 ||
+                (obj->pub.objectAttributes & TPMA_OBJECT_stClear) != 0)) {
+            rc = TPM_RC_ATTRIBUTES;
+        }
+        if (rc == 0 &&
+                ((authHandle == TPM_RH_PLATFORM) !=
+                 (obj->hierarchy == TPM_RH_PLATFORM))) {
+            rc = TPM_RC_HIERARCHY;
+        }
 
         /* Check if persistent handle already in use */
         if (rc == 0) {
