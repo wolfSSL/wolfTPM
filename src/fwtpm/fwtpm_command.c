@@ -15645,14 +15645,21 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* If mode is NULL, use the key's default mode */
-    if (rc == 0 && mode == TPM_ALG_NULL) {
-        mode = obj->pub.parameters.symDetail.sym.mode.sym;
-    }
-    /* A non-NULL wire mode must match the key's configured mode; otherwise
-     * e.g. ECB could be applied to a CFB key (Part 3 Sec.12.6.1). */
-    else if (rc == 0 && mode != obj->pub.parameters.symDetail.sym.mode.sym) {
-        rc = TPM_RC_MODE;
+    /* Use a fixed key mode when present. A key without one requires the
+     * caller to select an explicit supported mode. */
+    if (rc == 0) {
+        UINT16 keyMode = obj->pub.parameters.symDetail.sym.mode.sym;
+        if (keyMode == TPM_ALG_NULL) {
+            if (mode == TPM_ALG_NULL) {
+                rc = TPM_RC_MODE;
+            }
+        }
+        else if (mode == TPM_ALG_NULL) {
+            mode = keyMode;
+        }
+        else if (mode != keyMode) {
+            rc = TPM_RC_MODE;
+        }
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -15677,7 +15684,6 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         switch (mode) {
             case TPM_ALG_CFB:
-            default:
                 /* CFB always uses the forward AES cipher (AES_ENCRYPTION key
                  * schedule) for both encrypt and decrypt operations */
                 ret = wc_AesSetKey(aes, obj->privKey,
@@ -15753,6 +15759,9 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         }
                     }
                 }
+                break;
+            default:
+                rc = TPM_RC_MODE;
                 break;
         }
     }

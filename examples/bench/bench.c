@@ -251,7 +251,8 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
         XMEMSET(iv, 0, sizeof(iv));
         rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, iv,
             sizeof(iv), isDecrypt);
-        if (bench_unsupported(rc)) {
+        if (bench_unsupported(rc) ||
+                (rc & RC_MAX_FMT1) == TPM_RC_MODE) {
             printf("%-16s Skipped (not supported)\n", desc);
             rc = 0;
             goto exit;
