@@ -11286,6 +11286,26 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Validate the parameter-encryption algorithm. */
+    if (rc == 0) {
+#ifdef FWTPM_NO_PARAM_ENC
+        if (symmetric.algorithm != TPM_ALG_NULL) {
+            rc = TPM_RC_SYMMETRIC;
+        }
+#else
+        if (symmetric.algorithm == TPM_ALG_XOR) {
+            rc = FwTestHashAlg(symmetric.keyBits.xorr);
+        }
+        else {
+            rc = FwTestSymDef(&symmetric);
+            if (rc == 0 && symmetric.algorithm != TPM_ALG_NULL &&
+                    symmetric.mode.sym != TPM_ALG_CFB) {
+                rc = TPM_RC_MODE;
+            }
+        }
+#endif
+    }
+
     /* Validate hash algorithm */
     if (rc == 0) {
         nonceSize = TPM2_GetHashDigestSize(authHash);
