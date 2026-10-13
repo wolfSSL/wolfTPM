@@ -5749,9 +5749,8 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
         #endif
 
-            /* Reset PCRs */
-            XMEMSET(ctx->pcrDigest, 0, sizeof(ctx->pcrDigest));
-            ctx->pcrUpdateCounter = 0;
+            /* Preserve PCR values and invalidate saved PCR policy state. */
+            ctx->pcrUpdateCounter++;
 
             /* Reset owner and endorsement hierarchy policies
              * (not platform/lockout) */
