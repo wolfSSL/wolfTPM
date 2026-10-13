@@ -431,7 +431,6 @@ static int FwGetPcrBankIndex(UINT16 hashAlg)
     }
 }
 
-#ifndef FWTPM_NO_HASH_CMDS
 static UINT16 FwGetPcrBankAlg(int bank)
 {
     if (bank == FWTPM_PCR_BANK_SHA256) {
@@ -450,6 +449,7 @@ static UINT16 FwGetPcrBankAlg(int bank)
     return TPM_ALG_NULL;
 }
 
+#ifndef FWTPM_NO_HASH_CMDS
 typedef struct FWTPM_EventHashCopies {
     wc_HashAlg hash[FWTPM_PCR_BANKS];
 } FWTPM_EventHashCopies;
@@ -3229,68 +3229,42 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, eventData, eventSize);
     }
 
-    if (rc == 0) {
-        /* SHA-256 bank */
-        bankAlgs[0] = TPM_ALG_SHA256;
-        digestSz[0] = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
-        if (digestSz[0] > 0) {
-            byte* dRow = digestBuf + 0 * TPM_MAX_DIGEST_SIZE;
-            enum wc_HashType wc0 = FwGetWcHashType(TPM_ALG_SHA256);
-            rc = wc_Hash(wc0, eventData, eventSize, dRow, digestSz[0]);
-            if (rc != 0) {
-                rc = TPM_RC_FAILURE;
-            }
-            if (rc == 0) {
-                XMEMCPY(concat,
-                    ctx->pcrDigest[pcrIndex][FWTPM_PCR_BANK_SHA256],
-                    digestSz[0]);
-                XMEMCPY(concat + digestSz[0], dRow, digestSz[0]);
-                rc = wc_Hash(wc0, concat, digestSz[0] * 2,
-                    newPcr, digestSz[0]);
-                if (rc != 0) {
-                    rc = TPM_RC_FAILURE;
-                }
-            }
-            if (rc == 0) {
-                XMEMCPY(ctx->pcrDigest[pcrIndex][FWTPM_PCR_BANK_SHA256],
-                    newPcr, digestSz[0]);
-                bankCount++;
-            }
-        }
+    for (b = 0; b < FWTPM_PCR_BANKS && rc == 0; b++) {
+        UINT16 hashAlg;
+        enum wc_HashType wcHash;
+        byte* eventDigest;
 
-    #ifdef WOLFSSL_SHA384
-        /* SHA-384 bank */
-        if (rc == 0) {
-            bankAlgs[1] = TPM_ALG_SHA384;
-            digestSz[1] = TPM2_GetHashDigestSize(TPM_ALG_SHA384);
-            if (digestSz[1] > 0) {
-                byte* dRow = digestBuf + 1 * TPM_MAX_DIGEST_SIZE;
-                enum wc_HashType wc1 = FwGetWcHashType(TPM_ALG_SHA384);
-                rc = wc_Hash(wc1, eventData, eventSize,
-                    dRow, digestSz[1]);
-                if (rc != 0) {
-                    rc = TPM_RC_FAILURE;
-                }
-                if (rc == 0) {
-                    XMEMCPY(concat,
-                        ctx->pcrDigest[pcrIndex][FWTPM_PCR_BANK_SHA384],
-                        digestSz[1]);
-                    XMEMCPY(concat + digestSz[1], dRow, digestSz[1]);
-                    rc = wc_Hash(wc1, concat, digestSz[1] * 2,
-                        newPcr, digestSz[1]);
-                    if (rc != 0) {
-                        rc = TPM_RC_FAILURE;
-                    }
-                }
-                if (rc == 0) {
-                    XMEMCPY(
-                        ctx->pcrDigest[pcrIndex][FWTPM_PCR_BANK_SHA384],
-                        newPcr, digestSz[1]);
-                    bankCount++;
-                }
-            }
+        if ((ctx->pcrAllocatedBanks & (1u << b)) == 0) {
+            continue;
         }
-    #endif
+        hashAlg = FwGetPcrBankAlg(b);
+        wcHash = FwGetWcHashType(hashAlg);
+        bankAlgs[bankCount] = hashAlg;
+        digestSz[bankCount] = TPM2_GetHashDigestSize(hashAlg);
+        eventDigest = digestBuf + bankCount * TPM_MAX_DIGEST_SIZE;
+        if (hashAlg == TPM_ALG_NULL || digestSz[bankCount] <= 0 ||
+                wcHash == WC_HASH_TYPE_NONE) {
+            rc = TPM_RC_FAILURE;
+            break;
+        }
+        rc = wc_Hash(wcHash, eventData, eventSize, eventDigest,
+            digestSz[bankCount]);
+        if (rc == 0) {
+            XMEMCPY(concat, ctx->pcrDigest[pcrIndex][b],
+                digestSz[bankCount]);
+            XMEMCPY(concat + digestSz[bankCount], eventDigest,
+                digestSz[bankCount]);
+            rc = wc_Hash(wcHash, concat, digestSz[bankCount] * 2,
+                newPcr, digestSz[bankCount]);
+        }
+        if (rc == 0) {
+            XMEMCPY(ctx->pcrDigest[pcrIndex][b], newPcr,
+                digestSz[bankCount]);
+            bankCount++;
+        }
+        else {
+            rc = TPM_RC_FAILURE;
+        }
     }
 
     if (rc == 0) {
