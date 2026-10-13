@@ -51,9 +51,8 @@
 #ifndef WOLFTPM_FWTPM_TIS
 /*!
     \ingroup wolfTPM_fwTPM
-    \brief Register a custom socket-transport HAL. Call before
-    FWTPM_IO_Init to replace the default POSIX socket implementation
-    (e.g. for a mocked or in-process transport).
+    \brief Register a custom transport HAL. Call before FWTPM_Init or after
+    FWTPM_Init but before FWTPM_IO_Init to replace the default socket transport.
 
     \return 0 on success
     \return BAD_FUNC_ARG if ctx or hal is NULL
@@ -68,13 +67,12 @@ WOLFTPM_API int FWTPM_IO_SetHAL(FWTPM_CTX* ctx, FWTPM_IO_HAL* hal);
 
 /*!
     \ingroup wolfTPM_fwTPM
-    \brief Initialize the fwTPM transport. When no HAL has been
-    registered, binds default TCP sockets on ctx->cmdPort and
-    ctx->platPort.
+    \brief Initialize the fwTPM transport. Uses a registered IO HAL when
+    present; otherwise initializes the built-in TCP socket or TIS transport.
 
     \return 0 on success
     \return BAD_FUNC_ARG if ctx is NULL
-    \return TPM_RC_FAILURE on socket/bind error
+    \return TPM_RC_FAILURE on transport initialization error
 
     \param ctx pointer to an initialized FWTPM_CTX
 
@@ -85,7 +83,7 @@ WOLFTPM_API int FWTPM_IO_Init(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM
-    \brief Release transport resources (close sockets / release HAL).
+    \brief Release custom HAL, socket, or TIS transport resources.
 
     \param ctx pointer to an initialized FWTPM_CTX
 
@@ -95,8 +93,8 @@ WOLFTPM_API void FWTPM_IO_Cleanup(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM
-    \brief Run the main fwTPM server loop. Blocks until ctx->running
-    is cleared (by FWTPM_IO_RequestStop or a signal handler).
+    \brief Run the selected fwTPM transport loop. Blocks until ctx->running is
+    cleared or FWTPM_IO_RequestStop is called.
 
     \return 0 on clean shutdown
     \return BAD_FUNC_ARG if ctx is NULL

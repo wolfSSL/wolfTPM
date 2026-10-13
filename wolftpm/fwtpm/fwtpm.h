@@ -647,20 +647,31 @@ typedef struct FWTPM_PrimaryCache {
     int privKeySize;
 } FWTPM_PrimaryCache;
 
-/* IO transport HAL callbacks — socket transport only (not used in TIS mode) */
+/* IO transport HAL callbacks - socket transport only (not used in TIS mode) */
 #ifndef WOLFTPM_FWTPM_TIS
+#define FWTPM_IO_TYPE_COMMAND       0
+#define FWTPM_IO_TYPE_PLATFORM      1
+#define FWTPM_IO_READY_COMMAND      0x01
+#define FWTPM_IO_READY_PLATFORM     0x02
+#define FWTPM_IO_ACCEPT_COMMAND     0x04
+#define FWTPM_IO_ACCEPT_PLATFORM    0x08
+#ifndef FWTPM_IO_WAIT_TIMEOUT_MS
+#define FWTPM_IO_WAIT_TIMEOUT_MS    1000
+#endif
+
 typedef struct FWTPM_IO_HAL_S {
     /* Send data to client. Returns 0 on success. */
-    int (*send)(void* ctx, const void* buf, int sz);
+    int (*send)(void* ctx, int type, const void* buf, int sz);
     /* Receive data from client. Returns 0 on success. */
-    int (*recv)(void* ctx, void* buf, int sz);
-    /* Wait for connections/data. Returns bitmask:
+    int (*recv)(void* ctx, int type, void* buf, int sz);
+    /* Wait up to timeoutMs for connections/data. Returns bitmask:
      * 0x01 = command data ready, 0x02 = platform data ready,
      * 0x04 = new command connection, 0x08 = new platform connection.
-     * Negative on error. */
-    int (*wait)(void* ctx);
-    /* Accept a new connection (for connection-oriented transports).
-     * type: 0=command, 1=platform. Returns 0 on success. */
+     * Zero on timeout, negative on error. */
+    int (*wait)(void* ctx, int timeoutMs);
+    /* Accept a new connection (requires close_conn).
+     * type: 0=command, 1=platform. Returns 0 on success and owns cleanup
+     * internally when returning an error. */
     int (*accept)(void* ctx, int type);
     /* Close a connection. type: 0=command, 1=platform. */
     void (*close_conn)(void* ctx, int type);
@@ -679,6 +690,7 @@ typedef struct FWTPM_IO_CTX {
     SOCKET_T platListenFd;   /* Listening socket for platform port */
     SOCKET_T clientFd;       /* Accepted client connection */
     SOCKET_T platClientFd;   /* Accepted platform client connection */
+    unsigned int customConnMask; /* Active custom HAL connections */
 } FWTPM_IO_CTX;
 #endif /* !WOLFTPM_FWTPM_TIS */
 
@@ -738,7 +750,7 @@ typedef struct FWTPM_CTX {
     /* Socket transport configuration (not used in TIS mode) */
     int cmdPort;                /* Command port (default 2321) */
     int platPort;               /* Platform port (default 2322) */
-    FWTPM_IO_HAL ioHal;        /* IO transport HAL callbacks */
+    FWTPM_IO_HAL ioHal;         /* IO transport HAL callbacks */
     FWTPM_IO_CTX io;            /* Socket IO state */
 #endif
 

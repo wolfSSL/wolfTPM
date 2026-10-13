@@ -240,10 +240,10 @@ scripts/tpm2_tools_test.sh
 
 | 関数 | 説明 |
 |----------|-------------|
-| `int FWTPM_IO_SetHAL(FWTPM_CTX* ctx, FWTPM_IO_HAL* hal)` | カスタム IO トランスポートのコールバックを登録 |
-| `int FWTPM_IO_Init(FWTPM_CTX* ctx)` | トランスポート (ソケットまたはカスタム HAL) を初期化 |
+| `int FWTPM_IO_SetHAL(FWTPM_CTX* ctx, FWTPM_IO_HAL* hal)` | カスタム IO トランスポートコールバックを登録 |
+| `int FWTPM_IO_Init(FWTPM_CTX* ctx)` | カスタム HAL、TCP ソケット、または TIS トランスポートを初期化 |
 | `void FWTPM_IO_Cleanup(FWTPM_CTX* ctx)` | トランスポートを閉じ、リソースを解放 |
-| `int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)` | メインのサーバーループ。`ctx->running` がクリアされるまでブロック |
+| `int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)` | 選択されたトランスポートのサーバーループを実行。`ctx->running` がクリアされるまでブロック |
 
 ### NV ストレージ (`fwtpm_nv.h`)
 

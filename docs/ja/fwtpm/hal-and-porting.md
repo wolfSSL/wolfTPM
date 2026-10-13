@@ -1,26 +1,29 @@
 # HAL と移植
 
-fwTPM はハードウェア抽象化レイヤー (HAL) を提供しており、コアロジックを変更せずに組み込みターゲットへ移植できます。トランスポート用の IO HAL、永続ストレージ用の NV HAL、およびオプションのクロック HAL があります。複数のボード向けの完全なリファレンス移植は、[wolftpm-examples](https://github.com/wolfSSL/wolftpm-examples) リポジトリにあります。
+fwTPM は、サーバートランスポート、永続ストレージ、プラットフォームクロック用のハードウェア抽象化レイヤー (HAL) を提供します。複数のボード向けの完全なリファレンス移植は、[wolftpm-examples](https://github.com/wolfSSL/wolftpm-examples) リポジトリにあります。
 
 ## IO HAL (トランスポート)
 
-IO HAL は、fwTPM サーバーとそのクライアント間のトランスポートを抽象化します。デフォルトの実装は TCP ソケット (SWTPM プロトコル) を使用します。組み込みターゲットでは、SPI、I2C、UART、または共有メモリのコールバックに置き換えます。
+IO HAL は、fwTPM サーバーとクライアント間のトランスポートを抽象化します。ソケットビルドでは、デフォルトで TCP ソケット (SWTPM プロトコル) を使用します。`FWTPM_IO_HAL` を登録すると、ソケットトランスポートは組み込み環境またはインプロセストランスポート用のコールバックに置き換わります。TIS ビルドでは、別の TIS HAL を使用します。
 
 **コールバック構造体** (`fwtpm.h` で `FWTPM_IO_HAL` として定義):
 
 | コールバック | シグネチャ | 説明 |
 |----------|-----------|-------------|
-| `send` | `int (*)(void* ctx, const void* buf, int sz)` | クライアントへデータを送信 |
-| `recv` | `int (*)(void* ctx, void* buf, int sz)` | クライアントからデータを受信 |
-| `wait` | `int (*)(void* ctx)` | データまたは接続を待機。ビットマスクを返す: `0x01`=コマンドデータ、`0x02`=プラットフォームデータ、`0x04`=新しいコマンド接続、`0x08`=新しいプラットフォーム接続 |
+| `send` | `int (*)(void* ctx, int type, const void* buf, int sz)` | コマンドまたはプラットフォームクライアントへデータを送信 |
+| `recv` | `int (*)(void* ctx, int type, void* buf, int sz)` | コマンドまたはプラットフォームクライアントからデータを受信 |
+| `wait` | `int (*)(void* ctx, int timeoutMs)` | `timeoutMs` までデータまたは接続を待機。タイムアウト時は 0、それ以外はビットマスクを返す: `0x01`=コマンドデータ、`0x02`=プラットフォームデータ、`0x04`=新しいコマンド接続、`0x08`=新しいプラットフォーム接続 |
 | `accept` | `int (*)(void* ctx, int type)` | 新しい接続を受け入れる (type: 0=コマンド、1=プラットフォーム) |
 | `close_conn` | `void (*)(void* ctx, int type)` | 接続を閉じる (type: 0=コマンド、1=プラットフォーム) |
 | `ctx` | `void*` | ユーザーコンテキストポインタ |
+
+`type` 引数には `FWTPM_IO_TYPE_COMMAND` または `FWTPM_IO_TYPE_PLATFORM` を指定します。`send`、`recv`、`wait` コールバックは必須です。停止要求を検出できるように、`wait` は指定されたタイムアウトまでに戻る必要があります。デフォルトの 1000 ms 間隔は `FWTPM_IO_WAIT_TIMEOUT_MS` で変更できます。コネクションレス型トランスポートでは `accept` と `close_conn` を省略できます。`accept` を指定する場合は `close_conn` も指定し、`accept` がエラーを返す前に未完了の接続状態を解放する必要があります。
 
 **登録:**
 
 ```c
 FWTPM_IO_HAL myHal;
+XMEMSET(&myHal, 0, sizeof(myHal));
 myHal.send = my_send;
 myHal.recv = my_recv;
 myHal.wait = my_wait;
@@ -30,6 +33,8 @@ myHal.ctx = &myTransportCtx;
 
 FWTPM_IO_SetHAL(&ctx, &myHal);
 ```
+
+IO HAL は `FWTPM_Init()` の前、または `FWTPM_Init()` の後かつ `FWTPM_IO_Init()` の前に登録してください。
 
 ## NV HAL (永続ストレージ)
 
@@ -101,10 +106,12 @@ FWTPM_NV_SetHAL(&ctx, &hal);           /* before FWTPM_Init() */
 
 ## 移植の例
 
-SPI トランスポートと SPI フラッシュの NV を使用するベアメタルの組み込みターゲットの例です。
+ベアメタルターゲットでは、初期化前に SPI トランスポートと SPI フラッシュ NV のコールバックを登録できます。
 
 ```c
 FWTPM_CTX ctx;
+int cleanupRc;
+int rc;
 XMEMSET(&ctx, 0, sizeof(ctx));
 
 /* Set custom NV storage before FWTPM_Init, which loads NV state through it */
@@ -115,25 +122,29 @@ FWTPM_NV_HAL nvHal = {
 };
 FWTPM_NV_SetHAL(&ctx, &nvHal);
 
-FWTPM_Init(&ctx);
-
-/* Set custom IO transport after FWTPM_Init, which does not preserve the IO HAL */
+/* Register a connectionless IO transport before initialization. */
 FWTPM_IO_HAL ioHal = {
     .send = spi_slave_send,
     .recv = spi_slave_recv,
     .wait = spi_slave_poll,
-    .accept = NULL,         /* not connection-oriented */
+    .accept = NULL,
     .close_conn = NULL,
     .ctx = &spiHandle
 };
 FWTPM_IO_SetHAL(&ctx, &ioHal);
 
-/* Initialize IO and run */
-FWTPM_IO_Init(&ctx);
-FWTPM_IO_ServerLoop(&ctx);  /* blocks */
-
-FWTPM_IO_Cleanup(&ctx);
-FWTPM_Cleanup(&ctx);
+rc = FWTPM_Init(&ctx);
+if (rc == 0) {
+    rc = FWTPM_IO_Init(&ctx);
+    if (rc == 0) {
+        rc = FWTPM_IO_ServerLoop(&ctx);  /* blocks */
+        FWTPM_IO_Cleanup(&ctx);
+    }
+    cleanupRc = FWTPM_Cleanup(&ctx);
+    if (rc == 0)
+        rc = cleanupRc;
+}
+return rc;
 ```
 
 ## 利用可能な移植
