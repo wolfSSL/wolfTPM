@@ -12749,6 +12749,7 @@ static TPM_RC FwCmd_PolicyLocality(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 sessHandle;
     UINT8 locality = 0;
+    UINT8 allowedLocality = 0;
     FWTPM_Session* sess;
     byte locBuf[1];
     (void)cmdSize;
@@ -12767,6 +12768,30 @@ static TPM_RC FwCmd_PolicyLocality(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_AUTH_TYPE;
     }
 
+    if (rc == 0 && locality == 0) {
+        rc = TPM_RC_RANGE;
+    }
+    if (rc == 0 && sess->hasRequiredLocality) {
+        if ((sess->requiredLocality < 32) != (locality < 32)) {
+            rc = TPM_RC_RANGE;
+        }
+        else if (locality < 32) {
+            allowedLocality = sess->requiredLocality & locality;
+            if (allowedLocality == 0) {
+                rc = TPM_RC_RANGE;
+            }
+        }
+        else if (sess->requiredLocality != locality) {
+            rc = TPM_RC_RANGE;
+        }
+    }
+    else {
+        allowedLocality = locality;
+    }
+    if (rc == 0 && locality >= 32) {
+        allowedLocality = locality;
+    }
+
     if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PolicyLocality(session=0x%x, locality=%d)\n",
@@ -12778,14 +12803,8 @@ static TPM_RC FwCmd_PolicyLocality(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 NULL, 0, 0) != 0) {
             rc = TPM_RC_FAILURE;
         }
-        /* Bind the locality constraint (intersect across calls). A flag
-         * marks it present so a bitmap of 0 stays an unsatisfiable
-         * constraint rather than reading as "unset". */
         if (rc == 0) {
-            if (!sess->hasRequiredLocality)
-                sess->requiredLocality = locality;
-            else
-                sess->requiredLocality &= locality;
+            sess->requiredLocality = allowedLocality;
             sess->hasRequiredLocality = 1;
         }
     }
@@ -20934,8 +20953,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 }
                 /* Enforce any PolicyLocality constraint bound to the session */
                 if (pSess->hasRequiredLocality &&
-                    (ctx->activeLocality > WOLFTPM_LOCALITY_MAX ||
-                     !((1u << ctx->activeLocality) & pSess->requiredLocality))) {
+                    ((pSess->requiredLocality < 32 &&
+                      (ctx->activeLocality > WOLFTPM_LOCALITY_MAX ||
+                       !((1u << ctx->activeLocality) &
+                         pSess->requiredLocality))) ||
+                     (pSess->requiredLocality >= 32 &&
+                      ctx->activeLocality != pSess->requiredLocality))) {
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
                     TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
