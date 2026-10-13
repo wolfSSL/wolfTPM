@@ -14608,7 +14608,12 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &nvHandle);
     if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
-    TPM2_Packet_ParseU64(cmd, &bits);
+    if (rc == 0) {
+        TPM2_Packet_ParseU64(cmd, &bits);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+    }
 
     nv = FwFindNvIndex(ctx, nvHandle);
     if (nv == NULL) {
@@ -19611,6 +19616,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     cmdPkt.buf = (byte*)(size_t)cmdBuf;
     cmdPkt.pos = 0;
     cmdPkt.size = cmdSize;
+    cmdPkt.overflow = 0;
 
     /* Parse header */
     TPM2_Packet_ParseU16(&cmdPkt, &cmdTag);

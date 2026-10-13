@@ -14007,6 +14007,70 @@ static void test_fwtpm_global_write_lock_nv_failure(void)
     fwtpm_pass("GlobalWriteLock NV failure rollback:", 0);
 }
 
+/* A SetBits command missing its mandatory U64 must not write the index. */
+static void test_fwtpm_nv_setbits_truncated(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NvIndex* nv = NULL;
+    UINT32 nvIdx = 0x01500008;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+                   ((UINT32)TPM_NT_BITS << 4);
+    UINT32 oldAttrs;
+    int oldWritten;
+    byte oldData[8];
+    int i, pos, rspSize, cmdSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].nvPublic.nvIndex == nvIdx) {
+            nv = &ctx.nvIndices[i];
+            break;
+        }
+    }
+    AssertNotNull(nv);
+    oldWritten = nv->written;
+    oldAttrs = nv->nvPublic.attributes;
+    XMEMCPY(oldData, nv->data, sizeof(oldData));
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_SetBits);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    AssertIntEQ(nv->written, oldWritten);
+    AssertIntEQ(nv->nvPublic.attributes, oldAttrs);
+    AssertIntEQ(XMEMCMP(nv->data, oldData, sizeof(oldData)), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_SetBits);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, 1); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntNE(nv->nvPublic.attributes & TPMA_NV_WRITTEN, 0);
+    AssertIntEQ(nv->data[7], 1);
+
+    TPM2_ForceZero(oldData, sizeof(oldData));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_SetBits truncated command rejected:", 0);
+}
+
 /* ClearControl must not change disableClear or return success when its NV
  * update fails. */
 static void test_fwtpm_clear_control_nv_failure(void)
@@ -17788,6 +17852,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_global_write_lock_nv_failure();
         return 0;
     }
+    if (argc == 2 && XSTRCMP(argv[1], "nv-setbits-truncated") == 0) {
+        test_fwtpm_nv_setbits_truncated();
+        return 0;
+    }
     if (argc == 2 && XSTRCMP(argv[1], "nv-stclear") == 0) {
         test_fwtpm_nv_stclear_startup();
         return 0;
@@ -18235,6 +18303,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_sessions_missing_authsize_command_size();
 #ifndef FWTPM_NO_NV
     test_fwtpm_global_write_lock_nv_failure();
+    test_fwtpm_nv_setbits_truncated();
     test_fwtpm_clear_control_nv_failure();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
