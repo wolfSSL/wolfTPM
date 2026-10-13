@@ -14249,7 +14249,7 @@ static void test_fwtpm_state_change_nv_failure(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
 
-    /* Restore persistence and confirm the counter was rolled back (== 0). */
+    /* Restore persistence and confirm the counter remains unwritten. */
     AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
@@ -14263,10 +14263,7 @@ static void test_fwtpm_state_change_nv_failure(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(GetU16BE(gRsp + 14), 8);
-    AssertIntEQ((int)GetU32BE(gRsp + 16), 0);
-    AssertIntEQ((int)GetU32BE(gRsp + 20), 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_UNINITIALIZED);
 
     /* Remove the counter while owner auth is still empty. */
     pos = 0;

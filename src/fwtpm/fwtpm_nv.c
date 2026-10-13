@@ -1417,6 +1417,18 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                 FwNvUnmarshalU8(value, &vPos, vMax, &shutdownState);
                 ctx->shutdownStateSaved = shutdownState ? 1 : 0;
             }
+        #ifndef FWTPM_NO_NV
+            if (vPos + 8 <= vMax) {
+                UINT32 lo = 0, hi = 0;
+                UINT64 counterMax;
+                FwNvUnmarshalU32(value, &vPos, vMax, &lo);
+                FwNvUnmarshalU32(value, &vPos, vMax, &hi);
+                counterMax = (UINT64)lo | ((UINT64)hi << 32);
+                if (counterMax > ctx->nvCounterMax) {
+                    ctx->nvCounterMax = counterMax;
+                }
+            }
+        #endif
             break;
         }
 
@@ -1482,6 +1494,13 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             FWTPM_NvIndex nv;
             int slot;
             if (FwNvUnmarshalNvIndex(value, &vPos, vMax, &nv) == 0) {
+                UINT32 nt = (nv.nvPublic.attributes & TPMA_NV_TPM_NT) >> 4;
+                if (nt == TPM_NT_COUNTER && nv.written) {
+                    UINT64 counter = FwLoadU64BE(nv.data);
+                    if (counter > ctx->nvCounterMax) {
+                        ctx->nvCounterMax = counter;
+                    }
+                }
                 slot = FwNvFindOrAllocNvSlot(ctx, nv.nvPublic.nvIndex);
                 if (slot >= 0) {
                     XMEMCPY(&ctx->nvIndices[slot], &nv,
@@ -2211,6 +2230,12 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         FwNvMarshalU32(buf, &pos, bufSz, ctx->restartCount);
         /* A full snapshot authorizes resume only with its final marker. */
         FwNvMarshalU8(buf, &pos, bufSz, 0);
+    #ifndef FWTPM_NO_NV
+        FwNvMarshalU32(buf, &pos, bufSz,
+            (UINT32)(ctx->nvCounterMax & 0xFFFFFFFF));
+        FwNvMarshalU32(buf, &pos, bufSz,
+            (UINT32)(ctx->nvCounterMax >> 32));
+    #endif
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     }
 
@@ -2519,7 +2544,7 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     return TPM_RC_SUCCESS;
 #else
     int rc;
-    byte buf[1 + 12 + 4 + 4 + 1 + 4 + 1];
+    byte buf[1 + 12 + 4 + 4 + 1 + 4 + 1 + 8];
     word32 pos = 0;
 
     if (ctx == NULL) {
@@ -2552,6 +2577,10 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->restartCount);
     FwNvMarshalU8(buf, &pos, sizeof(buf),
         ctx->shutdownStateSaved ? 1 : 0);
+    FwNvMarshalU32(buf, &pos, sizeof(buf),
+        (UINT32)(ctx->nvCounterMax & 0xFFFFFFFF));
+    FwNvMarshalU32(buf, &pos, sizeof(buf),
+        (UINT32)(ctx->nvCounterMax >> 32));
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     return rc;

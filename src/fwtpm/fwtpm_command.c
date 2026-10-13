@@ -14284,6 +14284,29 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
     return TPM_RC_SUCCESS;
 }
 
+static TPM_RC FwPreserveNvCounterMax(FWTPM_CTX* ctx,
+    const FWTPM_NvIndex* nv)
+{
+    UINT32 nt = (nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4;
+    UINT64 counter;
+    UINT64 oldMax;
+    TPM_RC rc = TPM_RC_SUCCESS;
+
+    if (nt != TPM_NT_COUNTER || !nv->written) {
+        return TPM_RC_SUCCESS;
+    }
+    counter = FwLoadU64BE(nv->data);
+    oldMax = ctx->nvCounterMax;
+    if (counter > ctx->nvCounterMax) {
+        ctx->nvCounterMax = counter;
+    }
+    rc = FWTPM_NV_SaveFlags(ctx);
+    if (rc != 0) {
+        ctx->nvCounterMax = oldMax;
+    }
+    return rc;
+}
+
 /* --- TPM2_NV_DefineSpace (CC 0x012A) --- */
 static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -14439,9 +14462,12 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         slot->written = 0;
 
-        /* Initialize NV_COUNTER/NV_BITS to zero */
+        /* Counter is not written until its first increment. */
         nt = (int)((slot->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4);
-        if (nt == TPM_NT_COUNTER || nt == TPM_NT_BITS) {
+        if (nt == TPM_NT_COUNTER) {
+            XMEMSET(slot->data, 0, 8);
+        }
+        else if (nt == TPM_NT_BITS) {
             XMEMSET(slot->data, 0, 8);
             slot->written = 1;
         }
@@ -14504,6 +14530,9 @@ static TPM_RC FwCmd_NV_UndefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        rc = FwPreserveNvCounterMax(ctx, nv);
+    }
+    if (rc == 0) {
         rc = FWTPM_NV_DeleteNvIndex(ctx, nvHandle);
         if (rc == 0) {
             XMEMSET(nv, 0, sizeof(FWTPM_NvIndex));
@@ -14551,7 +14580,10 @@ static TPM_RC FwCmd_NV_UndefineSpaceSpecial(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: NV_UndefineSpaceSpecial(nv=0x%x)\n", nvHandle);
     #endif
-        rc = FWTPM_NV_DeleteNvIndex(ctx, nvHandle);
+        rc = FwPreserveNvCounterMax(ctx, nv);
+        if (rc == 0) {
+            rc = FWTPM_NV_DeleteNvIndex(ctx, nvHandle);
+        }
         if (rc == 0) {
             XMEMSET(nv, 0, sizeof(FWTPM_NvIndex));
             FwRspNoParams(rsp, cmdTag);
@@ -14927,15 +14959,26 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         byte oldData[8];
         int oldWritten = nv->written;
         UINT32 oldAttrs = nv->nvPublic.attributes;
+        UINT64 oldMax = ctx->nvCounterMax;
         XMEMCPY(oldData, nv->data, 8);
-        /* Read big-endian counter, increment, write back */
-        counter = FwLoadU64BE(nv->data);
-        counter++;
-        FwStoreU64BE(nv->data, counter);
-        nv->written = 1;
-        nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
+        /* A new counter starts above the TPM-wide high-water mark. */
+        counter = nv->written ? FwLoadU64BE(nv->data) : ctx->nvCounterMax;
+        if (counter == ~(UINT64)0) {
+            rc = TPM_RC_NV_RANGE;
+        }
+        else {
+            counter++;
+            FwStoreU64BE(nv->data, counter);
+            nv->written = 1;
+            nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
+            if (counter > ctx->nvCounterMax) {
+                ctx->nvCounterMax = counter;
+            }
+        }
 
-        rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        if (rc == 0) {
+            rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
+        }
 
         if (rc == 0) {
             FwRspNoParams(rsp, cmdTag);
@@ -14944,6 +14987,7 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             XMEMCPY(nv->data, oldData, 8);
             nv->written = oldWritten;
             nv->nvPublic.attributes = oldAttrs;
+            ctx->nvCounterMax = oldMax;
         }
         TPM2_ForceZero(oldData, sizeof(oldData));
     }

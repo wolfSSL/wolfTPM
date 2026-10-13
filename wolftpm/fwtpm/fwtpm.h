@@ -829,6 +829,7 @@ typedef struct FWTPM_CTX {
      * cost of the NV command group, so omit them when that group is disabled. */
 #ifndef FWTPM_NO_NV
     FWTPM_NvIndex nvIndices[FWTPM_MAX_NV_INDICES];
+    UINT64 nvCounterMax;          /* Highest NV counter value ever assigned */
 #endif
 
     /* Hash sequence slots */
