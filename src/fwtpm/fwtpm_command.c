@@ -19583,6 +19583,8 @@ typedef struct {
                             /* Bit 2: first auth handle has DUP role */
                             /* Bit 3: command flushes its handle (TPMA_CC.F) */
                             /* Bit 4: first auth handle has ADMIN role */
+                            /* Bit 5: command may update NV (TPMA_CC.nv) */
+                            /* Bit 6: command is extensive (TPMA_CC.extensive) */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -19605,28 +19607,31 @@ typedef struct {
  * matching PolicyCommandCode is required. */
 #define FW_CMD_FLAG_AUTH_ADMIN  0x10
 
+#define FW_CMD_MOD_NV           0x20
+#define FW_CMD_MOD_EXTENSIVE    0x40
+
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Basic (always enabled) --- */
-    { TPM_CC_Startup,            FwCmd_Startup,            0, 0, 0, 0 },
-    { TPM_CC_Shutdown,           FwCmd_Shutdown,            0, 0, 0, 0 },
-    { TPM_CC_SelfTest,           FwCmd_SelfTest,            0, 0, 0, 0 },
-    { TPM_CC_IncrementalSelfTest, FwCmd_IncrementalSelfTest, 0, 0, 0, 0 },
+    { TPM_CC_Startup,            FwCmd_Startup,            0, 0, 0, FW_CMD_MOD_NV },
+    { TPM_CC_Shutdown,           FwCmd_Shutdown,            0, 0, 0, FW_CMD_MOD_NV },
+    { TPM_CC_SelfTest,           FwCmd_SelfTest,            0, 0, 0, FW_CMD_MOD_NV },
+    { TPM_CC_IncrementalSelfTest, FwCmd_IncrementalSelfTest, 0, 0, 0, FW_CMD_MOD_NV },
     { TPM_CC_GetTestResult,      FwCmd_GetTestResult,       0, 0, 0, 0 },
     { TPM_CC_GetRandom,          FwCmd_GetRandom,           0, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_StirRandom,         FwCmd_StirRandom,          0, 0, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_StirRandom,         FwCmd_StirRandom,          0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
     { TPM_CC_GetCapability,      FwCmd_GetCapability,       0, 0, 0, 0 },
     { TPM_CC_TestParms,          FwCmd_TestParms,            0, 0, 0, 0 },
     { TPM_CC_PCR_Read,           FwCmd_PCR_Read,            0, 0, 0, 0 },
-    { TPM_CC_PCR_Extend,         FwCmd_PCR_Extend,          1, 1, 0, 0 },
-    { TPM_CC_PCR_Reset,          FwCmd_PCR_Reset,           1, 1, 0, 0 },
-    { TPM_CC_PCR_Event,          FwCmd_PCR_Event,            1, 1, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_PCR_Allocate,       FwCmd_PCR_Allocate,         1, 1, 0, 0 },
-    { TPM_CC_PCR_SetAuthPolicy,  FwCmd_PCR_SetAuthPolicy,    1, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_PCR_Extend,         FwCmd_PCR_Extend,          1, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_PCR_Reset,          FwCmd_PCR_Reset,           1, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_PCR_Event,          FwCmd_PCR_Event,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
+    { TPM_CC_PCR_Allocate,       FwCmd_PCR_Allocate,         1, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_PCR_SetAuthPolicy,  FwCmd_PCR_SetAuthPolicy,    1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
     { TPM_CC_PCR_SetAuthValue,   FwCmd_PCR_SetAuthValue,     1, 1, 0, FW_CMD_FLAG_ENC },
 #ifndef FWTPM_NO_CLOCK
     { TPM_CC_ReadClock,          FwCmd_ReadClock,            0, 0, 0, 0 },
-    { TPM_CC_ClockSet,           FwCmd_ClockSet,             1, 1, 0, 0 },
+    { TPM_CC_ClockSet,           FwCmd_ClockSet,             1, 1, 0, FW_CMD_MOD_NV },
     { TPM_CC_ClockRateAdjust,    FwCmd_ClockRateAdjust,      1, 1, 0, 0 },
 #endif /* !FWTPM_NO_CLOCK */
     /* --- Key management (always enabled, algorithm checks inside) --- */
@@ -19639,14 +19644,14 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_ContextLoad,        FwCmd_ContextLoad,          0, 0, 1, 0 },
 #endif /* !FWTPM_NO_CONTEXT */
     { TPM_CC_ReadPublic,         FwCmd_ReadPublic,           1, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_Clear,              FwCmd_Clear,                1, 1, 0, 0 },
-    { TPM_CC_ClearControl,       FwCmd_ClearControl,         1, 1, 0, 0 },
-    { TPM_CC_ChangeEPS,          FwCmd_ChangeEPS,            1, 1, 0, 0 },
-    { TPM_CC_ChangePPS,          FwCmd_ChangePPS,            1, 1, 0, 0 },
-    { TPM_CC_HierarchyControl,   FwCmd_HierarchyControl,     1, 1, 0, 0 },
-    { TPM_CC_HierarchyChangeAuth, FwCmd_HierarchyChangeAuth, 1, 1, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_SetPrimaryPolicy,   FwCmd_SetPrimaryPolicy,     1, 1, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_EvictControl,       FwCmd_EvictControl,         2, 1, 0, 0 },
+    { TPM_CC_Clear,              FwCmd_Clear,                1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
+    { TPM_CC_ClearControl,       FwCmd_ClearControl,         1, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_ChangeEPS,          FwCmd_ChangeEPS,            1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
+    { TPM_CC_ChangePPS,          FwCmd_ChangePPS,            1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
+    { TPM_CC_HierarchyControl,   FwCmd_HierarchyControl,     1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
+    { TPM_CC_HierarchyChangeAuth, FwCmd_HierarchyChangeAuth, 1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
+    { TPM_CC_SetPrimaryPolicy,   FwCmd_SetPrimaryPolicy,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
+    { TPM_CC_EvictControl,       FwCmd_EvictControl,         2, 1, 0, FW_CMD_MOD_NV },
     { TPM_CC_Create,             FwCmd_Create,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
     { TPM_CC_Load,               FwCmd_Load,                 1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
@@ -19673,7 +19678,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
      * once the hash commands (and their sequence producers) are gated out. */
 #ifndef FWTPM_NO_HASH_CMDS
     { TPM_CC_SequenceComplete,   FwCmd_SequenceComplete,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_MOD_FLUSHED },
-    { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_FLUSHED },
+    { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_FLUSHED | FW_CMD_MOD_NV },
 #endif /* !FWTPM_NO_HASH_CMDS */
     /* --- ECC --- */
 #ifdef HAVE_ECC
@@ -19737,19 +19742,19 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
     /* --- NV RAM --- */
 #ifndef FWTPM_NO_NV
-    { TPM_CC_NV_DefineSpace,     FwCmd_NV_DefineSpace,       1, 1, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_NV_UndefineSpace,   FwCmd_NV_UndefineSpace,     2, 1, 0, 0 },
-    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, FW_CMD_FLAG_AUTH_ADMIN },
+    { TPM_CC_NV_DefineSpace,     FwCmd_NV_DefineSpace,       1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
+    { TPM_CC_NV_UndefineSpace,   FwCmd_NV_UndefineSpace,     2, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_MOD_NV },
     { TPM_CC_NV_ReadPublic,      FwCmd_NV_ReadPublic,        1, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_NV_Write,           FwCmd_NV_Write,             2, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_NV_Write,           FwCmd_NV_Write,             2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
     { TPM_CC_NV_Read,            FwCmd_NV_Read,              2, 1, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_NV_Extend,          FwCmd_NV_Extend,            2, 1, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_NV_Increment,       FwCmd_NV_Increment,         2, 1, 0, 0 },
-    { TPM_CC_NV_WriteLock,       FwCmd_NV_WriteLock,         2, 1, 0, 0 },
-    { TPM_CC_NV_ReadLock,        FwCmd_NV_ReadLock,          2, 1, 0, 0 },
-    { TPM_CC_NV_SetBits,         FwCmd_NV_SetBits,           2, 1, 0, 0 },
-    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_AUTH_ADMIN },
-    { TPM_CC_NV_GlobalWriteLock, FwCmd_NV_GlobalWriteLock,   1, 1, 0, 0 },
+    { TPM_CC_NV_Extend,          FwCmd_NV_Extend,            2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
+    { TPM_CC_NV_Increment,       FwCmd_NV_Increment,         2, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_NV_WriteLock,       FwCmd_NV_WriteLock,         2, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_NV_ReadLock,        FwCmd_NV_ReadLock,          2, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_NV_SetBits,         FwCmd_NV_SetBits,           2, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_MOD_NV },
+    { TPM_CC_NV_GlobalWriteLock, FwCmd_NV_GlobalWriteLock,   1, 1, 0, FW_CMD_MOD_NV },
 #endif /* !FWTPM_NO_NV */
     /* --- ECC Parameters --- */
 #ifdef HAVE_ECC
@@ -19774,8 +19779,8 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif /* !FWTPM_NO_CREDENTIAL */
     /* --- Dictionary Attack --- */
 #ifndef FWTPM_NO_DA
-    { TPM_CC_DictionaryAttackLockReset, FwCmd_DictionaryAttackLockReset, 1, 1, 0, 0 },
-    { TPM_CC_DictionaryAttackParameters, FwCmd_DictionaryAttackParameters, 1, 1, 0, 0 },
+    { TPM_CC_DictionaryAttackLockReset, FwCmd_DictionaryAttackLockReset, 1, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_DictionaryAttackParameters, FwCmd_DictionaryAttackParameters, 1, 1, 0, FW_CMD_MOD_NV },
 #endif
     /* --- Vendor (optional; off by default, see WOLFTPM_FWTPM_TCG_TEST) --- */
 #ifdef WOLFTPM_FWTPM_TCG_TEST
@@ -19815,8 +19820,7 @@ static TPM_CC FwGetCmdCcAt(int idx)
     return fwCmdTable[idx].cc;
 }
 
-/* TPMA_CC for the command at table index idx: commandIndex (15:0), cHandles
- * (27:25), rHandle (28), and vendor V bit (29). Used for TPM_CAP_COMMANDS. */
+/* TPMA_CC for the command at table index idx. Used for TPM_CAP_COMMANDS. */
 static UINT32 FwGetCmdAttrsAt(int idx)
 {
     const FWTPM_CMD_ENTRY* e;
@@ -19831,6 +19835,10 @@ static UINT32 FwGetCmdAttrsAt(int idx)
         attrs |= ((UINT32)1 << 28);                 /* rHandle */
     if (e->encDecFlags & FW_CMD_MOD_FLUSHED)
         attrs |= ((UINT32)1 << 24);                 /* flushed */
+    if (e->encDecFlags & FW_CMD_MOD_NV)
+        attrs |= TPMA_CC_nv;
+    if (e->encDecFlags & FW_CMD_MOD_EXTENSIVE)
+        attrs |= TPMA_CC_extensive;
     if ((UINT32)e->cc & (UINT32)CC_VEND)
         attrs |= (UINT32)CC_VEND;                   /* V */
     return attrs;
