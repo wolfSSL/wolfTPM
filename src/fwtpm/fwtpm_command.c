@@ -12474,7 +12474,7 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) {
             authObj = FwFindObject(ctx, authObjHandle);
             if (authObj == NULL) {
-                rc = TPM_RC_HANDLE;
+                rc = TPM_RC_HANDLE | TPM_RC_1;
             }
         }
         if (rc == 0) {
@@ -12488,12 +12488,13 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         byte entityName[sizeof(TPM2B_NAME)];
         int entityNameSz = FwGetEntityName(ctx, authObjHandle,
             entityName, (int)sizeof(entityName));
-        if (entityNameSz > 0) {
-            if (FwPolicyExtend(sess, TPM_CC_PolicySigned,
-                    entityName, entityNameSz,
-                    policyRef, policyRefSz, 1) != 0) {
-                rc = TPM_RC_FAILURE;
-            }
+        if (entityNameSz == 0) {
+            rc = TPM_RC_HANDLE | TPM_RC_1;
+        }
+        else if (FwPolicyExtend(sess, TPM_CC_PolicySigned,
+                entityName, entityNameSz,
+                policyRef, policyRefSz, 1) != 0) {
+            rc = TPM_RC_FAILURE;
         }
     }
 
