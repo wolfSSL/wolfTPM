@@ -9398,6 +9398,8 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_VAR(message, TPM2B_PUBLIC_KEY_RSA);
     UINT16 encScheme, encHashAlg;
     UINT16 labelSize;
+    byte label[sizeof(TPMT_HA) + 1];
+    word32 oaepLabelSz = 0;
     FWTPM_Object* obj = NULL;
     FWTPM_DECLARE_VAR(rsaKey, RsaKey);
     int rsaKeyInit = 0;
@@ -9408,6 +9410,7 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_VAR(rsaKey, RsaKey);
     FWTPM_CALLOC_VAR(message, TPM2B_PUBLIC_KEY_RSA);
     FWTPM_ALLOC_BUF(outBuf, FWTPM_MAX_PUB_BUF);
+    XMEMSET(label, 0, sizeof(label));
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -9459,11 +9462,18 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Parse label */
         TPM2_Packet_ParseU16(cmd, &labelSize);
-        if (cmd->pos + labelSize > cmdSize) {
+        if (labelSize > sizeof(label) - 1) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + labelSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
         else {
-            cmd->pos += labelSize;
+            TPM2_Packet_ParseBytes(cmd, label, labelSize);
+            oaepLabelSz = labelSize;
+            if (oaepLabelSz > 0 && label[oaepLabelSz - 1] != 0) {
+                rc = TPM_RC_VALUE;
+            }
         }
 
         if (rc == 0 && encScheme == TPM_ALG_NULL) {
@@ -9514,7 +9524,7 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey, &ctx->rng,
                 WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType,
                 FwGetMgfType(oaepHash),
-                NULL, 0);
+                label, oaepLabelSz);
         }
         else if (encScheme == TPM_ALG_NULL) {
             /* Raw RSA (no padding) */
@@ -9565,6 +9575,8 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_VAR(cipherText, TPM2B_PUBLIC_KEY_RSA);
     UINT16 decScheme, decHashAlg;
     UINT16 labelSize;
+    byte label[sizeof(TPMT_HA) + 1];
+    word32 oaepLabelSz = 0;
     FWTPM_Object* obj = NULL;
     FWTPM_DECLARE_VAR(rsaKey, RsaKey);
     int rsaKeyInit = 0;
@@ -9575,6 +9587,7 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_VAR(rsaKey, RsaKey);
     FWTPM_CALLOC_VAR(cipherText, TPM2B_PUBLIC_KEY_RSA);
     FWTPM_ALLOC_BUF(outBuf, FWTPM_MAX_PUB_BUF);
+    XMEMSET(label, 0, sizeof(label));
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -9633,11 +9646,18 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Parse label */
         TPM2_Packet_ParseU16(cmd, &labelSize);
-        if (cmd->pos + labelSize > cmdSize) {
+        if (labelSize > sizeof(label) - 1) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + labelSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
         else {
-            cmd->pos += labelSize;
+            TPM2_Packet_ParseBytes(cmd, label, labelSize);
+            oaepLabelSz = labelSize;
+            if (oaepLabelSz > 0 && label[oaepLabelSz - 1] != 0) {
+                rc = TPM_RC_VALUE;
+            }
         }
 
         if (rc == 0 && decScheme == TPM_ALG_NULL) {
@@ -9687,7 +9707,7 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey,
                 WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType,
                 FwGetMgfType(oaepHash),
-                NULL, 0);
+                label, oaepLabelSz);
         }
         else if (decScheme == TPM_ALG_NULL) {
             /* Raw RSA (no padding) */
