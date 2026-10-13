@@ -486,11 +486,13 @@ static int do_hash_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
     XMEMSET(&validation, 0, sizeof(validation));
     XMEMSET(digest, 0xAA, sizeof(digest));
 
+#ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
     /* FIPS 204 Sec.5.4: pre-hash must match the set's strength */
     if (ps == TPM_MLDSA_87)
         preHash = TPM_ALG_SHA512;
     else if (ps == TPM_MLDSA_65)
         preHash = TPM_ALG_SHA384;
+#endif
     digestSz = TPM2_GetHashDigestSize(preHash);
 
     (void)pqc_flush_transient(dev);

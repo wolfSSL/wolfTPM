@@ -1763,9 +1763,8 @@ TPM_RC FwVerifyMldsaMu(TPMI_MLDSA_PARAMETER_SET parameterSet,
     return rc;
 }
 
-/* FIPS 204 Sec.5.4: an approved pre-hash with lambda bits of collision
- * strength, so ML-DSA-65 needs SHA-384 and ML-DSA-87 SHA-512. The hash must
- * also be compiled into wolfCrypt. */
+/* FIPS 204 Sec.5.4 requires an approved pre-hash with lambda bits of collision
+ * strength. The compatibility macro relaxes only the strength floor. */
 int FwMldsaPreHashStrong(TPMI_MLDSA_PARAMETER_SET parameterSet,
     TPMI_ALG_HASH hashAlg)
 {
@@ -1787,8 +1786,14 @@ int FwMldsaPreHashStrong(TPMI_MLDSA_PARAMETER_SET parameterSet,
         case TPM_ALG_SHA3_512: strength = 256; break;
         default: return 0;
     }
+#ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+    (void)lambda;
+    return (strength >= 128 &&
+        wc_HashGetDigestSize(FwGetWcHashType(hashAlg)) > 0);
+#else
     return (strength >= lambda &&
         wc_HashGetDigestSize(FwGetWcHashType(hashAlg)) > 0);
+#endif
 }
 
 /** \brief Hash-ML-DSA sign: pre-hashed variant per FIPS 204 Algorithm 4. */

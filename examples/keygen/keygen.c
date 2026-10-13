@@ -83,7 +83,11 @@ static void usage(void)
 #endif
 #ifdef WOLFTPM_HASH_MLDSA
     printf("* -hash_mldsa[=44|65|87]: Use Hash-ML-DSA for signing "
+#ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+           "(v1.85, SHA-256 compatibility pre-hash)\n");
+#else
            "(v1.85, default 65; SHA-256/384/512 pre-hash for 44/65/87)\n");
+#endif
 #endif
 #ifdef WOLFTPM_MLKEM
     printf("* -mlkem[=512|768|1024]: Use ML-KEM for key encapsulation "
@@ -122,7 +126,11 @@ static void usage(void)
     printf("\t\t keygen -mldsa\n");
 #endif
 #ifdef WOLFTPM_HASH_MLDSA
+#ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+    printf("\t* Hash-ML-DSA-87 with SHA-256 compatibility pre-hash\n");
+#else
     printf("\t* Hash-ML-DSA-87 with SHA-512 pre-hash\n");
+#endif
     printf("\t\t keygen -hash_mldsa=87\n");
 #endif
 #ifdef WOLFTPM_MLKEM
@@ -540,11 +548,13 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #endif /* WOLFTPM_MLDSA */
 #ifdef WOLFTPM_HASH_MLDSA
         else if (alg == TPM_ALG_HASH_MLDSA) {
+#ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
             /* FIPS 204 Sec.5.4: pre-hash must match the set's strength */
             if (mldsaPs == TPM_MLDSA_87)
                 mldsaPreHash = TPM_ALG_SHA512;
             else if (mldsaPs == TPM_MLDSA_65)
                 mldsaPreHash = TPM_ALG_SHA384;
+#endif
             printf("Hash-ML-DSA template (parameter set %u, pre-hash %s)\n",
                 (unsigned)mldsaPs, TPM2_GetAlgName(mldsaPreHash));
             rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&publicTemplate,

@@ -9184,8 +9184,10 @@ static void test_fwtpm_hash_mldsa_seq_all_params(void)
 #endif
 }
 
+#ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
 static TPM2B_MLDSA_SIGNATURE weakSig;
 static TPM2B_PUBLIC_KEY_MLDSA weakPub;
+#endif
 
 /* Every allowed parameter-set / pre-hash pairing that is compiled in. */
 static const struct {
@@ -9212,6 +9214,9 @@ static const struct {
     #endif
 #endif
 #ifndef WOLFSSL_NO_ML_DSA_65
+    #ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+    { TPM_MLDSA_65, TPM_ALG_SHA256, 3309 },
+    #endif
     #ifdef WOLFSSL_SHA384
     { TPM_MLDSA_65, TPM_ALG_SHA384, 3309 },
     #endif
@@ -9226,6 +9231,13 @@ static const struct {
     #endif
 #endif
 #ifndef WOLFSSL_NO_ML_DSA_87
+    #ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+    { TPM_MLDSA_87, TPM_ALG_SHA256, 4627 },
+    #endif
+    #if defined(WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH) && \
+        defined(WOLFSSL_SHA384)
+    { TPM_MLDSA_87, TPM_ALG_SHA384, 4627 },
+    #endif
     #ifdef WOLFSSL_SHA512
     { TPM_MLDSA_87, TPM_ALG_SHA512, 4627 },
     #endif
@@ -9330,6 +9342,7 @@ static void test_fwtpm_hash_mldsa_prehash_matrix(void)
     fwtpm_pass("HashMLDSA pre-hash sign/verify matrix:", 1);
 }
 
+#ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
 static const struct {
     UINT16 ps;
     UINT16 hashAlg;
@@ -9431,6 +9444,18 @@ static void test_fwtpm_hash_mldsa_weak_prehash(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("HashMLDSA weak pre-hash rejected:", 1);
 }
+#else
+static void test_fwtpm_hash_mldsa_weak_prehash(void)
+{
+#ifndef WOLFSSL_NO_ML_DSA_65
+    AssertIntEQ(FwMldsaPreHashStrong(TPM_MLDSA_65, TPM_ALG_SHA256), 1);
+#endif
+#ifndef WOLFSSL_NO_ML_DSA_87
+    AssertIntEQ(FwMldsaPreHashStrong(TPM_MLDSA_87, TPM_ALG_SHA256), 1);
+#endif
+    fwtpm_pass("HashMLDSA weak pre-hash compatibility:", 1);
+}
+#endif /* WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH */
 #endif /* WOLFTPM_HASH_MLDSA */
 
 static void test_fwtpm_mlkem1024_maxbuf(void)

@@ -140,6 +140,8 @@ For the fwTPM server's PQC internals (the eight v1.85 commands, primary-key deri
 
 Commands run left to right, so they can be chained. The functional `pqc_ctrl` builds only from an untrimmed PQC configuration: the wrapper plus both ML-DSA operations, both ML-KEM operations, and HashML-DSA. Build with `--enable-v185` (or `--enable-pqc`); a trimmed build such as `--enable-mldsa=verify-only` compiles out the CLI. Point it at the SEALSQ part with `--enable-sealsq`, or at the fwTPM with `--enable-fwtpm --enable-swtpm`.
 
+Pre-production TPM firmware that supports only SHA-256 with HashML-DSA-65 or HashML-DSA-87 can be used by defining `WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH` when building both wolfSSL and wolfTPM. The examples then select SHA-256 for every parameter set. This compatibility mode is disabled by default and does not comply with the FIPS 204 section 5.4 pre-hash strength requirement.
+
 `pqc_ctrl.sh` runs the whole command set as a pass/fail suite (it mirrors `examples/spdm/spdm_test.sh`) when the device supports all parameter sets. The persistent state changes (the PCR 16 extend and `TPM2_Clear`) are opt-in via `PQC_CTRL_CLEAR=1`. The default run still flushes loaded transient objects, and every key operation flushes the transient object table, so do not run it alongside a workload whose transient TPM handles must stay valid:
 
 ```sh

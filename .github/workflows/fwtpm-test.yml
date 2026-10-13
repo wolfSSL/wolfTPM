@@ -449,6 +449,16 @@ jobs:
               -DFWTPM_NO_CLOCK
               -DFWTPM_NO_PP
 
+          # Compatibility mode for pre-production TPM firmware that accepts
+          # only SHA-256 pre-hashes. This runs the HashMLDSA weak-prehash
+          # roundtrips against the matching wolfSSL feature branch.
+          - name: weak-mldsa-prehash
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-v185
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-experimental --enable-dilithium --enable-mlkem --enable-aescfb
+            wolfssl_repository: aidangarske/wolfssl
+            wolfssl_ref: mldsa-weak-prehash-optout
+            extra_cflags: -DWOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+
           # Fewer PCRs than the 24 standard ones: exercises the highest
           # implemented PCR and the first unavailable one
           # (test_fwtpm_pcr_bounds).
@@ -473,6 +483,8 @@ jobs:
       - name: Setup wolfSSL
         uses: ./.github/actions/setup-wolfssl
         with:
+          repository: ${{ matrix.wolfssl_repository || 'wolfSSL/wolfssl' }}
+          ref: ${{ matrix.wolfssl_ref || 'master' }}
           configure-flags: ${{ matrix.wolfssl_config }}
           cflags: -DWC_RSA_NO_PADDING ${{ matrix.extra_cflags }}
 
@@ -485,6 +497,10 @@ jobs:
 
       - name: Run fwTPM handler tests
         run: ./tests/fwtpm_unit.test
+
+      - name: Verify weak pre-hash compatibility mode
+        if: matrix.name == 'weak-mldsa-prehash'
+        run: grep -q WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH wolftpm/options.h
 
   # ----------------------------------------------------------------
   # Dictionary Attack TPM_RC_RETRY (daUsed) end-to-end.

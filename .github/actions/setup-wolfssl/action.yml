@@ -1,12 +1,16 @@
 name: Setup wolfSSL
 description: >-
   Build (or restore from cache) and install wolfSSL for wolfTPM CI. Resolves the
-  requested ref to a commit so the cache key is stable per upstream commit,
+  requested repository and ref to a commit so the cache key is stable,
   restores the previously built ./wolfssl tree on a hit, and otherwise does a
   shallow clone + parallel build. The full source tree is left in ./wolfssl so
   run_examples.sh can exec $WOLFSSL_PATH/examples/server/server.
 
 inputs:
+  repository:
+    description: GitHub owner/repository containing the wolfSSL ref to build.
+    required: false
+    default: wolfSSL/wolfssl
   configure-flags:
     description: wolfSSL ./configure enable/disable flags (no CFLAGS/LDFLAGS here).
     required: false
@@ -46,10 +50,10 @@ runs:
       shell: bash
       run: |
         set -eo pipefail
-        # Resolve the ref to a commit so the cache key tracks the upstream tree,
+        # Resolve the ref to a commit so the cache key tracks the selected tree,
         # not a moving branch name. ls-remote returns nothing for a raw SHA, in
         # which case the ref already is the commit.
-        URL=https://github.com/wolfSSL/wolfssl.git
+        URL=https://github.com/${{ inputs.repository }}.git
         # Peel annotated tags to their commit (the ^{} line); branches and
         # lightweight tags have no ^{} line so this is empty for them. Fall
         # back to the direct ref, then to treating the ref as a raw commit.
@@ -65,7 +69,8 @@ runs:
         # macOS runners have shasum, not sha256sum.
         HASH_CMD="sha256sum"
         command -v sha256sum >/dev/null 2>&1 || HASH_CMD="shasum -a 256"
-        CFGHASH=$(printf '%s\037%s\037%s\037%s\037%s' \
+        CFGHASH=$(printf '%s\037%s\037%s\037%s\037%s\037%s' \
+            "${{ inputs.repository }}" \
             "${{ inputs.configure-flags }}" \
             "${{ inputs.cflags }}" \
             "${{ inputs.ldflags }}" \
@@ -73,7 +78,7 @@ runs:
             "${{ inputs.prefix }}" | $HASH_CMD | cut -c1-16)
         echo "sha=$SHA" >> "$GITHUB_OUTPUT"
         echo "cache-key=wolfssl-${{ runner.os }}-${SHA}-${CFGHASH}-${WOLFTPM_CI_IMAGE:-native}-v1" >> "$GITHUB_OUTPUT"
-        echo "wolfSSL ${{ inputs.ref }} -> $SHA (cfg $CFGHASH)"
+        echo "wolfSSL ${{ inputs.repository }} ${{ inputs.ref }} -> $SHA (cfg $CFGHASH)"
 
     - name: Restore wolfSSL build cache
       id: cache
@@ -95,7 +100,7 @@ runs:
         # branch tips, peeled tags, and raw commit SHAs alike.
         git init -q wolfssl
         cd wolfssl
-        git remote add origin https://github.com/wolfSSL/wolfssl.git
+        git remote add origin https://github.com/${{ inputs.repository }}.git
         git fetch --depth 1 origin "${{ steps.key.outputs.sha }}"
         git checkout -q --detach FETCH_HEAD
         ./autogen.sh
