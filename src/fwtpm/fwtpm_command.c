@@ -12136,16 +12136,26 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_Packet_ParseBytes(cmd, policyRef, policyRefSz);
         }
         TPM2_Packet_ParseU32(cmd, (UINT32*)&expiration);
-        (void)expiration;
+
+        /* Expiring policy authorizations require session timeout state and
+         * a TPMT_TK_AUTH that PolicyTicket can validate. Do not silently
+         * accept the restriction until that support is available. */
+        if (expiration != 0) {
+            rc = TPM_RC_VALUE;
+        }
 
     #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: PolicySecret(authHandle=0x%x, session=0x%x)\n",
-            authHandle, sessHandle);
+        if (rc == 0) {
+            printf("fwTPM: PolicySecret(authHandle=0x%x, session=0x%x)\n",
+                authHandle, sessHandle);
+        }
     #endif
 
-        sess = FwFindSession(ctx, sessHandle);
-        if (sess == NULL) {
-            rc = TPM_RC_VALUE;
+        if (rc == 0) {
+            sess = FwFindSession(ctx, sessHandle);
+            if (sess == NULL) {
+                rc = TPM_RC_VALUE;
+            }
         }
     }
 
