@@ -19614,6 +19614,7 @@ typedef struct {
                             /* Bit 4: first auth handle has ADMIN role */
                             /* Bit 5: command may update NV (TPMA_CC.nv) */
                             /* Bit 6: command is extensive (TPMA_CC.extensive) */
+                            /* Bit 7: command requires TPM_ST_NO_SESSIONS */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -19638,11 +19639,12 @@ typedef struct {
 
 #define FW_CMD_MOD_NV           0x20
 #define FW_CMD_MOD_EXTENSIVE    0x40
+#define FW_CMD_FLAG_NO_SESSIONS 0x80
 
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Basic (always enabled) --- */
-    { TPM_CC_Startup,            FwCmd_Startup,            0, 0, 0, FW_CMD_MOD_NV },
+    { TPM_CC_Startup,            FwCmd_Startup,            0, 0, 0, FW_CMD_MOD_NV | FW_CMD_FLAG_NO_SESSIONS },
     { TPM_CC_Shutdown,           FwCmd_Shutdown,            0, 0, 0, FW_CMD_MOD_NV },
     { TPM_CC_SelfTest,           FwCmd_SelfTest,            0, 0, 0, FW_CMD_MOD_NV },
     { TPM_CC_IncrementalSelfTest, FwCmd_IncrementalSelfTest, 0, 0, 0, FW_CMD_MOD_NV },
@@ -19667,10 +19669,10 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_CreatePrimary,      FwCmd_CreatePrimary,       1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     /* flushHandle is a parameter, not a handle-area handle (Part 3): zero
      * command handles so the dispatcher locates the auth area correctly. */
-    { TPM_CC_FlushContext,       FwCmd_FlushContext,         0, 0, 0, 0 },
+    { TPM_CC_FlushContext,       FwCmd_FlushContext,         0, 0, 0, FW_CMD_FLAG_NO_SESSIONS },
 #ifndef FWTPM_NO_CONTEXT
-    { TPM_CC_ContextSave,        FwCmd_ContextSave,          1, 0, 0, 0 },
-    { TPM_CC_ContextLoad,        FwCmd_ContextLoad,          0, 0, 1, 0 },
+    { TPM_CC_ContextSave,        FwCmd_ContextSave,          1, 0, 0, FW_CMD_FLAG_NO_SESSIONS },
+    { TPM_CC_ContextLoad,        FwCmd_ContextLoad,          0, 0, 1, FW_CMD_FLAG_NO_SESSIONS },
 #endif /* !FWTPM_NO_CONTEXT */
     { TPM_CC_ReadPublic,         FwCmd_ReadPublic,           1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_Clear,              FwCmd_Clear,                1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
@@ -20359,6 +20361,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     if (cmdSize < TPM2_HEADER_SIZE + (entry->inHandleCnt * 4)) {
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_SIZE);
+        return TPM_RC_SUCCESS;
+    }
+
+    if (cmdTag == TPM_ST_SESSIONS &&
+            (entry->encDecFlags & FW_CMD_FLAG_NO_SESSIONS)) {
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
+            TPM_RC_AUTH_CONTEXT);
         return TPM_RC_SUCCESS;
     }
 

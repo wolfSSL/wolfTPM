@@ -10470,17 +10470,14 @@ static TPM_RC SendNvAccessCmd(FWTPM_CTX* ctx, UINT32 nvIndex,
 /* Group E: Sessions                                                   */
 /* ================================================================== */
 
-/* TPM2_FlushContext with a sessions tag carries flushHandle in the parameter
- * area after the authorization area, so the handler must skip that area to
- * find it (Part 3). */
+/* TPM2_FlushContext requires TPM_ST_NO_SESSIONS. */
 static void test_fwtpm_flushcontext_sessions_tag(void)
 {
     FWTPM_CTX ctx;
     UINT32 sessH;
     int pos, rspSize, rc;
 #ifndef FWTPM_NO_POLICY
-    int authStart, rspPos;
-    UINT16 nonceSz, hmacSz;
+    int authStart;
 #endif
 
     memset(&ctx, 0, sizeof(ctx));
@@ -10499,16 +10496,15 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    /* The response tag must match the command tag. */
-    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_NO_SESSIONS);
 
-    /* The session is gone: flushing it again fails with TPM_RC_HANDLE. */
+    /* Rejection leaves the target session loaded. */
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
 
     /* Auth area present but no flushHandle bytes after it: COMMAND_SIZE. */
     pos = 0;
@@ -10520,7 +10516,7 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
 
     /* authSize larger than the remaining bytes is rejected up front. */
     pos = 0;
@@ -10533,10 +10529,9 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTHSIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
 
-    /* A zero-length authorization area still has a parameter area. The
-     * deferred flush must use its offset and release the target session. */
+    /* A zero-length authorization area is rejected the same way. */
     sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
     AssertIntNE(sessH, 0);
     pos = 0;
@@ -10549,8 +10544,8 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_NO_SESSIONS);
 
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
         TPM_CC_FlushContext);
@@ -10559,11 +10554,11 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
 #ifndef FWTPM_NO_POLICY
-    /* The flushed session may also be the response authorization session.
-     * It must remain live until the response auth area has been generated. */
+    /* A target that is also named in the rejected authorization area remains
+     * live and can be flushed by a conforming command. */
     sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
     AssertIntNE(sessH, 0);
 
@@ -10583,24 +10578,9 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_NO_SESSIONS);
 
-    rspPos = TPM2_HEADER_SIZE;
-    AssertTrue(rspPos + 4 <= rspSize);
-    AssertIntEQ(GetU32BE(gRsp + rspPos), 0);  /* parameterSize */
-    rspPos += 4;
-    AssertTrue(rspPos + 2 <= rspSize);
-    nonceSz = GetU16BE(gRsp + rspPos); rspPos += 2;
-    AssertIntEQ((int)nonceSz, TPM2_GetHashDigestSize(TPM_ALG_SHA256));
-    AssertTrue(rspPos + nonceSz + 3 <= rspSize);
-    rspPos += nonceSz;
-    AssertIntEQ(gRsp[rspPos++], TPMA_SESSION_continueSession);
-    hmacSz = GetU16BE(gRsp + rspPos); rspPos += 2;
-    AssertIntEQ((int)hmacSz, TPM2_GetHashDigestSize(TPM_ALG_SHA256));
-    AssertIntEQ(rspPos + hmacSz, rspSize);
-
-    /* FlushContext overrides continueSession: the target is now gone. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
         TPM_CC_FlushContext);
     PutU32BE(gCmd + pos, sessH); pos += 4;
@@ -10608,7 +10588,7 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 #endif /* !FWTPM_NO_POLICY */
 
     FWTPM_Cleanup(&ctx);
