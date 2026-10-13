@@ -5752,12 +5752,24 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             /* Preserve PCR values and invalidate saved PCR policy state. */
             ctx->pcrUpdateCounter++;
 
-            /* Reset owner and endorsement hierarchy policies
-             * (not platform/lockout) */
+            /* Reset owner, endorsement, and lockout hierarchy policies. */
             XMEMSET(&ctx->ownerPolicy, 0, sizeof(ctx->ownerPolicy));
             ctx->ownerPolicyAlg = TPM_ALG_NULL;
             XMEMSET(&ctx->endorsementPolicy, 0, sizeof(ctx->endorsementPolicy));
             ctx->endorsementPolicyAlg = TPM_ALG_NULL;
+            XMEMSET(&ctx->lockoutPolicy, 0, sizeof(ctx->lockoutPolicy));
+            ctx->lockoutPolicyAlg = TPM_ALG_NULL;
+
+            TPM2_ForceZero(ctx->pcrAuth, sizeof(ctx->pcrAuth));
+            if (ctx->clockHal.get_ms != NULL) {
+                ctx->clockOffset = 0 -
+                    ctx->clockHal.get_ms(ctx->clockHal.ctx);
+            }
+            else {
+                ctx->clockOffset = 0;
+            }
+            ctx->resetCount = 0;
+            ctx->restartCount = 0;
 
             /* Reset disableClear per spec */
             ctx->disableClear = 0;
