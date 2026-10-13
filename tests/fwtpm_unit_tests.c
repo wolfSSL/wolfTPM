@@ -243,6 +243,25 @@ static int fwtpm_test_startup(FWTPM_CTX* ctx)
     return (int)GetRspRC(gRsp);
 }
 
+#if !defined(FWTPM_NO_NV) && \
+    (!defined(FWTPM_NO_CLOCK) || !defined(FWTPM_NO_DA))
+static int fwtpm_test_shutdown_state(FWTPM_CTX* ctx)
+{
+    int rc;
+    int rspSize = 0;
+    int cmdSz;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + cmdSz, TPM_SU_STATE);
+    cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
+    return (int)GetRspRC(gRsp);
+}
+#endif /* !FWTPM_NO_NV && (!FWTPM_NO_CLOCK || !FWTPM_NO_DA) */
+
 /* ================================================================== */
 /* 1. Core Lifecycle Tests                                             */
 /* ================================================================== */
@@ -2512,13 +2531,17 @@ static void AssertReadClockCounters(FWTPM_CTX* ctx)
 static void test_fwtpm_readclock_counters(void)
 {
     FWTPM_CTX ctx;
+#ifndef FWTPM_NO_NV
     int rc, rspSize, cmdSz;
+#endif
 
     (void)remove(FWTPM_NV_FILE);
     XMEMSET(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
     AssertIntGT((int)ctx.resetCount, 0);
     AssertReadClockCounters(&ctx);
+#ifndef FWTPM_NO_NV
+    AssertIntEQ(fwtpm_test_shutdown_state(&ctx), TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
 
     XMEMSET(&ctx, 0, sizeof(ctx));
@@ -2534,6 +2557,7 @@ static void test_fwtpm_readclock_counters(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     AssertIntGT((int)ctx.restartCount, 0);
     AssertReadClockCounters(&ctx);
+#endif
 
     FWTPM_Cleanup(&ctx);
     (void)remove(FWTPM_NV_FILE);
@@ -14603,6 +14627,7 @@ static void test_fwtpm_da_platform_exempt(void)
     fwtpm_pass("DA platform hierarchy exempt:", 0);
 }
 
+#ifndef FWTPM_NO_NV
 /* Startup(SU_STATE) exercises the Restart/Resume DA-flag persist branch. */
 static void test_fwtpm_da_startup_state(void)
 {
@@ -14611,7 +14636,12 @@ static void test_fwtpm_da_startup_state(void)
 
     (void)remove(FWTPM_NV_FILE);
     memset(&ctx, 0, sizeof(ctx));
-    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_test_shutdown_state(&ctx), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
     PutU16BE(gCmd + cmdSz, TPM_SU_STATE); cmdSz += 2;
     PutU32BE(gCmd + 2, (UINT32)cmdSz);
@@ -14623,6 +14653,7 @@ static void test_fwtpm_da_startup_state(void)
     (void)remove(FWTPM_NV_FILE);
     fwtpm_pass("DA Startup(SU_STATE) persist:", 0);
 }
+#endif /* !FWTPM_NO_NV */
 
 #ifdef HAVE_ECC
 /* Create an ECC-P256 sign primary in the owner hierarchy with empty auth and
@@ -18252,8 +18283,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_da_parameters_zero_maxtries_rejected();
     test_fwtpm_da_getcap_properties();
     test_fwtpm_da_platform_exempt();
-    test_fwtpm_da_startup_state();
 #ifndef FWTPM_NO_NV
+    test_fwtpm_da_startup_state();
     test_fwtpm_da_oldformat_journal();
     test_fwtpm_da_failedtries_clamp();
     test_fwtpm_da_no_selfheal_wipe_on_reload();

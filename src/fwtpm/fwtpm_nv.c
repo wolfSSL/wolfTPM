@@ -1356,6 +1356,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
 
         case FWTPM_NV_TAG_FLAGS: {
             UINT8 flags8 = 0;
+            UINT8 shutdownState = 0;
             FwNvUnmarshalU8(value, &vPos, vMax, &flags8);
             ctx->disableClear = (flags8 & 0x01) ? 1 : 0;
             ctx->globalNvWriteLock = (flags8 & 0x02) ? 1 : 0;
@@ -1407,8 +1408,23 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                 if (ctx->endorsementProofVersion != 1)
                     ctx->endorsementProofVersion = 0;
             }
+            ctx->restartCount = 0;
+            if (vPos + 4 <= vMax) {
+                FwNvUnmarshalU32(value, &vPos, vMax, &ctx->restartCount);
+            }
+            ctx->shutdownStateSaved = 0;
+            if (vPos < vMax) {
+                FwNvUnmarshalU8(value, &vPos, vMax, &shutdownState);
+                ctx->shutdownStateSaved = shutdownState ? 1 : 0;
+            }
             break;
         }
+
+        case FWTPM_NV_TAG_SHUTDOWN_STATE:
+            if (valueLen >= 1) {
+                ctx->shutdownStateSaved = value[0] ? 1 : 0;
+            }
+            break;
 
         case FWTPM_NV_TAG_CLOCK: {
             UINT32 lo = 0, hi = 0;
@@ -2190,8 +2206,11 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     #ifndef FWTPM_NO_DA
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daFailedTries);
     #endif
-        if (ctx->endorsementProofVersion != 0)
-            FwNvMarshalU8(buf, &pos, bufSz, 1);
+        FwNvMarshalU8(buf, &pos, bufSz,
+            ctx->endorsementProofVersion != 0 ? 1 : 0);
+        FwNvMarshalU32(buf, &pos, bufSz, ctx->restartCount);
+        /* A full snapshot authorizes resume only with its final marker. */
+        FwNvMarshalU8(buf, &pos, bufSz, 0);
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     }
 
@@ -2335,19 +2354,21 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
     }
 
-    /* Seal the journal: append-only adds one trailing checkpoint (header was
-     * written after the erase); byte-addressable updates the header in place. */
-    if (rc == 0) {
-#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
-        if (FW_NV_APPEND_ONLY(hal)) {
-            rc = FwNvAppendCheckpoint(ctx);
-        }
-        else
-#endif
-        {
-            rc = FwNvWriteHeader(ctx);
-        }
+    /* Commit the orderly-state marker after every snapshot entry. */
+    if (rc == 0 && ctx->shutdownStateSaved) {
+        const byte stateSaved = 1;
+        rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_SHUTDOWN_STATE,
+            &stateSaved, sizeof(stateSaved));
     }
+
+    /* Append-only compaction defers its checkpoint until every entry is
+     * written. Byte-addressable appends already update the header and MAC;
+     * rewriting them here could report failure after a completed commit. */
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    if (rc == 0 && FW_NV_APPEND_ONLY(hal)) {
+        rc = FwNvAppendCheckpoint(ctx);
+    }
+#endif
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
     /* A compaction that did not reach its checkpoint leaves the rewritten
      * snapshot unsealed on the log, so it must be rebuilt before any append. */
@@ -2498,7 +2519,7 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     return TPM_RC_SUCCESS;
 #else
     int rc;
-    byte buf[1 + 12 + 4 + 4 + 1]; /* flags, DA, counters, proof version */
+    byte buf[1 + 12 + 4 + 4 + 1 + 4 + 1];
     word32 pos = 0;
 
     if (ctx == NULL) {
@@ -2526,8 +2547,11 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
 #ifndef FWTPM_NO_DA
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daFailedTries);
 #endif
-    if (ctx->endorsementProofVersion != 0)
-        FwNvMarshalU8(buf, &pos, sizeof(buf), 1);
+    FwNvMarshalU8(buf, &pos, sizeof(buf),
+        ctx->endorsementProofVersion != 0 ? 1 : 0);
+    FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->restartCount);
+    FwNvMarshalU8(buf, &pos, sizeof(buf),
+        ctx->shutdownStateSaved ? 1 : 0);
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     return rc;

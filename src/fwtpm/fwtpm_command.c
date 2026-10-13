@@ -991,6 +991,9 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 startupType = 0;
     int i, b;
+    int stateShutdown = 0;
+    UINT32 oldResetCount = 0;
+    UINT32 oldRestartCount = 0;
 #ifndef FWTPM_NO_NV
     FWTPM_DECLARE_BUF(oldNvData, FWTPM_MAX_NV_DATA);
     int oldNvDataAllocated = 0;
@@ -1015,6 +1018,14 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0 && !ctx->powerOn) {
         rc = TPM_RC_FAILURE;
+    }
+
+    if (rc == 0) {
+        stateShutdown = ctx->shutdownStateSaved;
+        /* Startup(STATE) is only valid after an orderly Shutdown(STATE). */
+        if (startupType == TPM_SU_STATE && !stateShutdown) {
+            rc = TPM_RC_VALUE;
+        }
     }
 
     if (rc == 0) {
@@ -1081,13 +1092,13 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 (void)FWTPM_NV_Save(ctx);
             }
             ctx->globalNvWriteLock = 0;
-            /* shEnable/ehEnable/phEnableNV re-enable on TPM Reset only;
+            /* shEnable/ehEnable/phEnableNV re-enable on Reset or Restart;
              * phEnable re-enables on every startup (handled below). */
             ctx->shDisabled = 0;
             ctx->ehDisabled = 0;
             ctx->phNvDisabled = 0;
 #ifndef FWTPM_NO_CONTEXT
-            /* Saved contexts are invalidated by TPM Reset */
+            /* Saved contexts are invalidated by Startup(CLEAR). */
             ctx->contextLiveCount = 0;
             ctx->ctxProtectKeyValid = 0;
             TPM2_ForceZero(ctx->ctxProtectKey,
@@ -1106,7 +1117,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             ctx->ecEphemeralKeySz = 0;
 #endif
 
-            /* Null seed: re-randomize on every Startup(CLEAR) per spec */
+            /* Regenerate the null seed on Startup(CLEAR). */
             if (rc == 0) {
                 rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->nullSeed,
                     FWTPM_SEED_SIZE);
@@ -1172,18 +1183,26 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 FWTPM_FREE_BUF(oldNvData);
             }
         #endif
+        }
 
-            /* TPM Reset: bump persisted resetCount, clear restartCount */
-            if (rc == 0) {
+        if (rc == 0) {
+            oldResetCount = ctx->resetCount;
+            oldRestartCount = ctx->restartCount;
+            /* CLEAR after Shutdown(STATE) is Restart for clock counters. */
+            if (startupType == TPM_SU_CLEAR && !stateShutdown) {
                 ctx->resetCount++;
                 ctx->restartCount = 0;
-                rc = FWTPM_NV_SaveFlags(ctx);
             }
-        }
-        else {
-            /* TPM Restart/Resume: bump volatile restartCount */
-            ctx->restartCount++;
+            else {
+                ctx->restartCount++;
+            }
+            ctx->shutdownStateSaved = 0;
             rc = FWTPM_NV_SaveFlags(ctx);
+            if (rc != TPM_RC_SUCCESS) {
+                ctx->shutdownStateSaved = stateShutdown;
+                ctx->resetCount = oldResetCount;
+                ctx->restartCount = oldRestartCount;
+            }
         }
 
         /* phEnable is SET on every _TPM_Init/Startup (TPM 2.0 Part 2
@@ -1211,6 +1230,7 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 shutdownType = 0;
+    int oldShutdownState;
 
     (void)cmdTag;
 
@@ -1244,8 +1264,11 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
          * non-orderly DA penalty. */
         ctx->orderly = 1;
     #endif
+        oldShutdownState = ctx->shutdownStateSaved;
+        ctx->shutdownStateSaved = (shutdownType == TPM_SU_STATE);
         rc = FWTPM_NV_Save(ctx);
         if (rc != TPM_RC_SUCCESS) {
+            ctx->shutdownStateSaved = oldShutdownState;
             return rc;
         }
 
@@ -19764,6 +19787,22 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int cmdHandleCnt = 0;
     XMEMSET(cmdAuths, 0, sizeof(cmdAuths));
     XMEMSET(cmdHandles, 0, sizeof(cmdHandles));
+
+    /* Any structurally valid command after Shutdown(STATE), except a
+     * pre-startup capability query, invalidates the saved state before
+     * session parsing or authorization can mutate TPM state. */
+    if (ctx->shutdownStateSaved && cmdCode != TPM_CC_Startup &&
+            cmdCode != TPM_CC_GetCapability) {
+        ctx->shutdownStateSaved = 0;
+        rc = FWTPM_NV_SaveFlags(ctx);
+        if (rc != TPM_RC_SUCCESS) {
+            ctx->shutdownStateSaved = 1;
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, rc);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+            return TPM_RC_SUCCESS;
+        }
+    }
 
     /* For TPM_ST_SESSIONS commands, parse auth area to detect param encryption
      * and track all auth sessions for response auth generation.

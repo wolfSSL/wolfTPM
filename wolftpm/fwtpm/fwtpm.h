@@ -761,6 +761,7 @@ typedef struct FWTPM_CTX {
     /* TPM state */
     int powerOn;
     int wasStarted;             /* Has TPM2_Startup been called */
+    int shutdownStateSaved;     /* Previous Shutdown(STATE), persisted */
     int pendingClear;           /* Deferred clear (after response auth) */
     int disableClear;           /* ClearControl: 1 = Clear is disabled */
     int globalNvWriteLock;      /* NV_GlobalWriteLock (reset on Startup CLEAR) */
@@ -794,7 +795,7 @@ typedef struct FWTPM_CTX {
 #endif
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
     UINT32 resetCount;          /* TPM Reset count, persisted across boots */
-    UINT32 restartCount;        /* TPM Restart/Resume count, volatile */
+    UINT32 restartCount;        /* Restart/Resume count, reset by TPM Reset */
 
     /* PCR state: [pcrIndex][bank][digest bytes] */
     byte pcrDigest[IMPLEMENTATION_PCR][FWTPM_PCR_BANKS][TPM_MAX_DIGEST_SIZE];
