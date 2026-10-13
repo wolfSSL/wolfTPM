@@ -10992,7 +10992,8 @@ static void test_fwtpm_policy_ticket_zero_digest_rejected(void)
     PutU32BE(gCmd + pos, TPM_CC_PolicyTicket); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU16BE(gCmd + pos, 0); pos += 2; /* timeout TPM2B size = 0 */
+    PutU16BE(gCmd + pos, 8); pos += 2; /* timeout TPM2B */
+    memset(gCmd + pos, 0, 8); pos += 8;
     PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA TPM2B size = 0 */
     PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef TPM2B size = 0 */
     PutU16BE(gCmd + pos, sizeof(fakeAuthName)); pos += 2;

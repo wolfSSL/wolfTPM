@@ -611,6 +611,8 @@ typedef struct FWTPM_Session {
     int isLockoutBound;             /* Bound to the lockout hierarchy */
 #endif
     TPM2B_DIGEST policyDigest;      /* Running policy digest (policy sessions) */
+    UINT64 startTime;               /* TPM time when nonceTPM last changed */
+    UINT64 timeout;                 /* Policy expiration in TPM milliseconds */
     int isPasswordPolicy;           /* 1 if PolicyPassword was called */
     int isAuthValuePolicy;          /* 1 if PolicyAuthValue was called */
     TPM2B_DIGEST cpHashA;           /* PolicyCpHash: locked once set */
@@ -800,6 +802,7 @@ typedef struct FWTPM_CTX {
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
     UINT32 resetCount;          /* TPM Reset count, persisted across boots */
     UINT32 restartCount;        /* Restart/Resume count, reset by TPM Reset */
+    byte timeEpoch[TPM_SHA384_DIGEST_SIZE]; /* Opaque ticket epoch nonce */
 
     /* PCR state: [pcrIndex][bank][digest bytes] */
     byte pcrDigest[IMPLEMENTATION_PCR][FWTPM_PCR_BANKS][TPM_MAX_DIGEST_SIZE];

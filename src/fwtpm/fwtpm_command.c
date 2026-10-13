@@ -5913,6 +5913,7 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 authHandle = 0;
     byte newOwnerSeed[FWTPM_SEED_SIZE];
+    byte newTimeEpoch[FWTPM_SEED_SIZE];
     int ci;
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
@@ -5945,6 +5946,10 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         /* Generate new storage primary seed */
         rc = FwGenerateClearSeed(&ctx->rng, newOwnerSeed,
             sizeof(newOwnerSeed));
+        if (rc == 0) {
+            rc = FwGenerateClearSeed(&ctx->rng, newTimeEpoch,
+                sizeof(newTimeEpoch));
+        }
         if (rc != 0) rc = TPM_RC_FAILURE;
 
         /* Only commit state changes if seed generation succeeded. */
@@ -5957,6 +5962,7 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
             XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
             XMEMCPY(ctx->ownerSeed, newOwnerSeed, sizeof(ctx->ownerSeed));
+            XMEMCPY(ctx->timeEpoch, newTimeEpoch, sizeof(ctx->timeEpoch));
             ctx->endorsementProofVersion = 1;
             /* Flush owner and endorsement primary cache entries after
              * clearing hierarchy state. */
@@ -6052,6 +6058,7 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     }
 
     TPM2_ForceZero(newOwnerSeed, sizeof(newOwnerSeed));
+    TPM2_ForceZero(newTimeEpoch, sizeof(newTimeEpoch));
     return rc;
 }
 
@@ -11531,6 +11538,7 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (sessionType == TPM_SE_POLICY || sessionType == TPM_SE_TRIAL) {
             sess->policyDigest.size = nonceSize;
             XMEMSET(sess->policyDigest.buffer, 0, nonceSize);
+            sess->startTime = FWTPM_Clock_GetMs(ctx);
         }
     }
 
@@ -11608,6 +11616,31 @@ static TPM_RC FwCmd_PolicyGetDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+static void FwResetPolicyData(FWTPM_Session* sess)
+{
+    XMEMSET(sess->policyDigest.buffer, 0, sess->policyDigest.size);
+    sess->isPasswordPolicy = 0;
+    sess->isAuthValuePolicy = 0;
+    sess->isPPRequired = 0;
+    sess->timeout = 0;
+    sess->cpHashA.size = 0;
+    sess->nameHash.size = 0;
+    sess->requiredLocality = 0;
+    sess->hasRequiredLocality = 0;
+    sess->commandCode = 0;
+    sess->templateHash.size = 0;
+    sess->checkNvWritten = 0;
+    sess->nvWrittenState = 0;
+    sess->pcrUpdateCounter = 0;
+    sess->hasPcrUpdateCounter = 0;
+    #ifdef WOLFTPM_SPDM
+    sess->checkSecureChannel = 0;
+    sess->checkReqKey = 0;
+    sess->checkTpmKey = 0;
+    sess->scKeyNameHash.size = 0;
+    #endif
+}
+
 /* --- TPM2_PolicyRestart (CC 0x0180) --- */
 static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -11638,31 +11671,7 @@ static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        /* Reset policy digest to all zeros */
-        XMEMSET(sess->policyDigest.buffer, 0, sess->policyDigest.size);
-
-        /* Reset all policy-related session flags so stale assertions from
-         * prior policy evaluations don't affect future HMAC computation
-         * or authorization checks. */
-        sess->isPasswordPolicy = 0;
-        sess->isAuthValuePolicy = 0;
-        sess->isPPRequired = 0;
-        sess->cpHashA.size = 0;
-        sess->nameHash.size = 0;
-        sess->requiredLocality = 0;
-        sess->hasRequiredLocality = 0;
-        sess->commandCode = 0;
-        sess->templateHash.size = 0;
-        sess->checkNvWritten = 0;
-        sess->nvWrittenState = 0;
-        sess->pcrUpdateCounter = 0;
-        sess->hasPcrUpdateCounter = 0;
-    #ifdef WOLFTPM_SPDM
-        sess->checkSecureChannel = 0;
-        sess->checkReqKey = 0;
-        sess->checkTpmKey = 0;
-        sess->scKeyNameHash.size = 0;
-    #endif
+        FwResetPolicyData(sess);
 
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
@@ -12892,8 +12901,55 @@ static TPM_RC FwCmd_PolicyTransportSPDM(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 #endif /* WOLFTPM_SPDM */
 
+#define FWTPM_POLICY_TICKET_RESET_BIT (((UINT64)1) << 63)
+
+/* Build the authenticated data following TPM_ST_AUTH_* for an authorization
+ * ticket. */
+static int FwBuildPolicyTicketData(FWTPM_CTX* ctx, UINT64 timeout,
+    int expiresOnReset, const byte* cpHash, UINT16 cpHashSz,
+    const byte* policyRef, UINT16 policyRefSz,
+    const byte* authName, UINT16 authNameSz,
+    byte* out, int outCap, int* outSz)
+{
+    int pos = 0;
+    int needed = cpHashSz + policyRefSz + authNameSz + 8 + 8 +
+        (int)sizeof(ctx->timeEpoch);
+    UINT64 epoch = ((UINT64)ctx->resetCount << 32) | ctx->restartCount;
+
+    if (expiresOnReset) {
+        needed += 4;
+    }
+    if (needed > outCap) {
+        return BUFFER_E;
+    }
+    if (cpHashSz > 0) {
+        XMEMCPY(out + pos, cpHash, cpHashSz);
+        pos += cpHashSz;
+    }
+    if (policyRefSz > 0) {
+        XMEMCPY(out + pos, policyRef, policyRefSz);
+        pos += policyRefSz;
+    }
+    if (authNameSz > 0) {
+        XMEMCPY(out + pos, authName, authNameSz);
+        pos += authNameSz;
+    }
+    FwStoreU64BE(out + pos, timeout);
+    pos += 8;
+    FwStoreU64BE(out + pos, epoch);
+    pos += 8;
+    XMEMCPY(out + pos, ctx->timeEpoch, sizeof(ctx->timeEpoch));
+    pos += (int)sizeof(ctx->timeEpoch);
+    if (expiresOnReset) {
+        FwStoreU32BE(out + pos, ctx->resetCount);
+        pos += 4;
+    }
+    *outSz = pos;
+    return 0;
+}
+
 /* --- TPM2_PolicySigned (CC 0x0160) --- */
-/* Simplified: verify signature and extend policyDigest with
+/* Verify the signature and extend policyDigest with
  * H(policyDigest || TPM_CC_PolicySigned || authObject.name).
  * Wire: authObject (U32) → policySession (U32) → [auth area] →
  *       nonceTPM (TPM2B) → cpHashA (TPM2B) → policyRef (TPM2B) →
@@ -12909,9 +12965,21 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte nonceBuf[TPM_MAX_DIGEST_SIZE];
     byte cpHashBuf[TPM_MAX_DIGEST_SIZE];
     byte policyRef[64];
+    byte entityName[sizeof(TPM2B_NAME)];
+    byte ticketData[TPM_MAX_DIGEST_SIZE + 64 + sizeof(TPM2B_NAME) + 20 +
+        FWTPM_SEED_SIZE];
+    byte ticketHmac[TPM_MAX_DIGEST_SIZE];
     TPMT_SIGNATURE sig;
     FWTPM_Session* sess = NULL;
     FWTPM_Object* authObj = NULL;
+    UINT64 authTimeout = 0;
+    UINT64 wireTimeout = 0;
+    UINT64 now = 0;
+    UINT32 ticketHierarchy = TPM_RH_NULL;
+    int entityNameSz = 0;
+    int ticketDataSz = 0;
+    int ticketHmacSz = 0;
+    int expiresOnReset = 0;
     int paramSzPos, paramStart;
 
     TPM2_Packet_ParseU32(cmd, &authObjHandle);
@@ -12989,6 +13057,32 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* expiration is signed seconds. With nonceTPM it is relative to the
+     * session start; without nonceTPM it is an absolute TPM time in seconds. */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY && expiration != 0) {
+        UINT64 seconds = (expiration < 0) ?
+            (UINT64)(0u - (UINT32)expiration) : (UINT64)(UINT32)expiration;
+
+        now = FWTPM_Clock_GetMs(ctx);
+        if (nonceTpmSz > 0) {
+            authTimeout = sess->startTime + (seconds * 1000u);
+        }
+        else {
+            /* Part 3 23.2.2 defines this as absolute seconds, not a
+             * duration from now. Keep the current millisecond remainder so
+             * conversion does not make the authorization expire early. */
+            authTimeout = (seconds * 1000u) + (now % 1000u);
+        }
+        if (authTimeout < now) {
+            rc = TPM_RC_EXPIRED;
+        }
+    }
+
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY && cpHashASz > 0 &&
+            cpHashASz != sess->policyDigest.size) {
+        rc = TPM_RC_SIZE;
+    }
+
     /* For policy sessions (not trial): verify signature per TPM 2.0 Part 3
      * Section 23.3. Compute aHash = H(nonceTPM || expiration || cpHashA ||
      * policyRef), then verify signature against aHash using authObject's
@@ -13043,22 +13137,14 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         /* Build entity name for the auth object */
-        byte entityName[sizeof(TPM2B_NAME)];
-        int entityNameSz = FwGetEntityName(ctx, authObjHandle,
+        entityNameSz = FwGetEntityName(ctx, authObjHandle,
             entityName, (int)sizeof(entityName));
         if (entityNameSz == 0) {
             rc = TPM_RC_HANDLE | TPM_RC_1;
         }
-        else if (FwPolicyExtend(sess, TPM_CC_PolicySigned,
-                entityName, entityNameSz,
-                policyRef, policyRefSz, 1) != 0) {
-            rc = TPM_RC_FAILURE;
-        }
     }
 
-    /* Bind the command to cpHashA so policy enforcement can verify it.
-     * Lock-once: if already bound, a different value must be rejected
-     * rather than silently replacing the earlier binding. */
+    /* Validate the lock-once cpHash constraint before changing the policy. */
     if (rc == 0 && cpHashASz > 0) {
         if (sess->cpHashA.size > 0) {
             if (sess->cpHashA.size != cpHashASz ||
@@ -13067,21 +13153,71 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_CPHASH;
             }
         }
+    }
+
+    /* A negative expiration returns a reusable authorization ticket. */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY && expiration < 0) {
+        authObj = FwFindObject(ctx, authObjHandle);
+        if (authObj == NULL) {
+            rc = TPM_RC_HANDLE | TPM_RC_1;
+        }
         else {
-            sess->cpHashA.size = cpHashASz;
-            XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
+            ticketHierarchy = authObj->hierarchy;
+        }
+        expiresOnReset = (nonceTpmSz == 0);
+        if (rc == 0 && FwBuildPolicyTicketData(ctx, authTimeout,
+                expiresOnReset, cpHashBuf, cpHashASz,
+                policyRef, policyRefSz, entityName, (UINT16)entityNameSz,
+                ticketData, (int)sizeof(ticketData), &ticketDataSz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc == 0) {
+            rc = FwComputeTicketHmac(ctx, ticketHierarchy,
+                CONTEXT_INTEGRITY_HASH_ALG, TPM_ST_AUTH_SIGNED,
+                ticketData, ticketDataSz, NULL, 0,
+                ticketHmac, &ticketHmacSz);
+        }
+        wireTimeout = authTimeout;
+        if (expiresOnReset) {
+            wireTimeout |= FWTPM_POLICY_TICKET_RESET_BIT;
         }
     }
 
+    if (rc == 0 && FwPolicyExtend(sess, TPM_CC_PolicySigned,
+            entityName, entityNameSz,
+            policyRef, policyRefSz, 1) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+
+    if (rc == 0 && cpHashASz > 0) {
+        sess->cpHashA.size = cpHashASz;
+        XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
+    }
+    if (rc == 0 && authTimeout != 0 &&
+            (sess->timeout == 0 || authTimeout < sess->timeout)) {
+        sess->timeout = authTimeout;
+    }
+
     if (rc == 0) {
-        /* Response: timeout(TPM2B size=0) + ticket(TPMT_TK_AUTH) */
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
-        TPM2_Packet_AppendU16(rsp, 0); /* timeout size = 0 */
-        TPM2_Packet_AppendU16(rsp, TPM_ST_AUTH_SIGNED);
-        TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
-        TPM2_Packet_AppendU16(rsp, 0); /* ticket digest size = 0 */
+        if (expiration < 0 && sess->sessionType == TPM_SE_POLICY) {
+            TPM2_Packet_AppendU16(rsp, 8);
+            TPM2_Packet_AppendU64(rsp, wireTimeout);
+            TPM2_Packet_AppendU16(rsp, TPM_ST_AUTH_SIGNED);
+            TPM2_Packet_AppendU32(rsp, ticketHierarchy);
+            TPM2_Packet_AppendU16(rsp, (UINT16)ticketHmacSz);
+            TPM2_Packet_AppendBytes(rsp, ticketHmac, ticketHmacSz);
+        }
+        else {
+            TPM2_Packet_AppendU16(rsp, 0);
+            TPM2_Packet_AppendU16(rsp, TPM_ST_AUTH_SIGNED);
+            TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
+            TPM2_Packet_AppendU16(rsp, 0);
+        }
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
+
+    TPM2_ForceZero(ticketHmac, sizeof(ticketHmac));
 
     return rc;
 }
@@ -14005,6 +14141,7 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 sessHandle;
     UINT16 timeoutSz, cpHashASz, policyRefSz, authNameSz;
+    byte timeoutBuf[8];
     byte cpHashABuf[TPM_MAX_DIGEST_SIZE];
     byte policyRefBuf[64];
     byte authNameBuf[sizeof(TPM2B_NAME)];
@@ -14012,25 +14149,44 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 ticketHier;
     byte ticketDigest[TPM_MAX_DIGEST_SIZE];
     FWTPM_Session* sess;
-    INT32 expiration = 0;
+    UINT64 wireTimeout = 0;
+    UINT64 authTimeout = 0;
+    int expiresOnReset = 0;
+    int isTrial = 0;
     UINT32 extendCC;
-    int cpaSizeMismatch;
-    int cpaDiff;
-    word32 cpaCmpSz;
-    (void)cmdSize;
 
     TPM2_Packet_ParseU32(cmd, &sessHandle);
     if (cmdTag == TPM_ST_SESSIONS)
         rc = FwSkipAuthArea(cmd, cmdSize);
 
-    /* Parse timeout (TPM2B) - skip, we use expiration=0 for ticket verify */
-    if (rc == 0) {
-        TPM2_Packet_ParseU16(cmd, &timeoutSz);
-        if (timeoutSz > 8)
-            rc = TPM_RC_SIZE;
+    sess = FwFindSession(ctx, sessHandle);
+    if (sess == NULL) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 && sess->sessionType != TPM_SE_POLICY &&
+        sess->sessionType != TPM_SE_TRIAL) {
+        rc = TPM_RC_AUTH_TYPE;
     }
     if (rc == 0) {
-        cmd->pos += timeoutSz;
+        isTrial = (sess->sessionType == TPM_SE_TRIAL);
+    }
+
+    /* Parse the implementation-specific timeout returned by PolicySigned. */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &timeoutSz);
+        if ((!isTrial && timeoutSz != sizeof(timeoutBuf)) ||
+                (isTrial && timeoutSz != 0 &&
+                    timeoutSz != sizeof(timeoutBuf)) ||
+                cmd->pos + timeoutSz > cmdSize) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0 && timeoutSz > 0) {
+        TPM2_Packet_ParseBytes(cmd, timeoutBuf, timeoutSz);
+        wireTimeout = FwLoadU64BE(timeoutBuf);
+        expiresOnReset =
+            ((wireTimeout & FWTPM_POLICY_TICKET_RESET_BIT) != 0);
+        authTimeout = wireTimeout & ~FWTPM_POLICY_TICKET_RESET_BIT;
     }
 
     /* Parse cpHashA (TPM2B) */
@@ -14038,6 +14194,8 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &cpHashASz);
         if (cpHashASz > sizeof(cpHashABuf))
             rc = TPM_RC_SIZE;
+        else if (cmd->pos + cpHashASz > cmdSize)
+            rc = TPM_RC_COMMAND_SIZE;
     }
     if (rc == 0 && cpHashASz > 0) {
         TPM2_Packet_ParseBytes(cmd, cpHashABuf, cpHashASz);
@@ -14048,6 +14206,8 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &policyRefSz);
         if (policyRefSz > sizeof(policyRefBuf))
             rc = TPM_RC_SIZE;
+        else if (cmd->pos + policyRefSz > cmdSize)
+            rc = TPM_RC_COMMAND_SIZE;
     }
     if (rc == 0 && policyRefSz > 0) {
         TPM2_Packet_ParseBytes(cmd, policyRefBuf, policyRefSz);
@@ -14058,18 +14218,25 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &authNameSz);
         if (authNameSz > sizeof(authNameBuf))
             rc = TPM_RC_SIZE;
+        else if (cmd->pos + authNameSz > cmdSize)
+            rc = TPM_RC_COMMAND_SIZE;
     }
     if (rc == 0 && authNameSz > 0) {
         TPM2_Packet_ParseBytes(cmd, authNameBuf, authNameSz);
     }
 
     /* Parse ticket (TPMT_TK_AUTH): tag(2) + hierarchy(4) + digest(TPM2B) */
+    if (rc == 0 && cmd->pos + 8 > cmdSize) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &ticketTag);
         TPM2_Packet_ParseU32(cmd, &ticketHier);
         TPM2_Packet_ParseU16(cmd, &ticketDigestSz);
         if (ticketDigestSz > sizeof(ticketDigest))
             rc = TPM_RC_SIZE;
+        else if (cmd->pos + ticketDigestSz > cmdSize)
+            rc = TPM_RC_COMMAND_SIZE;
     }
     if (rc == 0 && ticketDigestSz > 0) {
         TPM2_Packet_ParseBytes(cmd, ticketDigest, ticketDigestSz);
@@ -14080,73 +14247,57 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         ticketTag != TPM_ST_AUTH_SECRET) {
         rc = TPM_RC_TICKET;
     }
+    if (rc == 0 && FwGetHierarchySeed(ctx, ticketHier) == NULL) {
+        rc = TPM_RC_VALUE;
+    }
 
-    /* A zero-length ticket digest cannot bind any HMAC and would let the
-     * caller skip FwComputeTicketHmac below, then forge an arbitrary
-     * PolicySigned/PolicySecret extension via FwPolicyExtend. */
-    if (rc == 0 && ticketDigestSz == 0) {
+    /* Trial sessions calculate the policy without validating the ticket. */
+    if (rc == 0 && !isTrial && ticketDigestSz == 0) {
         rc = TPM_RC_TICKET;
     }
 
-    sess = FwFindSession(ctx, sessHandle);
-    if (sess == NULL) {
-        rc = TPM_RC_VALUE;
-    }
-    if (rc == 0 && sess->sessionType != TPM_SE_POLICY &&
-        sess->sessionType != TPM_SE_TRIAL) {
-        rc = TPM_RC_AUTH_TYPE;
+    if (rc == 0 && !isTrial && authTimeout < FWTPM_Clock_GetMs(ctx)) {
+        rc = TPM_RC_EXPIRED;
     }
 
-    /* Verify ticket HMAC:
-     * aHash = H(nonceTPM || expiration || cpHashA || policyRef)
-     * ticket = HMAC(proofValue, ticketTag || aHash || authName) */
-    if (rc == 0) {
-        byte aHash[TPM_MAX_DIGEST_SIZE];
-        byte ticketInput[2 + TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
+    if (rc == 0 && !isTrial && cpHashASz > 0 &&
+            cpHashASz != sess->policyDigest.size) {
+        rc = TPM_RC_SIZE;
+    }
+
+    if (rc == 0 && !isTrial && cpHashASz > 0 &&
+            sess->cpHashA.size > 0 &&
+            (sess->cpHashA.size != cpHashASz ||
+             TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashABuf,
+                 cpHashASz) != 0)) {
+        rc = TPM_RC_CPHASH;
+    }
+
+    /* Verify the authorization ticket over its policy qualifiers, timeout,
+     * time epoch, and reset count when applicable. */
+    if (rc == 0 && !isTrial) {
+        byte ticketInput[TPM_MAX_DIGEST_SIZE + 64 +
+            sizeof(TPM2B_NAME) + 20 + FWTPM_SEED_SIZE];
         int ticketInputSz = 0;
         byte expectedHmac[TPM_MAX_DIGEST_SIZE];
         int expectedSz = 0;
-        wc_HashAlg aCtx;
-        enum wc_HashType aWcHash;
-        int aHashSz;
-        byte expBuf[4];
         int hmacRc;
         int sizeMismatch;
         int ticketDiff;
         word32 cmpSz;
 
-        aWcHash = FwGetWcHashType(sess->authHash);
-        aHashSz = TPM2_GetHashDigestSize(sess->authHash);
-
-        /* aHash = H(nonceTPM || expiration || cpHashA || policyRef) */
-        if (wc_HashInit(&aCtx, aWcHash) == 0) {
-            wc_HashUpdate(&aCtx, aWcHash,
-                sess->nonceTPM.buffer, sess->nonceTPM.size);
-            FwStoreU32BE(expBuf, (UINT32)expiration);
-            wc_HashUpdate(&aCtx, aWcHash, expBuf, 4);
-            if (cpHashASz > 0)
-                wc_HashUpdate(&aCtx, aWcHash, cpHashABuf, cpHashASz);
-            if (policyRefSz > 0)
-                wc_HashUpdate(&aCtx, aWcHash, policyRefBuf, policyRefSz);
-            wc_HashFinal(&aCtx, aWcHash, aHash);
-            wc_HashFree(&aCtx, aWcHash);
-        }
-        else {
+        if (FwBuildPolicyTicketData(ctx, authTimeout, expiresOnReset,
+                cpHashABuf, cpHashASz, policyRefBuf, policyRefSz,
+                authNameBuf, authNameSz, ticketInput,
+                (int)sizeof(ticketInput), &ticketInputSz) != 0) {
             rc = TPM_RC_FAILURE;
-        }
-
-        /* ticketInput = aHash || authName */
-        if (rc == 0) {
-            XMEMCPY(ticketInput, aHash, aHashSz);
-            ticketInputSz = aHashSz;
-            XMEMCPY(ticketInput + ticketInputSz, authNameBuf, authNameSz);
-            ticketInputSz += authNameSz;
         }
 
         /* Verify HMAC — always run TPM2_ConstantCompare so timing doesn't
          * leak whether size matched */
         if (rc == 0) {
-            hmacRc = FwComputeTicketHmac(ctx, ticketHier, sess->authHash,
+            hmacRc = FwComputeTicketHmac(ctx, ticketHier,
+                CONTEXT_INTEGRITY_HASH_ALG,
                 ticketTag,
                 ticketInput, ticketInputSz,
                 NULL, 0,
@@ -14157,10 +14308,9 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             ticketDiff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
                 cmpSz);
             if (hmacRc != 0 || (sizeMismatch | ticketDiff)) {
-                rc = TPM_RC_POLICY_FAIL;
+                rc = TPM_RC_TICKET;
             }
         }
-        TPM2_ForceZero(aHash, sizeof(aHash));
         TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
     }
 
@@ -14181,23 +14331,15 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Store cpHashA constraint if provided — always run TPM2_ConstantCompare
-     * so timing doesn't leak size match */
-    if (rc == 0 && cpHashASz > 0) {
-        if (sess->cpHashA.size > 0) {
-            cpaSizeMismatch = (sess->cpHashA.size != cpHashASz);
-            cpaCmpSz = (sess->cpHashA.size < cpHashASz) ?
-                sess->cpHashA.size : cpHashASz;
-            cpaDiff = TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashABuf,
-                cpaCmpSz);
-            if (cpaSizeMismatch | cpaDiff) {
-                rc = TPM_RC_CPHASH;
-            }
-        }
-        if (rc == 0) {
-            sess->cpHashA.size = cpHashASz;
-            XMEMCPY(sess->cpHashA.buffer, cpHashABuf, cpHashASz);
-        }
+    /* Store the already-validated cpHashA constraint if provided. */
+    if (rc == 0 && !isTrial && cpHashASz > 0) {
+        sess->cpHashA.size = cpHashASz;
+        XMEMCPY(sess->cpHashA.buffer, cpHashABuf, cpHashASz);
+    }
+
+    if (rc == 0 && !isTrial &&
+            (sess->timeout == 0 || authTimeout < sess->timeout)) {
+        sess->timeout = authTimeout;
     }
 
     if (rc == 0) {
@@ -20719,6 +20861,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 return TPM_RC_SUCCESS;
             }
 
+            if (pSess->timeout != 0 &&
+                    pSess->timeout < FWTPM_Clock_GetMs(ctx)) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_EXPIRED);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
+            }
+
             /* Find entity's authPolicy by handle type */
 #ifndef FWTPM_NO_NV
             if ((entityH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
@@ -21588,6 +21738,24 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             /* Finalize response header */
             FwRspFinalize(&rspPkt, TPM_ST_SESSIONS, TPM_RC_SUCCESS);
             *rspSize = rspPkt.pos;
+
+            /* TCG Part 4 UpdateInternalSession records a new startTime when
+             * nonceTPM rolls and resets policy data after authorizing use. */
+            for (j = 0; j < cmdAuthCnt; j++) {
+                FWTPM_Session* sess = cmdAuths[j].sess;
+                if (sess != NULL &&
+                        (cmdAuths[j].attributes &
+                            TPMA_SESSION_continueSession) &&
+                        (sess->sessionType == TPM_SE_POLICY ||
+                            sess->sessionType == TPM_SE_TRIAL)) {
+                #ifndef FWTPM_NO_POLICY
+                    if (j < entry->authHandleCnt) {
+                        FwResetPolicyData(sess);
+                    }
+                #endif
+                    sess->startTime = FWTPM_Clock_GetMs(ctx);
+                }
+            }
         }
     }
 
