@@ -1261,12 +1261,13 @@ static void getcap_paging_check(FWTPM_CTX* ctx, UINT32 cap, int idIs16)
 {
     int rc, rspSize, cmdSz, total, iters;
     UINT32 property, count, id, prev, fullCount;
+    UINT32 firstProperty = (cap == TPM_CAP_TPM_PROPERTIES) ? PT_FIXED : 0;
     byte moreData;
 
     /* Full list in one shot: must fit, so moreData=NO. */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
     PutU32BE(gCmd + cmdSz, cap); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, firstProperty); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 1024); cmdSz += 4;
     PutU32BE(gCmd + 2, (UINT32)cmdSz);
     rspSize = 0;
@@ -1277,7 +1278,7 @@ static void getcap_paging_check(FWTPM_CTX* ctx, UINT32 cap, int idIs16)
     AssertIntGT((int)fullCount, 1);
 
     /* Walk the cursor one entry per page. */
-    property = 0; prev = 0; total = 0;
+    property = firstProperty; prev = 0; total = 0;
     for (iters = 0; iters < 1024; iters++) {
         cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
         PutU32BE(gCmd + cmdSz, cap); cmdSz += 4;

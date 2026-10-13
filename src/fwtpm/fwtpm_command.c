@@ -2064,20 +2064,27 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             };
             int totalProps = (int)(sizeof(allProps) / sizeof(allProps[0]));
             int startIdx = 0;
+            int avail = 0;
             int numOut;
+            UINT32 propertyGroup = property / (UINT32)PT_GROUP;
 
             for (startIdx = 0; startIdx < totalProps; startIdx++) {
-                if (allProps[startIdx].prop >= property)
+                if (allProps[startIdx].prop >= property &&
+                        allProps[startIdx].prop / (UINT32)PT_GROUP ==
+                            propertyGroup) {
                     break;
+                }
             }
-            numOut = totalProps - startIdx;
-            if (numOut < 0)
-                numOut = 0;
+            while (startIdx + avail < totalProps &&
+                    allProps[startIdx + avail].prop / (UINT32)PT_GROUP ==
+                        propertyGroup) {
+                avail++;
+            }
+            numOut = avail;
             if ((UINT32)numOut > propertyCount)
                 numOut = (int)propertyCount;
 
-            /* Truncated (start offset or propertyCount cap): flag moreData=YES. */
-            if (startIdx + numOut < totalProps)
+            if (numOut < avail)
                 FwPatchMoreData(rsp, moreDataPos, 1); /* YES */
 
             TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
