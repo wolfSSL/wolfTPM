@@ -9448,7 +9448,7 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
  *
  * The wrapper used to silently drop the data/dataSz arguments; the fix
  * folds them in via an internal SequenceUpdate before Complete. Uses a
- * Hash-ML-DSA-65 key (NOT the existing Pure ML-DSA + allowExternalMu key)
+ * Hash-ML-DSA-44 key (NOT the existing Pure ML-DSA + allowExternalMu key)
  * because Hash-ML-DSA derives the verified message from the SHA-256
  * digest of every byte streamed through SequenceUpdate — so dropping the
  * Complete data argument actually changes the digest the signature is
@@ -9479,7 +9479,7 @@ static void test_wolfTPM2_MLDSA_VerifySequence_DataChain(WOLFTPM2_DEV* dev)
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&pub,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth,
-        TPM_MLDSA_65, TPM_ALG_SHA256);
+        TPM_MLDSA_44, TPM_ALG_SHA256);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
@@ -9547,7 +9547,7 @@ static void test_wolfTPM2_HashMLDSA_SignSequence_Streaming(WOLFTPM2_DEV* dev)
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&pub,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth,
-        TPM_MLDSA_65, TPM_ALG_SHA256);
+        TPM_MLDSA_44, TPM_ALG_SHA256);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
@@ -9630,7 +9630,7 @@ static void test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(WOLFTPM2_DEV* dev)
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&pub,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth,
-        TPM_MLDSA_65, TPM_ALG_SHA256);
+        TPM_MLDSA_44, TPM_ALG_SHA256);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
@@ -10036,11 +10036,11 @@ static void test_wolfTPM2_PQC_KeyTemplates(void)
     /* Test HASH_MLDSA template */
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&hashMldsaTemplate,
         TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth,
-        TPM_MLDSA_87, TPM_ALG_SHA256);
+        TPM_MLDSA_87, TPM_ALG_SHA512);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(hashMldsaTemplate.type, TPM_ALG_HASH_MLDSA);
     AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.parameterSet, TPM_MLDSA_87);
-    AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.hashAlg, TPM_ALG_SHA512);
 
     /* Test MLKEM template */
     rc = wolfTPM2_GetKeyTemplate_MLKEM(&mlkemTemplate,

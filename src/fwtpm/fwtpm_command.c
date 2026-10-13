@@ -1648,6 +1648,9 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             #ifdef WOLFSSL_SHA384
                 { TPM_ALG_SHA384, TPMA_ALGORITHM_hash },
             #endif
+            #ifdef WOLFSSL_SHA512
+                { TPM_ALG_SHA512, TPMA_ALGORITHM_hash },
+            #endif
                 { TPM_ALG_HMAC, TPMA_ALGORITHM_hash |
                     TPMA_ALGORITHM_signing },
             #ifndef NO_AES
@@ -1837,7 +1840,9 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_PCR_COUNT,         IMPLEMENTATION_PCR },
                 { TPM_PT_MAX_COMMAND_SIZE,  FWTPM_MAX_COMMAND_SIZE },
                 { TPM_PT_MAX_RESPONSE_SIZE, FWTPM_MAX_COMMAND_SIZE },
-            #ifdef WOLFSSL_SHA384
+            #if defined(WOLFSSL_SHA512)
+                { TPM_PT_MAX_DIGEST,        TPM_SHA512_DIGEST_SIZE },
+            #elif defined(WOLFSSL_SHA384)
                 { TPM_PT_MAX_DIGEST,        TPM_SHA384_DIGEST_SIZE },
             #else
                 { TPM_PT_MAX_DIGEST,        TPM_SHA256_DIGEST_SIZE },
@@ -2389,6 +2394,7 @@ static int FwMldsaPubKeySize(TPMI_MLDSA_PARAMETER_SET ps)
         default: return -1;
     }
 }
+
 #endif /* WOLFTPM_MLDSA */
 
 #ifdef WOLFTPM_MLKEM
@@ -2451,8 +2457,9 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
             if (sz < 0) {
                 rc = TPM_RC_PARMS;
             }
-            else if (TPM2_GetHashDigestSize(
-                    pub->parameters.hash_mldsaDetail.hashAlg) <= 0) {
+            else if (!FwMldsaPreHashStrong(
+                    pub->parameters.hash_mldsaDetail.parameterSet,
+                    pub->parameters.hash_mldsaDetail.hashAlg)) {
                 rc = TPM_RC_HASH;
             }
             else if (checkPubSize &&
@@ -2608,7 +2615,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                  * is a TPMI_ALG_HASH and TPM_ALG_NULL is forbidden. Validate
                  * the selector against the hash algorithms wolfTPM
                  * understands. */
-                else if (TPM2_GetHashDigestSize(hashAlg) <= 0) {
+                else if (!FwMldsaPreHashStrong(ps, hashAlg)) {
                     rc = TPM_RC_HASH;
                 }
                 break;

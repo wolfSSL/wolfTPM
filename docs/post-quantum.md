@@ -134,11 +134,13 @@ For the fwTPM server's PQC internals (the eight v1.85 commands, primary-key deri
 | `--flush` | Flush all loaded transient objects between operations |
 | `--clear` | `TPM2_Clear`: installs a new Storage primary seed, deletes Storage and Endorsement objects and non-platform NV, and resets owner, endorsement, and lockout auth |
 | `--mldsa[=44/65/87]` | Pure ML-DSA sign/verify (default 65) |
-| `--hash-mldsa[=44/65/87]` | HashML-DSA (SHA-256 pre-hash) sign/verify |
+| `--hash-mldsa[=44/65/87]` | HashML-DSA sign/verify (SHA-256/384/512 pre-hash for 44/65/87) |
 | `--mlkem[=512/768/1024]` | ML-KEM encapsulate/decapsulate |
 | `--all` | caps + algs + selftest + getrandom + pcrread + every PQC set |
 
 Commands run left to right, so they can be chained. The functional `pqc_ctrl` builds only from an untrimmed PQC configuration: the wrapper plus both ML-DSA operations, both ML-KEM operations, and HashML-DSA. Build with `--enable-v185` (or `--enable-pqc`); a trimmed build such as `--enable-mldsa=verify-only` compiles out the CLI. Point it at the SEALSQ part with `--enable-sealsq`, or at the fwTPM with `--enable-fwtpm --enable-swtpm`.
+
+Pre-production TPM firmware that supports only SHA-256 with HashML-DSA-65 or HashML-DSA-87 can be used by defining `WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH` when building both wolfSSL and wolfTPM. The examples then select SHA-256 for every parameter set. This compatibility mode is disabled by default and does not comply with the FIPS 204 section 5.4 pre-hash strength requirement.
 
 `pqc_ctrl.sh` runs the whole command set as a pass/fail suite (it mirrors `examples/spdm/spdm_test.sh`) when the device supports all parameter sets. The persistent state changes (the PCR 16 extend and `TPM2_Clear`) are opt-in via `PQC_CTRL_CLEAR=1`. The default run still flushes loaded transient objects, and every key operation flushes the transient object table, so do not run it alongside a workload whose transient TPM handles must stay valid:
 
@@ -155,7 +157,7 @@ PQC_CTRL_CLEAR=1 ./examples/pqc/pqc_ctrl.sh   # also extend PCR 16 and run TPM2_
 End-to-end client test over the mssim socket. It runs four checks in sequence:
 
 1. ML-KEM-768 `CreatePrimary`, `Encapsulate`, and `Decapsulate`. It asserts the ciphertext is 1088 bytes and the two shared secrets are byte-identical.
-2. HashML-DSA-65 (SHA-256) `CreatePrimary`, `SignDigest`, and `VerifyDigestSignature`. It asserts the signature is 3309 bytes and the validation ticket tag is `TPM_ST_DIGEST_VERIFIED`.
+2. HashML-DSA-44 (SHA-256) `CreatePrimary`, `SignDigest`, and `VerifyDigestSignature`. It asserts the signature is 2420 bytes and the validation ticket tag is `TPM_ST_DIGEST_VERIFIED`.
 3. An ML-KEM `MakeCredential` and `ActivateCredential` round-trip.
 4. An ML-DSA `Quote`.
 
@@ -189,14 +191,14 @@ Pure ML-DSA sign and verify round-trip. It creates a primary ML-DSA key and sign
 
 ```sh
 ./examples/keygen/keygen keyblob.bin -mldsa=65           # Pure ML-DSA
-./examples/keygen/keygen keyblob.bin -hash_mldsa=65      # SHA-256 pre-hash
+./examples/keygen/keygen keyblob.bin -hash_mldsa=65      # SHA-384 pre-hash
 ./examples/keygen/keygen keyblob.bin -mlkem=768          # ML-KEM
 ```
 
 Parameter sets:
 
 - `-mldsa=44|65|87` (default 65)
-- `-hash_mldsa=44|65|87` (default 65, SHA-256 pre-hash)
+- `-hash_mldsa=44|65|87` (default 65; SHA-256/384/512 pre-hash for 44/65/87)
 - `-mlkem=512|768|1024` (default 768)
 
 Verify that the produced blob round-trips through `TPM2_Create` and `TPM2_Load` by loading it back:

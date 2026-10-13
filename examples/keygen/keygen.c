@@ -32,6 +32,9 @@
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #include <examples/keygen/keygen.h>
+
+/* autoconf SKIP status: the TPM lacks the required Hash-ML-DSA pre-hash */
+#define KEYGEN_RC_SKIP 77
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
@@ -80,7 +83,11 @@ static void usage(void)
 #endif
 #ifdef WOLFTPM_HASH_MLDSA
     printf("* -hash_mldsa[=44|65|87]: Use Hash-ML-DSA for signing "
-           "(v1.85, default 65 with SHA-256 pre-hash)\n");
+#ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+           "(v1.85, SHA-256 compatibility pre-hash)\n");
+#else
+           "(v1.85, default 65; SHA-256/384/512 pre-hash for 44/65/87)\n");
+#endif
 #endif
 #ifdef WOLFTPM_MLKEM
     printf("* -mlkem[=512|768|1024]: Use ML-KEM for key encapsulation "
@@ -119,7 +126,11 @@ static void usage(void)
     printf("\t\t keygen -mldsa\n");
 #endif
 #ifdef WOLFTPM_HASH_MLDSA
-    printf("\t* Hash-ML-DSA-87 with SHA-256 pre-hash\n");
+#ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+    printf("\t* Hash-ML-DSA-87 with SHA-256 compatibility pre-hash\n");
+#else
+    printf("\t* Hash-ML-DSA-87 with SHA-512 pre-hash\n");
+#endif
     printf("\t\t keygen -hash_mldsa=87\n");
 #endif
 #ifdef WOLFTPM_MLKEM
@@ -201,6 +212,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #endif
 #ifdef WOLFTPM_MLDSA
     TPMI_MLDSA_PARAMETER_SET mldsaPs = TPM_MLDSA_65;   /* default */
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
+    TPMI_ALG_HASH mldsaPreHash = TPM_ALG_SHA256;
 #endif
 #ifdef WOLFTPM_MLKEM
     TPMI_MLKEM_PARAMETER_SET mlkemPs = TPM_MLKEM_768;  /* default */
@@ -534,13 +548,20 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #endif /* WOLFTPM_MLDSA */
 #ifdef WOLFTPM_HASH_MLDSA
         else if (alg == TPM_ALG_HASH_MLDSA) {
+#ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+            /* FIPS 204 Sec.5.4: pre-hash must match the set's strength */
+            if (mldsaPs == TPM_MLDSA_87)
+                mldsaPreHash = TPM_ALG_SHA512;
+            else if (mldsaPs == TPM_MLDSA_65)
+                mldsaPreHash = TPM_ALG_SHA384;
+#endif
             printf("Hash-ML-DSA template (parameter set %u, pre-hash %s)\n",
-                (unsigned)mldsaPs, TPM2_GetAlgName(TPM_ALG_SHA256));
+                (unsigned)mldsaPs, TPM2_GetAlgName(mldsaPreHash));
             rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&publicTemplate,
                 TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM |
                 TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
                 TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
-                mldsaPs, TPM_ALG_SHA256);
+                mldsaPs, mldsaPreHash);
         }
 #endif /* WOLFTPM_HASH_MLDSA */
 #ifdef WOLFTPM_MLKEM
@@ -582,6 +603,15 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     rc = wolfTPM2_CreateKey(&dev, &newKeyBlob, &primary->handle,
                             &publicTemplate, auth.buffer, auth.size);
+#ifdef WOLFTPM_HASH_MLDSA
+    if (alg == TPM_ALG_HASH_MLDSA && rc > 0 &&
+            (rc & (RC_FMT1 | 0x3F)) == TPM_RC_HASH) {
+        printf("Skipping: %s pre-hash not supported by this TPM\n",
+            TPM2_GetAlgName(mldsaPreHash));
+        rc = KEYGEN_RC_SKIP;
+        goto exit;
+    }
+#endif
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateKey failed\n");
         goto exit;
@@ -673,7 +703,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    if (rc != 0) {
+    if (rc != 0 && rc != KEYGEN_RC_SKIP) {
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 

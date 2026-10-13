@@ -356,6 +356,8 @@ if [ $ENABLE_V185 -eq 1 ]; then
 
         ./examples/keygen/keygen pqcblob.bin -hash_mldsa=$PS >> $TPMPWD/run.out 2>&1
         RESULT=$?
+        # 77: the TPM lacks the pre-hash this parameter set needs
+        [ $RESULT -eq 77 ] && echo -e "keygen hash_mldsa=$PS skipped" && continue
         [ $RESULT -ne 0 ] && echo -e "keygen hash_mldsa=$PS failed! $RESULT" && exit 1
         run_keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
         RESULT=$?

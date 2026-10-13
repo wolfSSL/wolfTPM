@@ -1763,6 +1763,39 @@ TPM_RC FwVerifyMldsaMu(TPMI_MLDSA_PARAMETER_SET parameterSet,
     return rc;
 }
 
+/* FIPS 204 Sec.5.4 requires an approved pre-hash with lambda bits of collision
+ * strength. The compatibility macro relaxes only the strength floor. */
+int FwMldsaPreHashStrong(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    TPMI_ALG_HASH hashAlg)
+{
+    int lambda;
+    int strength;
+
+    switch (parameterSet) {
+        case TPM_MLDSA_44: lambda = 128; break;
+        case TPM_MLDSA_65: lambda = 192; break;
+        case TPM_MLDSA_87: lambda = 256; break;
+        default: return 0;
+    }
+    switch (hashAlg) {
+        case TPM_ALG_SHA256:
+        case TPM_ALG_SHA3_256: strength = 128; break;
+        case TPM_ALG_SHA384:
+        case TPM_ALG_SHA3_384: strength = 192; break;
+        case TPM_ALG_SHA512:
+        case TPM_ALG_SHA3_512: strength = 256; break;
+        default: return 0;
+    }
+#ifdef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+    (void)lambda;
+    return (strength >= 128 &&
+        wc_HashGetDigestSize(FwGetWcHashType(hashAlg)) > 0);
+#else
+    return (strength >= lambda &&
+        wc_HashGetDigestSize(FwGetWcHashType(hashAlg)) > 0);
+#endif
+}
+
 /** \brief Hash-ML-DSA sign: pre-hashed variant per FIPS 204 Algorithm 4. */
 TPM_RC FwSignMldsaHash(WC_RNG* rng,
     TPMI_MLDSA_PARAMETER_SET parameterSet,
@@ -1786,7 +1819,11 @@ TPM_RC FwSignMldsaHash(WC_RNG* rng,
     FWTPM_ALLOC_VAR(keyVar, wc_MlDsaKey);
 
     wcHash = FwGetWcHashType(hashAlg);
-    if (rc == 0 && wcHash == WC_HASH_TYPE_NONE) {
+    if (rc == 0 && FwGetWcMldsaLevel(parameterSet) < 0) {
+        rc = TPM_RC_PARMS;
+    }
+    else if (rc == 0 && (wcHash == WC_HASH_TYPE_NONE ||
+            !FwMldsaPreHashStrong(parameterSet, hashAlg))) {
         rc = TPM_RC_HASH;
     }
     else if (rc == 0) {
@@ -1840,13 +1877,13 @@ TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
     FWTPM_ALLOC_VAR(keyVar, wc_MlDsaKey);
 
     wcHash = FwGetWcHashType(hashAlg);
-    if (wcHash == WC_HASH_TYPE_NONE) {
-        rc = TPM_RC_HASH;
-    }
-
     level = FwGetWcMldsaLevel(parameterSet);
-    if (rc == 0 && level < 0) {
+    if (level < 0) {
         rc = TPM_RC_PARMS;
+    }
+    else if (wcHash == WC_HASH_TYPE_NONE ||
+            !FwMldsaPreHashStrong(parameterSet, hashAlg)) {
+        rc = TPM_RC_HASH;
     }
 
     if (rc == 0) {
@@ -3804,6 +3841,9 @@ int FwGetRsaHashOid(UINT16 hashAlg)
         case TPM_ALG_SHA256: return WC_HASH_TYPE_SHA256;
     #ifdef WOLFSSL_SHA384
         case TPM_ALG_SHA384: return WC_HASH_TYPE_SHA384;
+    #endif
+    #ifdef WOLFSSL_SHA512
+        case TPM_ALG_SHA512: return WC_HASH_TYPE_SHA512;
     #endif
     #ifndef NO_SHA
         case TPM_ALG_SHA1:   return WC_HASH_TYPE_SHA;

@@ -58,7 +58,7 @@ static void usage(void)
     printf("* --flush                  Flush transient objects (board reset)\n");
     printf("* --clear                  TPM2_Clear (wipes owner hierarchy!)\n");
     printf("* --mldsa[=44|65|87]       Pure ML-DSA sign/verify (default 65)\n");
-    printf("* --hash-mldsa[=44|65|87]  Hash-ML-DSA (SHA-256) sign/verify\n");
+    printf("* --hash-mldsa[=44|65|87]  Hash-ML-DSA sign/verify\n");
     printf("* --mlkem[=512|768|1024]   ML-KEM encapsulate/decapsulate\n");
     printf("* --all                    caps + every parameter set of each op\n");
 }
@@ -475,7 +475,9 @@ static int do_hash_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
     WOLFTPM2_KEY key;
     TPMT_PUBLIC tpl;
     TPMT_TK_VERIFIED validation;
-    byte digest[TPM_SHA256_DIGEST_SIZE];
+    byte digest[TPM_SHA512_DIGEST_SIZE];
+    int digestSz;
+    TPMI_ALG_HASH preHash = TPM_ALG_SHA256;
     byte* sig = NULL;
     int sigSz = MAX_MLDSA_SIG_SIZE;
 
@@ -483,6 +485,15 @@ static int do_hash_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
     XMEMSET(&tpl, 0, sizeof(tpl));
     XMEMSET(&validation, 0, sizeof(validation));
     XMEMSET(digest, 0xAA, sizeof(digest));
+
+#ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
+    /* FIPS 204 Sec.5.4: pre-hash must match the set's strength */
+    if (ps == TPM_MLDSA_87)
+        preHash = TPM_ALG_SHA512;
+    else if (ps == TPM_MLDSA_65)
+        preHash = TPM_ALG_SHA384;
+#endif
+    digestSz = TPM2_GetHashDigestSize(preHash);
 
     (void)pqc_flush_transient(dev);
 
@@ -493,17 +504,22 @@ static int do_hash_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&tpl,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_noDA, ps, TPM_ALG_SHA256);
+        TPMA_OBJECT_noDA, ps, preHash);
     if (rc != TPM_RC_SUCCESS) goto exit;
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &key, TPM_RH_OWNER, &tpl, NULL, 0);
+    if (rc > 0 && (rc & (RC_FMT1 | 0x3F)) == TPM_RC_HASH) {
+        printf("FAIL  HashML-DSA-%-3s  %s pre-hash not supported by this "
+            "TPM\n", mldsaName(ps), TPM2_GetAlgName(preHash));
+        goto exit_quiet;
+    }
     if (rc != TPM_RC_SUCCESS) goto exit;
 
-    rc = wolfTPM2_SignDigest(dev, &key, digest, (int)sizeof(digest),
+    rc = wolfTPM2_SignDigest(dev, &key, digest, digestSz,
         NULL, 0, sig, &sigSz);
     if (rc != TPM_RC_SUCCESS) goto exit;
 
-    rc = wolfTPM2_VerifyDigestSignature(dev, &key, digest, (int)sizeof(digest),
+    rc = wolfTPM2_VerifyDigestSignature(dev, &key, digest, digestSz,
         sig, sigSz, NULL, 0, &validation);
     if (rc == BUFFER_E) {
         /* Too large for this TPM to accept back for on-TPM verification.
