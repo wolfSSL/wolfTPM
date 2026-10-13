@@ -1324,7 +1324,21 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             break;
 
         case FWTPM_NV_TAG_PLATFORM_AUTH:
-            FwNvUnmarshalAuth(value, &vPos, vMax, &ctx->platformAuth);
+            if (FwNvUnmarshalAuth(value, &vPos, vMax,
+                    &ctx->platformAuth) == 0 && vPos < vMax) {
+                TPM2B_DIGEST policy;
+                UINT16 alg = TPM_ALG_NULL;
+
+                XMEMSET(&policy, 0, sizeof(policy));
+                if (FwNvUnmarshalU16(value, &vPos, vMax, &alg) == 0 &&
+                        FwNvUnmarshalDigest(value, &vPos, vMax,
+                            &policy) == 0 &&
+                        (policy.size == 0 ||
+                         (int)policy.size == TPM2_GetHashDigestSize(alg))) {
+                    ctx->platformPolicy = policy;
+                    ctx->platformPolicyAlg = alg;
+                }
+            }
             break;
 
         case FWTPM_NV_TAG_LOCKOUT_AUTH:
@@ -2443,7 +2457,7 @@ int FWTPM_NV_SaveSeeds(FWTPM_CTX* ctx)
 int FWTPM_NV_SaveAuth(FWTPM_CTX* ctx, UINT32 hierarchy)
 {
     int rc;
-    byte buf[2 + TPM_SHA384_DIGEST_SIZE];
+    byte buf[2 + TPM_MAX_DIGEST_SIZE + 2 + 2 + TPM_MAX_DIGEST_SIZE];
     word32 pos = 0;
     UINT16 tag;
     TPM2B_AUTH* auth;
@@ -2474,6 +2488,16 @@ int FWTPM_NV_SaveAuth(FWTPM_CTX* ctx, UINT32 hierarchy)
     }
 
     rc = FwNvMarshalAuth(buf, &pos, sizeof(buf), auth);
+    /* Keep platform authorization and policy in one journal entry so
+     * Startup(CLEAR) can persist their reset with a single checkpoint. */
+    if (rc == 0 && hierarchy == TPM_RH_PLATFORM) {
+        rc = FwNvMarshalU16(buf, &pos, sizeof(buf),
+            ctx->platformPolicyAlg);
+        if (rc == 0) {
+            rc = FwNvMarshalDigest(buf, &pos, sizeof(buf),
+                &ctx->platformPolicy);
+        }
+    }
     if (rc == 0) {
         rc = FwNvAppendEntry(ctx, tag, buf, (UINT16)pos);
     }

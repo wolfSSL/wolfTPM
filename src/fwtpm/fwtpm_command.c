@@ -1057,6 +1057,9 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     int stateShutdown = 0;
     UINT32 oldResetCount = 0;
     UINT32 oldRestartCount = 0;
+    TPM2B_AUTH oldPlatformAuth;
+    TPM2B_DIGEST oldPlatformPolicy;
+    TPMI_ALG_HASH oldPlatformPolicyAlg;
 #ifndef FWTPM_NO_NV
     FWTPM_DECLARE_BUF(oldNvData, FWTPM_MAX_NV_DATA);
     int oldNvDataAllocated = 0;
@@ -1266,6 +1269,25 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 ctx->resetCount = oldResetCount;
                 ctx->restartCount = oldRestartCount;
             }
+        }
+
+        if (rc == 0 && startupType == TPM_SU_CLEAR) {
+            oldPlatformAuth = ctx->platformAuth;
+            oldPlatformPolicy = ctx->platformPolicy;
+            oldPlatformPolicyAlg = ctx->platformPolicyAlg;
+            TPM2_ForceZero(&ctx->platformAuth,
+                sizeof(ctx->platformAuth));
+            TPM2_ForceZero(&ctx->platformPolicy,
+                sizeof(ctx->platformPolicy));
+            ctx->platformPolicyAlg = TPM_ALG_NULL;
+            rc = FWTPM_NV_SaveAuth(ctx, TPM_RH_PLATFORM);
+            if (rc != 0) {
+                ctx->platformAuth = oldPlatformAuth;
+                ctx->platformPolicy = oldPlatformPolicy;
+                ctx->platformPolicyAlg = oldPlatformPolicyAlg;
+            }
+            TPM2_ForceZero(&oldPlatformAuth, sizeof(oldPlatformAuth));
+            TPM2_ForceZero(&oldPlatformPolicy, sizeof(oldPlatformPolicy));
         }
 
         /* phEnable is SET on every _TPM_Init/Startup (TPM 2.0 Part 2
