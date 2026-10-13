@@ -11361,23 +11361,30 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* If tpmKey is specified, decrypt the encrypted salt */
-    if (rc == 0 && tpmKey != TPM_RH_NULL && encSaltSize > 0) {
+    if (rc == 0 && tpmKey != TPM_RH_NULL) {
         FWTPM_Object* keyObj = FwFindObject(ctx, tpmKey);
         if (keyObj == NULL) {
             rc = TPM_RC_HANDLE;
         }
-        /* tpmKey must be a restricted decryption key (Part 1 Sec.11.2.2);
-         * a signing-only key would let an attacker derive the session key. */
-        if (rc == 0 &&
-            (!(keyObj->pub.objectAttributes & TPMA_OBJECT_decrypt) ||
-             !(keyObj->pub.objectAttributes & TPMA_OBJECT_restricted))) {
-            rc = TPM_RC_KEY;
+        else if (keyObj->privKeySize == 0) {
+            rc = TPM_RC_HANDLE;
+        }
+        /* Keep salt recovery bound to a restricted decryption key. */
+        else if (!(keyObj->pub.objectAttributes & TPMA_OBJECT_decrypt) ||
+                !(keyObj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
+            rc = TPM_RC_ATTRIBUTES;
+        }
+        else if (encSaltSize == 0) {
+            rc = TPM_RC_VALUE;
         }
         if (rc == 0) {
             rc = FwDecryptSeed(ctx, keyObj,
                 encSalt, encSaltSize,
                 (const byte*)"SECRET", 7, "SECRET",
                 salt, (int)sizeof(salt), &saltSize);
+            if (rc != 0 && rc != TPM_RC_KEY) {
+                rc = TPM_RC_VALUE;
+            }
         }
     }
 
