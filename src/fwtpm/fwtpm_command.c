@@ -9959,6 +9959,13 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign))
             rc = TPM_RC_KEY;
     }
+    if (rc == 0 && obj->pub.type != TPM_ALG_KEYEDHASH) {
+        rc = TPM_RC_TYPE;
+    }
+    if (rc == 0 &&
+            (obj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
 
     /* Skip auth area */
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
@@ -9982,9 +9989,7 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
 
         /* If the key binds an HMAC scheme, a NULL wire hash uses it and a
-         * non-NULL wire hash must match it (Part 3 Sec.17.4). A key with an
-         * unbound (NULL) scheme lets the caller choose, defaulting to the
-         * key's nameAlg. */
+         * non-NULL wire hash must match it (Part 3 Sec.15.5). */
         if (obj->pub.parameters.keyedHashDetail.scheme.scheme != TPM_ALG_NULL &&
                 obj->pub.parameters.keyedHashDetail.scheme.scheme !=
                     TPM_ALG_HMAC) {
@@ -10002,7 +10007,7 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         else if (hashAlg == TPM_ALG_NULL) {
-            hashAlg = obj->pub.nameAlg;
+            rc = TPM_RC_VALUE;
         }
 
         if (rc == 0) {
@@ -10021,17 +10026,10 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* For KEYEDHASH objects the HMAC key is in privKey.
-     * For other object types fall back to authValue. */
+    /* For KEYEDHASH objects the HMAC key is in privKey. */
     if (rc == 0) {
-        if (obj->pub.type == TPM_ALG_KEYEDHASH && obj->privKeySize > 0) {
-            rc = wc_HmacSetKey(hmac, wcHashType,
-                obj->privKey, (word32)obj->privKeySize);
-        }
-        else {
-            rc = wc_HmacSetKey(hmac, wcHashType,
-                obj->authValue.buffer, obj->authValue.size);
-        }
+        rc = wc_HmacSetKey(hmac, wcHashType,
+            obj->privKey, (word32)obj->privKeySize);
     }
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, dataBuf, dataSize);
@@ -10040,7 +10038,9 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = wc_HmacFinal(hmac, digest);
     }
     if (rc != 0 && rc != TPM_RC_COMMAND_SIZE && rc != TPM_RC_HANDLE &&
-        rc != TPM_RC_SIZE && rc != TPM_RC_HASH) {
+        rc != TPM_RC_SIZE && rc != TPM_RC_HASH && rc != TPM_RC_KEY &&
+        rc != TPM_RC_TYPE && rc != TPM_RC_ATTRIBUTES &&
+        rc != TPM_RC_VALUE) {
         rc = TPM_RC_FAILURE;
     }
 
