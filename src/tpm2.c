@@ -2664,6 +2664,7 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
                 (UINT16)sizeof(out->message.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2706,6 +2707,7 @@ TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out)
             TPM2_Packet_ParsePoint(&packet, &out->pubPoint);
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2744,6 +2746,7 @@ TPM_RC TPM2_ECDH_ZGen(ECDH_ZGen_In* in, ECDH_ZGen_Out* out)
             TPM2_Packet_ParsePoint(&packet, &out->outPoint);
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2849,6 +2852,7 @@ TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out)
             TPM2_Packet_ParsePoint(&packet, &out->outZ2);
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2901,6 +2905,7 @@ TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in, EncryptDecrypt_Out* out)
                 out->ivOut.buffer, (UINT16)sizeof(out->ivOut.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2951,6 +2956,7 @@ TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in, EncryptDecrypt2_Out* out)
                 out->ivOut.buffer, (UINT16)sizeof(out->ivOut.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -4278,6 +4284,7 @@ TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out)
             }
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
