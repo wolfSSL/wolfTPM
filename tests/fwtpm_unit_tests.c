@@ -15714,6 +15714,7 @@ static void test_fwtpm_param_enc_session_bound_to_auth(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Param-enc session bound to auth HMAC:", 0);
 }
+
 #endif /* !FWTPM_NO_PARAM_ENC && FWTPM_MAX_SESSIONS >= 2 */
 #endif /* !FWTPM_NO_HASH_CMDS */
 
@@ -17671,7 +17672,6 @@ int fwtpm_unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
-
     if (argc == 2 && XSTRCMP(argv[1], "evict-auth") == 0) {
         test_fwtpm_evict_control();
         return 0;

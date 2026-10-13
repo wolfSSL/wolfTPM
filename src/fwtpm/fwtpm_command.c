@@ -118,6 +118,7 @@ static FWTPM_HashSeq* FwFindHashSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
 static int    FwGetCmdCount(void);
 static TPM_CC FwGetCmdCcAt(int idx);
 static UINT32 FwGetCmdAttrsAt(int idx);
+
 /* --- Response helpers using TPM2_Packet --- */
 
 /* Initialize a response packet on the given buffer */
@@ -19564,6 +19565,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int authFail;                   /* Password comparison result */
     int rspCap;                     /* Caller's response buffer capacity */
     int rspTruncated = 0;           /* Response did not fit the buffer */
+    int rspCryptoFailure = 0;       /* No valid session response was built */
     FWTPM_Session* pendingFlushSess = NULL;
 
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSize == NULL) {
@@ -20457,11 +20459,19 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             }
 
             /* Compute expected command HMAC (nonceCaller first, then nonceTPM) */
-            FwComputeSessionHmac(hSess, cpHash, cpHashSz,
+            rc = (TPM_RC)FwComputeSessionHmac(hSess, cpHash, cpHashSz,
                 cmdAuths[hj].attributes, authVal, authValSz,
                 nonceDecrypt, nonceEncrypt,
                 0, /* isResponse=0 for command HMAC */
                 expectedHmac, &expectedSz);
+            if (rc != TPM_RC_SUCCESS) {
+                wc_ForceZero(cpHash, sizeof(cpHash));
+                wc_ForceZero(expectedHmac, sizeof(expectedHmac));
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_FAILURE);
+                wc_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
+            }
 
             /* Always run TPM2_ConstantCompare so timing doesn't leak size */
             sizeMismatch = (cmdAuths[hj].cmdHmacSize != (UINT16)expectedSz);
@@ -20586,10 +20596,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         int rpHashSz = 0;
         const byte* rpBytes = NULL;
         int rpBytesSz = 0;
-        /* previous nonceTPM per session, restored if the response overflows
-         * (66 bytes each, 3 sessions max) */
-        TPM2B_NONCE savedNonce[FWTPM_MAX_CMD_AUTHS];
-
         /* Read parameterSize from response buffer */
         if (rspHandleEnd + 4 <= rspPkt.pos) {
             rspParamSzVal = (UINT32)(
@@ -20603,13 +20609,11 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         rspParamEnd = rspParamStart + (int)rspParamSzVal;
 #endif
 
-        /* New nonceTPM before response encryption, saving the old one */
-        for (j = 0; j < cmdAuthCnt; j++) {
+        /* Generate the new nonceTPM values before response encryption. */
+        for (j = 0; j < cmdAuthCnt && !rspCryptoFailure; j++) {
             if (cmdAuths[j].sess != NULL) {
                 FWTPM_Session* sess = cmdAuths[j].sess;
                 int digestSz = TPM2_GetHashDigestSize(sess->authHash);
-                XMEMCPY(&savedNonce[j], &sess->nonceTPM,
-                    sizeof(savedNonce[j]));
                 if (digestSz > 0) {
                     rngRc = wc_RNG_GenerateBlock(&ctx->rng,
                         sess->nonceTPM.buffer, digestSz);
@@ -20617,15 +20621,19 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         sess->nonceTPM.size = digestSz;
                     }
                     else {
-                        sess->nonceTPM.size = 0;
+                        rspCryptoFailure = 1;
                     }
+                }
+                else {
+                    rspCryptoFailure = 1;
                 }
             }
         }
 
 #ifndef FWTPM_NO_PARAM_ENC
         /* Response parameter encryption (encrypt first TPM2B param) */
-        if (doEncRsp && encSess != NULL && rspParamSzVal > 2) {
+        if (!rspCryptoFailure && doEncRsp && encSess != NULL &&
+                rspParamSzVal > 2) {
             UINT16 firstParamSz;
             firstParamSz = FwLoadU16BE(rspBuf + rspParamStart);
             if (firstParamSz > 0 &&
@@ -20636,6 +20644,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: ParamEncrypt failed %d\n", encRc);
                 #endif
+                    rspCryptoFailure = 1;
                 }
             }
         }
@@ -20649,7 +20658,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         /* Append auth area: one entry per command auth session.
          * rpHash is computed per-session using each session's authHash,
          * per TPM 2.0 Part 1 Section 19.6.5. */
-        for (j = 0; j < cmdAuthCnt; j++) {
+        for (j = 0; j < cmdAuthCnt && !rspCryptoFailure; j++) {
             UINT8 rspAttribs = cmdAuths[j].attributes &
                 TPMA_SESSION_continueSession;
 #ifndef FWTPM_NO_PARAM_ENC
@@ -20674,6 +20683,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 int digestSz = TPM2_GetHashDigestSize(sess->authHash);
                 byte hmacBuf[TPM_MAX_DIGEST_SIZE];
                 int hmacSz = 0;
+                int cryptoRc;
+
+                XMEMSET(hmacBuf, 0, sizeof(hmacBuf));
 
                 /* Append nonceTPM */
                 TPM2_Packet_AppendU16(&rspPkt, sess->nonceTPM.size);
@@ -20693,8 +20705,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
                 /* Compute rpHash for this session's hash algorithm */
                 rpHashSz = 0;
-                FwComputeRpHash(sess->authHash, (TPM_CC)cmdCode,
+                cryptoRc = FwComputeRpHash(sess->authHash,
+                    (TPM_CC)cmdCode,
                     rpBytes, rpBytesSz, rpHash, &rpHashSz);
+                if (cryptoRc != 0) {
+                    rspCryptoFailure = 1;
+                    wc_ForceZero(hmacBuf, sizeof(hmacBuf));
+                    break;
+                }
 
                 /* Compute and append response HMAC.
                  * authValue is the auth of the j-th command entity handle,
@@ -20716,29 +20734,43 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         authVal = NULL;
                         authValSz = 0;
                     }
-                    FwComputeSessionHmac(sess, rpHash, rpHashSz, rspAttribs,
+                    cryptoRc = FwComputeSessionHmac(sess, rpHash, rpHashSz,
+                        rspAttribs,
                         authVal, authValSz, NULL, NULL, 1 /* isResponse */,
                         hmacBuf, &hmacSz);
+                    if (cryptoRc != 0) {
+                        rspCryptoFailure = 1;
+                        wc_ForceZero(hmacBuf, sizeof(hmacBuf));
+                        break;
+                    }
                 }
                 TPM2_Packet_AppendU16(&rspPkt, (UINT16)hmacSz);
                 if (hmacSz > 0) {
                     TPM2_Packet_AppendBytes(&rspPkt, hmacBuf, hmacSz);
                 }
+                wc_ForceZero(hmacBuf, sizeof(hmacBuf));
             }
         }
+        wc_ForceZero(rpHash, sizeof(rpHash));
 
-        /* Auth area is appended after the handler ran, so it can overrun a
-         * buffer the parameters alone fit in. Restore the nonces: the client
-         * never received the new ones. */
-        if (rspPkt.overflow) {
+        /* The handler has already committed its state. If the authenticated
+         * response cannot be delivered, invalidate its sessions so the
+         * command cannot be replayed with an old nonce. */
+        if (rspCryptoFailure || rspPkt.overflow) {
+            rspCryptoFailure = 1;
             for (j = 0; j < cmdAuthCnt; j++) {
                 if (cmdAuths[j].sess != NULL) {
-                    XMEMCPY(&cmdAuths[j].sess->nonceTPM, &savedNonce[j],
-                        sizeof(savedNonce[j]));
+                    if (cmdAuths[j].sess == pendingFlushSess) {
+                        pendingFlushSess = NULL;
+                    }
+                    FwFreeSession(cmdAuths[j].sess);
+                    cmdAuths[j].sess = NULL;
                 }
             }
-            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                TPM_ST_NO_SESSIONS, TPM_RC_SIZE);
+            if (rspPkt.pos > 0 && rspPkt.pos <= rspCap) {
+                wc_ForceZero(rspBuf, (word32)rspPkt.pos);
+            }
+            *rspSize = 0;
         }
         else {
             /* Finalize response header */
@@ -20777,7 +20809,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     }
 
     TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
-    return TPM_RC_SUCCESS;
+    return rspCryptoFailure ? TPM_RC_FAILURE : TPM_RC_SUCCESS;
 }
 
 #endif /* WOLFTPM_FWTPM */
