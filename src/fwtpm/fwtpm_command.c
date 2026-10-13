@@ -211,6 +211,33 @@ static TPM_RC FwSkipAuthArea(TPM2_Packet* cmd, int cmdSize)
     return TPM_RC_SUCCESS;
 }
 
+#ifndef FWTPM_NO_POLICY
+/* Parse a policy TPM2B only when its complete wire value is present. */
+static TPM_RC FwPolicyParseTpm2b(TPM2_Packet* cmd, int cmdSize, byte* out,
+    UINT16 outSz, UINT16* size)
+{
+    if (cmd == NULL || out == NULL || size == NULL || cmd->overflow ||
+            cmd->pos < 0 || cmd->pos > cmdSize ||
+            cmdSize - cmd->pos < (int)sizeof(UINT16)) {
+        return TPM_RC_COMMAND_SIZE;
+    }
+
+    *size = 0;
+    XMEMSET(out, 0, outSz);
+    TPM2_Packet_ParseU16(cmd, size);
+    if (*size > outSz) {
+        return TPM_RC_SIZE;
+    }
+    if ((int)*size > cmdSize - cmd->pos) {
+        return TPM_RC_COMMAND_SIZE;
+    }
+    if (*size > 0) {
+        TPM2_Packet_ParseBytes(cmd, out, *size);
+    }
+    return cmd->overflow ? TPM_RC_COMMAND_SIZE : TPM_RC_SUCCESS;
+}
+#endif
+
 #ifdef WOLFTPM_SPDM
 #ifdef FWTPM_SPDM_USE_RESPONDER
 #define FWTPM_SPDM_P384_SZ 48
@@ -11118,9 +11145,9 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int i, j;
     int bankIdx, pcrDSz;
 
-    (void)cmdSize;
-
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+
+    XMEMSET(&pcrs, 0, sizeof(pcrs));
 
     /* Parse handle */
     TPM2_Packet_ParseU32(cmd, &sessHandle);
@@ -11129,17 +11156,17 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse pcrDigest (TPM2B) */
-    TPM2_Packet_ParseU16(cmd, &pcrDigestSize);
-    if (pcrDigestSize > sizeof(pcrDigest)) {
-        rc = TPM_RC_SIZE;
-    }
-    if (rc == 0 && pcrDigestSize > 0) {
-        TPM2_Packet_ParseBytes(cmd, pcrDigest, pcrDigestSize);
+    if (rc == 0) {
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, pcrDigest,
+            (UINT16)sizeof(pcrDigest), &pcrDigestSize);
     }
 
     /* Parse PCR selection */
     if (rc == 0) {
         TPM2_Packet_ParsePCR(cmd, &pcrs);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -11562,16 +11589,20 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte ccBuf[4];
     byte zeroBuf[TPM_MAX_DIGEST_SIZE];
     UINT32 ccPolicyOR = TPM_CC_PolicyOR;
-    (void)cmdSize;
 
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
     TPM2_Packet_ParseU32(cmd, &sessHandle);
     if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
-    TPM2_Packet_ParseU32(cmd, &digestCount);
-    if (digestCount < 2 || digestCount > 8) {
-        rc = TPM_RC_VALUE;
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &digestCount);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        else if (digestCount < 2 || digestCount > 8) {
+            rc = TPM_RC_VALUE;
+        }
     }
     if (rc == 0) {
         sess = FwFindSession(ctx, sessHandle);
@@ -11590,12 +11621,14 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         dSz = TPM2_GetHashDigestSize(sess->authHash);
         for (i = 0; i < (int)digestCount; i++) {
-            TPM2_Packet_ParseU16(cmd, &digestSizes[i]);
-            if (digestSizes[i] != (UINT16)dSz) {
+            rc = FwPolicyParseTpm2b(cmd, cmdSize, digests[i],
+                (UINT16)sizeof(digests[i]), &digestSizes[i]);
+            if (rc == 0 && digestSizes[i] != (UINT16)dSz) {
                 rc = TPM_RC_SIZE;
+            }
+            if (rc != 0) {
                 break;
             }
-            TPM2_Packet_ParseBytes(cmd, digests[i], digestSizes[i]);
         }
     }
 
@@ -12868,7 +12901,6 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     UINT16 templateHashSz = 0;
     byte templateHash[TPM_MAX_DIGEST_SIZE];
-    (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
     if (sess == NULL) {
@@ -12881,13 +12913,14 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
-        TPM2_Packet_ParseU16(cmd, &templateHashSz);
-        if (expectedSz <= 0 || templateHashSz != (UINT16)expectedSz) {
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, templateHash,
+            (UINT16)sizeof(templateHash), &templateHashSz);
+        if (rc == 0 && (expectedSz <= 0 ||
+                templateHashSz != (UINT16)expectedSz)) {
             rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        TPM2_Packet_ParseBytes(cmd, templateHash, templateHashSz);
         /* cpHash, nameHash and templateHash share one session slot
          * (Part 3 Sec.23.19), so only a repeat of the same template is
          * accepted */
@@ -12939,7 +12972,6 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int sizeMismatch;
     int cpDiff;
     word32 cmpSz;
-    (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
     if (sess == NULL) {
@@ -12952,14 +12984,14 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
-        TPM2_Packet_ParseU16(cmd, &cpHashSz);
-        if (expectedSz <= 0 || cpHashSz != (UINT16)expectedSz) {
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, cpHashBuf,
+            (UINT16)sizeof(cpHashBuf), &cpHashSz);
+        if (rc == 0 && (expectedSz <= 0 ||
+                cpHashSz != (UINT16)expectedSz)) {
             rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        TPM2_Packet_ParseBytes(cmd, cpHashBuf, cpHashSz);
-
         /* cpHash, nameHash and templateHash share one session slot */
         if (sess->nameHash.size > 0 || sess->templateHash.size > 0) {
             rc = TPM_RC_CPHASH;
@@ -13010,7 +13042,6 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int sizeMismatch;
     int nameDiff;
     word32 cmpSz;
-    (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
     if (sess == NULL) {
@@ -13023,14 +13054,14 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
-        TPM2_Packet_ParseU16(cmd, &nameHashSz);
-        if (expectedSz <= 0 || nameHashSz != (UINT16)expectedSz) {
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, nameHashBuf,
+            (UINT16)sizeof(nameHashBuf), &nameHashSz);
+        if (rc == 0 && (expectedSz <= 0 ||
+                nameHashSz != (UINT16)expectedSz)) {
             rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        TPM2_Packet_ParseBytes(cmd, nameHashBuf, nameHashSz);
-
         /* cpHash, nameHash and templateHash share one session slot */
         if (sess->cpHashA.size > 0 || sess->templateHash.size > 0) {
             rc = TPM_RC_CPHASH;
@@ -13083,7 +13114,6 @@ static TPM_RC FwCmd_PolicyDuplicationSelect(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte objectName[2 + TPM_MAX_DIGEST_SIZE];
     byte newParentName[2 + TPM_MAX_DIGEST_SIZE];
     UINT8 includeObject = 0;
-    (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
     if (sess == NULL) {
@@ -13096,30 +13126,24 @@ static TPM_RC FwCmd_PolicyDuplicationSelect(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Parse TPM2B_NAME objectName */
     if (rc == 0) {
-        TPM2_Packet_ParseU16(cmd, &objectNameSz);
-        if (objectNameSz > sizeof(objectName)) {
-            rc = TPM_RC_SIZE;
-        }
-    }
-    if (rc == 0 && objectNameSz > 0) {
-        TPM2_Packet_ParseBytes(cmd, objectName, objectNameSz);
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, objectName,
+            (UINT16)sizeof(objectName), &objectNameSz);
     }
 
     /* Parse TPM2B_NAME newParentName */
     if (rc == 0) {
-        TPM2_Packet_ParseU16(cmd, &newParentNameSz);
-        if (newParentNameSz > sizeof(newParentName)) {
-            rc = TPM_RC_SIZE;
-        }
-    }
-    if (rc == 0 && newParentNameSz > 0) {
-        TPM2_Packet_ParseBytes(cmd, newParentName, newParentNameSz);
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, newParentName,
+            (UINT16)sizeof(newParentName),
+            &newParentNameSz);
     }
 
     /* Parse includeObject (TPMI_YES_NO = UINT8) */
     if (rc == 0) {
         TPM2_Packet_ParseU8(cmd, &includeObject);
-        if (includeObject > 1) {
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        else if (includeObject > 1) {
             rc = TPM_RC_VALUE;
         }
     }
@@ -13245,8 +13269,6 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 cc = TPM_CC_PolicyCounterTimer;
     int hashCtxInit = 0;
 
-    (void)cmdSize;
-
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
@@ -13260,16 +13282,15 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Parse operandB (TPM2B) */
     if (rc == 0) {
-        TPM2_Packet_ParseU16(cmd, &operandBSz);
-        if (operandBSz > sizeof(operandB))
-            rc = TPM_RC_SIZE;
-    }
-    if (rc == 0 && operandBSz > 0) {
-        TPM2_Packet_ParseBytes(cmd, operandB, operandBSz);
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, operandB,
+            (UINT16)sizeof(operandB), &operandBSz);
     }
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &offset);
         TPM2_Packet_ParseU16(cmd, &operation);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
 
     /* Marshal TPMS_TIME_INFO into timeInfo buffer */
