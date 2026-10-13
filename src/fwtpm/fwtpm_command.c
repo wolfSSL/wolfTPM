@@ -10142,6 +10142,10 @@ static TPM_RC FwCmd_HMAC_Start(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign))
             rc = TPM_RC_KEY;
     }
+    if (rc == 0 &&
+            (obj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
 
     /* Skip auth area */
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
