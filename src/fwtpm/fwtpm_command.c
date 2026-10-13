@@ -9908,8 +9908,13 @@ static TPM_RC FwCmd_Hash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Parse hashAlg */
         TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
 
-        /* Parse hierarchy (ignored for simple hash) */
+        /* Parse hierarchy used for the validation ticket. */
         TPM2_Packet_ParseU32(cmd, &hierarchy);
+        if (hierarchy != TPM_RH_OWNER &&
+                hierarchy != TPM_RH_ENDORSEMENT &&
+                hierarchy != TPM_RH_PLATFORM && hierarchy != TPM_RH_NULL) {
+            rc = TPM_RC_VALUE;
+        }
 
         wcHash = FwGetWcHashType(hashAlg);
         if (wcHash == WC_HASH_TYPE_NONE) {
@@ -10663,7 +10668,7 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
         if (FwGetHierarchySeed(ctx, hierarchy) == NULL) {
-            rc = TPM_RC_HIERARCHY;
+            rc = TPM_RC_VALUE;
         }
     }
 
