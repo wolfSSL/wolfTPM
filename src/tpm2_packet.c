@@ -758,6 +758,11 @@ void TPM2_Packet_ParseEccScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
         TPM2_Packet_ParseU16(packet, &scheme->details.ecdaa.hashAlg);
         TPM2_Packet_ParseU16(packet, &scheme->details.ecdaa.count);
     }
+#ifdef WOLFTPM_PQC
+    else if (scheme->scheme == TPM_ALG_MLDSA ||
+             scheme->scheme == TPM_ALG_HASH_MLDSA) {
+    }
+#endif
     else if (scheme->scheme != TPM_ALG_NULL) {
         TPM2_Packet_ParseU16(packet, &scheme->details.any.hashAlg);
     }
