@@ -14265,12 +14265,7 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Set WRITTEN attribute */
         nv->nvPublic.attributes |= 0x20000000UL; /* TPMA_NV_WRITTEN */
 
-        /* Note: TPMA_NV_WRITEDEFINE means the index CAN be write-locked via
-         * explicit NV_WriteLock command. It does NOT auto-lock on each write.
-         * TPMA_NV_WRITE_STCLEAR auto-locks on write (cleared on SU_CLEAR). */
-        if (nv->nvPublic.attributes & TPMA_NV_WRITE_STCLEAR) {
-            nv->nvPublic.attributes |= TPMA_NV_WRITELOCKED;
-        }
+        /* WRITE_STCLEAR only enables explicit NV_WriteLock until reset. */
 
         rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
 
