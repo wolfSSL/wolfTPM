@@ -12423,6 +12423,14 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif
 
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY && nonceTpmSz > 0) {
+        if (nonceTpmSz != sess->nonceTPM.size ||
+                TPM2_ConstantCompare(nonceBuf, sess->nonceTPM.buffer,
+                    nonceTpmSz) != 0) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+
     /* For policy sessions (not trial): verify signature per TPM 2.0 Part 3
      * Section 23.3. Compute aHash = H(nonceTPM || expiration || cpHashA ||
      * policyRef), then verify signature against aHash using authObject's
@@ -12439,9 +12447,8 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Compute aHash */
         hrc = wc_HashInit(hashCtx, wcHash);
-        if (hrc == 0 && sess->nonceTPM.size > 0) {
-            hrc = wc_HashUpdate(hashCtx, wcHash,
-                sess->nonceTPM.buffer, sess->nonceTPM.size);
+        if (hrc == 0 && nonceTpmSz > 0) {
+            hrc = wc_HashUpdate(hashCtx, wcHash, nonceBuf, nonceTpmSz);
         }
         if (hrc == 0) {
             FwStoreU32BE(expBuf, (UINT32)expiration);
