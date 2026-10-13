@@ -527,6 +527,7 @@ typedef struct FWTPM_HashSeq {
     TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
     TPMI_ALG_HASH hashAlg;         /* Hash algorithm for this sequence */
     int isHmac;                     /* 1 if HMAC sequence, 0 if plain hash */
+    UINT8 eventBankMask;            /* Active banks when hashAlg is NULL */
     TPM2B_AUTH authValue;           /* Sequence auth (from HashSequenceStart) */
     UINT16 hmacKeySz;
     byte hmacKey[MAX_SYM_DATA];
@@ -534,6 +535,7 @@ typedef struct FWTPM_HashSeq {
     union {
         wc_HashAlg hash;            /* wolfCrypt hash context (isHmac == 0) */
         Hmac hmac;                  /* wolfCrypt HMAC context (isHmac == 1) */
+        wc_HashAlg eventHash[FWTPM_PCR_BANKS];
     } ctx;
 #endif
 } FWTPM_HashSeq;

@@ -431,6 +431,30 @@ static int FwGetPcrBankIndex(UINT16 hashAlg)
     }
 }
 
+#ifndef FWTPM_NO_HASH_CMDS
+static UINT16 FwGetPcrBankAlg(int bank)
+{
+    if (bank == FWTPM_PCR_BANK_SHA256) {
+        return TPM_ALG_SHA256;
+    }
+#ifdef WOLFSSL_SHA384
+    if (bank == FWTPM_PCR_BANK_SHA384) {
+        return TPM_ALG_SHA384;
+    }
+#endif
+#ifndef NO_SHA
+    if (bank == FWTPM_PCR_BANK_SHA1) {
+        return TPM_ALG_SHA1;
+    }
+#endif
+    return TPM_ALG_NULL;
+}
+
+typedef struct FWTPM_EventHashCopies {
+    wc_HashAlg hash[FWTPM_PCR_BANKS];
+} FWTPM_EventHashCopies;
+#endif
+
 /* KDFa, KDFe, and param encryption/decryption are now shared via
  * tpm2_param_enc.c (TPM2_KDFa, TPM2_KDFe, TPM2_ParamEnc_XOR,
  * TPM2_ParamEnc_AESCFB). See wolftpm/tpm2_param_enc.h */
@@ -4363,15 +4387,8 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* Protects a transient object, sequence, or session context for later reload.
  * Ordinary objects remain referenced by handle. Sequence state is serialized
  * without process-local pointers into an encrypted external blob. */
-#ifndef FWTPM_NO_CONTEXT
-#define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
-#define FWTPM_CTX_VER    1u
-#define FWTPM_CTX_SAVED_SEQUENCE (TRANSIENT_FIRST + 1u)
-#define FWTPM_SEQ_CTX_PLAIN_MAX \
-    (MAX_CONTEXT_SIZE - 8 - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
-#define FWTPM_SEQ_CTX_WRAPPED_MAX (MAX_CONTEXT_SIZE - 8)
-
-#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
+#if !defined(FWTPM_NO_HASH_CMDS) || \
+    (defined(WOLFTPM_MLDSA) && !defined(FWTPM_NO_CONTEXT))
 static int FwCopyHashContext(wc_HashAlg* dst, wc_HashAlg* src,
     enum wc_HashType hashType)
 {
@@ -4440,7 +4457,78 @@ static int FwCopyHashContext(wc_HashAlg* dst, wc_HashAlg* src,
     }
     return rc;
 }
+
+#ifndef FWTPM_NO_HASH_CMDS
+static int FwCopyHmacContext(Hmac* src, Hmac* dst)
+{
+#if LIBWOLFSSL_VERSION_HEX >= 0x05009000
+    return wc_HmacCopy(src, dst);
+#else
+    int rc = 0;
+
+    XMEMCPY(dst, src, sizeof(*dst));
+    XMEMSET(&dst->hash, 0, sizeof(dst->hash));
+    switch (src->macType) {
+    #ifndef NO_SHA
+        case WC_SHA:
+            rc = wc_ShaCopy(&src->hash.sha, &dst->hash.sha);
+            break;
+    #endif
+    #ifndef NO_SHA256
+        case WC_SHA256:
+            rc = wc_Sha256Copy(&src->hash.sha256, &dst->hash.sha256);
+            break;
+    #endif
+    #ifdef WOLFSSL_SHA384
+        case WC_SHA384:
+            rc = wc_Sha384Copy(&src->hash.sha384, &dst->hash.sha384);
+            break;
+    #endif
+    #ifdef WOLFSSL_SHA512
+        case WC_SHA512:
+            rc = wc_Sha512Copy(&src->hash.sha512, &dst->hash.sha512);
+            break;
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256)
+        case WC_SHA3_256:
+            rc = wc_Sha3_256_Copy(&src->hash.sha3, &dst->hash.sha3);
+            break;
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384)
+        case WC_SHA3_384:
+            rc = wc_Sha3_384_Copy(&src->hash.sha3, &dst->hash.sha3);
+            break;
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+        case WC_SHA3_512:
+            rc = wc_Sha3_512_Copy(&src->hash.sha3, &dst->hash.sha3);
+            break;
+    #endif
+    #ifdef WOLFSSL_SM3
+        case WC_SM3:
+            rc = wc_Sm3Copy(&src->hash.sm3, &dst->hash.sm3);
+            break;
+    #endif
+        default:
+            rc = BAD_FUNC_ARG;
+            break;
+    }
+    if (rc != 0) {
+        XMEMSET(dst, 0, sizeof(*dst));
+    }
+    return rc;
 #endif
+}
+#endif
+#endif
+
+#ifndef FWTPM_NO_CONTEXT
+#define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
+#define FWTPM_CTX_VER    1u
+#define FWTPM_CTX_SAVED_SEQUENCE (TRANSIENT_FIRST + 1u)
+#define FWTPM_SEQ_CTX_PLAIN_MAX \
+    (MAX_CONTEXT_SIZE - 8 - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
+#define FWTPM_SEQ_CTX_WRAPPED_MAX (MAX_CONTEXT_SIZE - 8)
 
 static int FwIsSequenceHandle(FWTPM_CTX* ctx, TPM_HANDLE handle)
 {
@@ -4890,6 +4978,7 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
 #ifndef FWTPM_NO_HASH_CMDS
     FWTPM_HashSeq* hashSeq;
     enum wc_HashType hashSeqType;
+    int bank;
 #endif
 
     packet.buf = plain;
@@ -4913,7 +5002,18 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
         TPM2_Packet_AppendU16(&packet, hashSeq->authValue.size);
         TPM2_Packet_AppendBytes(&packet, hashSeq->authValue.buffer,
             hashSeq->authValue.size);
-        if (hashSeq->isHmac) {
+        if (!hashSeq->isHmac && hashSeq->hashAlg == TPM_ALG_NULL) {
+            TPM2_Packet_AppendU8(&packet, hashSeq->eventBankMask);
+            rc = packet.overflow ? BUFFER_E : 0;
+            for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+                if ((hashSeq->eventBankMask & (1u << bank)) != 0u) {
+                    rc = FwAppendHashState(&packet,
+                        &hashSeq->ctx.eventHash[bank],
+                        FwGetWcHashType(FwGetPcrBankAlg(bank)));
+                }
+            }
+        }
+        else if (hashSeq->isHmac) {
             rc = FwAppendHmacState(&packet, &hashSeq->ctx.hmac, hashSeqType,
                 hashSeq->hmacKey, hashSeq->hmacKeySz);
         }
@@ -5005,8 +5105,11 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
     if (kind == FWTPM_SEQ_CTX_HASH) {
         FWTPM_HashSeq* seq = FwAllocHashSeq(ctx, loadedHandle);
         UINT8 isHmac = 0;
+        UINT8 eventMask = 0;
         UINT16 authSz = 0;
         enum wc_HashType hashType;
+        int isEvent;
+        int bank;
 
         if (seq == NULL) {
             return TPM_RC_OBJECT_MEMORY;
@@ -5015,16 +5118,40 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
         TPM2_Packet_ParseU8(&packet, &isHmac);
         TPM2_Packet_ParseU16(&packet, &authSz);
         hashType = FwGetWcHashType(seq->hashAlg);
+        isEvent = (!isHmac && seq->hashAlg == TPM_ALG_NULL);
         if (isHmac > 1u || authSz > sizeof(seq->authValue.buffer) ||
                 packet.pos + authSz > packet.size ||
-                hashType == WC_HASH_TYPE_NONE) {
+                (!isEvent && hashType == WC_HASH_TYPE_NONE)) {
             rc = TPM_RC_INTEGRITY;
         }
         if (rc == 0) {
             seq->isHmac = isHmac;
             seq->authValue.size = authSz;
             TPM2_Packet_ParseBytes(&packet, seq->authValue.buffer, authSz);
-            if (seq->isHmac) {
+            if (isEvent) {
+                TPM2_Packet_ParseU8(&packet, &eventMask);
+                if (eventMask == 0 ||
+                        (eventMask & ~((1u << FWTPM_PCR_BANKS) - 1u)) != 0u) {
+                    rc = TPM_RC_INTEGRITY;
+                }
+                for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+                    if ((eventMask & (1u << bank)) != 0u) {
+                        wc_HashAlg raw;
+                        hashType = FwGetWcHashType(FwGetPcrBankAlg(bank));
+                        XMEMSET(&raw, 0, sizeof(raw));
+                        rc = FwParseRawHashState(&packet, hashType, &raw);
+                        if (rc == 0) {
+                            rc = FwCopyHashContext(
+                                &seq->ctx.eventHash[bank], &raw, hashType);
+                        }
+                        TPM2_ForceZero(&raw, sizeof(raw));
+                        if (rc == 0) {
+                            seq->eventBankMask |= (UINT8)(1u << bank);
+                        }
+                    }
+                }
+            }
+            else if (seq->isHmac) {
                 rc = FwParseHmacState(&packet, &seq->ctx.hmac, hashType,
                     NULL, 0, seq->hmacKey, &seq->hmacKeySz);
             }
@@ -9862,8 +9989,18 @@ static FWTPM_HashSeq* FwFindHashSeq(FWTPM_CTX* ctx, TPM_HANDLE handle)
 
 static void FwFreeHashSeq(FWTPM_HashSeq* seq)
 {
+    int bank;
+
     if (seq->isHmac) {
         wc_HmacFree(&seq->ctx.hmac);
+    }
+    else if (seq->hashAlg == TPM_ALG_NULL) {
+        for (bank = 0; bank < FWTPM_PCR_BANKS; bank++) {
+            if ((seq->eventBankMask & (1u << bank)) != 0u) {
+                wc_HashFree(&seq->ctx.eventHash[bank],
+                    FwGetWcHashType(FwGetPcrBankAlg(bank)));
+            }
+        }
     }
     else {
         wc_HashFree(&seq->ctx.hash, FwGetWcHashType(seq->hashAlg));
@@ -10021,7 +10158,9 @@ static TPM_RC FwCmd_HashSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPMI_ALG_HASH hashAlg;
     FWTPM_HashSeq* seq = NULL;
     TPM_HANDLE seqHandle = 0;
-    enum wc_HashType wcHash;
+    enum wc_HashType wcHash = WC_HASH_TYPE_NONE;
+    UINT8 eventBanks = 0;
+    int bank;
 
     (void)cmdSize;
 
@@ -10040,9 +10179,14 @@ static TPM_RC FwCmd_HashSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Parse hashAlg */
         TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
 
-        wcHash = FwGetWcHashType(hashAlg);
-        if (wcHash == WC_HASH_TYPE_NONE) {
-            rc = TPM_RC_HASH;
+        if (hashAlg == TPM_ALG_NULL) {
+            eventBanks = (UINT8)((1u << FWTPM_PCR_BANKS) - 1u);
+        }
+        else {
+            wcHash = FwGetWcHashType(hashAlg);
+            if (wcHash == WC_HASH_TYPE_NONE) {
+                rc = TPM_RC_HASH;
+            }
         }
     }
 
@@ -10058,7 +10202,20 @@ static TPM_RC FwCmd_HashSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq->isHmac = 0;
         XMEMCPY(&seq->authValue, &auth, sizeof(TPM2B_AUTH));
 
-        rc = wc_HashInit(&seq->ctx.hash, wcHash);
+        if (hashAlg == TPM_ALG_NULL) {
+            for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+                if ((eventBanks & (1u << bank)) != 0u) {
+                    wcHash = FwGetWcHashType(FwGetPcrBankAlg(bank));
+                    rc = wc_HashInit(&seq->ctx.eventHash[bank], wcHash);
+                    if (rc == 0) {
+                        seq->eventBankMask |= (UINT8)(1u << bank);
+                    }
+                }
+            }
+        }
+        else {
+            rc = wc_HashInit(&seq->ctx.hash, wcHash);
+        }
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -10095,12 +10252,18 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
 #ifndef FWTPM_NO_HASH_CMDS
     FWTPM_HashSeq* seq;
+    FWTPM_DECLARE_VAR(eventCopies, FWTPM_EventHashCopies);
+    UINT8 eventCopyMask = 0;
+    int bank;
 #endif
 #ifdef WOLFTPM_MLDSA
     FWTPM_SignSeq* signSeq = NULL;
 #endif
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
+#ifndef FWTPM_NO_HASH_CMDS
+    FWTPM_CALLOC_VAR(eventCopies, FWTPM_EventHashCopies);
+#endif
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -10220,6 +10383,41 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_FAILURE;
             }
         }
+        else if (seq->hashAlg == TPM_ALG_NULL) {
+            for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+                if ((seq->eventBankMask & (1u << bank)) != 0u) {
+                    rc = FwCopyHashContext(&eventCopies->hash[bank],
+                        &seq->ctx.eventHash[bank],
+                        FwGetWcHashType(FwGetPcrBankAlg(bank)));
+                    if (rc == 0) {
+                        eventCopyMask |= (UINT8)(1u << bank);
+                    }
+                }
+            }
+            for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+                if ((eventCopyMask & (1u << bank)) != 0u) {
+                    rc = wc_HashUpdate(&eventCopies->hash[bank],
+                        FwGetWcHashType(FwGetPcrBankAlg(bank)),
+                        dataBuf, dataSize);
+                }
+            }
+            if (rc == 0) {
+                for (bank = 0; bank < FWTPM_PCR_BANKS; bank++) {
+                    if ((eventCopyMask & (1u << bank)) != 0u) {
+                        wc_HashFree(&seq->ctx.eventHash[bank],
+                            FwGetWcHashType(FwGetPcrBankAlg(bank)));
+                        XMEMCPY(&seq->ctx.eventHash[bank],
+                            &eventCopies->hash[bank], sizeof(wc_HashAlg));
+                        XMEMSET(&eventCopies->hash[bank], 0,
+                            sizeof(wc_HashAlg));
+                        eventCopyMask &= (UINT8)~(1u << bank);
+                    }
+                }
+            }
+            else {
+                rc = TPM_RC_FAILURE;
+            }
+        }
         else {
             rc = wc_HashUpdate(&seq->ctx.hash, FwGetWcHashType(seq->hashAlg),
                 dataBuf, dataSize);
@@ -10235,6 +10433,21 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspNoParams(rsp, cmdTag);
     }
 
+#ifndef FWTPM_NO_HASH_CMDS
+    for (bank = 0; bank < FWTPM_PCR_BANKS; bank++) {
+        if ((eventCopyMask & (1u << bank)) != 0u) {
+            wc_HashFree(&eventCopies->hash[bank],
+                FwGetWcHashType(FwGetPcrBankAlg(bank)));
+        }
+    }
+    #ifdef WOLFTPM_SMALL_STACK
+    if (eventCopies != NULL)
+    #endif
+    {
+        TPM2_ForceZero(eventCopies, sizeof(*eventCopies));
+    }
+    FWTPM_FREE_VAR(eventCopies);
+#endif
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
@@ -10250,14 +10463,20 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 dataSize = 0;
     UINT32 hierarchy;
     FWTPM_DECLARE_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
+    FWTPM_DECLARE_VAR(hashCopy, wc_HashAlg);
+    FWTPM_DECLARE_VAR(hmacCopy, Hmac);
     byte digest[TPM_MAX_DIGEST_SIZE];
     int digestSz = 0;
     FWTPM_HashSeq* seq = NULL;
     TPMI_ALG_HASH hashAlg = TPM_ALG_NULL;
     int paramSzPos, paramStart;
     int trc;
+    int hashCopyInit = 0;
+    int hmacCopyInit = 0;
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
+    FWTPM_CALLOC_VAR(hashCopy, wc_HashAlg);
+    FWTPM_CALLOC_VAR(hmacCopy, Hmac);
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -10273,6 +10492,9 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
              * freeing would let an unauthenticated caller destroy any sequence
              * by guessing its handle. FlushContext releases those slots. */
             rc = TPM_RC_HANDLE;
+        }
+        else if (!seq->isHmac && seq->hashAlg == TPM_ALG_NULL) {
+            rc = TPM_RC_MODE;
         }
         else {
             hashAlg = seq->hashAlg;
@@ -10303,44 +10525,58 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &hierarchy);
 
         digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
+        if (FwGetHierarchySeed(ctx, hierarchy) == NULL) {
+            rc = TPM_RC_HIERARCHY;
+        }
     }
 
     /* Feed final data and finalize */
     if (rc == 0) {
         if (seq->isHmac) {
-            if (dataSize > 0) {
-                rc = wc_HmacUpdate(&seq->ctx.hmac, dataBuf, dataSize);
+            rc = FwCopyHmacContext(&seq->ctx.hmac, hmacCopy);
+            if (rc == 0) {
+                hmacCopyInit = 1;
+            }
+            else {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == 0 && dataSize > 0) {
+                rc = wc_HmacUpdate(hmacCopy, dataBuf, dataSize);
                 if (rc != 0) {
                     rc = TPM_RC_FAILURE;
                 }
             }
             if (rc == 0) {
-                rc = wc_HmacFinal(&seq->ctx.hmac, digest);
+                rc = wc_HmacFinal(hmacCopy, digest);
                 if (rc != 0) {
                     rc = TPM_RC_FAILURE;
                 }
             }
         }
         else {
-            if (dataSize > 0) {
-                rc = wc_HashUpdate(&seq->ctx.hash,
+            rc = FwCopyHashContext(hashCopy, &seq->ctx.hash,
+                FwGetWcHashType(seq->hashAlg));
+            if (rc == 0) {
+                hashCopyInit = 1;
+            }
+            else {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == 0 && dataSize > 0) {
+                rc = wc_HashUpdate(hashCopy,
                     FwGetWcHashType(seq->hashAlg), dataBuf, dataSize);
                 if (rc != 0) {
                     rc = TPM_RC_FAILURE;
                 }
             }
             if (rc == 0) {
-                rc = wc_HashFinal(&seq->ctx.hash,
+                rc = wc_HashFinal(hashCopy,
                     FwGetWcHashType(seq->hashAlg), digest);
                 if (rc != 0) {
                     rc = TPM_RC_FAILURE;
                 }
             }
         }
-    }
-
-    if (seq != NULL) {
-        FwFreeHashSeq(seq);
     }
 
     if (rc == 0) {
@@ -10359,6 +10595,26 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
+    if (hmacCopyInit) {
+        wc_HmacFree(hmacCopy);
+    }
+    if (hashCopyInit) {
+        wc_HashFree(hashCopy, FwGetWcHashType(seq->hashAlg));
+    }
+    #ifdef WOLFTPM_SMALL_STACK
+    if (hmacCopy != NULL)
+    #endif
+    {
+        TPM2_ForceZero(hmacCopy, sizeof(*hmacCopy));
+    }
+    #ifdef WOLFTPM_SMALL_STACK
+    if (hashCopy != NULL)
+    #endif
+    {
+        TPM2_ForceZero(hashCopy, sizeof(*hashCopy));
+    }
+    FWTPM_FREE_VAR(hmacCopy);
+    FWTPM_FREE_VAR(hashCopy);
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
@@ -10375,18 +10631,29 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 seqHandle;
     UINT16 dataSize = 0;
     FWTPM_DECLARE_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
-    byte digest[TPM_MAX_DIGEST_SIZE];
-    int digestSz = 0;
-    UINT16 seqHashAlg = 0;
+    FWTPM_DECLARE_BUF(digestBuf,
+        FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
+    FWTPM_DECLARE_BUF(newPcrBuf,
+        FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
+    FWTPM_DECLARE_VAR(eventCopies, FWTPM_EventHashCopies);
+    int digestSz[FWTPM_PCR_BANKS];
     FWTPM_HashSeq* seq = NULL;
     int paramSzPos, paramStart;
-    int pcrIndex;
+    int pcrIndex = 0;
     int bank;
+    int bankCount = 0;
+    UINT8 extendBanks = 0;
+    UINT8 eventCopyMask = 0;
     enum wc_HashType wcHash;
     byte concat[TPM_MAX_DIGEST_SIZE * 2];
-    byte newPcrDigest[TPM_MAX_DIGEST_SIZE];
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
+    FWTPM_ALLOC_BUF(digestBuf,
+        FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
+    FWTPM_ALLOC_BUF(newPcrBuf,
+        FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
+    FWTPM_CALLOC_VAR(eventCopies, FWTPM_EventHashCopies);
+    XMEMSET(digestSz, 0, sizeof(digestSz));
 
     if (cmdSize < TPM2_HEADER_SIZE + 8) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -10399,6 +10666,9 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq = FwFindHashSeq(ctx, seqHandle);
         if (seq == NULL) {
             rc = TPM_RC_HANDLE;
+        }
+        else if (seq->isHmac || seq->hashAlg != TPM_ALG_NULL) {
+            rc = TPM_RC_MODE;
         }
     }
 
@@ -10422,73 +10692,84 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (dataSize > 0) {
             TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
         }
-
-        digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
     }
 
-    /* Feed final data and finalize the hash */
-    if (rc == 0) {
-        if (seq->isHmac) {
-            if (dataSize > 0) {
-                rc = wc_HmacUpdate(&seq->ctx.hmac, dataBuf, dataSize);
-                if (rc != 0) {
-                    rc = TPM_RC_FAILURE;
-                }
-            }
-            if (rc == 0) {
-                rc = wc_HmacFinal(&seq->ctx.hmac, digest);
-                if (rc != 0) {
-                    rc = TPM_RC_FAILURE;
-                }
-            }
-        }
-        else {
-            if (dataSize > 0) {
-                rc = wc_HashUpdate(&seq->ctx.hash,
-                    FwGetWcHashType(seq->hashAlg), dataBuf, dataSize);
-                if (rc != 0) {
-                    rc = TPM_RC_FAILURE;
-                }
-            }
-            if (rc == 0) {
-                rc = wc_HashFinal(&seq->ctx.hash,
-                    FwGetWcHashType(seq->hashAlg), digest);
-                if (rc != 0) {
-                    rc = TPM_RC_FAILURE;
-                }
-            }
-        }
-    }
-
-    /* Save hash alg before freeing sequence */
-    if (rc == 0) {
-        seqHashAlg = seq->hashAlg;
-    }
-
-    /* Extend the result into the PCR */
     if (rc == 0 && pcrHandle <= PCR_LAST) {
         pcrIndex = pcrHandle - PCR_FIRST;
-        /* This extends the target PCR, so enforce the extend locality from the
-         * source-of-truth table (DRTM PCRs 17-22 are restricted). */
         if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 0)) {
             rc = TPM_RC_LOCALITY;
         }
-        bank = FwGetPcrBankIndex(seqHashAlg);
-        if (rc == 0 && bank >= 0 && digestSz > 0) {
-            wcHash = FwGetWcHashType(seqHashAlg);
-            XMEMCPY(concat, ctx->pcrDigest[pcrIndex][bank], digestSz);
-            XMEMCPY(concat + digestSz, digest, digestSz);
-            if (wc_Hash(wcHash, concat, digestSz * 2,
-                    newPcrDigest, digestSz) == 0) {
-                XMEMCPY(ctx->pcrDigest[pcrIndex][bank],
-                    newPcrDigest, digestSz);
-                ctx->pcrUpdateCounter++;
+        else {
+            extendBanks = (UINT8)(seq->eventBankMask &
+                ctx->pcrAllocatedBanks);
+        }
+    }
+
+    for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+        if ((seq->eventBankMask & (1u << bank)) != 0u) {
+            rc = FwCopyHashContext(&eventCopies->hash[bank],
+                &seq->ctx.eventHash[bank],
+                FwGetWcHashType(FwGetPcrBankAlg(bank)));
+            if (rc == 0) {
+                eventCopyMask |= (UINT8)(1u << bank);
+            }
+            else {
+                rc = TPM_RC_FAILURE;
             }
         }
     }
 
-    if (seq != NULL) {
-        FwFreeHashSeq(seq);
+    /* Feed and finalize copies so errors leave the sequence retryable. */
+    for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+        if ((eventCopyMask & (1u << bank)) != 0u) {
+            UINT16 hashAlg = FwGetPcrBankAlg(bank);
+            byte* digest = digestBuf + bank * TPM_MAX_DIGEST_SIZE;
+
+            wcHash = FwGetWcHashType(hashAlg);
+            digestSz[bank] = TPM2_GetHashDigestSize(hashAlg);
+            if (dataSize > 0) {
+                rc = wc_HashUpdate(&eventCopies->hash[bank], wcHash,
+                    dataBuf, dataSize);
+            }
+            if (rc == 0) {
+                rc = wc_HashFinal(&eventCopies->hash[bank], wcHash,
+                    digest);
+            }
+            if (rc != 0 || digestSz[bank] <= 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                bankCount++;
+            }
+        }
+    }
+
+    /* Compute every new bank value before modifying the PCR. */
+    if (rc == 0 && pcrHandle <= PCR_LAST) {
+        for (bank = 0; bank < FWTPM_PCR_BANKS && rc == 0; bank++) {
+            if ((extendBanks & (1u << bank)) != 0u) {
+                byte* digest = digestBuf + bank * TPM_MAX_DIGEST_SIZE;
+                byte* newPcr = newPcrBuf + bank * TPM_MAX_DIGEST_SIZE;
+                wcHash = FwGetWcHashType(FwGetPcrBankAlg(bank));
+                XMEMCPY(concat, ctx->pcrDigest[pcrIndex][bank],
+                    digestSz[bank]);
+                XMEMCPY(concat + digestSz[bank], digest, digestSz[bank]);
+                if (wc_Hash(wcHash, concat, digestSz[bank] * 2,
+                        newPcr, digestSz[bank]) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+            }
+        }
+        if (rc == 0 && extendBanks != 0) {
+            for (bank = 0; bank < FWTPM_PCR_BANKS; bank++) {
+                if ((extendBanks & (1u << bank)) != 0u) {
+                    XMEMCPY(ctx->pcrDigest[pcrIndex][bank],
+                        newPcrBuf + bank * TPM_MAX_DIGEST_SIZE,
+                        digestSz[bank]);
+                }
+            }
+            ctx->pcrUpdateCounter++;
+        }
     }
 
     if (rc == 0) {
@@ -10500,15 +10781,34 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Build response: TPML_DIGEST_VALUES */
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
-        /* count = 1 (only the hash alg used by the sequence) */
-        TPM2_Packet_AppendU32(rsp, 1);
-        /* hashAlg + digest */
-        TPM2_Packet_AppendU16(rsp, seqHashAlg);
-        TPM2_Packet_AppendBytes(rsp, digest, digestSz);
+        TPM2_Packet_AppendU32(rsp, (UINT32)bankCount);
+        for (bank = 0; bank < FWTPM_PCR_BANKS; bank++) {
+            if ((seq->eventBankMask & (1u << bank)) != 0u) {
+                TPM2_Packet_AppendU16(rsp, FwGetPcrBankAlg(bank));
+                TPM2_Packet_AppendBytes(rsp,
+                    digestBuf + bank * TPM_MAX_DIGEST_SIZE,
+                    digestSz[bank]);
+            }
+        }
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
+    for (bank = 0; bank < FWTPM_PCR_BANKS; bank++) {
+        if ((eventCopyMask & (1u << bank)) != 0u) {
+            wc_HashFree(&eventCopies->hash[bank],
+                FwGetWcHashType(FwGetPcrBankAlg(bank)));
+        }
+    }
+    #ifdef WOLFTPM_SMALL_STACK
+    if (eventCopies != NULL)
+    #endif
+    {
+        TPM2_ForceZero(eventCopies, sizeof(*eventCopies));
+    }
+    FWTPM_FREE_VAR(eventCopies);
+    FWTPM_FREE_BUF(newPcrBuf);
+    FWTPM_FREE_BUF(digestBuf);
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
@@ -19689,6 +19989,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int rspTruncated = 0;           /* Response did not fit the buffer */
     int rspCryptoFailure = 0;       /* No valid session response was built */
     FWTPM_Session* pendingFlushSess = NULL;
+#ifndef FWTPM_NO_HASH_CMDS
+    FWTPM_HashSeq* pendingFlushHashSeq = NULL;
+#endif
 
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSize == NULL) {
         return BAD_FUNC_ARG;
@@ -20688,6 +20991,17 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     XMEMSET(ctx->activeCmdAuthIsPolicy, 0,
         sizeof(ctx->activeCmdAuthIsPolicy));
 #endif
+#ifndef FWTPM_NO_HASH_CMDS
+    if (rc == TPM_RC_SUCCESS && cmdCode == TPM_CC_SequenceComplete) {
+        pendingFlushHashSeq = FwFindHashSeq(ctx,
+            FwLoadU32BE(cmdBuf + TPM2_HEADER_SIZE));
+    }
+    else if (rc == TPM_RC_SUCCESS &&
+            cmdCode == TPM_CC_EventSequenceComplete) {
+        pendingFlushHashSeq = FwFindHashSeq(ctx,
+            FwLoadU32BE(cmdBuf + TPM2_HEADER_SIZE + 4));
+    }
+#endif
     /* A sessions-tagged FlushContext leaves its target session alive so the
      * dispatcher can use it to generate the response authorization area. */
     if (rc == TPM_RC_SUCCESS && cmdCode == TPM_CC_FlushContext &&
@@ -20934,6 +21248,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* FlushContext succeeds before response authorization is generated, but
      * its session target must not be released until that work is complete. */
     FwFreeSession(pendingFlushSess);
+
+#ifndef FWTPM_NO_HASH_CMDS
+    if (pendingFlushHashSeq != NULL) {
+        FwFreeHashSeq(pendingFlushHashSeq);
+    }
+#endif
 
     /* Deferred clear: flush transient objects after response auth is built. */
     if (ctx->pendingClear) {
