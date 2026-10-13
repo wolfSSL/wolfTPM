@@ -2838,12 +2838,6 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     }
 
     if (rc == 0) {
-        /* pcrUpdateCounter */
-        TPM2_Packet_AppendU32(rsp, ctx->pcrUpdateCounter);
-
-        /* Echo TPML_PCR_SELECTION */
-        TPM2_Packet_AppendU32(rsp, pcrSelCount);
-
         numSel = pcrSelCount;
 
         for (s = 0; s < numSel && rc == 0; s++) {
@@ -2869,18 +2863,45 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             if (rc != 0) {
                 break;
             }
+        }
+    }
 
-            /* Echo selection to response */
+    if (rc == 0) {
+        /* TPML_DIGEST holds at most eight entries. Trim the returned
+         * selection first so it describes exactly the emitted digests. */
+        for (s = 0; s < numSel; s++) {
+            int bank = FwGetPcrBankIndex(selections[s].hashAlg);
+            int j, pcr;
+
+            for (j = 0; j < selections[s].sizeOfSelect; j++) {
+                for (pcr = 0; pcr < 8; pcr++) {
+                    if (selections[s].pcrSelect[j] & (1 << pcr)) {
+                        int pcrIndex = j * 8 + pcr;
+                        if (bank < 0 || pcrIndex >= IMPLEMENTATION_PCR ||
+                                totalDigests >= 8) {
+                            selections[s].pcrSelect[j] &= (byte)~(1 << pcr);
+                        }
+                        else {
+                            totalDigests++;
+                        }
+                    }
+                }
+            }
+        }
+
+        TPM2_Packet_AppendU32(rsp, ctx->pcrUpdateCounter);
+        TPM2_Packet_AppendU32(rsp, pcrSelCount);
+        for (s = 0; s < numSel; s++) {
+            int j;
             TPM2_Packet_AppendU16(rsp, selections[s].hashAlg);
             TPM2_Packet_AppendU8(rsp, selections[s].sizeOfSelect);
             for (j = 0; j < selections[s].sizeOfSelect; j++) {
                 TPM2_Packet_AppendU8(rsp, selections[s].pcrSelect[j]);
             }
         }
-    }
 
-    if (rc == 0) {
         /* TPML_DIGEST: placeholder for count, then digests */
+        totalDigests = 0;
         digestCountPos = rsp->pos;
         TPM2_Packet_AppendU32(rsp, 0);
 
