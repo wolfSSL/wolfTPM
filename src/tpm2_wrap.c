@@ -7940,11 +7940,11 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         if (towrite > MAX_NV_BUFFER_SIZE)
             towrite = MAX_NV_BUFFER_SIZE;
 
-        /* Refresh for policy sessions and until NV_WRITTEN is cached. */
+        /* Refresh for the first policy chunk and until NV_WRITTEN is cached. */
         if (!nv->handle.nameLoaded ||
             nv->handle.hndl != (TPM_HANDLE)nvIndex ||
             (nv->attributes & TPMA_NV_WRITTEN) == 0 ||
-            (tpmSession != NULL &&
+            (pos == 0 && tpmSession != NULL &&
                 TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl))) {
             rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
             if (rc != 0)
@@ -8068,9 +8068,8 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         if (toread > MAX_NV_BUFFER_SIZE)
             toread = MAX_NV_BUFFER_SIZE;
 
-        /* Make sure the name is computed for the handle.
-         * Name changes on each iteration for policy session. */
-        if (!nv->handle.nameLoaded || (tpmSession != NULL
+        /* Make sure the name is computed for the handle. */
+        if (!nv->handle.nameLoaded || (pos == 0 && tpmSession != NULL
                          && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl))) {
             rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
             if (rc != 0)
