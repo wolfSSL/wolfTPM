@@ -1440,6 +1440,7 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
             }
             else {
                 packet->pos = packet->size;
+                packet->overflow = 1;
             }
         }
     }
