@@ -9016,6 +9016,10 @@ int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         pos += xfer;
     }
 
+    if (rc != TPM_RC_SUCCESS && isDecrypt && pos > 0) {
+        TPM2_ForceZero(out, pos);
+    }
+
 #ifdef DEBUG_WOLFTPM
     printf("wolfTPM2_EncryptDecrypt: 0x%x: %s, %d bytes\n",
         rc, TPM2_GetRCString(rc), inOutSz);
