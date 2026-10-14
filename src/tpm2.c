@@ -638,18 +638,13 @@ static TPM_RC TPM2_DispatchCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     return rc;
 }
 
-/* Preserve the request header for the caller, but remove any parameters left
- * after a transport failure. cmdSz may exceed the packet buffer on overflow. */
-static void TPM2_WipeRequestTail(TPM2_Packet* packet, UINT32 cmdSz,
-    int bufferSz)
+/* Preserve the header for the caller, but remove any request or response data
+ * that a failed transport may have left in the shared packet buffer. */
+static void TPM2_WipePacketTail(TPM2_Packet* packet, int bufferSz)
 {
     if (bufferSz > TPM2_HEADER_SIZE) {
-        if (cmdSz > (UINT32)bufferSz)
-            cmdSz = (UINT32)bufferSz;
-        if (cmdSz > TPM2_HEADER_SIZE) {
-            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
-                cmdSz - TPM2_HEADER_SIZE);
-        }
+        TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+            bufferSz - TPM2_HEADER_SIZE);
     }
 }
 
@@ -667,20 +662,16 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     rc = TPM2_DispatchCommand(ctx, packet);
     if (rc != 0) {
-        TPM2_WipeRequestTail(packet, cmdSz, origSize);
+        TPM2_WipePacketTail(packet, origSize);
         return rc; /* transport or SPDM error */
     }
 
     /* parse response header and extract the TPM response code */
     rc = TPM2_Packet_Parse(rc, packet);
 
-    /* Keep the response header for the caller, but wipe request bytes that
-     * a TPM error response did not overwrite. */
+    /* Keep the response header for the caller, but wipe the shared tail. */
     if (rc != TPM_RC_SUCCESS) {
-        if (cmdSz > TPM2_HEADER_SIZE) {
-            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
-                cmdSz - TPM2_HEADER_SIZE);
-        }
+        TPM2_WipePacketTail(packet, origSize);
     }
     else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
@@ -712,7 +703,7 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
 
         rc = TPM2_DispatchCommand(ctx, packet);
         if (rc != 0) {
-            TPM2_WipeRequestTail(packet, cmdSz, origSize);
+            TPM2_WipePacketTail(packet, origSize);
             return rc; /* transport or SPDM error */
         }
 
@@ -729,13 +720,10 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
         break;
     }
 
-    /* Keep the response header for the caller. Wipe request bytes only
+    /* Keep the response header for the caller. Wipe the shared tail only
      * after the final attempt so a retry can resend the intact command. */
     if (rc != TPM_RC_SUCCESS) {
-        if (cmdSz > TPM2_HEADER_SIZE) {
-            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
-                cmdSz - TPM2_HEADER_SIZE);
-        }
+        TPM2_WipePacketTail(packet, origSize);
     }
     else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
@@ -755,6 +743,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM_CC cmdCode;
     BYTE *cmd;
     UINT32 cmdSz, respSz;
+    int wipeRsp = 0;
 
     if (ctx == NULL || packet == NULL || info == NULL)
         return BAD_FUNC_ARG;
@@ -803,11 +792,18 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     if (rc == TPM_RC_SUCCESS && tag == TPM_ST_SESSIONS &&
             respTag != TPM_ST_SESSIONS) {
         rc = TPM_RC_HMAC;
+        wipeRsp = 1;
     }
 
     /* Is auth session required for this TPM command? */
     if (rc == TPM_RC_SUCCESS && respTag == TPM_ST_SESSIONS) {
         rc = TPM2_ResponseProcess(ctx, packet, info, cmdCode, respSz);
+        if (rc != TPM_RC_SUCCESS)
+            wipeRsp = 1;
+    }
+
+    if (wipeRsp) {
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
     }
 
     /* Caller expects packet position to be at end of header */
