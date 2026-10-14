@@ -251,9 +251,7 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
     /* Perform startup and test device */
     rc = wolfTPM2_Init_ex(&ctx, ioCb, userCtx, TPM_STARTUP_TEST_TRIES);
     if (rc != TPM_RC_SUCCESS) {
-    #ifdef WOLFTPM_SWTPM
-        TPM2_SwtpmClose(&ctx);
-    #endif
+        TPM2_Cleanup(&ctx);
         /* Restore the active context before ctx leaves scope. */
         TPM2_SetActiveCtx(current_ctx);
         return rc;
