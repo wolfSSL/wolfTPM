@@ -4004,7 +4004,7 @@ WOLFTPM_API int    TPM2_GetSessionAuthCount(TPM2_CTX* ctx);
     \code
     TPM2_CTX tpm2Ctx;
 
-    TPM2_SetActiveCtx(tpm2ctx);
+    TPM2_SetActiveCtx(&tpm2Ctx);
     \endcode
 
     \sa TPM2_CTX
