@@ -2397,12 +2397,9 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 }
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    !defined(WC_NO_RNG) && defined(HAVE_ECC_DHE) && \
+    defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT)
 /* TPM2_KDFe is now in tpm2_param_enc.c (shared with fwTPM) */
-
-#ifdef ALT_ECC_SIZE
-#error use of ecc_point below does not support ALT_ECC_SIZE
-#endif
 /* returns both the plaintext and encrypted value */
 /* ECC: data = derived symmetric key
  *      secret = exported public point */
@@ -2415,9 +2412,8 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     ecc_key eccKeyPriv, eccKeyPub;
     const TPMT_PUBLIC *publicArea;
     TPM2B_ECC_POINT pubPoint, secretPoint;
-    ecc_point r[1];
-    mp_int prime, a;
     word32 keySz = 0;
+    word32 xSz = sizeof(secretPoint.point.x.buffer);
 
     publicArea = &tpmKey->pub.publicArea;
     XMEMSET(&rng, 0, sizeof(rng));
@@ -2425,9 +2421,6 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     XMEMSET(&eccKeyPriv, 0, sizeof(eccKeyPriv));
     XMEMSET(&pubPoint, 0, sizeof(pubPoint));
     XMEMSET(&secretPoint, 0, sizeof(secretPoint));
-    XMEMSET(r, 0, sizeof(r));
-    XMEMSET(&prime, 0, sizeof(prime));
-    XMEMSET(&a, 0, sizeof(a));
 
     rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
     if (rc == 0) {
@@ -2467,26 +2460,16 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
         secret->size = packet.pos;
     }
     if (rc == 0) {
-        rc = mp_init_multi(&prime, &a, r->x, r->y, r->z, NULL);
+        rc = wc_ecc_shared_secret(&eccKeyPriv, &eccKeyPub,
+            secretPoint.point.x.buffer, &xSz);
     }
     if (rc == 0) {
-        rc = mp_read_radix(&prime, eccKeyPriv.dp->prime, MP_RADIX_HEX);
-    }
-    if (rc == 0) {
-        rc = mp_read_radix(&a, eccKeyPriv.dp->Af, MP_RADIX_HEX);
-    }
-    if (rc == 0) {
-        /* perform point multiply */
-        rc = wc_ecc_mulmod(wc_ecc_key_get_priv(&eccKeyPriv), &eccKeyPub.pubkey,
-            r, &a, &prime, 1);
-    }
-    if (rc == 0) {
-        /* export shared secret x - fixed-size export avoids leaking the
-         * leading-zero count of the ECDH shared secret via data-dependent
-         * offsets (mp_to_unsigned_bin_len writes exactly keySz bytes with
-         * left-zero padding) */
-        rc = mp_to_unsigned_bin_len(r->x, secretPoint.point.x.buffer, keySz);
-        secretPoint.point.x.size = keySz;
+        if (xSz == keySz) {
+            secretPoint.point.x.size = (UINT16)xSz;
+        }
+        else {
+            rc = BUFFER_E;
+        }
     }
     if (rc == 0) {
         /* set size encryption key */
@@ -2510,11 +2493,6 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
         );
     }
 
-    mp_forcezero(r->x);
-    mp_forcezero(r->y);
-    mp_forcezero(r->z);
-    mp_forcezero(&a);
-    mp_forcezero(&prime);
     wc_ecc_free(&eccKeyPub);
     wc_ecc_free(&eccKeyPriv);
     wc_FreeRng(&rng);
@@ -2784,7 +2762,9 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     switch (tpmKey->pub.publicArea.type) {
-    #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && \
+        defined(HAVE_ECC_DHE) && defined(HAVE_ECC_KEY_IMPORT) && \
+        defined(HAVE_ECC_KEY_EXPORT)
         case TPM_ALG_ECC:
             rc = wolfTPM2_EncryptSecret_ECC(dev, tpmKey, data, secret, label);
             break;

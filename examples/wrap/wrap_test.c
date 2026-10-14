@@ -780,9 +780,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
     }
     else if (rc != NOT_COMPILED_IN) {
-        /* NOT_COMPILED_IN here likely means the WOLFSSL_PUBLIC_MP is enabled
-         * exposing the mp_ math API's or AES CFB is not enabled.
-         * Both are needed for encrypting secrets */
+        /* NOT_COMPILED_IN here likely means ECDH, ECC key import/export,
+         * or AES CFB is not enabled. */
         goto exit;
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC && !NO_ASN */
@@ -793,9 +792,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         kEccKeyPubYRaw, (word32)sizeof(kEccKeyPubYRaw),
         kEccKeyPrivD,   (word32)sizeof(kEccKeyPrivD));
     if (rc != 0 && rc != NOT_COMPILED_IN) {
-        /* NOT_COMPILED_IN here likely means the WOLFSSL_PUBLIC_MP is enabled
-         * exposing the mp_ math API's or AES CFB is not enabled.
-         * Both are needed for encrypting secrets */
+        /* NOT_COMPILED_IN here likely means ECDH, ECC key import/export,
+         * or AES CFB is not enabled. */
         goto exit;
     }
     printf("ECC Private Key RAW Loaded into TPM: Handle 0x%x\n",

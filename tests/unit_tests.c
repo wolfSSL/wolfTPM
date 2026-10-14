@@ -3061,7 +3061,8 @@ static void test_wolfTPM2_EncryptSecret(void)
     TPM2B_DATA data;
     TPM2B_ENCRYPTED_SECRET secret;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    !defined(WC_NO_RNG) && defined(HAVE_ECC_DHE) && \
+    defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT)
     WOLFTPM2_KEY eccKey;
     const TPMT_PUBLIC* eccPub;
 #endif
@@ -3096,7 +3097,8 @@ static void test_wolfTPM2_EncryptSecret(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    !defined(WC_NO_RNG) && defined(HAVE_ECC_DHE) && \
+    defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT)
     /* ECC path: the salt is the KDFe output (nameAlg digest size) and the
      * ephemeral public point (x and y, each size prefixed) goes on the wire.
      * Must work with or without ECC_TIMING_RESISTANT in wolfCrypt. */
