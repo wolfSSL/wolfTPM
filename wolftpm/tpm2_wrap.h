@@ -161,7 +161,7 @@ typedef struct WOLFTPM2_CAPS {
     word16 fwVerMajor;
     word16 fwVerMinor;
     word32 fwVerVendor;
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
     word32 keyGroupId;
     word16 fwCounter;
     word16 fwCounterSame;
@@ -259,21 +259,20 @@ WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx
     A successful call establishes an authenticated SPDM session even when the
     TPM accepted the initial cleartext startup probe. When the TPM is already
     in SPDM-only identity mode, startup is retried over that secure session.
-    Identity initialization requires a Nuvoton or Nations vendor adapter;
-    builds without either adapter return WOLFSPDM_E_NOT_AVAILABLE.
-    In dual-vendor builds, automatic selection requires TPM DID/VID; use
-    wolfTPM2_InitWithSpdmKey_ex for transports that do not expose it.
+    The identity mode is chosen for you: the one vendor adapter the build
+    carries, generic TCG when it carries none, and otherwise from the TPM's
+    DID/VID. That last case needs a transport that exposes DID/VID; use
+    wolfTPM2_InitWithSpdmKey_ex to name the mode when it does not.
     On failure after argument validation, the device is fully torn down,
     except for TPM_RC_UPGRADE, which leaves an active context for the vendor
-    firmware-recovery flow. WOLFSPDM_E_NOT_AVAILABLE is returned before the
-    device is modified.
+    firmware-recovery flow.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_UPGRADE: TPM firmware recovery is active; call cleanup
     when the recovery flow is complete
     \return BAD_FUNC_ARG: invalid parameters or responder key size
-    \return WOLFSPDM_E_BAD_STATE: SPDM identity mode cannot be initialized
-    \return WOLFSPDM_E_NOT_AVAILABLE: no identity vendor adapter was built
+    \return WOLFSPDM_E_BAD_STATE: SPDM identity mode cannot be initialized,
+    or the DID/VID matches no compiled adapter
     \return a WOLFSPDM_E_* error if the authenticated handshake fails
 
     \param dev pointer to an empty WOLFTPM2_DEV structure
@@ -294,19 +293,20 @@ WOLFTPM_API int wolfTPM2_InitWithSpdmKey(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Initialize with a trusted responder key and explicit identity mode.
-    This API requires a Nuvoton or Nations vendor adapter.
-    Use this form when both vendor adapters are compiled and the transport does
-    not expose TPM DID/VID. WOLFSPDM_MODE_AUTO selects from DID/VID and fails
-    closed when it is unavailable instead of guessing a vendor handshake.
-    TPM_RC_UPGRADE leaves an active context for the vendor firmware-recovery
-    flow; call cleanup when that flow is complete. WOLFSPDM_E_NOT_AVAILABLE
-    is returned before the device is modified.
+    Use this form when the build carries more than one identity adapter and
+    the transport does not expose TPM DID/VID. WOLFSPDM_MODE_TCG is the
+    generic TCG identity flow and needs no vendor adapter; a vendor mode is
+    accepted only when its adapter is compiled in, and BAD_FUNC_ARG is
+    returned before the device is touched when it is not. WOLFSPDM_MODE_AUTO
+    resolves from DID/VID and fails closed rather than guessing a vendor
+    handshake. TPM_RC_UPGRADE leaves an active context for the vendor
+    firmware-recovery flow; call cleanup when that flow is complete.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_UPGRADE: TPM firmware recovery is active
-    \return BAD_FUNC_ARG: invalid parameters or unsupported identity mode
+    \return BAD_FUNC_ARG: invalid parameters, or an identity mode whose
+    vendor adapter is not compiled in
     \return WOLFSPDM_E_BAD_STATE: automatic vendor selection is unavailable
-    \return WOLFSPDM_E_NOT_AVAILABLE: no identity vendor adapter was built
     \return a WOLFSPDM_E_* error if the authenticated handshake fails
 
     \param dev pointer to an empty WOLFTPM2_DEV structure
@@ -314,8 +314,8 @@ WOLFTPM_API int wolfTPM2_InitWithSpdmKey(WOLFTPM2_DEV* dev,
     \param userCtx pointer to a user context (can be NULL)
     \param rspPubKey trusted raw P-384 responder key in X||Y format
     \param rspPubKeySz size of rspPubKey; must be 96 bytes
-    \param mode WOLFSPDM_MODE_AUTO, WOLFSPDM_MODE_NUVOTON, or
-    WOLFSPDM_MODE_NATIONS
+    \param mode WOLFSPDM_MODE_AUTO, WOLFSPDM_MODE_TCG,
+    WOLFSPDM_MODE_NUVOTON, or WOLFSPDM_MODE_NATIONS
 
     \sa wolfTPM2_InitWithSpdmKey
 */
@@ -323,11 +323,9 @@ WOLFTPM_API int wolfTPM2_InitWithSpdmKey_ex(WOLFTPM2_DEV* dev,
     TPM2HalIoCb ioCb, void* userCtx, const byte* rspPubKey,
     word32 rspPubKeySz, WOLFSPDM_MODE mode);
 
-#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
-/* Test-visible helper used by automatic dual-vendor selection. */
+/* Test-visible helper used by automatic multi-vendor selection. */
 WOLFTPM_TEST_API int wolfTPM2_SpdmModeFromDidVid(UINT32 didVid,
     WOLFSPDM_MODE* mode);
-#endif
 #endif
 
 #if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK)
@@ -684,6 +682,17 @@ WOLFTPM_API int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Send the SPDM GET_VERSION handshake step. Required before any
+    vendor-defined SPDM command (e.g. PSK provisioning, GET_STATUS).
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmGetVersion(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Free SPDM context and resources.
 
     \return TPM_RC_SUCCESS: successful
@@ -898,6 +907,79 @@ WOLFTPM_API int wolfTPM2_SpdmNationsPskClear(WOLFTPM2_DEV* dev,
     const byte* clearAuth, word32 clearAuthSz);
 
 #endif /* WOLFSPDM_NATIONS */
+
+#ifdef WOLFSPDM_INFINEON
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Configure for Infineon SLB9678 SPDM (PSK mode, Algorithm Set B).
+    Must be called before PSK provisioning vendor commands.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmSetInfineonMode(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Establish an SLB9678 asymmetric session using the shared TCG flow.
+    Requires firmware advertising asymmetric SPDM and a responder key pinned
+    with wolfTPM2_SpdmSetResponderPubKey. No PSK fallback is attempted.
+
+    \return TPM_RC_SUCCESS: session established
+    \return BAD_FUNC_ARG: invalid context or requester key arguments
+    \return WOLFSPDM_E_BAD_STATE: trusted responder key is not configured
+    \return WOLFSPDM_E_PEER_ERROR: unsupported capabilities or peer failure
+
+    \param dev initialized device with an SPDM context
+    \param reqPubKey requester TPMT_PUBLIC, or NULL to generate a key pair
+    \param reqPubKeySz public key size, or zero when generating a key pair
+    \param reqPrivKey raw P-384 private key, or NULL to generate a key pair
+    \param reqPrivKeySz private key size, or zero when generating a key pair
+
+    \sa wolfTPM2_InitWithSpdmKey_ex
+    \sa wolfTPM2_SpdmConnectPsk
+*/
+WOLFTPM_API int wolfTPM2_SpdmConnectInfineonTcg(WOLFTPM2_DEV* dev,
+    const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz);
+
+/* wolfTPM2_SpdmConnectInfineon establishes the SLB9678 SPDM secure session
+ * via the DSP0274 PSK handshake. This compatibility name aliases the
+ * spec-pure wolfTPM2_SpdmConnectPsk (declared below). */
+#define wolfTPM2_SpdmConnectInfineon wolfTPM2_SpdmConnectPsk
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Get SPDM status from Infineon SLB9678 (PSK mode).
+*/
+WOLFTPM_API int wolfTPM2_SpdmInfineonGetStatus(WOLFTPM2_DEV* dev,
+    WOLFSPDM_INFINEON_STATUS* status);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Lock or unlock SPDM-only mode on Infineon SLB9678.
+*/
+WOLFTPM_API int wolfTPM2_SpdmInfineonSetOnlyMode(WOLFTPM2_DEV* dev, int lock);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Enable or disable the SLB9678 SPDM-PSK secure channel via
+    TPM2_SetCapability(TPM_CAP_CONFIGS, TPM_PT_CONFIG_SPDM_PSK). Requires
+    Platform authorization configured in session slot zero. An unused slot
+    uses empty-password authorization. Pass lock=0 to keep it reversible (enable is
+    undone by disabling); lock=1 lifetime-locks the configuration.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param enable 1 to enable SPDM-PSK, 0 to disable
+    \param lock 1 to lifetime-lock the configuration (irreversible), 0 normally
+*/
+WOLFTPM_API int wolfTPM2_SpdmInfineonEnable(WOLFTPM2_DEV* dev,
+    int enable, int lock);
+
+#endif /* WOLFSPDM_INFINEON */
 
 #ifdef WOLFTPM_SPDM_PSK
 /*!

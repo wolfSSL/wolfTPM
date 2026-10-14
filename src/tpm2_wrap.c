@@ -321,8 +321,7 @@ static int wolfTPM2_InitDevice(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
 }
 
 #if defined(WOLFTPM_SPDM) && (defined(WOLFTPM_SPDM_PSK) || \
-    (defined(WOLFTPM_SPDM_TCG) && (defined(WOLFSPDM_NUVOTON) || \
-        defined(WOLFSPDM_NATIONS))))
+    defined(WOLFTPM_SPDM_TCG))
 static int wolfTPM2_RetryStartupOverSpdm(WOLFTPM2_DEV* dev)
 {
     int rc;
@@ -349,9 +348,13 @@ static int wolfTPM2_RetryStartupOverSpdm(WOLFTPM2_DEV* dev)
 #endif /* WOLFTPM_SPDM and a credentialed transport */
 
 #if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
+static int wolfTPM2_SpdmConnectIdentityMode(WOLFTPM2_DEV* dev,
+    WOLFSPDM_MODE mode, const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz);
+
 static int wolfTPM2_IdentityModeSupported(WOLFSPDM_MODE mode)
 {
-    if (mode == WOLFSPDM_MODE_AUTO) {
+    if (mode == WOLFSPDM_MODE_AUTO || mode == WOLFSPDM_MODE_TCG) {
         return 1;
     }
 #ifdef WOLFSPDM_NUVOTON
@@ -367,8 +370,6 @@ static int wolfTPM2_IdentityModeSupported(WOLFSPDM_MODE mode)
     return 0;
 }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
-#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
 WOLFTPM_TEST_API int wolfTPM2_SpdmModeFromDidVid(UINT32 didVid,
     WOLFSPDM_MODE* mode)
 {
@@ -379,57 +380,60 @@ WOLFTPM_TEST_API int wolfTPM2_SpdmModeFromDidVid(UINT32 didVid,
     }
     *mode = WOLFSPDM_MODE_AUTO;
     vendorId = (UINT16)(didVid & 0xFFFFU);
+#ifdef WOLFSPDM_NUVOTON
+    if (vendorId == TPM_VENDOR_NUVOTON) {
+        *mode = WOLFSPDM_MODE_NUVOTON;
+        return TPM_RC_SUCCESS;
+    }
+#endif
+#ifdef WOLFSPDM_NATIONS
     if (vendorId == TPM_VENDOR_NATIONTECH) {
         *mode = WOLFSPDM_MODE_NATIONS;
+        return TPM_RC_SUCCESS;
     }
-    else if (vendorId == TPM_VENDOR_NUVOTON) {
-        *mode = WOLFSPDM_MODE_NUVOTON;
-    }
-    else {
-        return WOLFSPDM_E_BAD_STATE;
-    }
-    return TPM_RC_SUCCESS;
-}
 #endif
+#ifdef WOLFSPDM_INFINEON
+    if (vendorId == TPM_VENDOR_INFINEON) {
+        *mode = WOLFSPDM_MODE_TCG;
+        return TPM_RC_SUCCESS;
+    }
+#endif
+    (void)vendorId;
+    return WOLFSPDM_E_BAD_STATE;
+}
 
 static int wolfTPM2_SpdmConnectIdentity(WOLFTPM2_DEV* dev,
     WOLFSPDM_MODE mode)
 {
-    /* Vendor-specific connect handles SetTisIO, SetMode, and auto-generates
-     * a host ephemeral key pair for mutual authentication (MutAuth=1).
-     * Plain wolfTPM2_SpdmConnect() skips that setup and FINISH fails. */
-#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
-    if (mode == WOLFSPDM_MODE_AUTO) {
-        int rc;
+    int rc;
 
-        /* did_vid is populated by direct TIS transports only. Refuse to guess
-         * on kernel/socket transports; callers can select with the _ex API. */
+    if (mode == WOLFSPDM_MODE_AUTO) {
+#if (defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)) || \
+    (defined(WOLFSPDM_INFINEON) && (defined(WOLFSPDM_NUVOTON) || \
+        defined(WOLFSPDM_NATIONS)))
+        /* Multiple adapters: direct TIS exposes DID/VID. Other transports
+         * require an explicit mode rather than guessing a vendor. */
         rc = wolfTPM2_SpdmModeFromDidVid(dev->ctx.did_vid, &mode);
         if (rc != TPM_RC_SUCCESS) {
             return rc;
         }
-    }
-    if (mode == WOLFSPDM_MODE_NATIONS) {
-        return wolfTPM2_SpdmConnectNations(dev, NULL, 0, NULL, 0);
-    }
-    return wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
 #elif defined(WOLFSPDM_NUVOTON)
-    (void)mode;
-    return wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
+        mode = WOLFSPDM_MODE_NUVOTON;
 #elif defined(WOLFSPDM_NATIONS)
-    (void)mode;
-    return wolfTPM2_SpdmConnectNations(dev, NULL, 0, NULL, 0);
+        mode = WOLFSPDM_MODE_NATIONS;
+#else
+        mode = WOLFSPDM_MODE_TCG;
 #endif
+    }
+    rc = wolfTPM2_SpdmConnectIdentityMode(dev, mode, NULL, 0, NULL, 0);
+    return rc;
 }
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
 
 int wolfTPM2_InitWithSpdmKey_ex(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
     void* userCtx, const byte* rspPubKey, word32 rspPubKeySz,
     WOLFSPDM_MODE mode)
 {
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
     int rc;
-#endif
 
     if (dev == NULL || rspPubKey == NULL ||
         rspPubKeySz != WOLFSPDM_ECC_POINT_SIZE ||
@@ -437,7 +441,6 @@ int wolfTPM2_InitWithSpdmKey_ex(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
         return BAD_FUNC_ARG;
     }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
     rc = wolfTPM2_InitDevice(dev, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
@@ -470,13 +473,6 @@ int wolfTPM2_InitWithSpdmKey_ex(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb,
         wolfTPM2_InitFailureCleanup(dev);
     }
     return rc;
-#else
-    /* TCG framing alone does not select an identity-mode wire adapter. Fail
-     * before probing the TPM so unsupported builds have no side effects. */
-    (void)ioCb;
-    (void)userCtx;
-    return WOLFSPDM_E_NOT_AVAILABLE;
-#endif
 }
 #endif /* WOLFTPM_SPDM && WOLFTPM_SPDM_TCG */
 
@@ -1016,7 +1012,7 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
  *                 Bit 1 = FIPS_140_3 (spec v1.83+)
  */
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
     /* Infineon SLB9672 or SLB9673 Firmware Upgrade support */
     #define TPM_PT_VENDOR_FIX 0x80000000
     #define TPM_PT_VENDOR_FIX_FU_COUNTER        (TPM_PT_VENDOR_FIX + 3)
@@ -1120,7 +1116,7 @@ int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
     return rc;
 }
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
 static int tpm2_ifx_cap_vendor_get(WOLFTPM2_CAPS* cap, uint32_t property,
     uint8_t* val, size_t valSz)
 {
@@ -1204,7 +1200,7 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     }
     rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
     /* Get vendor specific information. These properties only exist on
      * Infineon parts - probing them on another manufacturer's TPM just
      * produces misleading TPM_RC_VALUE errors. */
@@ -1379,7 +1375,8 @@ int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
     XMEMSET(&out, 0, sizeof(out));
     in.capability = TPM_CAP_SPDM_SESSION_INFO;
     in.property = 0; /* must be 0 per Part 3 */
-    in.propertyCount = MAX_SPDM_SESS_INFO;
+    /* This capability describes the current SPDM session only. */
+    in.propertyCount = 1;
 
     rc = TPM2_GetCapability(&in, &out);
     if (rc == TPM_RC_SUCCESS) {
@@ -1404,6 +1401,12 @@ int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev)
 {
     WOLFTPM2_SPDM_CHECK_CTX(dev);
     return wolfSPDM_Disconnect(dev->spdmCtx->spdmCtx);
+}
+
+int wolfTPM2_SpdmGetVersion(WOLFTPM2_DEV* dev)
+{
+    WOLFTPM2_SPDM_CHECK_CTX(dev);
+    return wolfSPDM_GetVersion(dev->spdmCtx->spdmCtx);
 }
 
 int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev)
@@ -1433,7 +1436,186 @@ int wolfTPM2_SpdmSetResponderPubKey(WOLFTPM2_DEV* dev,
 int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev, byte* pubKey, word32* pubKeySz)
 {
     WOLFTPM2_SPDM_CHECK_CTX(dev);
-    return wolfSPDM_Nuvoton_GetPubKey(dev->spdmCtx->spdmCtx, pubKey, pubKeySz);
+    return wolfSPDM_TCG_GetPubKey(dev->spdmCtx->spdmCtx, pubKey, pubKeySz);
+}
+#endif /* WOLFTPM_SPDM_TCG */
+
+#ifdef WOLFTPM_SPDM_TCG
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+static int wolfTPM2_SpdmGenerateRequesterKey(WOLFTPM2_DEV* dev)
+{
+    ecc_key key;
+    WC_RNG rng;
+    TPMT_PUBLIC pub;
+    TPM2_Packet packet;
+    byte privKey[WOLFSPDM_ECC_KEY_SIZE];
+    byte rawPubKey[WOLFSPDM_ECC_POINT_SIZE];
+    byte tpmtPub[120];
+    word32 privKeySz = sizeof(privKey);
+    word32 xSz = WOLFSPDM_ECC_KEY_SIZE;
+    word32 ySz = WOLFSPDM_ECC_KEY_SIZE;
+    int keyInit = 0;
+    int rngInit = 0;
+    int rc;
+
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(&rng, 0, sizeof(rng));
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(&packet, 0, sizeof(packet));
+    rc = wc_InitRng(&rng);
+    if (rc != TPM_RC_SUCCESS) goto exit;
+    rngInit = 1;
+    rc = wc_ecc_init(&key);
+    if (rc != TPM_RC_SUCCESS) goto exit;
+    keyInit = 1;
+    rc = wc_ecc_make_key_ex(&rng, WOLFSPDM_ECC_KEY_SIZE, &key,
+        ECC_SECP384R1);
+    if (rc != TPM_RC_SUCCESS) goto exit;
+    rc = wc_ecc_export_private_only(&key, privKey, &privKeySz);
+    if (rc != TPM_RC_SUCCESS) goto exit;
+    rc = wc_ecc_export_public_raw(&key, rawPubKey, &xSz,
+        rawPubKey + WOLFSPDM_ECC_KEY_SIZE, &ySz);
+    if (rc != TPM_RC_SUCCESS) goto exit;
+
+    pub.type = TPM_ALG_ECC;
+    pub.nameAlg = TPM_ALG_SHA384;
+    pub.objectAttributes = TPMA_OBJECT_sign;
+    pub.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+    pub.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
+    pub.parameters.eccDetail.scheme.details.ecdsa.hashAlg = TPM_ALG_SHA384;
+    pub.parameters.eccDetail.curveID = TPM_ECC_NIST_P384;
+    pub.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+    pub.unique.ecc.x.size = (UINT16)xSz;
+    pub.unique.ecc.y.size = (UINT16)ySz;
+    XMEMCPY(pub.unique.ecc.x.buffer, rawPubKey, xSz);
+    XMEMCPY(pub.unique.ecc.y.buffer, rawPubKey + WOLFSPDM_ECC_KEY_SIZE, ySz);
+    packet.buf = tpmtPub;
+    packet.size = sizeof(tpmtPub);
+    TPM2_Packet_AppendPublicArea(&packet, &pub);
+    if (packet.overflow) {
+        rc = BUFFER_E;
+        goto exit;
+    }
+    rc = wolfSPDM_SetRequesterKeyPair(dev->spdmCtx->spdmCtx,
+        privKey, privKeySz, rawPubKey, sizeof(rawPubKey));
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
+            tpmtPub, (word32)packet.pos);
+    }
+exit:
+    if (keyInit) {
+        wc_ecc_free(&key);
+    }
+    if (rngInit) {
+        wc_FreeRng(&rng);
+    }
+    TPM2_ForceZero(privKey, sizeof(privKey));
+    TPM2_ForceZero(&key, sizeof(key));
+    TPM2_ForceZero(&rng, sizeof(rng));
+    return rc;
+}
+#endif
+
+static int wolfTPM2_SpdmConnectIdentityMode(WOLFTPM2_DEV* dev,
+    WOLFSPDM_MODE mode,
+    const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz)
+{
+    int rc;
+
+    if (dev == NULL || dev->spdmCtx == NULL ||
+        dev->spdmCtx->spdmCtx == NULL ||
+        (reqPubKey == NULL) != (reqPubKeySz == 0) ||
+        (reqPrivKey == NULL) != (reqPrivKeySz == 0) ||
+        (reqPubKey == NULL) != (reqPrivKey == NULL)) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Auto-set TIS I/O callback if not already configured by caller */
+    rc = wolfTPM2_SPDM_SetTisIO(dev->spdmCtx);
+    if (rc != 0 && rc != NOT_COMPILED_IN) {
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
+#endif
+
+    /* Select protocol behavior before configuring requester credentials. */
+    rc = wolfSPDM_SetMode(dev->spdmCtx->spdmCtx, mode);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Set requester key pair if provided (for mutual authentication) */
+    if (reqPrivKey != NULL && reqPrivKeySz > 0 &&
+        reqPubKey != NULL && reqPubKeySz > 0) {
+        /* Parse TPMT_PUBLIC to extract raw X||Y ECC point */
+        TPM2_Packet pktPub;
+        TPMT_PUBLIC pub;
+        byte rawPubKey[WOLFSPDM_ECC_POINT_SIZE];
+        UINT16 wireSize;
+
+        XMEMSET(&pub, 0, sizeof(pub));
+        pktPub.buf = (byte*)reqPubKey;
+        pktPub.pos = 0;
+        pktPub.size = (int)reqPubKeySz;
+        pktPub.overflow = 0;
+
+        TPM2_Packet_ParseU16(&pktPub, &pub.type);
+        TPM2_Packet_ParseU16(&pktPub, &pub.nameAlg);
+        TPM2_Packet_ParseU32(&pktPub, &pub.objectAttributes);
+        wireSize = 0;
+        TPM2_Packet_ParseU16(&pktPub, &wireSize);
+        pub.authPolicy.size = wireSize;
+        if (pub.authPolicy.size >
+                (UINT16)sizeof(pub.authPolicy.buffer)) {
+            pub.authPolicy.size =
+                (UINT16)sizeof(pub.authPolicy.buffer);
+        }
+        TPM2_Packet_ParseBytes(&pktPub, pub.authPolicy.buffer,
+            pub.authPolicy.size);
+        if (wireSize > pub.authPolicy.size)
+            TPM2_Packet_ParseBytes(&pktPub, NULL,
+                wireSize - pub.authPolicy.size);
+        TPM2_Packet_ParsePublicParms(&pktPub, pub.type, &pub.parameters);
+        TPM2_Packet_ParseEccPoint(&pktPub, &pub.unique.ecc);
+
+        if (pktPub.overflow || pktPub.pos != pktPub.size ||
+            pub.type != TPM_ALG_ECC ||
+            pub.parameters.eccDetail.curveID != TPM_ECC_NIST_P384 ||
+            pub.unique.ecc.x.size != WOLFSPDM_ECC_KEY_SIZE ||
+            pub.unique.ecc.y.size != WOLFSPDM_ECC_KEY_SIZE) {
+            return BAD_FUNC_ARG;
+        }
+
+        XMEMCPY(rawPubKey, pub.unique.ecc.x.buffer,
+            WOLFSPDM_ECC_KEY_SIZE);
+        XMEMCPY(rawPubKey + WOLFSPDM_ECC_KEY_SIZE,
+            pub.unique.ecc.y.buffer, WOLFSPDM_ECC_KEY_SIZE);
+        rc = wolfSPDM_SetRequesterKeyPair(dev->spdmCtx->spdmCtx,
+            reqPrivKey, reqPrivKeySz, rawPubKey, sizeof(rawPubKey));
+        if (rc != 0) {
+            return rc;
+        }
+        /* Also store the full TPMT_PUBLIC for GIVE_PUB step */
+        rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
+            reqPubKey, reqPubKeySz);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    else {
+        rc = wolfTPM2_SpdmGenerateRequesterKey(dev);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
+    }
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
+
+    /* Perform the selected TCG SPDM handshake. */
+    return wolfSPDM_Connect(dev->spdmCtx->spdmCtx);
 }
 #endif /* WOLFTPM_SPDM_TCG */
 
@@ -1507,177 +1689,8 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
     const byte* reqPubKey, word32 reqPubKeySz,
     const byte* reqPrivKey, word32 reqPrivKeySz)
 {
-    int rc;
-
-    if (dev == NULL || dev->spdmCtx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-
-    /* Auto-set TIS I/O callback if not already configured by caller */
-    rc = wolfTPM2_SPDM_SetTisIO(dev->spdmCtx);
-    if (rc != 0 && rc != NOT_COMPILED_IN) {
-        return rc;
-    }
-
-#ifdef DEBUG_WOLFTPM
-    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
-#endif
-
-    /* Set Nuvoton mode first */
-    rc = wolfSPDM_SetMode(dev->spdmCtx->spdmCtx, WOLFSPDM_MODE_NUVOTON);
-    if (rc != 0) {
-        return rc;
-    }
-
-    /* Set requester key pair if provided (for mutual authentication) */
-    if (reqPrivKey != NULL && reqPrivKeySz > 0 &&
-        reqPubKey != NULL && reqPubKeySz > 0) {
-        /* Parse TPMT_PUBLIC to extract raw X||Y ECC point */
-        TPM2_Packet pktPub;
-        TPMT_PUBLIC pub;
-        byte rawPubKey[WOLFSPDM_ECC_POINT_SIZE];
-        UINT16 wireSize;
-
-        XMEMSET(&pub, 0, sizeof(pub));
-        pktPub.buf = (byte*)reqPubKey;
-        pktPub.pos = 0;
-        pktPub.size = (int)reqPubKeySz;
-
-        TPM2_Packet_ParseU16(&pktPub, &pub.type);
-        TPM2_Packet_ParseU16(&pktPub, &pub.nameAlg);
-        TPM2_Packet_ParseU32(&pktPub, &pub.objectAttributes);
-        wireSize = 0;
-        TPM2_Packet_ParseU16(&pktPub, &wireSize);
-        pub.authPolicy.size = wireSize;
-        if (pub.authPolicy.size >
-                (UINT16)sizeof(pub.authPolicy.buffer)) {
-            pub.authPolicy.size =
-                (UINT16)sizeof(pub.authPolicy.buffer);
-        }
-        TPM2_Packet_ParseBytes(&pktPub, pub.authPolicy.buffer,
-            pub.authPolicy.size);
-        if (wireSize > pub.authPolicy.size)
-            TPM2_Packet_ParseBytes(&pktPub, NULL,
-                wireSize - pub.authPolicy.size);
-        TPM2_Packet_ParsePublicParms(&pktPub, pub.type, &pub.parameters);
-        TPM2_Packet_ParseEccPoint(&pktPub, &pub.unique.ecc);
-
-        if (pub.type != TPM_ALG_ECC ||
-            pub.unique.ecc.x.size != WOLFSPDM_ECC_KEY_SIZE ||
-            pub.unique.ecc.y.size != WOLFSPDM_ECC_KEY_SIZE) {
-            return BAD_FUNC_ARG;
-        }
-
-        XMEMCPY(rawPubKey, pub.unique.ecc.x.buffer,
-            WOLFSPDM_ECC_KEY_SIZE);
-        XMEMCPY(rawPubKey + WOLFSPDM_ECC_KEY_SIZE,
-            pub.unique.ecc.y.buffer, WOLFSPDM_ECC_KEY_SIZE);
-        rc = wolfSPDM_SetRequesterKeyPair(dev->spdmCtx->spdmCtx,
-            reqPrivKey, reqPrivKeySz, rawPubKey, sizeof(rawPubKey));
-        if (rc != 0) {
-            return rc;
-        }
-        /* Also store the full TPMT_PUBLIC for GIVE_PUB step */
-        rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
-            reqPubKey, reqPubKeySz);
-        if (rc != 0) {
-            return rc;
-        }
-    }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
-    else {
-        /* Auto-generate ephemeral P-384 key pair for mutual authentication */
-        ecc_key hostKey;
-        WC_RNG rng;
-        byte privKey[48];
-        word32 privKeySz = sizeof(privKey);
-        byte pubKeyX[48], pubKeyY[48];
-        word32 xSz = sizeof(pubKeyX), ySz = sizeof(pubKeyY);
-        byte rawPubKey[96];
-        /* TPMT_PUBLIC: type(2) + nameAlg(2) + attr(4) + authPolicy(2) +
-         * symmetric(2) + scheme(2+2) + curveID(2) + kdf(2) +
-         * unique.x(2+48) + unique.y(2+48) = 120 bytes */
-        byte tpmtPub[120];
-        byte* p;
-
-        rc = wc_InitRng(&rng);
-        if (rc != 0) return rc;
-
-        rc = wc_ecc_init(&hostKey);
-        if (rc != 0) {
-            wc_FreeRng(&rng);
-            return rc;
-        }
-
-        rc = wc_ecc_make_key_ex(&rng, 48, &hostKey, ECC_SECP384R1);
-        if (rc != 0) {
-            wc_ecc_free(&hostKey);
-            wc_FreeRng(&rng);
-            return rc;
-        }
-
-        rc = wc_ecc_export_private_only(&hostKey, privKey, &privKeySz);
-        if (rc != 0) {
-            wc_ForceZero(privKey, sizeof(privKey));
-            wc_ecc_free(&hostKey);
-            wc_FreeRng(&rng);
-            return rc;
-        }
-
-        rc = wc_ecc_export_public_raw(&hostKey, pubKeyX, &xSz,
-                                       pubKeyY, &ySz);
-        wc_ecc_free(&hostKey);
-        wc_FreeRng(&rng);
-        TPM2_ForceZero(&hostKey, sizeof(hostKey));
-        TPM2_ForceZero(&rng, sizeof(rng));
-        if (rc != 0) {
-            wc_ForceZero(privKey, sizeof(privKey));
-            return rc;
-        }
-
-        /* Set raw key pair (X||Y format) */
-        XMEMCPY(rawPubKey, pubKeyX, 48);
-        XMEMCPY(rawPubKey + 48, pubKeyY, 48);
-        rc = wolfSPDM_SetRequesterKeyPair(dev->spdmCtx->spdmCtx,
-            privKey, privKeySz, rawPubKey, 96);
-        wc_ForceZero(privKey, sizeof(privKey));
-        if (rc != 0) return rc;
-
-        /* Build TPMT_PUBLIC for GIVE_PUB step */
-        p = tpmtPub;
-        /* type = TPM_ALG_ECC (0x0023) */
-        *p++ = 0x00; *p++ = 0x23;
-        /* nameAlg = TPM_ALG_SHA384 (0x000C) */
-        *p++ = 0x00; *p++ = 0x0C;
-        /* objectAttributes = 0x00040000 (sign only) */
-        *p++ = 0x00; *p++ = 0x04; *p++ = 0x00; *p++ = 0x00;
-        /* authPolicy size = 0 */
-        *p++ = 0x00; *p++ = 0x00;
-        /* symmetric = TPM_ALG_NULL (0x0010) */
-        *p++ = 0x00; *p++ = 0x10;
-        /* scheme = TPM_ALG_ECDSA (0x0018) */
-        *p++ = 0x00; *p++ = 0x18;
-        /* scheme.hashAlg = SHA384 (0x000C) */
-        *p++ = 0x00; *p++ = 0x0C;
-        /* curveID = TPM_ECC_NIST_P384 (0x0004) */
-        *p++ = 0x00; *p++ = 0x04;
-        /* kdf = TPM_ALG_NULL (0x0010) */
-        *p++ = 0x00; *p++ = 0x10;
-        /* unique.x size = 48 */
-        *p++ = 0x00; *p++ = 0x30;
-        XMEMCPY(p, pubKeyX, 48); p += 48;
-        /* unique.y size = 48 */
-        *p++ = 0x00; *p++ = 0x30;
-        XMEMCPY(p, pubKeyY, 48); p += 48;
-
-        rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
-            tpmtPub, (word32)(p - tpmtPub));
-        if (rc != 0) return rc;
-    }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
-
-    /* Perform the Nuvoton SPDM handshake */
-    return wolfSPDM_Connect(dev->spdmCtx->spdmCtx);
+    return wolfTPM2_SpdmConnectIdentityMode(dev, WOLFSPDM_MODE_NUVOTON,
+        reqPubKey, reqPubKeySz, reqPrivKey, reqPrivKeySz);
 }
 
 #endif /* WOLFSPDM_NUVOTON */
@@ -1695,165 +1708,8 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
     const byte* reqPubKey, word32 reqPubKeySz,
     const byte* reqPrivKey, word32 reqPrivKeySz)
 {
-    int rc;
-
-    if (dev == NULL || dev->spdmCtx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-
-    /* Auto-set TIS I/O callback if not already configured by caller */
-    rc = wolfTPM2_SPDM_SetTisIO(dev->spdmCtx);
-    if (rc != 0 && rc != NOT_COMPILED_IN) {
-        return rc;
-    }
-
-#ifdef DEBUG_WOLFTPM
-    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
-#endif
-
-    /* Set Nations mode */
-    rc = wolfSPDM_SetMode(dev->spdmCtx->spdmCtx, WOLFSPDM_MODE_NATIONS);
-    if (rc != 0) {
-        return rc;
-    }
-
-    /* Set requester key pair if provided (for mutual authentication) */
-    if (reqPrivKey != NULL && reqPrivKeySz > 0 &&
-        reqPubKey != NULL && reqPubKeySz > 0) {
-        /* Parse TPMT_PUBLIC to extract raw X||Y ECC point */
-        TPM2_Packet pktPub;
-        TPMT_PUBLIC pub;
-        byte rawPubKey[WOLFSPDM_ECC_POINT_SIZE];
-        UINT16 wireSize;
-
-        XMEMSET(&pub, 0, sizeof(pub));
-        pktPub.buf = (byte*)reqPubKey;
-        pktPub.pos = 0;
-        pktPub.size = (int)reqPubKeySz;
-
-        TPM2_Packet_ParseU16(&pktPub, &pub.type);
-        TPM2_Packet_ParseU16(&pktPub, &pub.nameAlg);
-        TPM2_Packet_ParseU32(&pktPub, &pub.objectAttributes);
-        wireSize = 0;
-        TPM2_Packet_ParseU16(&pktPub, &wireSize);
-        pub.authPolicy.size = wireSize;
-        if (pub.authPolicy.size >
-                (UINT16)sizeof(pub.authPolicy.buffer)) {
-            pub.authPolicy.size =
-                (UINT16)sizeof(pub.authPolicy.buffer);
-        }
-        TPM2_Packet_ParseBytes(&pktPub, pub.authPolicy.buffer,
-            pub.authPolicy.size);
-        if (wireSize > pub.authPolicy.size)
-            TPM2_Packet_ParseBytes(&pktPub, NULL,
-                wireSize - pub.authPolicy.size);
-        TPM2_Packet_ParsePublicParms(&pktPub, pub.type, &pub.parameters);
-        TPM2_Packet_ParseEccPoint(&pktPub, &pub.unique.ecc);
-
-        if (pub.type != TPM_ALG_ECC ||
-            pub.unique.ecc.x.size != WOLFSPDM_ECC_KEY_SIZE ||
-            pub.unique.ecc.y.size != WOLFSPDM_ECC_KEY_SIZE) {
-            return BAD_FUNC_ARG;
-        }
-
-        XMEMCPY(rawPubKey, pub.unique.ecc.x.buffer,
-            WOLFSPDM_ECC_KEY_SIZE);
-        XMEMCPY(rawPubKey + WOLFSPDM_ECC_KEY_SIZE,
-            pub.unique.ecc.y.buffer, WOLFSPDM_ECC_KEY_SIZE);
-        rc = wolfSPDM_SetRequesterKeyPair(dev->spdmCtx->spdmCtx,
-            reqPrivKey, reqPrivKeySz, rawPubKey, sizeof(rawPubKey));
-        if (rc != 0) {
-            return rc;
-        }
-        /* Also store the full TPMT_PUBLIC for GIVE_PUB step */
-        rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
-            reqPubKey, reqPubKeySz);
-        if (rc != 0) {
-            return rc;
-        }
-    }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
-    else {
-        /* Auto-generate ephemeral P-384 key pair for mutual authentication.
-         * Nations: GIVE_PUB is not supported, but MUT_AUTH is still required.
-         * The TPM may verify the requester signature using a pre-provisioned
-         * key or accept the key from the FINISH signature context. */
-        ecc_key hostKey;
-        WC_RNG rng;
-        byte privKey[48];
-        word32 privKeySz = sizeof(privKey);
-        byte pubKeyX[48], pubKeyY[48];
-        word32 xSz = sizeof(pubKeyX), ySz = sizeof(pubKeyY);
-        byte rawPubKey[96];
-        byte tpmtPub[120];
-        byte* p;
-
-        rc = wc_InitRng(&rng);
-        if (rc != 0) return rc;
-
-        rc = wc_ecc_init(&hostKey);
-        if (rc != 0) {
-            wc_FreeRng(&rng);
-            return rc;
-        }
-
-        rc = wc_ecc_make_key_ex(&rng, 48, &hostKey, ECC_SECP384R1);
-        if (rc != 0) {
-            wc_ecc_free(&hostKey);
-            wc_FreeRng(&rng);
-            return rc;
-        }
-
-        rc = wc_ecc_export_private_only(&hostKey, privKey, &privKeySz);
-        if (rc != 0) {
-            wc_ForceZero(privKey, sizeof(privKey));
-            wc_ecc_free(&hostKey);
-            wc_FreeRng(&rng);
-            return rc;
-        }
-
-        rc = wc_ecc_export_public_raw(&hostKey, pubKeyX, &xSz,
-                                       pubKeyY, &ySz);
-        wc_ecc_free(&hostKey);
-        wc_FreeRng(&rng);
-        TPM2_ForceZero(&hostKey, sizeof(hostKey));
-        TPM2_ForceZero(&rng, sizeof(rng));
-        if (rc != 0) {
-            wc_ForceZero(privKey, sizeof(privKey));
-            return rc;
-        }
-
-        XMEMCPY(rawPubKey, pubKeyX, 48);
-        XMEMCPY(rawPubKey + 48, pubKeyY, 48);
-        rc = wolfSPDM_SetRequesterKeyPair(dev->spdmCtx->spdmCtx,
-            privKey, privKeySz, rawPubKey, 96);
-        wc_ForceZero(privKey, sizeof(privKey));
-        if (rc != 0) return rc;
-
-        /* Build TPMT_PUBLIC for GIVE_PUB / Cm hash */
-        p = tpmtPub;
-        *p++ = 0x00; *p++ = 0x23;  /* type = TPM_ALG_ECC */
-        *p++ = 0x00; *p++ = 0x0C;  /* nameAlg = SHA384 */
-        *p++ = 0x00; *p++ = 0x04; *p++ = 0x00; *p++ = 0x00;  /* attr = sign */
-        *p++ = 0x00; *p++ = 0x00;  /* authPolicy size = 0 */
-        *p++ = 0x00; *p++ = 0x10;  /* symmetric = NULL */
-        *p++ = 0x00; *p++ = 0x18;  /* scheme = ECDSA */
-        *p++ = 0x00; *p++ = 0x0C;  /* hashAlg = SHA384 */
-        *p++ = 0x00; *p++ = 0x04;  /* curveID = P384 */
-        *p++ = 0x00; *p++ = 0x10;  /* kdf = NULL */
-        *p++ = 0x00; *p++ = 0x30;  /* x size = 48 */
-        XMEMCPY(p, pubKeyX, 48); p += 48;
-        *p++ = 0x00; *p++ = 0x30;  /* y size = 48 */
-        XMEMCPY(p, pubKeyY, 48); p += 48;
-
-        rc = wolfSPDM_SetRequesterKeyTPMT(dev->spdmCtx->spdmCtx,
-            tpmtPub, (word32)(p - tpmtPub));
-        if (rc != 0) return rc;
-    }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
-
-    /* Perform the TCG SPDM handshake */
-    return wolfSPDM_Connect(dev->spdmCtx->spdmCtx);
+    return wolfTPM2_SpdmConnectIdentityMode(dev, WOLFSPDM_MODE_NATIONS,
+        reqPubKey, reqPubKeySz, reqPrivKey, reqPrivKeySz);
 }
 
 int wolfTPM2_SpdmNationsIdentityKeySet(WOLFTPM2_DEV* dev, int set)
@@ -1928,6 +1784,86 @@ int wolfTPM2_SpdmNationsPskClear(WOLFTPM2_DEV* dev,
 }
 
 #endif /* WOLFSPDM_NATIONS */
+
+#ifdef WOLFSPDM_INFINEON
+/* Infineon controls are a thin adapter over the shared TCG and PSK code. */
+
+int wolfTPM2_SpdmConnectInfineonTcg(WOLFTPM2_DEV* dev,
+    const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz)
+{
+    return wolfTPM2_SpdmConnectIdentityMode(dev, WOLFSPDM_MODE_TCG,
+        reqPubKey, reqPubKeySz, reqPrivKey, reqPrivKeySz);
+}
+
+int wolfTPM2_SpdmSetInfineonMode(WOLFTPM2_DEV* dev)
+{
+    WOLFTPM2_SPDM_CHECK_CTX(dev);
+#ifdef WOLFTPM_SPDM_PSK
+    /* Preserve the original PSK provisioning entry point. */
+    return wolfSPDM_SetMode(dev->spdmCtx->spdmCtx, WOLFSPDM_MODE_PSK);
+#else
+    return WOLFSPDM_E_NOT_AVAILABLE;
+#endif
+}
+
+int wolfTPM2_SpdmInfineonGetStatus(WOLFTPM2_DEV* dev,
+    WOLFSPDM_INFINEON_STATUS* status)
+{
+    WOLFTPM2_SPDM_CHECK_CTX(dev);
+    return wolfSPDM_Infineon_GetStatus(dev->spdmCtx->spdmCtx, status);
+}
+
+int wolfTPM2_SpdmInfineonSetOnlyMode(WOLFTPM2_DEV* dev, int lock)
+{
+    WOLFTPM2_SPDM_CHECK_CTX(dev);
+    return wolfSPDM_Infineon_SetOnlyMode(dev->spdmCtx->spdmCtx, lock);
+}
+
+int wolfTPM2_SpdmInfineonEnable(WOLFTPM2_DEV* dev, int enable, int lock)
+{
+    int rc;
+    int defaultAuth;
+    SetCapability_In in;
+    TPM2_AUTH_SESSION saveSess;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&saveSess, 0, sizeof(saveSess));
+    /* Honor the caller's platform password or authorization session. Only
+     * an unused slot receives temporary empty-password authorization. */
+    defaultAuth = (dev->session[0].sessionHandle == 0);
+    if (defaultAuth) {
+        XMEMCPY(&saveSess, &dev->session[0], sizeof(saveSess));
+        rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
+    }
+    else {
+        rc = TPM2_SetSessionAuth(dev->session);
+    }
+    if (rc == 0) {
+        in.authHandle = TPM_RH_PLATFORM;
+        in.capability = TPM_CAP_CONFIGS;
+        in.config.configuration = TPM_PT_CONFIG_SPDM_PSK;
+        in.config.enable = enable ? 1 : 0;
+        in.config.lock = lock ? 1 : 0;
+        rc = TPM2_SetCapability(&in);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Infineon SetCapability(SPDM_PSK en=%d lk=%d) failed: "
+                "0x%x: %s\n", enable, lock, rc, TPM2_GetRCString(rc));
+        #endif
+        }
+    }
+    if (defaultAuth) {
+        XMEMCPY(&dev->session[0], &saveSess, sizeof(saveSess));
+    }
+    TPM2_ForceZero(&saveSess, sizeof(saveSess));
+    return rc;
+}
+
+#endif /* WOLFSPDM_INFINEON */
 
 #ifdef WOLFTPM_SPDM_PSK
 /* Spec-pure PSK handshake (DSP0274 PSK_EXCHANGE / PSK_FINISH). The
@@ -12290,7 +12226,7 @@ static int tpm2_firmware_check_session(WOLFTPM2_SESSION* startSession)
     return TPM_RC_SUCCESS;
 }
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
 
 /* Maximum size of firmware chunks */
 #define IFX_FW_MAX_CHUNK_SZ 1024
@@ -12554,11 +12490,11 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
+#endif /* WOLFTPM_IFX_FW_UPGRADE */
 
 /* Public Firmware Upgrade APIs - routes to appropriate vendor implementation
  * Available when any firmware upgrade vendor support is enabled */
-#if (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+#if (defined(WOLFTPM_IFX_FW_UPGRADE) || \
      defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
 
 /* Forward declarations for vendor-specific firmware functions */
@@ -12613,7 +12549,7 @@ int wolfTPM2_FirmwareUpgradeHash_ex(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     }
 #endif
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
     if (caps.mfg == TPM_MFG_INFINEON) {
         /* Route to Infineon firmware update implementation */
         /* check the operational mode */
@@ -12741,7 +12677,7 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
     }
 #endif
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
     if (caps.mfg == TPM_MFG_INFINEON) {
         /* Route to Infineon firmware cancel */
         uint8_t cmd[2];
@@ -12769,7 +12705,7 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
     return TPM_RC_COMMAND_CODE;
 }
 
-#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 || WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+#endif /* WOLFTPM_IFX_FW_UPGRADE || WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 

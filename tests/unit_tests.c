@@ -169,6 +169,11 @@ static int TestWolfTPM2_InitConfigured(WOLFTPM2_DEV* dev,
     else if (vendor != NULL && XSTRCMP(vendor, "nations") == 0) {
         mode = WOLFSPDM_MODE_NATIONS;
     }
+    else if (vendor != NULL && (XSTRCMP(vendor, "infineon") == 0 ||
+            XSTRCMP(vendor, "slb9678") == 0)) {
+        /* Both spellings, as spdm_ctrl's --vendor= takes them. */
+        mode = WOLFSPDM_MODE_TCG;
+    }
     else if (vendor != NULL && vendor[0] != '\0') {
         return BAD_FUNC_ARG;
     }
@@ -188,25 +193,34 @@ static int TestWolfTPM2_InitConfigured(WOLFTPM2_DEV* dev,
 }
 #endif
 
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG) && \
-    defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
 static void test_wolfTPM2_SpdmModeFromDidVid(void)
 {
     WOLFSPDM_MODE mode;
     int rc;
 
+#ifdef WOLFSPDM_NUVOTON
     mode = WOLFSPDM_MODE_AUTO;
     rc = wolfTPM2_SpdmModeFromDidVid(
         0x12340000U | TPM_VENDOR_NUVOTON, &mode);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(mode, WOLFSPDM_MODE_NUVOTON);
 
+#endif
+#ifdef WOLFSPDM_NATIONS
     mode = WOLFSPDM_MODE_AUTO;
     rc = wolfTPM2_SpdmModeFromDidVid(
         0x56780000U | TPM_VENDOR_NATIONTECH, &mode);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(mode, WOLFSPDM_MODE_NATIONS);
 
+#endif
+#ifdef WOLFSPDM_INFINEON
+    rc = wolfTPM2_SpdmModeFromDidVid(
+        0x56780000U | TPM_VENDOR_INFINEON, &mode);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(mode, WOLFSPDM_MODE_TCG);
+#endif
     mode = WOLFSPDM_MODE_NUVOTON;
     rc = wolfTPM2_SpdmModeFromDidVid(0x12345678U, &mode);
     AssertIntEQ(rc, WOLFSPDM_E_BAD_STATE);
@@ -418,6 +432,31 @@ static void test_wolfTPM2_PolicyTransportSPDM_live(WOLFTPM2_DEV* dev)
 }
 #endif /* WOLFTPM_SPDM */
 
+#if defined(WOLFTPM_SPDM) && defined(WOLFSPDM_INFINEON)
+static void test_wolfTPM2_SpdmConnectInfineonTcg(void)
+{
+    WOLFTPM2_DEV dev;
+    byte key[48];
+    int rc;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(key, 0, sizeof(key));
+    AssertIntEQ(wolfTPM2_SpdmConnectInfineonTcg(NULL, NULL, 0, NULL, 0),
+        BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_SpdmConnectInfineonTcg(&dev, NULL, 0, NULL, 0),
+        BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmInit(&dev);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(wolfTPM2_SpdmConnectInfineonTcg(&dev, key, sizeof(key),
+        NULL, 0), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_SpdmConnectInfineonTcg(&dev, NULL, 1, NULL, 0),
+        BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmCleanup(&dev);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    printf("Test TPM Wrapper:\tSLB9678 asymmetric arguments:\tPassed\n");
+}
+#endif
+
 static void test_wolfTPM2_Init(void)
 {
     int rc;
@@ -427,9 +466,6 @@ static void test_wolfTPM2_Init(void)
 #endif
 #if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
     byte rspPubKey[WOLFSPDM_ECC_POINT_SIZE];
-    #if !defined(WOLFSPDM_NUVOTON) && !defined(WOLFSPDM_NATIONS)
-    WOLFTPM2_DEV untouchedDev;
-    #endif
 #endif
 #if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK)
     byte psk[32];
@@ -454,14 +490,7 @@ static void test_wolfTPM2_Init(void)
     rc = wolfTPM2_InitWithSpdmKey_ex(&dev, TPM2_IoCb, NULL,
         rspPubKey, sizeof(rspPubKey), (WOLFSPDM_MODE)99);
     AssertIntEQ(rc, BAD_FUNC_ARG);
-    #if !defined(WOLFSPDM_NUVOTON) && !defined(WOLFSPDM_NATIONS)
-    XMEMSET(&dev, 0xA5, sizeof(dev));
-    XMEMCPY(&untouchedDev, &dev, sizeof(untouchedDev));
-    rc = wolfTPM2_InitWithSpdmKey(&dev, TPM2_IoCb, NULL,
-        rspPubKey, sizeof(rspPubKey));
-    AssertIntEQ(rc, WOLFSPDM_E_NOT_AVAILABLE);
-    AssertIntEQ(XMEMCMP(&dev, &untouchedDev, sizeof(dev)), 0);
-    #endif
+
 #endif
 #if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_PSK)
     XMEMSET(psk, 0x5A, sizeof(psk));
@@ -8582,7 +8611,7 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY srk;
     WOLFTPM2_KEYBLOB key;
-    byte blob[MAX_CONTEXT_SIZE];
+    byte blob[sizeof(TPM2B_PUBLIC) + sizeof(TPM2B_PRIVATE)];
     TPMT_PUBLIC publicTemplate;
     word32 privBufferSz, pubBufferSz;
     char nameBuf[32];
@@ -10142,8 +10171,7 @@ int unit_tests(int argc, char *argv[])
     (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG) && \
-    defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
     test_wolfTPM2_SpdmModeFromDidVid();
 #endif
 #ifdef WOLFTPM_SPDM
@@ -10152,6 +10180,9 @@ int unit_tests(int argc, char *argv[])
 #endif
     test_TPM2_Packet_ParseU16BufStrict();
     test_TPM2_ParsePcrProperties_Count();
+#if defined(WOLFTPM_SPDM) && defined(WOLFSPDM_INFINEON)
+    test_wolfTPM2_SpdmConnectInfineonTcg();
+#endif
     test_wolfTPM2_Init();
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();

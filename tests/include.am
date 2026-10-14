@@ -56,3 +56,49 @@ dist_noinst_SCRIPTS += tests/fwtpm_check.sh \
 endif
 
 EXTRA_DIST += tests/pqc_kat_vectors.h
+
+if BUILD_EXAMPLES
+if BUILD_SPDM
+if BUILD_SPDM_TCG
+check_PROGRAMS += tests/spdm_ctrl.test
+noinst_PROGRAMS += tests/spdm_ctrl.test
+tests_spdm_ctrl_test_SOURCES = tests/spdm_ctrl_tests.c
+tests_spdm_ctrl_test_CFLAGS = $(AM_CFLAGS)
+tests_spdm_ctrl_test_LDADD = src/libwolftpm.la $(LIB_STATIC_ADD)
+endif
+endif
+endif
+
+if BUILD_EXAMPLES
+# Authorization-area accounting, no TPM and no vendor build. The functions
+# are WOLFTPM_LOCAL, so link the library objects rather than the shared
+# library, which does not export them.
+check_PROGRAMS += tests/packet_auth.test
+noinst_PROGRAMS += tests/packet_auth.test
+tests_packet_auth_test_SOURCES = tests/packet_auth_tests.c
+tests_packet_auth_test_CFLAGS = $(AM_CFLAGS)
+tests_packet_auth_test_LDADD = $(src_libwolftpm_la_OBJECTS) \
+    $(src_libwolftpm_la_LIBADD) $(LIB_STATIC_ADD)
+tests_packet_auth_test_DEPENDENCIES = src/libwolftpm.la
+endif
+
+if BUILD_EXAMPLES
+if BUILD_INFINEON_SPDM
+check_PROGRAMS += tests/spdm_config.test
+noinst_PROGRAMS += tests/spdm_config.test
+tests_spdm_config_test_SOURCES = tests/spdm_config_tests.c
+tests_spdm_config_test_CFLAGS = $(AM_CFLAGS)
+# The mock command builders replace tpm2.lo; link the remaining objects
+# directly so internal packet/crypto helpers are available in shared builds.
+# Match the suffix rather than the whole name: the libwolftpm_la- prefix is
+# automake's per-target CFLAGS convention and goes away if those go away,
+# and a filter-out that matches nothing links the real tpm2.lo instead.
+spdm_config_tpm2_object = \
+    $(filter %/tpm2.lo %-tpm2.lo,$(src_libwolftpm_la_OBJECTS))
+spdm_config_support_objects = \
+    $(filter-out $(spdm_config_tpm2_object),$(src_libwolftpm_la_OBJECTS))
+tests_spdm_config_test_LDADD = $(spdm_config_support_objects) \
+    $(src_libwolftpm_la_LIBADD) $(LIB_STATIC_ADD)
+tests_spdm_config_test_DEPENDENCIES = src/libwolftpm.la
+endif
+endif
