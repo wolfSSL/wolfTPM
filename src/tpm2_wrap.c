@@ -7718,7 +7718,9 @@ int wolfTPM2_AllocatePCRBanks(WOLFTPM2_DEV* dev, const TPM_ALG_ID* hashAlgs,
 
 int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
 {
-    int rc;
+    int rc, i;
+    int isSession;
+    TPM_HANDLE flushHandle;
     FlushContext_In in;
 
     if (dev == NULL || handle == NULL)
@@ -7730,8 +7732,12 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
         return TPM_RC_SUCCESS;
     }
 
+    flushHandle = handle->hndl;
+    isSession = TPM2_IS_HMAC_SESSION(flushHandle) ||
+        TPM2_IS_POLICY_SESSION(flushHandle);
+
     XMEMSET(&in, 0, sizeof(in));
-    in.flushHandle = handle->hndl;
+    in.flushHandle = flushHandle;
     rc = TPM2_FlushContext(&in);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -7745,6 +7751,15 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     printf("TPM2_FlushContext: Closed handle 0x%x\n", (word32)handle->hndl);
 #endif
 
+    if (isSession) {
+        TPM2_ForceZero(&handle->auth, sizeof(handle->auth));
+        for (i = 0; i < MAX_SESSION_NUM; i++) {
+            if (dev->session[i].sessionHandle == flushHandle) {
+                TPM2_ForceZero(&dev->session[i], sizeof(dev->session[i]));
+                dev->session[i].sessionHandle = TPM_RS_PW;
+            }
+        }
+    }
     handle->hndl = TPM_RH_NULL;
 
     return TPM_RC_SUCCESS;
