@@ -8701,6 +8701,9 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         if (hash->handle.hndl == TPM_RH_NULL) {
             TPM2_ForceZero(&hash->handle.auth,
                 sizeof(hash->handle.auth));
+            TPM2_ForceZero(&dev->session[0].auth,
+                sizeof(dev->session[0].auth));
+            dev->session[0].auth.size = 0;
         }
         goto exit;
     }
@@ -8708,6 +8711,8 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     /* mark hash handle as done */
     hash->handle.hndl = TPM_RH_NULL;
     TPM2_ForceZero(&hash->handle.auth, sizeof(hash->handle.auth));
+    TPM2_ForceZero(&dev->session[0].auth, sizeof(dev->session[0].auth));
+    dev->session[0].auth.size = 0;
 
     if (out.result.size > *digestSz) {
         *digestSz = out.result.size;
@@ -9170,6 +9175,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 {
     int rc;
     int newKeyLoaded = 0;
+    int authSet = 0;
     HMAC_Start_In in;
     HMAC_Start_Out out;
 
@@ -9204,7 +9210,11 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     }
 
     /* set session auth for hmac key */
-    wolfTPM2_SetAuthHandle(dev, 0, &hmac->hash.handle);
+    rc = wolfTPM2_SetAuthHandle(dev, 0, &hmac->hash.handle);
+    if (rc != TPM_RC_SUCCESS) {
+        goto hmac_start_cleanup;
+    }
+    authSet = 1;
 
     /* Setup HMAC start command */
     in.handle = hmac->key.handle.hndl;
@@ -9234,6 +9244,11 @@ hmac_start_cleanup:
     TPM2_ForceZero(&in.auth, sizeof(in.auth));
     TPM2_ForceZero(&hmac->hash.handle.auth,
         sizeof(hmac->hash.handle.auth));
+    if (authSet) {
+        TPM2_ForceZero(&dev->session[0].auth,
+            sizeof(dev->session[0].auth));
+        dev->session[0].auth.size = 0;
+    }
     if (newKeyLoaded) {
         (void)wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
         if (hmac->key.handle.hndl == 0 ||
