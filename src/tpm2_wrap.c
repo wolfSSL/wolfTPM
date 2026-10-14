@@ -4815,6 +4815,9 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     int rc = 0;
     byte* derBuf;
     word32 derSz;
+#ifdef WOLFTPM2_PEM_DECODE
+    word32 derBufSz = 0;
+#endif
     TPM2B_PUBLIC* pub;
     TPM2B_SENSITIVE sens;
     word32 digestSz;
@@ -4837,6 +4840,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         if (inSz > (0xFFFFFFFFU / 3))
             return BAD_FUNC_ARG;
         derSz = inSz * 3 / 4 + 1;
+        derBufSz = derSz;
         derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         if (derBuf == NULL)
             return MEMORY_E;
@@ -4921,7 +4925,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
 
 #ifdef WOLFTPM2_PEM_DECODE
     if (derBuf != (byte*)input) {
-        TPM2_ForceZero(derBuf, derSz);
+        TPM2_ForceZero(derBuf, derBufSz);
         XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
 #endif
