@@ -3070,6 +3070,7 @@ TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
                 (UINT16)sizeof(out->outHMAC.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -3235,6 +3236,7 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
                 (UINT16)sizeof(out->validation.digest.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
