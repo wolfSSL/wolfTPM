@@ -1649,6 +1649,12 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     }
                     break;
                 }
+            #if defined(WOLFTPM_NATIONS) || defined(WOLFTPM_AUTODETECT) || \
+                defined(WOLFTPM_SPDM)
+                case TPM_CAP_PUB_KEYS:
+                    rc = TPM_RC_VALUE;
+                    break;
+            #endif
             #ifdef WOLFTPM_SPDM
                 case TPM_CAP_SPDM_SESSION_INFO:
                 {
