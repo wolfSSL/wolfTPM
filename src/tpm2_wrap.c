@@ -2397,7 +2397,7 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
     !defined(WC_NO_RNG) && defined(HAVE_ECC_DHE) && \
     defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT)
-/* TPM2_KDFe is now in tpm2_param_enc.c (shared with fwTPM) */
+/* TPM2_KDFe is now in tpm2_crypto.c (shared with fwTPM) */
 /* returns both the plaintext and encrypted value */
 /* ECC: data = derived symmetric key
  *      secret = exported public point */
