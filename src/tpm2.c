@@ -7801,7 +7801,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     hashType = (enum wc_HashType)rc;
     rc = wc_HashGetDigestSize(hashType);
     if (rc < 0) {
-        return rc;
+        goto exit;
     }
     hashSize = rc;
 
@@ -7824,6 +7824,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
         rc = TPM_RC_SUCCESS;
     }
 
+exit:
     if (hashInitialized) {
         wc_HashFree(&hash, hashType);
     }
