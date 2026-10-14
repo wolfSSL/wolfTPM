@@ -477,7 +477,11 @@ int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
             authSessCount++;
         }
 
-        /* Only an HMAC session with encrypt, decrypt or audit set */
+        /* A required HMAC authorization occupies the same slot as password
+         * or policy authorization. Additional HMAC sessions need attributes. */
+        else if (authReq && TPM2_IS_HMAC_SESSION(sessionHandle)) {
+            authSessCount++;
+        }
         else if (authSessCount > 0 && TPM2_IS_HMAC_SESSION(sessionHandle)) {
             if (((sessionAttributes & TPMA_SESSION_decrypt) && (flags &
                     (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) ||
@@ -552,9 +556,12 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
             if (session->sessionHandle == TPM_RS_PW) {
                 packet->pos += session->auth.size;
             }
-            /* HMAC or Policy Session */
-            else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
-                     TPM2_IS_POLICY_SESSION(session->sessionHandle)) {
+            /* HMAC size follows its hash, not the authorization key size. */
+            else if (TPM2_IS_HMAC_SESSION(session->sessionHandle)) {
+                packet->pos += TPM2_GetHashDigestSize(session->authHash);
+            }
+            /* Policy Session */
+            else if (TPM2_IS_POLICY_SESSION(session->sessionHandle)) {
                 if (!session->policyAuth && session->auth.size > 0) {
                     packet->pos += session->auth.size;
                 }

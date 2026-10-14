@@ -496,13 +496,18 @@ typedef int64_t  INT64;
         #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_SEALSQ
     #endif
 #else
-    /* Infineon OPTIGA SLB9670/SLB9672/SLB9673 */
+    /* Infineon OPTIGA SLB9670/SLB9672/SLB9673/SLB9678 */
     #ifdef WOLFTPM_SLB9670
         /* Max: 43MHz */
         #define TPM2_SPI_MAX_HZ_INFINEON 43000000
         #ifndef MAX_AES_KEY_BITS
             #define MAX_AES_KEY_BITS 128
         #endif
+
+    #elif defined(WOLFTPM_SLB9678)
+        /* SLB9678: SPI up to 50MHz typ; use conservative 43MHz.
+         * Supports SPI or I2C selected at boot time via the CONFIG pin. */
+        #define TPM2_SPI_MAX_HZ_INFINEON 43000000
 
     #elif !defined(WOLFTPM_AUTODETECT)
         #ifdef WOLFTPM_I2C
@@ -554,6 +559,28 @@ typedef int64_t  INT64;
     #ifndef HASH_COUNT
         #define HASH_COUNT 3
     #endif
+#endif
+#if defined(WOLFTPM_SLB9678)
+    /* SLB9678 supports RSA up to 4096, ECC NIST P-521, and SHA-256/384/512 */
+    #ifndef MAX_RSA_KEY_BITS
+        #define MAX_RSA_KEY_BITS 4096
+    #endif
+    #ifndef MAX_ECC_KEY_BITS
+        #define MAX_ECC_KEY_BITS 521
+    #endif
+    #ifndef HASH_COUNT
+        #define HASH_COUNT 3
+    #endif
+#endif
+
+/* Infineon parts that implement the vendor field-upgrade flow
+ * (TPM2_IFX_FieldUpgrade*, the TPM_PT_VENDOR_FIX properties, and the
+ * chunked manifest/data transfer). Adding a new Infineon part means
+ * adding it here rather than editing each guard site. */
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+    defined(WOLFTPM_SLB9678)
+    #undef  WOLFTPM_IFX_FW_UPGRADE
+    #define WOLFTPM_IFX_FW_UPGRADE
 #endif
 
 
@@ -1133,12 +1160,12 @@ typedef int64_t  INT64;
     #define WOLFTPM2_PEM_DECODE
 #endif
 
-/* Firmware upgrade supported for Infineon SLB9672/SLB9673 and STM ST33. */
+/* Firmware upgrade supported for the Infineon parts covered by
+ * WOLFTPM_IFX_FW_UPGRADE and for STM ST33. */
 /* If firmware upgrade is requested but none of these vendors (or AUTODETECT)
  * are enabled, turn it off to avoid building unusable code. */
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && (!defined(WOLFTPM_AUTODETECT) && \
-    (!defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673) && \
-     !defined(WOLFTPM_ST33)))
+    (!defined(WOLFTPM_IFX_FW_UPGRADE) && !defined(WOLFTPM_ST33)))
     #undef WOLFTPM_FIRMWARE_UPGRADE
 #endif
 

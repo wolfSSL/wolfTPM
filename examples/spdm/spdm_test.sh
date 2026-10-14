@@ -1,5 +1,5 @@
 #!/bin/bash
-# spdm_test.sh - SPDM hardware tests (Nuvoton / Nations Technology)
+# spdm_test.sh - SPDM hardware tests (Nuvoton / Nations / Infineon SLB9678)
 #
 # Copyright (C) 2006-2026 wolfSSL Inc.
 #
@@ -24,7 +24,8 @@ CAPS_DEMO="./examples/wrap/caps"
 UNIT_TEST="./tests/unit.test"
 GPIO_CHIP="gpiochip0"
 GPIO_PIN="4"
-VENDOR="${2:-nuvoton}"  # nuvoton, nations, nations-psk, fwtpm-tcg, fwtpm-psk
+VENDOR="${2:-nuvoton}"  # nuvoton, nations, nations-psk, slb9678,
+                        # fwtpm-tcg, fwtpm-psk, fwtpm-tcg-generic
 FWTPM="${FWTPM:-./src/fwtpm/fwtpm_server}"
 FWTPM_PORT="${FWTPM_PORT:-22321}"
 FWTPM_PLAT_PORT="${FWTPM_PLAT_PORT:-22322}"
@@ -52,7 +53,8 @@ fi
 # fwtpm modes route TPM/SPDM traffic over the swtpm socket. No GPIO line,
 # no NV provisioning persistence - the responder is started fresh per run.
 is_fwtpm_mode() {
-    [ "$VENDOR" = "fwtpm-tcg" ] || [ "$VENDOR" = "fwtpm-psk" ]
+    [ "$VENDOR" = "fwtpm-tcg" ] || [ "$VENDOR" = "fwtpm-psk" ] ||
+        [ "$VENDOR" = "fwtpm-tcg-generic" ]
 }
 
 valid_responder_pubkey() {
@@ -73,7 +75,11 @@ require_responder_pubkey() {
 run_identity() {
     # Leave Nations unforced so a dual-vendor build exercises DID/VID AUTO
     # selection and the resulting vendor-specific command dispatch.
-    if [ "$VENDOR" = "nations" ]; then
+    if [ "$VENDOR" = "slb9678" ] || [ "$VENDOR" = "infineon" ] ||
+            [ "$VENDOR" = "fwtpm-tcg-generic" ]; then
+        "$SPDM_DEMO" --vendor=slb9678 \
+            --responder-pubkey "$SPDM_RESPONDER_PUBKEY" "$@"
+    elif [ "$VENDOR" = "nations" ]; then
         "$SPDM_DEMO" --responder-pubkey "$SPDM_RESPONDER_PUBKEY" "$@"
     else
         "$SPDM_DEMO" --vendor=nuvoton \
@@ -101,6 +107,11 @@ run_unit_with_psk() {
 }
 
 gpio_reset() {
+    # SLB9678 handshakes reset the connection with GET_VERSION. Preserve
+    # the board strap pins and avoid resetting customer TPM state.
+    if [ "$VENDOR" = "slb9678" ] || [ "$VENDOR" = "infineon" ]; then
+        return 0
+    fi
     if is_fwtpm_mode; then
         return 0
     fi
@@ -296,7 +307,9 @@ run_test_rejected() {
 
 if [ ! -x "$SPDM_DEMO" ]; then
     echo "Error: $SPDM_DEMO not found."
-    echo "Usage: $0 [path-to-spdm_ctrl] [nuvoton|nations|nations-psk|fwtpm-tcg|fwtpm-psk]"
+    echo "Usage: $0 [path-to-spdm_ctrl]" \
+        "[nuvoton|nations|nations-psk|slb9678|fwtpm-tcg|fwtpm-psk|"\
+        "fwtpm-tcg-generic]"
     exit 1
 fi
 
@@ -409,6 +422,62 @@ elif [ "$VENDOR" = "nations-psk" ]; then
         echo -e "  ${YELLOW}Skipping: $CAPS_DEMO not found${NC}"
     fi
 
+elif [ "$VENDOR" = "slb9678" ] || [ "$VENDOR" = "infineon" ]; then
+    require_responder_pubkey || exit 1
+    run_test_rejected "Missing responder pin is rejected" "FAILED" \
+        "$SPDM_DEMO" --vendor=slb9678 --connect
+    run_test_rejected "Malformed responder pin is rejected" \
+        "Invalid responder public key" "$SPDM_DEMO" --vendor=slb9678 \
+        --responder-pubkey 00 --connect
+    run_test "Read asymmetric identity public key" \
+        "$SPDM_DEMO" --vendor=slb9678 --get-pubkey
+    run_test_output "Read PSK configuration without a session" \
+        "PSK feature:" "$SPDM_DEMO" --vendor=slb9678 --status
+    run_test_output "Pinned initialization establishes asymmetric SPDM" \
+        "Already connected" run_identity --connect
+    run_test_output "Status preserves the asymmetric session" \
+        "Mode: TCG asymmetric" run_identity --status --caps
+    run_test_output "Encrypted TPM capabilities" \
+        "wolfTPM caps read successfully" run_identity --connect --caps
+    run_test_output "TPM reports session identity names" \
+        "tpmKeyName (50 bytes): 000c" run_identity --session-info
+    run_test_output "PolicyTransportSPDM NV binding and wrong-name rejection" \
+        "mismatch rejected (TPM_RC_CHANNEL_KEY)" run_identity --policy-nv
+    run_test_rejected "Asymmetric session rejects PSK-only lock" \
+        "require an authenticated PSK session" run_identity --lock
+    run_test_rejected "Asymmetric session rejects PSK-only unlock" \
+        "require an authenticated PSK session" run_identity --unlock
+    run_test_rejected "Key query does not reset an active session" \
+        "must run outside an active session" run_identity --get-pubkey
+    if [ "${SPDM_TEST_PSK_CONFIG:-0}" = "1" ]; then
+        # Only exercise this reversible feature setting when disabled and
+        # unlocked. This does not provision, clear, or unlock a PSK.
+        config=$("$SPDM_DEMO" --vendor=slb9678 --status 2>&1)
+        if grep -Fq "PSK feature: disabled  Configuration: unlocked" \
+                <<< "$config"; then
+            trap '"$SPDM_DEMO" --vendor=slb9678 --disable >/dev/null 2>&1' EXIT
+            run_test_output "Enable PSK feature configuration" \
+                "PSK feature: enabled" "$SPDM_DEMO" --vendor=slb9678 \
+                --enable --status
+            if [ "${SPDM_EXPECT_PSK_UNAVAILABLE:-0}" = "1" ]; then
+                run_test_rejected "Firmware does not advertise PSK sessions" \
+                    "Peer error response" "$SPDM_DEMO" --vendor=slb9678 \
+                    --psk-status
+            fi
+            run_test_output "Restore disabled PSK feature configuration" \
+                "PSK feature: disabled" "$SPDM_DEMO" --vendor=slb9678 \
+                --disable --status
+        else
+            echo "Skipping PSK configuration changes: preserve current state"
+        fi
+    fi
+    run_test_output "Reconnect after earlier session cleanup" \
+        "Already connected" run_identity --connect --caps
+    if [ -x "$CAPS_DEMO" ]; then
+        run_test_caps_no_reset "Plain TPM access restored after cleanup" \
+            "$CAPS_DEMO"
+    fi
+
 elif [ "$VENDOR" = "fwtpm-tcg" ]; then
     # fwtpm in TCG cert mode - mirrors the Nuvoton sequence against
     # the software responder. Lock/unlock toggles the SPDMONLY runtime
@@ -458,6 +527,32 @@ elif [ "$VENDOR" = "fwtpm-tcg" ]; then
     else
         echo -e "  ${YELLOW}Skipping: $CAPS_DEMO not found${NC}"
     fi
+
+elif [ "$VENDOR" = "fwtpm-tcg-generic" ]; then
+    # The same responder as fwtpm-tcg, reached through WOLFSPDM_MODE_TCG
+    # instead of a vendor adapter. --vendor=slb9678 selects that mode, and
+    # the SLB9678 has no adapter behind it, so this is the only run that
+    # proves the adapter-less identity flow completes and carries traffic.
+    if [ ! -x "$FWTPM" ]; then
+        echo "Error: $FWTPM not found"
+        exit 1
+    fi
+    trap 'fwtpm_stop' EXIT
+    if ! fwtpm_start tcg; then
+        exit 1
+    fi
+
+    run_test_output "Generic TCG pinned initialization establishes SPDM" \
+        "Already connected" run_identity --connect
+    run_test_output "Generic TCG session reports the TPM identity key" \
+        "tpmKeyName (50 bytes): 000c" run_identity --connect --session-info
+    run_test "Encrypted TPM command over the generic TCG session" \
+        run_identity --connect --caps
+    run_test_rejected "A mismatched pinned key is refused" \
+        "Invalid responder public key" "$SPDM_DEMO" --vendor=slb9678 \
+        --responder-pubkey 00 --connect
+    # The full unit suite over SPDM is fwtpm-tcg's job; repeating it here
+    # would double the run for the same library code on the same responder.
 
 elif [ "$VENDOR" = "fwtpm-psk" ]; then
     # fwtpm in PSK mode - mirrors the Nations-PSK 12-test sequence, minus
@@ -555,7 +650,7 @@ elif [ "$VENDOR" = "fwtpm-psk" ]; then
 
 else
     echo "Error: Unknown vendor '$VENDOR'."
-    echo "Valid: nuvoton, nations, nations-psk, fwtpm-tcg, fwtpm-psk"
+    echo "Valid: nuvoton, nations, nations-psk, slb9678, fwtpm-tcg, fwtpm-psk"
     exit 1
 fi
 

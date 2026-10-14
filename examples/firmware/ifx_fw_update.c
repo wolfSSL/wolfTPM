@@ -31,7 +31,8 @@
 /* wolfTPM2_FirmwareUpgrade_ex hashes the manifest with SHA-384, so it is only
  * built with wolfCrypt. This tool has no other way to drive an upgrade. */
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)) && \
+    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+     defined(WOLFTPM_SLB9678)) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/firmware/ifx_fw_update.h>
@@ -362,7 +363,8 @@ exit:
 /******************************************************************************/
 /* --- END TPM2.0 Firmware Update tool  -- */
 /******************************************************************************/
-#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_SLB9672 || WOLFTPM_SLB9673) &&
+#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_SLB9672 || WOLFTPM_SLB9673 ||
+        * WOLFTPM_SLB9678) &&
         * !WOLFTPM2_NO_WOLFCRYPT */
 
 #ifndef NO_MAIN_DRIVER
@@ -371,15 +373,17 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)) && \
+    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+     defined(WOLFTPM_SLB9678)) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT)
     rc = TPM2_IFX_Firmware_Update(NULL, argc, argv);
 #else
     printf("Support for firmware upgrade not compiled in!\n"
         "See --enable-firmware or WOLFTPM_FIRMWARE_UPGRADE\n");
-    printf("This tool is for the Infineon SLB9672 or SLB9673 TPMs only\n"
+    printf("This tool is for the Infineon SLB9672, SLB9673 or SLB9678 TPMs only\n"
         "\t--enable-infineon=slb9672 (WOLFTPM_SLB9672)\n"
-        "\t--enable-infineon=slb9673 --enable-i2c (WOLFTPM_SLB9673)\n");
+        "\t--enable-infineon=slb9673 --enable-i2c (WOLFTPM_SLB9673)\n"
+        "\t--enable-infineon=slb9678 (WOLFTPM_SLB9678)\n");
     printf("Firmware upgrade also requires wolfCrypt "
         "(not WOLFTPM2_NO_WOLFCRYPT)\n");
     (void)argc;

@@ -1498,6 +1498,7 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         int i;
         TPM2_Packet packet;
+        TPML_TAGGED_CONFIG* cfgs;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->capability);
         TPM2_Packet_AppendU32(&packet, in->property);
@@ -1606,6 +1607,29 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     }
                     break;
                 }
+                case TPM_CAP_CONFIGS:
+                    cfgs = &out->capabilityData.data.tpmConfigs;
+                    TPM2_Packet_ParseU32(&packet, &cfgs->count);
+                    /* Callers read enable and lock as a security
+                     * configuration report, so a count past the local
+                     * capacity or a truncated entry is refused rather than
+                     * shortened into a partial answer that looks complete. */
+                    if (packet.overflow || cfgs->count > MAX_TAGGED_CONFIGS) {
+                        cfgs->count = 0;
+                        rc = TPM_RC_SIZE;
+                        break;
+                    }
+                    for (i=0; i<(int)cfgs->count; i++) {
+                        TPMS_TAGGED_CONFIG* cfg = &cfgs->configs[i];
+                        TPM2_Packet_ParseU32(&packet, &cfg->configuration);
+                        TPM2_Packet_ParseU8(&packet, &cfg->enable);
+                        TPM2_Packet_ParseU8(&packet, &cfg->lock);
+                    }
+                    if (packet.overflow) {
+                        cfgs->count = 0;
+                        rc = TPM_RC_SIZE;
+                    }
+                    break;
                 case TPM_CAP_AUTH_POLICIES:
                 {
                     TPML_TAGGED_POLICY* authPol =
@@ -1682,6 +1706,40 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     break;
             }
         }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_SetCapability(SetCapability_In* in)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (in == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = CMD_FLAG_AUTH_USER1;
+
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, in->authHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+        /* TPM2B_SET_CAPABILITY_DATA: size, capability selector and one
+         * TPMS_TAGGED_CONFIG (UINT32 configuration + two BOOL values). */
+        TPM2_Packet_AppendU16(&packet, 10);
+        TPM2_Packet_AppendU32(&packet, in->capability);
+        TPM2_Packet_AppendU32(&packet, in->config.configuration);
+        TPM2_Packet_AppendU8(&packet, in->config.enable);
+        TPM2_Packet_AppendU8(&packet, in->config.lock);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SetCapability);
+
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
 
         TPM2_ReleaseLock(ctx);
     }
@@ -6893,7 +6951,7 @@ int TPM2_Nations_IdentityKeySet(Nations_IdentityKeySet_In* in)
 #endif /* WOLFTPM_NATIONS */
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
 int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
     uint8_t* data, uint32_t size)
 {
@@ -6942,7 +7000,7 @@ int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
     }
     return rc;
 }
-#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
+#endif /* WOLFTPM_IFX_FW_UPGRADE */
 
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 /* ST33 Firmware Update Vendor Command Functions */
