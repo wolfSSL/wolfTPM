@@ -986,18 +986,27 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
 {
     TPMU_SENSITIVE_COMPOSITE* sens = &sensitive->sensitiveArea.sensitive;
     int sensStartPos;
+    int sensEndPos = 0;
+    int packetSize = 0;
 
     TPM2_Packet_ParseU16(packet, &sensitive->size);
     if (sensitive->size == 0) {
         XMEMSET(&sensitive->sensitiveArea, 0, sizeof(sensitive->sensitiveArea));
         return;
     }
-    /* Clamp outer size to remaining packet bytes so inner parses are bounded */
-    if (packet != NULL && packet->pos < packet->size &&
-            sensitive->size > (UINT16)(packet->size - packet->pos)) {
-        sensitive->size = (UINT16)(packet->size - packet->pos);
-    }
     sensStartPos = (packet != NULL) ? packet->pos : 0;
+    if (packet != NULL) {
+        packetSize = packet->size;
+        sensEndPos = packetSize;
+        if (sensStartPos <= packetSize &&
+                (int)sensitive->size <= packetSize - sensStartPos) {
+            sensEndPos = sensStartPos + sensitive->size;
+        }
+        else {
+            packet->overflow = 1;
+        }
+        packet->size = sensEndPos;
+    }
 
     TPM2_Packet_ParseU16(packet, &sensitive->sensitiveArea.sensitiveType);
 
@@ -1050,12 +1059,9 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
         break;
     }
 
-    /* Resync packet position to end of declared outer size so inner parses
-     * can't cause field drift if declared size and actual inner consumption
-     * disagree */
-    if (packet != NULL &&
-            sensStartPos + sensitive->size <= packet->size) {
-        packet->pos = sensStartPos + sensitive->size;
+    if (packet != NULL) {
+        packet->size = packetSize;
+        packet->pos = sensEndPos;
     }
 }
 
