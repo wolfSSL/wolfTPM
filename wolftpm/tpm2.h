@@ -4118,7 +4118,7 @@ WOLFTPM_API TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType);
     int rc, nonceSize = 32;
     BYTE freshNonce[32];
 
-    rc = TPM2_GetNonce(&freshNonce, nonceSize);
+    rc = TPM2_GetNonce(freshNonce, nonceSize);
     if (rc != TPM_RC_SUCCESS) {
         //TPM2_GetNonce failed
     }
