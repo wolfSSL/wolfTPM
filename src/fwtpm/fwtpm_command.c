@@ -434,6 +434,43 @@ static int FwGetPcrBankIndex(UINT16 hashAlg)
     }
 }
 
+static TPM_RC FwValidatePcrSelection(TPM2_Packet* cmd, int cmdSize)
+{
+    TPM2_Packet check;
+    UINT32 count;
+    UINT32 i;
+
+    if (cmd == NULL || cmd->pos > cmdSize || cmdSize - cmd->pos < 4) {
+        return TPM_RC_COMMAND_SIZE;
+    }
+
+    check = *cmd;
+    TPM2_Packet_ParseU32(&check, &count);
+    if (count > (UINT32)(cmdSize - check.pos) / 3U) {
+        return TPM_RC_COMMAND_SIZE;
+    }
+
+    for (i = 0; i < count; i++) {
+        UINT16 hashAlg;
+        UINT8 sizeofSelect;
+
+        TPM2_Packet_ParseU16(&check, &hashAlg);
+        TPM2_Packet_ParseU8(&check, &sizeofSelect);
+        (void)hashAlg;
+
+        if (sizeofSelect < PCR_SELECT_MIN ||
+                sizeofSelect > PCR_SELECT_MAX) {
+            return TPM_RC_VALUE;
+        }
+        if ((int)sizeofSelect > cmdSize - check.pos) {
+            return TPM_RC_COMMAND_SIZE;
+        }
+        TPM2_Packet_ParseBytes(&check, NULL, sizeofSelect);
+    }
+
+    return TPM_RC_SUCCESS;
+}
+
 static UINT16 FwGetPcrBankAlg(int bank)
 {
     if (bank == FWTPM_PCR_BANK_SHA256) {
@@ -2948,6 +2985,9 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
     }
+    if (rc == 0) {
+        rc = FwValidatePcrSelection(cmd, cmdSize);
+    }
 
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &pcrSelCount);
@@ -3446,6 +3486,9 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* Parse TPML_PCR_SELECTION */
+    if (rc == 0) {
+        rc = FwValidatePcrSelection(cmd, cmdSize);
+    }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &count);
         if (count > FWTPM_PCR_BANKS * 4) {
@@ -11828,6 +11871,9 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Parse PCR selection */
     if (rc == 0) {
+        rc = FwValidatePcrSelection(cmd, cmdSize);
+    }
+    if (rc == 0) {
         TPM2_Packet_ParsePCR(cmd, &pcrs);
         if (cmd->overflow) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -16376,6 +16422,9 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* PCRselect */
+    if (rc == 0) {
+        rc = FwValidatePcrSelection(cmd, cmdSize);
+    }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &pcrSelCount);
         numSel = pcrSelCount;

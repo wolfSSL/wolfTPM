@@ -2152,13 +2152,13 @@ static void test_fwtpm_pcr_allocate(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
 
-    /* Oversized selection count is rejected before parsing */
+    /* A selection count that exceeds the remaining packet is truncated */
     cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 1);
     PutU32BE(gCmd + TPM2_HEADER_SIZE + 4 + 13, FWTPM_PCR_BANKS * 4 + 1);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
 
     /* Both banks selected. Per spec 22.5 the change is staged, so the live
      * allocation must not move until the next Startup(CLEAR). */
@@ -3794,7 +3794,8 @@ static void test_fwtpm_mldsa_quote_sign_and_verify(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;            /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -3835,7 +3836,8 @@ static void test_fwtpm_mldsa_quote_scheme_mismatch_rejected(void)
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -3874,7 +3876,8 @@ static void test_fwtpm_mldsa_quote_explicit_empty_scheme(void)
     PutU16BE(gCmd + pos, TPM_ALG_MLDSA); pos += 2; /* explicit, no hashAlg */
     PutU32BE(gCmd + pos, 1); pos += 4;             /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -3950,7 +3953,8 @@ static void test_fwtpm_quote_mldsa_scheme_on_ecc_rejected(void)
     PutU16BE(gCmd + pos, TPM_ALG_MLDSA); pos += 2;    /* ML-DSA selector */
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 1; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -4069,7 +4073,8 @@ static void test_fwtpm_hash_mldsa_quote_sign_and_verify(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;            /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -4196,7 +4201,10 @@ static void test_fwtpm_hash_mldsa_quote_namealg_digest(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;    /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 1; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX);
+    gCmd[pos] = 0x01;
+    pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -5895,7 +5903,8 @@ static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;            /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
@@ -11901,8 +11910,10 @@ static TPM_RC SendPolicyPcrCmd(FWTPM_CTX* ctx, UINT32 sessH,
     }
     PutU32BE(gCmd + pos, 1); pos += 4;               /* count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;  /* hash */
-    gCmd[pos++] = 3;                                 /* sizeofSelect */
-    gCmd[pos++] = 0x01; gCmd[pos++] = 0x00; gCmd[pos++] = 0x00; /* PCR 0 */
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;               /* sizeofSelect */
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX);
+    gCmd[pos] = 0x01;                                 /* PCR 0 */
+    pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
@@ -12664,13 +12675,11 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
     PutU16BE(gCmd + pos, TPM_ALG_ECDAA); pos += 2;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
     PutU16BE(gCmd + pos, 0); pos += 2; /* ECDAA count */
-    /* PCRselect: count=1, hashAlg=SHA256, sizeOfSelect=3, no PCRs */
+    /* PCRselect: count=1, hashAlg=SHA256, no PCRs */
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3;
-    gCmd[pos++] = 0;
-    gCmd[pos++] = 0;
-    gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
@@ -12907,7 +12916,8 @@ static int BuildQuoteCmd(byte* buf, UINT32 signHandle)
     PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(buf + pos, 1); pos += 4; /* PCRselect count */
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
-    buf[pos++] = 3; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+    buf[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(buf + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
 }
