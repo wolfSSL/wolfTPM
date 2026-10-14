@@ -444,7 +444,8 @@ typedef int64_t  INT64;
 /* Nuvoton NPCT75x TPM 2.0 module */
 /* #define WOLFTPM_NUVOTON */
 
-/* Infineon SLB9670 TPM 2.0 (default) */
+/* Infineon OPTIGA SLB9672 (SPI) / SLB9673 (I2C) TPM 2.0 (default);
+ * define WOLFTPM_SLB9670 for the SLB9670 */
 /* #define WOLFTPM_SLB9670 */
 /* #define WOLFTPM_SLB9672 */
 
