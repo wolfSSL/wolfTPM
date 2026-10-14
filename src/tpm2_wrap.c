@@ -8140,6 +8140,10 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         pos += toread;
         dataSz -= toread;
     }
+    if (rc != TPM_RC_SUCCESS && pos > 0) {
+        TPM2_ForceZero(dataBuf, pos);
+        pos = 0;
+    }
     *pDataSz = pos;
 
 #ifdef DEBUG_WOLFTPM
