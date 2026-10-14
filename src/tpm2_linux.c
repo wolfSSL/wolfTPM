@@ -125,7 +125,13 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     int rc_poll, nfds = 1; /* Polling single TPM dev file */
     struct pollfd fds;
     int rspSz = 0;
+    int errPrimary = 0;
+#ifdef TPM2_LINUX_DEV_FALLBACK
+    int errFallback = 0;
+#endif
+#ifdef DEBUG_WOLFTPM
     const char* devName = TPM2_LINUX_DEV;
+#endif
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Command size: %d\n", packet->pos);
@@ -134,11 +140,16 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     if (ctx->fd < 0) {
         ctx->fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
+        if (ctx->fd < 0)
+            errPrimary = errno;
 #ifdef TPM2_LINUX_DEV_FALLBACK
         if (ctx->fd < 0) {
+        #ifdef DEBUG_WOLFTPM
+            devName = TPM2_LINUX_DEV_FALLBACK;
+        #endif
             ctx->fd = open(TPM2_LINUX_DEV_FALLBACK, O_RDWR | O_NONBLOCK);
-            if (ctx->fd >= 0)
-                devName = TPM2_LINUX_DEV_FALLBACK;
+            if (ctx->fd < 0)
+                errFallback = errno;
         }
 #endif
     }
@@ -187,10 +198,16 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             rc = TPM_RC_FAILURE;
         }
     }
-    else if (ctx->fd == -1 && errno == EACCES) {
+    else if (ctx->fd == -1 && errPrimary == EACCES) {
         printf("Permission denied on %s\n"
-            "Use sudo or add tss group to user.\n", devName);
+            "Use sudo or add tss group to user.\n", TPM2_LINUX_DEV);
     }
+#ifdef TPM2_LINUX_DEV_FALLBACK
+    else if (ctx->fd == -1 && errFallback == EACCES) {
+        printf("Permission denied on %s\n"
+            "Use sudo or add tss group to user.\n", TPM2_LINUX_DEV_FALLBACK);
+    }
+#endif
     else {
     #ifdef DEBUG_WOLFTPM
         printf("Failed to open %s: errno %d = %s\n",
