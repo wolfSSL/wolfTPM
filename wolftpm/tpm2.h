@@ -4624,9 +4624,9 @@ WOLFTPM_TEST_API int TPM2_ConstantCompare(const byte* a, const byte* b, word32 l
     _Example_
     \code
     BYTE buffer[] = {0x01,0x02,0x03,0x04};
-    length = sizeof(buffer);
+    word32 length = sizeof(buffer);
 
-    TPM2_PrintBin(&buffer, length);
+    TPM2_PrintBin(buffer, length);
     \endcode
 
     \sa TPM2_PrintAuth
