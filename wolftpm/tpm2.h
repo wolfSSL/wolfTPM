@@ -3983,7 +3983,7 @@ WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPM2_AUTH_SESSION *session);
     int authCount;
     TPM2_CTX tpm2Ctx;
 
-    authCount = TPM2_GetSessionAuthCount(tpm2ctx);
+    authCount = TPM2_GetSessionAuthCount(&tpm2Ctx);
     if (authCount == BAD_FUNC_ARG) {
         // TPM2_GetSessionAuthCount failed
     }
