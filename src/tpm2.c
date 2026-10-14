@@ -124,7 +124,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int rc = TPM_RC_SUCCESS;
     UINT32 authSz;
     BYTE *param, *encParam = NULL;
-    int paramSz, encParamSz = 0;
+    int paramSz;
+    UINT32 encParamSz = 0;
     int i, authPos;
     int authTotalSzPos = 0;
     int decIdx = -1;
@@ -155,20 +156,31 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Mark "first" encryption parameter */
     if (info->flags & CMD_FLAG_ENC2) {
         UINT16 tempSz;
+        if (paramSz < (int)sizeof(UINT16))
+            return TPM_RC_SIZE;
         TPM2_Packet_ParseU16(packet, &tempSz);
         encParam = param + sizeof(UINT16);
         encParamSz = tempSz;
     }
     else if (info->flags & CMD_FLAG_ENC4) {
         UINT32 tempSz;
+        if (paramSz < (int)sizeof(UINT32))
+            return TPM_RC_SIZE;
         TPM2_Packet_ParseU32(packet, &tempSz);
         encParam = param + sizeof(UINT32);
         encParamSz = tempSz;
     }
 
+    if (encParam != NULL) {
+        UINT32 encOffset = (UINT32)(encParam - param);
+        if (encParamSz > (UINT32)paramSz - encOffset)
+            return TPM_RC_SIZE;
+    }
+
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("CommandProcess: Handles (Auth %d, In %d), CmdSz %d, AuthSz %d, ParamSz %d, EncSz %d\n",
-        info->authCnt, info->inHandleCnt, (int)cmdSz, (int)authSz, paramSz, encParamSz);
+        info->authCnt, info->inHandleCnt, (int)cmdSz, (int)authSz, paramSz,
+        (int)encParamSz);
 #else
     (void)paramSz;
 #endif
