@@ -4472,7 +4472,7 @@ TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
 
         TPM2_Packet_Init(ctx, &packet);
 
