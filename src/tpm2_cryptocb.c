@@ -595,20 +595,17 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
         if (info->hash.digest != NULL) { /* Final */
             word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
-            if (hashCtx && (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
-                if (hash.handle.hndl == 0) {
-                    rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg,
-                        NULL, 0);
-                    if (rc == 0) {
-                        /* save new handle to hash context */
-                        if (hashCtx)
-                            hashCtx->handle = hash.handle.hndl;
-                    }
+            if (rc == 0 && hash.handle.hndl == 0) {
+                rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg,
+                    NULL, 0);
+                if (rc == 0 && hashCtx) {
+                    hashCtx->handle = hash.handle.hndl;
                 }
-                if (rc == 0) {
-                    rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
-                            hashCtx->cacheBuf, hashCtx->cacheSz);
-                }
+            }
+            if (rc == 0 && hashCtx &&
+                    (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
+                rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
+                        hashCtx->cacheBuf, hashCtx->cacheSz);
             }
             if (rc == 0) {
                 rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
@@ -689,7 +686,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             return BAD_FUNC_ARG;
         }
 
-        if (info->hmac.in != NULL) { /* Update */
+        if (info->hmac.in != NULL || info->hmac.digest != NULL) {
             rc = 0;
             if (hmacCtx == NULL) {
                 const byte* keyBuf = info->hmac.hmac->keyRaw;
@@ -706,15 +703,17 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     tlsCtx->storageKey ? &tlsCtx->storageKey->handle : NULL,
                     hashAlg, keyBuf, keySz, NULL, 0);
             }
-            if (rc == 0) {
-                rc = wolfTPM2_HmacUpdate(tlsCtx->dev, hmacCtx,
-                    info->hmac.in, info->hmac.inSz);
-            }
+        }
+        if (rc == 0 && info->hmac.in != NULL) { /* Update */
+            rc = wolfTPM2_HmacUpdate(tlsCtx->dev, hmacCtx,
+                info->hmac.in, info->hmac.inSz);
         }
         if (info->hmac.digest != NULL) { /* Final */
             word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
-            rc = wolfTPM2_HmacFinish(tlsCtx->dev, hmacCtx, info->hmac.digest,
-                &digestSz);
+            if (rc == 0) {
+                rc = wolfTPM2_HmacFinish(tlsCtx->dev, hmacCtx,
+                    info->hmac.digest, &digestSz);
+            }
         }
 
         /* clean hmac context */
