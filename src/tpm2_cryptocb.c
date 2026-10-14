@@ -232,6 +232,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     key->handle.hndl == TPM_RH_NULL
                 ) {
                     TPMT_PUBLIC publicTemplate;
+                    TPM2B_AUTH keyAuth;
                     TPMI_ALG_HASH hashAlg;
 
                     hashAlg = TPM2_GetCurveHashAlg(curve_id);
@@ -243,13 +244,13 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
                         curve_id, TPM_ALG_ECDSA, hashAlg);
                     if (rc == 0) {
+                        XMEMCPY(&keyAuth, &key->handle.auth, sizeof(keyAuth));
                         if (tlsCtx->ecdsaKey != NULL) {
                             /* Use create key and load key directly instead to make
                              * sure the private portion is populated */
                             rc = wolfTPM2_CreateKey(tlsCtx->dev, tlsCtx->ecdsaKey,
                                 &tlsCtx->storageKey->handle, &publicTemplate,
-                                (byte*)key->handle.auth.buffer,
-                                key->handle.auth.size);
+                                keyAuth.buffer, keyAuth.size);
                             if (rc == TPM_RC_SUCCESS) {
                                 rc = wolfTPM2_LoadKey(tlsCtx->dev, tlsCtx->ecdsaKey,
                                     &tlsCtx->storageKey->handle);
@@ -259,9 +260,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                             /* Create and load key - encrypted private is not exported */
                             rc = wolfTPM2_CreateAndLoadKey(tlsCtx->dev, tlsCtx->eccKey,
                                 &tlsCtx->storageKey->handle, &publicTemplate,
-                                (byte*)key->handle.auth.buffer,
-                                key->handle.auth.size);
+                                keyAuth.buffer, keyAuth.size);
                         }
+                        TPM2_ForceZero(&keyAuth, sizeof(keyAuth));
                     }
                 }
             }
