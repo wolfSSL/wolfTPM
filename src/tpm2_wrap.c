@@ -2813,6 +2813,7 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     byte keyIn[TPM_MAX_DIGEST_SIZE * 2];
     UINT16 keyInSz = 0;
     int hashDigestSz;
+    TPMA_SESSION sessionAttributes = 0;
 
     if (dev == NULL || session == NULL)
         return BAD_FUNC_ARG;
@@ -2837,21 +2838,16 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         return BAD_FUNC_ARG;
     }
 
-    /* set session auth for key */
+    /* StartAuthSession has no authorization area. Keep slot 0 clear instead
+     * of copying the salt key authorization into persistent device state. */
+    if (tpmKey && (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR)) {
+        sessionAttributes = TPMA_SESSION_decrypt | TPMA_SESSION_encrypt;
+    }
+    wolfTPM2_SetAuth(dev, 0, TPM_RS_PW, NULL, sessionAttributes, NULL);
     if (tpmKey) {
-        TPMA_SESSION sessionAttributes = 0;
-        if (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR) {
-            /* if parameter encryption is enabled, enable encrypt/decrypt by
-             * default. Salted (tpmKey-only) sessions also have valid
-             * shared-secret state for parameter encryption. */
-            sessionAttributes |= (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt);
-        }
-        wolfTPM2_SetAuth(dev, 0, tpmKey->handle.hndl, &tpmKey->handle.auth,
-            sessionAttributes, NULL);
         authSesIn.tpmKey = tpmKey->handle.hndl;
     }
     else {
-        wolfTPM2_SetAuthPassword(dev, 0, NULL);
         authSesIn.tpmKey = (TPMI_DH_OBJECT)TPM_RH_NULL;
     }
     /* setup bind key */
