@@ -2199,7 +2199,7 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 
     if (tpmSession == NULL) {
         /* clearing auth session */
-        XMEMSET(&dev->session[index], 0, sizeof(TPM2_AUTH_SESSION));
+        TPM2_ForceZero(&dev->session[index], sizeof(TPM2_AUTH_SESSION));
         return TPM_RC_SUCCESS;
     }
 
@@ -2254,7 +2254,7 @@ int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index,
 
     /* Set password handle unless TPM session is available */
     if (tpmSession == NULL) {
-        XMEMSET(session, 0, sizeof(TPM2_AUTH_SESSION));
+        TPM2_ForceZero(session, sizeof(TPM2_AUTH_SESSION));
         session->sessionHandle = TPM_RS_PW;
     }
     else {
