@@ -4645,7 +4645,7 @@ WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
     \code
     TPMS_AUTH_COMMAND authCmd; //for example, part of a TPM Authorization session
 
-    TPM2_PrintAuthCmd(&authCmd);
+    TPM2_PrintAuth(&authCmd);
     \endcode
 
     \sa TPM2_PrintBin
