@@ -2526,6 +2526,10 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     if (rc >= 0) {
         rc = (rc == data->size) ? 0 /* success */ : BUFFER_E /* fail */;
     }
+    if (rc != 0) {
+        TPM2_ForceZero(data->buffer, sizeof(data->buffer));
+        data->size = 0;
+    }
 
     return rc;
 }
