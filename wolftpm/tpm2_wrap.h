@@ -4586,7 +4586,7 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
 
-    \return Success: Positive integer (size of the output)
+    \return TPM_RC_SUCCESS (0) on success
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
@@ -4605,7 +4605,7 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
 
-    \return Success: Positive integer (size of the output)
+    \return TPM_RC_SUCCESS (0) on success
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
