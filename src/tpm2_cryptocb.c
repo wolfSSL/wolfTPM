@@ -873,7 +873,8 @@ static int RsaPadPkcsv15Type1(const byte* input, word32 inputLen,
     if (pkcsBlockLen > RSA_MAX_SIZE/8) {
         return RSA_BUFFER_E;
     }
-    if (pkcsBlockLen - RSA_MIN_PAD_SZ < inputLen) {
+    if (pkcsBlockLen < RSA_MIN_PAD_SZ ||
+            pkcsBlockLen - RSA_MIN_PAD_SZ < inputLen) {
     #ifdef DEBUG_WOLFTPM
         printf("RsaPad error, invalid length\n");
     #endif
