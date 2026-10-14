@@ -1709,6 +1709,7 @@ TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out)
                 (UINT16)sizeof(out->randomBytes.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2329,6 +2330,7 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
                 (UINT16)sizeof(out->certInfo.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2469,6 +2471,7 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
                 (UINT16)sizeof(out->outSymSeed.secret));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -4246,6 +4249,7 @@ TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
             }
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -6636,6 +6640,7 @@ TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out)
                 (UINT16)sizeof(out->randomBytes.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
