@@ -68,9 +68,15 @@ typedef UINT32 TPM_GENERATED;
 
 #define TPM_SPEC_FAMILY       0x322E3000
 #define TPM_SPEC_LEVEL        0
-#define TPM_SPEC_VERSION      138
-#define TPM_SPEC_YEAR         2016
-#define TPM_SPEC_DAY_OF_YEAR  273
+#ifdef WOLFTPM_V185
+    #define TPM_SPEC_VERSION  185
+    #define TPM_SPEC_YEAR     0
+    #define TPM_SPEC_ERRATA   0
+#else
+    #define TPM_SPEC_VERSION      138
+    #define TPM_SPEC_YEAR         2016
+    #define TPM_SPEC_DAY_OF_YEAR  273
+#endif
 
 #define TPM_GENERATED_VALUE   0xff544347U
 #define TPM_MAX_DERIVATION_BITS 8192U
@@ -3983,7 +3989,7 @@ WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPM2_AUTH_SESSION *session);
     int authCount;
     TPM2_CTX tpm2Ctx;
 
-    authCount = TPM2_GetSessionAuthCount(tpm2ctx);
+    authCount = TPM2_GetSessionAuthCount(&tpm2Ctx);
     if (authCount == BAD_FUNC_ARG) {
         // TPM2_GetSessionAuthCount failed
     }
@@ -4004,7 +4010,7 @@ WOLFTPM_API int    TPM2_GetSessionAuthCount(TPM2_CTX* ctx);
     \code
     TPM2_CTX tpm2Ctx;
 
-    TPM2_SetActiveCtx(tpm2ctx);
+    TPM2_SetActiveCtx(&tpm2Ctx);
     \endcode
 
     \sa TPM2_CTX
@@ -4118,7 +4124,7 @@ WOLFTPM_API TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType);
     int rc, nonceSize = 32;
     BYTE freshNonce[32];
 
-    rc = TPM2_GetNonce(&freshNonce, nonceSize);
+    rc = TPM2_GetNonce(freshNonce, nonceSize);
     if (rc != TPM_RC_SUCCESS) {
         //TPM2_GetNonce failed
     }
@@ -4624,9 +4630,9 @@ WOLFTPM_TEST_API int TPM2_ConstantCompare(const byte* a, const byte* b, word32 l
     _Example_
     \code
     BYTE buffer[] = {0x01,0x02,0x03,0x04};
-    length = sizeof(buffer);
+    word32 length = sizeof(buffer);
 
-    TPM2_PrintBin(&buffer, length);
+    TPM2_PrintBin(buffer, length);
     \endcode
 
     \sa TPM2_PrintAuth
@@ -4645,7 +4651,7 @@ WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
     \code
     TPMS_AUTH_COMMAND authCmd; //for example, part of a TPM Authorization session
 
-    TPM2_PrintAuthCmd(&authCmd);
+    TPM2_PrintAuth(&authCmd);
     \endcode
 
     \sa TPM2_PrintBin

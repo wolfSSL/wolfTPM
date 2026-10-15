@@ -232,6 +232,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     key->handle.hndl == TPM_RH_NULL
                 ) {
                     TPMT_PUBLIC publicTemplate;
+                    TPM2B_AUTH keyAuth;
                     TPMI_ALG_HASH hashAlg;
 
                     hashAlg = TPM2_GetCurveHashAlg(curve_id);
@@ -243,13 +244,13 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
                         curve_id, TPM_ALG_ECDSA, hashAlg);
                     if (rc == 0) {
+                        XMEMCPY(&keyAuth, &key->handle.auth, sizeof(keyAuth));
                         if (tlsCtx->ecdsaKey != NULL) {
                             /* Use create key and load key directly instead to make
                              * sure the private portion is populated */
                             rc = wolfTPM2_CreateKey(tlsCtx->dev, tlsCtx->ecdsaKey,
                                 &tlsCtx->storageKey->handle, &publicTemplate,
-                                (byte*)key->handle.auth.buffer,
-                                key->handle.auth.size);
+                                keyAuth.buffer, keyAuth.size);
                             if (rc == TPM_RC_SUCCESS) {
                                 rc = wolfTPM2_LoadKey(tlsCtx->dev, tlsCtx->ecdsaKey,
                                     &tlsCtx->storageKey->handle);
@@ -259,9 +260,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                             /* Create and load key - encrypted private is not exported */
                             rc = wolfTPM2_CreateAndLoadKey(tlsCtx->dev, tlsCtx->eccKey,
                                 &tlsCtx->storageKey->handle, &publicTemplate,
-                                (byte*)key->handle.auth.buffer,
-                                key->handle.auth.size);
+                                keyAuth.buffer, keyAuth.size);
                         }
+                        TPM2_ForceZero(&keyAuth, sizeof(keyAuth));
                     }
                 }
             }
@@ -594,20 +595,17 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
         if (info->hash.digest != NULL) { /* Final */
             word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
-            if (hashCtx && (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
-                if (hash.handle.hndl == 0) {
-                    rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg,
-                        NULL, 0);
-                    if (rc == 0) {
-                        /* save new handle to hash context */
-                        if (hashCtx)
-                            hashCtx->handle = hash.handle.hndl;
-                    }
+            if (rc == 0 && hash.handle.hndl == 0) {
+                rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg,
+                    NULL, 0);
+                if (rc == 0 && hashCtx) {
+                    hashCtx->handle = hash.handle.hndl;
                 }
-                if (rc == 0) {
-                    rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
-                            hashCtx->cacheBuf, hashCtx->cacheSz);
-                }
+            }
+            if (rc == 0 && hashCtx &&
+                    (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
+                rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
+                        hashCtx->cacheBuf, hashCtx->cacheSz);
             }
             if (rc == 0) {
                 rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
@@ -688,7 +686,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             return BAD_FUNC_ARG;
         }
 
-        if (info->hmac.in != NULL) { /* Update */
+        if (info->hmac.in != NULL || info->hmac.digest != NULL) {
             rc = 0;
             if (hmacCtx == NULL) {
                 const byte* keyBuf = info->hmac.hmac->keyRaw;
@@ -705,15 +703,17 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     tlsCtx->storageKey ? &tlsCtx->storageKey->handle : NULL,
                     hashAlg, keyBuf, keySz, NULL, 0);
             }
-            if (rc == 0) {
-                rc = wolfTPM2_HmacUpdate(tlsCtx->dev, hmacCtx,
-                    info->hmac.in, info->hmac.inSz);
-            }
+        }
+        if (rc == 0 && info->hmac.in != NULL) { /* Update */
+            rc = wolfTPM2_HmacUpdate(tlsCtx->dev, hmacCtx,
+                info->hmac.in, info->hmac.inSz);
         }
         if (info->hmac.digest != NULL) { /* Final */
             word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
-            rc = wolfTPM2_HmacFinish(tlsCtx->dev, hmacCtx, info->hmac.digest,
-                &digestSz);
+            if (rc == 0) {
+                rc = wolfTPM2_HmacFinish(tlsCtx->dev, hmacCtx,
+                    info->hmac.digest, &digestSz);
+            }
         }
 
         /* clean hmac context */
@@ -873,7 +873,8 @@ static int RsaPadPkcsv15Type1(const byte* input, word32 inputLen,
     if (pkcsBlockLen > RSA_MAX_SIZE/8) {
         return RSA_BUFFER_E;
     }
-    if (pkcsBlockLen - RSA_MIN_PAD_SZ < inputLen) {
+    if (pkcsBlockLen < RSA_MIN_PAD_SZ ||
+            pkcsBlockLen - RSA_MIN_PAD_SZ < inputLen) {
     #ifdef DEBUG_WOLFTPM
         printf("RsaPad error, invalid length\n");
     #endif

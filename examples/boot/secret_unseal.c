@@ -197,9 +197,11 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
     printf("Secret Unseal example with authorized policy\n");
 
     srkAlg = alg;
-#if defined(HAVE_ECC) && !defined(WOLFSSL_PUBLIC_MP)
+#if defined(HAVE_ECC) && \
+    (defined(WC_NO_RNG) || !defined(HAVE_ECC_DHE) || \
+     !defined(HAVE_ECC_KEY_IMPORT) || !defined(HAVE_ECC_KEY_EXPORT))
     if (srkAlg == TPM_ALG_ECC && paramEncAlg != TPM_ALG_NULL) {
-        /* ECC encrypt requires mp_ API's */
+        /* ECC secret encryption requires ECDH and key import/export */
         printf("Parameter encryption with ECC SRK support not available, "
                "using RSA SRK\n");
         srkAlg = TPM_ALG_RSA;

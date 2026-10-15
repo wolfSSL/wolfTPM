@@ -921,7 +921,7 @@ WOLFTPM_API int wolfTPM2_SpdmConnectPsk(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
 
     \sa wolfTPM2_SetAuth
     \sa wolfTPM2_SetAuthPassword
@@ -941,7 +941,7 @@ WOLFTPM_API int wolfTPM2_UnsetAuth(WOLFTPM2_DEV* dev, int index);
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
     \param session pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
 
     \sa wolfTPM2_StartSession
@@ -960,7 +960,7 @@ WOLFTPM_API int wolfTPM2_UnsetAuthSession(WOLFTPM2_DEV* dev, int index, WOLFTPM2
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
     \param sessionHandle integer value of TPM_HANDLE type
     \param auth pointer to a structure of type TPM2B_AUTH containing one TPM Authorization
     \param sessionAttributes integer value of type TPMA_SESSION, selecting one or more attributes for the Session
@@ -983,7 +983,7 @@ WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
     \param auth pointer to a structure of type TPM2B_AUTH, typically containing a TPM Key Auth
 
     \sa wolfTPM2_SetAuthHandle
@@ -1001,7 +1001,7 @@ WOLFTPM_API int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, const TPM
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
     \param handle pointer to a populated structure of WOLFTPM2_HANDLE type
 
     \sa wolfTPM2_SetAuth
@@ -1020,7 +1020,7 @@ WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, const WOLFT
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
     \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
     \param sessionAttributes integer value of type TPMA_SESSION, selecting one or more attributes for the Session
 
@@ -1041,7 +1041,7 @@ WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
     \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
 
     \sa wolfTPM2_SetAuth
@@ -1061,7 +1061,7 @@ WOLFTPM_API int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param index valid TPM authorization slot from 0 through MAX_SESSION_NUM - 1
     \param handle pointer to a populated structure of WOLFTPM2_HANDLE type
 
     \sa wolfTPM2_SetAuth
@@ -4586,7 +4586,7 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
 
-    \return Success: Positive integer (size of the output)
+    \return TPM_RC_SUCCESS (0) on success
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
@@ -4605,7 +4605,7 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
 
-    \return Success: Positive integer (size of the output)
+    \return TPM_RC_SUCCESS (0) on success
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
