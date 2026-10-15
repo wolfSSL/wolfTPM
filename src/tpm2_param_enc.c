@@ -43,8 +43,8 @@
  * where only the parameter in the request command is encrypted.
  *
  * This behavior depends on the sessionAttributes:
- * - TPMA_SESSION_encrypt for command request
- * - TPMA_SESSION_decrypt for command response
+ * - TPMA_SESSION_decrypt for command request
+ * - TPMA_SESSION_encrypt for command response
  * Either one can be set separately or both can be set in one
  * authorization session. This is up to the user(developer).
  *

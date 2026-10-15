@@ -124,7 +124,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int rc = TPM_RC_SUCCESS;
     UINT32 authSz;
     BYTE *param, *encParam = NULL;
-    int paramSz, encParamSz = 0;
+    int paramSz;
+    UINT32 encParamSz = 0;
     int i, authPos;
     int authTotalSzPos = 0;
     int decIdx = -1;
@@ -155,20 +156,31 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Mark "first" encryption parameter */
     if (info->flags & CMD_FLAG_ENC2) {
         UINT16 tempSz;
+        if (paramSz < (int)sizeof(UINT16))
+            return TPM_RC_SIZE;
         TPM2_Packet_ParseU16(packet, &tempSz);
         encParam = param + sizeof(UINT16);
         encParamSz = tempSz;
     }
     else if (info->flags & CMD_FLAG_ENC4) {
         UINT32 tempSz;
+        if (paramSz < (int)sizeof(UINT32))
+            return TPM_RC_SIZE;
         TPM2_Packet_ParseU32(packet, &tempSz);
         encParam = param + sizeof(UINT32);
         encParamSz = tempSz;
     }
 
+    if (encParam != NULL) {
+        UINT32 encOffset = (UINT32)(encParam - param);
+        if (encParamSz > (UINT32)paramSz - encOffset)
+            return TPM_RC_SIZE;
+    }
+
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("CommandProcess: Handles (Auth %d, In %d), CmdSz %d, AuthSz %d, ParamSz %d, EncSz %d\n",
-        info->authCnt, info->inHandleCnt, (int)cmdSz, (int)authSz, paramSz, encParamSz);
+        info->authCnt, info->inHandleCnt, (int)cmdSz, (int)authSz, paramSz,
+        (int)encParamSz);
 #else
     (void)paramSz;
 #endif
@@ -313,6 +325,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return rc;
             }
+            TPM2_ForceZero(&hash, sizeof(hash));
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
         }
 
@@ -625,18 +638,13 @@ static TPM_RC TPM2_DispatchCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     return rc;
 }
 
-/* Preserve the request header for the caller, but remove any parameters left
- * after a transport failure. cmdSz may exceed the packet buffer on overflow. */
-static void TPM2_WipeRequestTail(TPM2_Packet* packet, UINT32 cmdSz,
-    int bufferSz)
+/* Preserve the header for the caller, but remove any request or response data
+ * that a failed transport may have left in the shared packet buffer. */
+static void TPM2_WipePacketTail(TPM2_Packet* packet, int bufferSz)
 {
     if (bufferSz > TPM2_HEADER_SIZE) {
-        if (cmdSz > (UINT32)bufferSz)
-            cmdSz = (UINT32)bufferSz;
-        if (cmdSz > TPM2_HEADER_SIZE) {
-            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
-                cmdSz - TPM2_HEADER_SIZE);
-        }
+        TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
+            bufferSz - TPM2_HEADER_SIZE);
     }
 }
 
@@ -654,20 +662,16 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     rc = TPM2_DispatchCommand(ctx, packet);
     if (rc != 0) {
-        TPM2_WipeRequestTail(packet, cmdSz, origSize);
+        TPM2_WipePacketTail(packet, origSize);
         return rc; /* transport or SPDM error */
     }
 
     /* parse response header and extract the TPM response code */
     rc = TPM2_Packet_Parse(rc, packet);
 
-    /* Keep the response header for the caller, but wipe request bytes that
-     * a TPM error response did not overwrite. */
+    /* Keep the response header for the caller, but wipe the shared tail. */
     if (rc != TPM_RC_SUCCESS) {
-        if (cmdSz > TPM2_HEADER_SIZE) {
-            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
-                cmdSz - TPM2_HEADER_SIZE);
-        }
+        TPM2_WipePacketTail(packet, origSize);
     }
     else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
@@ -699,7 +703,7 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
 
         rc = TPM2_DispatchCommand(ctx, packet);
         if (rc != 0) {
-            TPM2_WipeRequestTail(packet, cmdSz, origSize);
+            TPM2_WipePacketTail(packet, origSize);
             return rc; /* transport or SPDM error */
         }
 
@@ -716,13 +720,10 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
         break;
     }
 
-    /* Keep the response header for the caller. Wipe request bytes only
+    /* Keep the response header for the caller. Wipe the shared tail only
      * after the final attempt so a retry can resend the intact command. */
     if (rc != TPM_RC_SUCCESS) {
-        if (cmdSz > TPM2_HEADER_SIZE) {
-            TPM2_ForceZero(packet->buf + TPM2_HEADER_SIZE,
-                cmdSz - TPM2_HEADER_SIZE);
-        }
+        TPM2_WipePacketTail(packet, origSize);
     }
     else if (packet->size >= 0 && (UINT32)packet->size < cmdSz) {
         TPM2_ForceZero(packet->buf + packet->size,
@@ -742,6 +743,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM_CC cmdCode;
     BYTE *cmd;
     UINT32 cmdSz, respSz;
+    int wipeRsp = 0;
 
     if (ctx == NULL || packet == NULL || info == NULL)
         return BAD_FUNC_ARG;
@@ -790,11 +792,18 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     if (rc == TPM_RC_SUCCESS && tag == TPM_ST_SESSIONS &&
             respTag != TPM_ST_SESSIONS) {
         rc = TPM_RC_HMAC;
+        wipeRsp = 1;
     }
 
     /* Is auth session required for this TPM command? */
     if (rc == TPM_RC_SUCCESS && respTag == TPM_ST_SESSIONS) {
         rc = TPM2_ResponseProcess(ctx, packet, info, cmdCode, respSz);
+        if (rc != TPM_RC_SUCCESS)
+            wipeRsp = 1;
+    }
+
+    if (wipeRsp) {
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
     }
 
     /* Caller expects packet position to be at end of header */
@@ -1636,6 +1645,12 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     }
                     break;
                 }
+            #if defined(WOLFTPM_NATIONS) || defined(WOLFTPM_AUTODETECT) || \
+                defined(WOLFTPM_SPDM)
+                case TPM_CAP_PUB_KEYS:
+                    rc = TPM_RC_VALUE;
+                    break;
+            #endif
             #ifdef WOLFTPM_SPDM
                 case TPM_CAP_SPDM_SESSION_INFO:
                 {
@@ -1696,6 +1711,7 @@ TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out)
                 (UINT16)sizeof(out->randomBytes.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2316,6 +2332,7 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
                 (UINT16)sizeof(out->certInfo.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2456,6 +2473,7 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
                 (UINT16)sizeof(out->outSymSeed.secret));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2664,6 +2682,7 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
                 (UINT16)sizeof(out->message.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2706,6 +2725,7 @@ TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out)
             TPM2_Packet_ParsePoint(&packet, &out->pubPoint);
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2744,6 +2764,7 @@ TPM_RC TPM2_ECDH_ZGen(ECDH_ZGen_In* in, ECDH_ZGen_Out* out)
             TPM2_Packet_ParsePoint(&packet, &out->outPoint);
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2849,6 +2870,7 @@ TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out)
             TPM2_Packet_ParsePoint(&packet, &out->outZ2);
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2901,6 +2923,7 @@ TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in, EncryptDecrypt_Out* out)
                 out->ivOut.buffer, (UINT16)sizeof(out->ivOut.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -2951,6 +2974,7 @@ TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in, EncryptDecrypt2_Out* out)
                 out->ivOut.buffer, (UINT16)sizeof(out->ivOut.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -3048,6 +3072,7 @@ TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
                 (UINT16)sizeof(out->outHMAC.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -3213,6 +3238,7 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
                 (UINT16)sizeof(out->validation.digest.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -4227,6 +4253,7 @@ TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
             }
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -4278,6 +4305,7 @@ TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out)
             }
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -4446,7 +4474,7 @@ TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -6616,6 +6644,7 @@ TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out)
                 (UINT16)sizeof(out->randomBytes.buffer));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -6686,6 +6715,7 @@ int TPM2_GPIO_Config(GpioConfig_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
+        info.flags = CMD_FLAG_AUTH_USER1;
 
         TPM2_Packet_Init(ctx, &packet);
         /* Process the nvIndex used for GPIO configuration */
@@ -7781,7 +7811,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     hashType = (enum wc_HashType)rc;
     rc = wc_HashGetDigestSize(hashType);
     if (rc < 0) {
-        return rc;
+        goto exit;
     }
     hashSize = rc;
 
@@ -7804,6 +7834,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
         rc = TPM_RC_SUCCESS;
     }
 
+exit:
     if (hashInitialized) {
         wc_HashFree(&hash, hashType);
     }
