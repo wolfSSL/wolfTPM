@@ -505,6 +505,9 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
     const byte** authVal, int* authValSz);
 static int FwCtAuthCompare(const byte* password, int pwSz,
     const byte* authVal, int avSz);
+#ifndef FWTPM_NO_POLICY
+static void FwResetPolicyData(FWTPM_Session* sess);
+#endif
 
 #ifndef FWTPM_NO_PARAM_ENC
 /* Build the parameter-encryption key = sessionKey || authValue, where authValue
@@ -6057,6 +6060,11 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     byte newOwnerSeed[FWTPM_SEED_SIZE];
     byte newTimeEpoch[FWTPM_SEED_SIZE];
     int ci;
+#ifndef FWTPM_NO_POLICY
+    UINT64 oldClock;
+    UINT64 newClock;
+    int si;
+#endif
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -6158,6 +6166,9 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             ctx->lockoutPolicyAlg = TPM_ALG_NULL;
 
             TPM2_ForceZero(ctx->pcrAuth, sizeof(ctx->pcrAuth));
+        #ifndef FWTPM_NO_POLICY
+            oldClock = FWTPM_Clock_GetMs(ctx);
+        #endif
             if (ctx->clockHal.get_ms != NULL) {
                 ctx->clockOffset = 0 -
                     ctx->clockHal.get_ms(ctx->clockHal.ctx);
@@ -6167,6 +6178,27 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
             ctx->resetCount = 0;
             ctx->restartCount = 0;
+        #ifndef FWTPM_NO_POLICY
+            newClock = FWTPM_Clock_GetMs(ctx);
+            for (si = 0; si < FWTPM_MAX_SESSIONS; si++) {
+                FWTPM_Session* sess = &ctx->sessions[si];
+                if (!sess->used ||
+                        (sess->sessionType != TPM_SE_POLICY &&
+                         sess->sessionType != TPM_SE_TRIAL)) {
+                    continue;
+                }
+                if (sess->timeout != 0) {
+                    if (sess->timeout < oldClock) {
+                        FwResetPolicyData(sess);
+                    }
+                    else {
+                        sess->timeout = newClock +
+                            (sess->timeout - oldClock);
+                    }
+                }
+                sess->startTime = newClock;
+            }
+        #endif
 
             /* Reset disableClear per spec */
             ctx->disableClear = 0;

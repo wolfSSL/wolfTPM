@@ -13950,11 +13950,34 @@ static void test_fwtpm_clear(void)
     byte ticketBefore[TPM_MAX_DIGEST_SIZE];
     byte ticketAfter[TPM_MAX_DIGEST_SIZE];
     byte digest[WC_SHA256_DIGEST_SIZE];
+#ifndef FWTPM_NO_POLICY
+    FWTPM_Session* policySess = NULL;
+    UINT32 policySessHandle;
+    int i;
+#endif
     int ticketBeforeSz = 0;
     int ticketAfterSz = 0;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifndef FWTPM_NO_POLICY
+    policySessHandle = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(policySessHandle, 0);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used &&
+                ctx.sessions[i].handle == policySessHandle) {
+            policySess = &ctx.sessions[i];
+            break;
+        }
+    }
+    AssertNotNull(policySess);
+    policySess->startTime = 1000;
+    policySess->timeout = 2000;
+    policySess->commandCode = TPM_CC_Clear;
+    /* Clear must not make an already-expired policy usable again when it
+     * resets Clock. */
+    ctx.clockOffset = 10000;
+#endif
     XMEMCPY(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
     XMEMCPY(endorsementSeed, ctx.endorsementSeed, sizeof(endorsementSeed));
     XMEMSET(digest, 0x5A, sizeof(digest));
@@ -13964,6 +13987,14 @@ static void test_fwtpm_clear(void)
 
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
         TPM_RC_SUCCESS);
+#ifndef FWTPM_NO_POLICY
+    AssertIntEQ(policySess->used, 1);
+    AssertIntEQ(policySess->handle, policySessHandle);
+    AssertIntEQ((int)policySess->timeout, 0);
+    AssertIntEQ(policySess->commandCode, 0);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest,
+        policySessHandle), TPM_RC_SUCCESS);
+#endif
     AssertIntNE(XMEMCMP(ctx.ownerSeed, ownerSeed, sizeof(ownerSeed)), 0);
     AssertIntEQ(XMEMCMP(ctx.endorsementSeed, endorsementSeed,
         sizeof(endorsementSeed)), 0);
