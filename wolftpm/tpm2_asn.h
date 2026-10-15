@@ -66,7 +66,8 @@ enum {
     TPM2_ASN_BIT_STRING       = 0x03,
     TPM2_ASN_OCTET_STRING     = 0x04,
     TPM2_ASN_TAG_NULL         = 0x05,
-    TPM2_ASN_OBJECT_ID        = 0x06
+    TPM2_ASN_OBJECT_ID        = 0x06,
+    TPM2_ASN_SET              = 0x11
 };
 
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(NO_RSA)
@@ -83,6 +84,10 @@ typedef struct DecodedX509 {
     word32 pubKeySz;
     byte*  signature;           /* pointer to signature */
     word32 sigSz;              /* length of signature */
+    byte*  issuer;              /* pointer to issuer Name (SEQUENCE TLV) */
+    word32 issuerSz;
+    byte*  subject;             /* pointer to subject Name (SEQUENCE TLV) */
+    word32 subjectSz;
 } DecodedX509;
 
 /* ASN.1 Decoder Functions */
@@ -143,6 +148,25 @@ WOLFTPM_API int TPM2_ASN_RsaDecodeSignature(uint8_t** pInput, int inputSz);
 */
 WOLFTPM_API int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     DecodedX509* x509);
+
+/*!
+    \ingroup ASN
+    \brief Finds the first attribute with a given OID in an X.509 Name, such as
+        DecodedX509.subject or DecodedX509.issuer
+    \param name Buffer containing the DER encoded Name (SEQUENCE TLV)
+    \param nameSz Size of name buffer
+    \param oid DER content bytes of the attribute type OID (no tag or length),
+        for example {0x55, 0x04, 0x03} for commonName
+    \param oidSz Size of oid
+    \param value Set to point at the attribute value inside name (not NUL
+        terminated)
+    \param valueSz Set to the size of the attribute value
+    \return 0 on success, TPM_RC_ASN_VALUE if the attribute is not present,
+        on a bad argument or on malformed DER, TPM_RC_ASN_INSUFFICIENT if a
+        length runs past the end of name
+*/
+WOLFTPM_API int TPM2_ASN_GetNameAttr(const uint8_t* name, word32 nameSz,
+    const uint8_t* oid, word32 oidSz, const uint8_t** value, word32* valueSz);
 
 /*!
     \ingroup ASN
