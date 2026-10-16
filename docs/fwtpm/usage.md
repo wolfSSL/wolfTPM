@@ -241,9 +241,9 @@ scripts/tpm2_tools_test.sh
 | Function | Description |
 |----------|-------------|
 | `int FWTPM_IO_SetHAL(FWTPM_CTX* ctx, FWTPM_IO_HAL* hal)` | Register custom IO transport callbacks |
-| `int FWTPM_IO_Init(FWTPM_CTX* ctx)` | Initialize transport (sockets or custom HAL) |
+| `int FWTPM_IO_Init(FWTPM_CTX* ctx)` | Initialize the custom HAL, TCP socket, or TIS transport |
 | `void FWTPM_IO_Cleanup(FWTPM_CTX* ctx)` | Close transport and release resources |
-| `int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)` | Main server loop; blocks until `ctx->running` is cleared |
+| `int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)` | Run the selected transport loop; blocks until `ctx->running` is cleared |
 
 ### NV Storage (`fwtpm_nv.h`)
 

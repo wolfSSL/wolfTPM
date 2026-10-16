@@ -201,6 +201,7 @@
 
             if (!queued) {
                 printf("error: i2c_read: I2C_BB_Read failed\n");
+                TPM2_ForceZero(i2cRdBuf, sizeof(i2cRdBuf));
                 return -1;
             }
 
@@ -376,12 +377,13 @@ int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     setup.dataBits = DRV_SPI_DATA_BITS_8;
     setup.chipSelect = TPM_SPI_PIN;
     setup.csPolarity = DRV_SPI_CS_POLARITY_ACTIVE_LOW;
-    DRV_SPI_TransferSetup(handle, &setup);
 
-    /* Send Entire Message blocking - no wait states */
-    if (DRV_SPI_WriteReadTransfer(handle, (byte*)txBuf, xferSz, rxBuf,
-                                                              xferSz) == true) {
-        ret = TPM_RC_SUCCESS;
+    if (DRV_SPI_TransferSetup(handle, &setup) == true) {
+        /* Send Entire Message blocking - no wait states */
+        if (DRV_SPI_WriteReadTransfer(handle, (byte*)txBuf, xferSz, rxBuf,
+                xferSz) == true) {
+            ret = TPM_RC_SUCCESS;
+        }
     }
 
     (void)ctx;

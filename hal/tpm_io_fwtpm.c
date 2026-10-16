@@ -161,9 +161,9 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     (void)fdFlags;
 #endif
 
-    /* Authenticate the data-bearing endpoint before mapping it. Named
-     * semaphores carry wakeups only and are derived from this validated file
-     * owner below. */
+    /* Authenticate the data-bearing endpoint before mapping it. The named
+     * semaphores carry wakeups only and use fixed, host-wide names; trust
+     * comes from validating the shared-memory file below. */
     if (fstat(fd, &st) != 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM HAL: fstat(%s) failed: %d (%s)\n",
@@ -255,7 +255,7 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
     }
 
     /* Reject a replaced pathname or metadata change after opening the
-     * per-owner semaphore pair. */
+     * fixed-name semaphore pair. */
     if (fstat(fd, &st) != 0 ||
             FWTPM_TIS_ClientValidateShm(&st) != TPM_RC_SUCCESS ||
             lstat(FWTPM_TIS_SHM_PATH, &pathSt) != 0 ||

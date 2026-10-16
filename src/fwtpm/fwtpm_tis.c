@@ -131,8 +131,11 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                 }
                 break;
 
+            case FWTPM_TIS_BURST_COUNT_REG:
+                /* The burst count is read-only. */
+                break;
+
             case FWTPM_TIS_STS:
-            case FWTPM_TIS_STS + 1: /* burst count write (ignored) */
                 /* A non-owning locality cannot ready/execute the FIFO */
                 if (!isOwner) {
                     break;

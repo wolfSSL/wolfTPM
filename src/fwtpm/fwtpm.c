@@ -48,6 +48,8 @@ int FWTPM_Init(FWTPM_CTX* ctx)
 #endif
 #ifdef WOLFTPM_FWTPM_TIS
     FWTPM_TIS_HAL savedTisHal;
+#else
+    FWTPM_IO_HAL savedIoHal;
 #endif
 
     if (ctx == NULL) {
@@ -62,6 +64,8 @@ int FWTPM_Init(FWTPM_CTX* ctx)
 #endif
 #ifdef WOLFTPM_FWTPM_TIS
     XMEMCPY(&savedTisHal, &ctx->tisHal, sizeof(savedTisHal));
+#else
+    XMEMCPY(&savedIoHal, &ctx->ioHal, sizeof(savedIoHal));
 #endif
 
     XMEMSET(ctx, 0, sizeof(FWTPM_CTX));
@@ -81,6 +85,10 @@ int FWTPM_Init(FWTPM_CTX* ctx)
 #ifdef WOLFTPM_FWTPM_TIS
     if (savedTisHal.init != NULL) {
         XMEMCPY(&ctx->tisHal, &savedTisHal, sizeof(savedTisHal));
+    }
+#else
+    if (savedIoHal.wait != NULL) {
+        XMEMCPY(&ctx->ioHal, &savedIoHal, sizeof(savedIoHal));
     }
 #endif
 

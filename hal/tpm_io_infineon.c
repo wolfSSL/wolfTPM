@@ -54,6 +54,11 @@
 
     #if defined(CY_USING_HAL)
     #include "cyhal_i2c.h"
+    #include "cyhal_system.h"
+
+    #define TPM_I2C_STS_REG        0x18u
+    #define TPM_I2C_GUARD_TIME_US  250
+    #define TPM_I2C_RETRY_DELAY_MS 1
 
     static int tpm_ifx_i2c_read(void* userCtx, word32 reg, byte* data, int len)
     {
@@ -75,8 +80,18 @@
             /* Write address to read from - retry until ack  */
             result = cyhal_i2c_master_write(i2c, TPM2_I2C_ADDR, buf, sizeof(buf),
                 0, true);
-            /* for read we always need this guard time (success wake or real read) */
-            XSLEEP_MS(1); /* guard time - should be 250us */
+            if (result == CY_RSLT_SUCCESS) {
+                /* Status polling during command execution requires 1 ms. */
+                if (buf[0] == TPM_I2C_STS_REG) {
+                    XSLEEP_MS(TPM_I2C_RETRY_DELAY_MS);
+                }
+                else {
+                    cyhal_system_delay_us(TPM_I2C_GUARD_TIME_US);
+                }
+            }
+            else {
+                XSLEEP_MS(TPM_I2C_RETRY_DELAY_MS);
+            }
         } while (result != CY_RSLT_SUCCESS && --timeout > 0);
 
         if (result == CY_RSLT_SUCCESS) {
@@ -85,7 +100,7 @@
                 result = cyhal_i2c_master_read(i2c, TPM2_I2C_ADDR, data, len,
                     0, true);
                 if (result != CY_RSLT_SUCCESS) {
-                    XSLEEP_MS(1); /* guard time - should be 250us */
+                    XSLEEP_MS(TPM_I2C_RETRY_DELAY_MS);
                 }
             } while (result != CY_RSLT_SUCCESS && --timeout > 0);
         }
@@ -121,7 +136,7 @@
             result = cyhal_i2c_master_write(i2c, TPM2_I2C_ADDR, buf, len+1,
                 0, true);
             if (result != CY_RSLT_SUCCESS) {
-                XSLEEP_MS(1); /* guard time - should be 250us */
+                XSLEEP_MS(TPM_I2C_RETRY_DELAY_MS);
             }
         } while (result != CY_RSLT_SUCCESS && --timeout > 0);
         if (result == CY_RSLT_SUCCESS) {

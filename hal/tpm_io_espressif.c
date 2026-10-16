@@ -460,8 +460,8 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
 
 /* If failures are encountered, try hardware reset of TPM device. */
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
-    #ifndef ESP_SPI_MAX_TRANSFER
-        #define ESP_SPI_MAX_TRANSFER_SIZE MAX_SPI_FRAMESIZE + 4
+    #ifndef ESP_SPI_MAX_TRANSFER_SIZE
+        #define ESP_SPI_MAX_TRANSFER_SIZE (MAX_SPI_FRAMESIZE + 4)
     #endif
     /* FSPI (HOST_SPI2) on esp32-s3-wroom */
     #ifndef PIN_NUM_MISO
@@ -477,8 +477,8 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
         #define PIN_NUM_CS   10
     #endif
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
-    #ifndef ESP_SPI_MAX_TRANSFER
-        #define ESP_SPI_MAX_TRANSFER_SIZE 1024
+    #ifndef ESP_SPI_MAX_TRANSFER_SIZE
+        #define ESP_SPI_MAX_TRANSFER_SIZE (1024)
     #endif
     #ifndef PIN_NUM_MISO
         #define PIN_NUM_MISO 2
@@ -497,8 +497,8 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
         #define PIN_NUM_SPICS_IO -1
     #endif
 #else
-    #ifndef ESP_SPI_MAX_TRANSFER
-        #define ESP_SPI_MAX_TRANSFER_SIZE MAX_SPI_FRAMESIZE
+    #ifndef ESP_SPI_MAX_TRANSFER_SIZE
+        #define ESP_SPI_MAX_TRANSFER_SIZE (MAX_SPI_FRAMESIZE)
     #endif
     #ifndef PIN_NUM_MISO
         #error PIN_NUM_MISO undefined

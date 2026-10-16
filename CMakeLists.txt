@@ -577,6 +577,7 @@ if(WOLFTPM_FWTPM)
     add_executable(fwtpm_unit_test
         tests/fwtpm_unit_tests.c
         ${FWTPM_CORE_SOURCES}
+        tests/fwtpm_io_test_adapter.c
     )
     target_compile_definitions(fwtpm_unit_test PRIVATE
         "WOLFTPM_FWTPM"
@@ -594,6 +595,8 @@ if(WOLFTPM_FWTPM)
     if(UNIX)
         target_link_libraries(fwtpm_unit_test PRIVATE
             ${WOLFTPM_FWTPM_THREAD_LIBS})
+    elseif(WIN32)
+        target_link_libraries(fwtpm_unit_test PRIVATE ws2_32)
     endif()
 
     if(WOLFTPM_FWTPM_TIS)

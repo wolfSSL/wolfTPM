@@ -39,14 +39,29 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_param_enc.h>
+#include <wolftpm/tpm2_socket.h>
 #include <wolftpm/fwtpm/fwtpm.h>
 #include <wolftpm/fwtpm/fwtpm_command.h>
 #include <wolftpm/fwtpm/fwtpm_crypto.h>
+#include <wolftpm/fwtpm/fwtpm_io.h>
 
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 
 #include <stdio.h>
 #include <string.h>
+
+#ifndef _WIN32
+    #include <arpa/inet.h>
+    #include <errno.h>
+    #include <fcntl.h>
+    #include <sys/socket.h>
+    #include <unistd.h>
+#endif
+
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    UINT32 tssCmd);
+#endif
 
 /* Test Fail Helpers (same as unit_tests.c) */
 #ifndef NO_ABORT
@@ -17273,6 +17288,257 @@ static void test_fwtpm_nv_append_rebuild_probe(void)
 #endif
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
+static void test_fwtpm_mssim_hash_data_framing(void)
+{
+    static const byte payload[] = { 0x11, 0x22, 0x33, 0x44 };
+    FWTPM_CTX ctx;
+    UINT32 netLen = htonl((UINT32)sizeof(payload));
+    UINT32 ack = 1;
+    byte extra;
+    int sockets[2];
+    int flags;
+    int rc;
+    int got;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
+    AssertIntEQ((int)write(sockets[1], &netLen, sizeof(netLen)),
+        (int)sizeof(netLen));
+    AssertIntEQ((int)write(sockets[1], payload, sizeof(payload)),
+        (int)sizeof(payload));
+
+    rc = FWTPM_IO_TestHandleMssimSignal(&ctx, sockets[0],
+        FWTPM_TCP_SIGNAL_HASH_DATA);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)read(sockets[1], &ack, sizeof(ack)),
+        (int)sizeof(ack));
+    AssertIntEQ((int)ntohl(ack), 1);
+
+    flags = fcntl(sockets[0], F_GETFL, 0);
+    AssertIntNE(flags, -1);
+    AssertIntEQ(fcntl(sockets[0], F_SETFL, flags | O_NONBLOCK), 0);
+    errno = 0;
+    got = (int)read(sockets[0], &extra, sizeof(extra));
+    AssertIntEQ(got, -1);
+    AssertTrue(errno == EAGAIN || errno == EWOULDBLOCK);
+
+    (void)close(sockets[1]);
+    (void)close(sockets[0]);
+    fwtpm_pass("MSSIM unsupported hash-data framing:", 0);
+}
+#endif
+
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+typedef struct FWTPM_IO_HAL_TEST_CTX {
+    FWTPM_CTX* fwtpm;
+    byte input[sizeof(UINT32)];
+    int inputPos;
+    byte output[sizeof(UINT32)];
+    int outputPos;
+    int waitCount;
+    int waitTimeoutMs;
+    int recvType;
+    int sendType;
+    int closeCount[2];
+    int acceptCount[2];
+    int failAcceptNumber;
+    int failRecv;
+    int stopWaitNumber;
+    int stopServerWaitNumber;
+    int waitEvent;
+} FWTPM_IO_HAL_TEST_CTX;
+
+static int test_io_hal_send(void* userCtx, int type, const void* buf, int sz)
+{
+    FWTPM_IO_HAL_TEST_CTX* test = (FWTPM_IO_HAL_TEST_CTX*)userCtx;
+
+    if (sz < 0 || test->outputPos + sz > (int)sizeof(test->output))
+        return TPM_RC_FAILURE;
+    XMEMCPY(test->output + test->outputPos, buf, (size_t)sz);
+    test->outputPos += sz;
+    test->sendType = type;
+    return TPM_RC_SUCCESS;
+}
+
+static int test_io_hal_recv(void* userCtx, int type, void* buf, int sz)
+{
+    FWTPM_IO_HAL_TEST_CTX* test = (FWTPM_IO_HAL_TEST_CTX*)userCtx;
+
+    if (test->failRecv)
+        return TPM_RC_FAILURE;
+    if (sz < 0 || test->inputPos + sz > (int)sizeof(test->input))
+        return TPM_RC_FAILURE;
+    XMEMCPY(buf, test->input + test->inputPos, (size_t)sz);
+    test->inputPos += sz;
+    test->recvType = type;
+    return TPM_RC_SUCCESS;
+}
+
+static int test_io_hal_wait(void* userCtx, int timeoutMs)
+{
+    FWTPM_IO_HAL_TEST_CTX* test = (FWTPM_IO_HAL_TEST_CTX*)userCtx;
+
+    test->waitCount++;
+    test->waitTimeoutMs = timeoutMs;
+    if (test->waitCount == test->stopWaitNumber) {
+        FWTPM_IO_RequestStop();
+        return TPM_RC_FAILURE;
+    }
+    if (test->waitCount == test->stopServerWaitNumber) {
+        test->fwtpm->running = 0;
+        return 0;
+    }
+    if (test->waitEvent != 0)
+        return test->waitEvent;
+    return FWTPM_IO_READY_PLATFORM;
+}
+
+static void test_io_hal_close(void* userCtx, int type)
+{
+    FWTPM_IO_HAL_TEST_CTX* test = (FWTPM_IO_HAL_TEST_CTX*)userCtx;
+
+    test->closeCount[type]++;
+}
+
+static int test_io_hal_accept(void* userCtx, int type)
+{
+    FWTPM_IO_HAL_TEST_CTX* test = (FWTPM_IO_HAL_TEST_CTX*)userCtx;
+
+    test->acceptCount[type]++;
+    if (test->acceptCount[type] == test->failAcceptNumber)
+        return TPM_RC_FAILURE;
+    return TPM_RC_SUCCESS;
+}
+
+static void test_fwtpm_custom_io_hal(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_IO_HAL hal;
+    FWTPM_IO_HAL_TEST_CTX test;
+    int rc;
+    int type;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&hal, 0, sizeof(hal));
+    XMEMSET(&test, 0, sizeof(test));
+    PutU32BE(test.input, FWTPM_TCP_STOP);
+    hal.send = test_io_hal_send;
+    hal.recv = test_io_hal_recv;
+    hal.wait = test_io_hal_wait;
+    hal.close_conn = test_io_hal_close;
+    hal.ctx = &test;
+
+    hal.accept = test_io_hal_accept;
+    hal.close_conn = NULL;
+    rc = FWTPM_IO_SetHAL(&ctx, &hal);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    hal.accept = NULL;
+    hal.close_conn = test_io_hal_close;
+
+    rc = FWTPM_IO_SetHAL(&ctx, &hal);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_Init(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertTrue(ctx.ioHal.wait == test_io_hal_wait);
+    rc = FWTPM_IO_Init(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_IO_ServerLoop(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(test.waitCount, 1);
+    AssertIntEQ(test.waitTimeoutMs, FWTPM_IO_WAIT_TIMEOUT_MS);
+    AssertIntEQ(test.recvType, FWTPM_IO_TYPE_PLATFORM);
+    AssertIntEQ(test.sendType, FWTPM_IO_TYPE_PLATFORM);
+    AssertIntEQ(test.inputPos, (int)sizeof(UINT32));
+    AssertIntEQ(test.outputPos, (int)sizeof(UINT32));
+    AssertIntEQ((int)test.output[0] | (int)test.output[1] |
+        (int)test.output[2] | (int)test.output[3], 0);
+    FWTPM_IO_Cleanup(&ctx);
+    AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_COMMAND], 1);
+    AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_PLATFORM], 1);
+    rc = FWTPM_Cleanup(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&test, 0, sizeof(test));
+    test.fwtpm = &ctx;
+    test.failAcceptNumber = 2;
+    test.stopServerWaitNumber = 3;
+    test.waitEvent = FWTPM_IO_ACCEPT_PLATFORM;
+    hal.accept = test_io_hal_accept;
+    hal.ctx = &test;
+    rc = FWTPM_IO_SetHAL(&ctx, &hal);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_Init(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_IO_Init(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_IO_ServerLoop(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(test.acceptCount[FWTPM_IO_TYPE_PLATFORM], 2);
+    AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_PLATFORM], 0);
+    FWTPM_IO_Cleanup(&ctx);
+    AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_COMMAND], 0);
+    AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_PLATFORM], 1);
+    rc = FWTPM_Cleanup(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    hal.accept = NULL;
+
+    for (type = FWTPM_IO_TYPE_COMMAND;
+            type <= FWTPM_IO_TYPE_PLATFORM; type++) {
+        XMEMSET(&ctx, 0, sizeof(ctx));
+        XMEMSET(&test, 0, sizeof(test));
+        PutU32BE(test.input, FWTPM_TCP_SESSION_END);
+        test.fwtpm = &ctx;
+        test.stopServerWaitNumber = 2;
+        test.waitEvent = type == FWTPM_IO_TYPE_COMMAND ?
+            FWTPM_IO_READY_COMMAND : FWTPM_IO_READY_PLATFORM;
+        hal.ctx = &test;
+        rc = FWTPM_IO_SetHAL(&ctx, &hal);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        rc = FWTPM_Init(&ctx);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        rc = FWTPM_IO_Init(&ctx);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        rc = FWTPM_IO_ServerLoop(&ctx);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(test.waitCount, 2);
+        FWTPM_IO_Cleanup(&ctx);
+        AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_COMMAND], 1);
+        AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_PLATFORM], 1);
+        rc = FWTPM_Cleanup(&ctx);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+    }
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&test, 0, sizeof(test));
+    test.failRecv = 1;
+    test.stopWaitNumber = 2;
+    hal.ctx = &test;
+    rc = FWTPM_IO_SetHAL(&ctx, &hal);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_Init(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_IO_Init(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = FWTPM_IO_ServerLoop(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(test.waitCount, 2);
+    AssertIntEQ(test.waitTimeoutMs, FWTPM_IO_WAIT_TIMEOUT_MS);
+    FWTPM_IO_Cleanup(&ctx);
+    AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_COMMAND], 1);
+    AssertIntEQ(test.closeCount[FWTPM_IO_TYPE_PLATFORM], 1);
+    rc = FWTPM_IO_Init(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertTrue(FWTPM_IO_IsStopRequested());
+    FWTPM_IO_Cleanup(&ctx);
+    rc = FWTPM_Cleanup(&ctx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    fwtpm_pass("Custom IO HAL transport:", 0);
+}
+#endif
+
 /* ================================================================== */
 /* main                                                                */
 /* ================================================================== */
@@ -17287,6 +17553,20 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Remove stale NV state to ensure clean test runs */
     (void)remove(FWTPM_NV_FILE);
+
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+    if (argc == 2 && XSTRCMP(argv[1], "custom-io-hal") == 0) {
+        test_fwtpm_custom_io_hal();
+        return 0;
+    }
+#endif
+
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
+    if (argc == 2 && XSTRCMP(argv[1], "mssim-hash-data") == 0) {
+        test_fwtpm_mssim_hash_data_framing();
+        return 0;
+    }
+#endif
 
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();
@@ -17751,6 +18031,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_stclear_startup();
 #endif /* !FWTPM_NO_NV */
     test_fwtpm_clear();
+
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
+    test_fwtpm_mssim_hash_data_framing();
+#endif
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+    test_fwtpm_custom_io_hal();
+#endif
 
     printf("\nAll fwTPM unit tests passed!\n");
     return 0;

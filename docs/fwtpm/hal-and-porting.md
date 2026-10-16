@@ -1,26 +1,29 @@
 # HAL and Porting
 
-The fwTPM provides hardware abstraction layers (HALs) so it can be ported to embedded targets without modifying the core logic. There is an IO HAL for the transport, an NV HAL for persistent storage, and an optional clock HAL. Full reference ports for several boards live in the [wolftpm-examples](https://github.com/wolfSSL/wolftpm-examples) repository.
+The fwTPM provides hardware abstraction layers (HALs) for the server transport, persistent storage, and the platform clock. Full reference ports for several boards live in the [wolftpm-examples](https://github.com/wolfSSL/wolftpm-examples) repository.
 
 ## IO HAL (Transport)
 
-The IO HAL abstracts the transport between the fwTPM server and its clients. The default implementation uses TCP sockets (SWTPM protocol). For embedded targets, replace it with SPI, I2C, UART, or shared memory callbacks.
+The IO HAL abstracts the transport between the fwTPM server and its clients. Socket builds use TCP sockets (SWTPM protocol) by default. Registering an `FWTPM_IO_HAL` replaces the socket transport with callbacks for an embedded or in-process transport. TIS builds use their separate TIS HAL.
 
 **Callback structure** (defined as `FWTPM_IO_HAL` in `fwtpm.h`):
 
 | Callback | Signature | Description |
 |----------|-----------|-------------|
-| `send` | `int (*)(void* ctx, const void* buf, int sz)` | Send data to client |
-| `recv` | `int (*)(void* ctx, void* buf, int sz)` | Receive data from client |
-| `wait` | `int (*)(void* ctx)` | Wait for data or connections. Returns a bitmask: `0x01`=command data, `0x02`=platform data, `0x04`=new command connection, `0x08`=new platform connection |
+| `send` | `int (*)(void* ctx, int type, const void* buf, int sz)` | Send data to the command or platform client |
+| `recv` | `int (*)(void* ctx, int type, void* buf, int sz)` | Receive data from the command or platform client |
+| `wait` | `int (*)(void* ctx, int timeoutMs)` | Wait up to `timeoutMs` for data or connections. Returns 0 on timeout or a bitmask: `0x01`=command data, `0x02`=platform data, `0x04`=new command connection, `0x08`=new platform connection |
 | `accept` | `int (*)(void* ctx, int type)` | Accept new connection (type: 0=command, 1=platform) |
 | `close_conn` | `void (*)(void* ctx, int type)` | Close connection (type: 0=command, 1=platform) |
 | `ctx` | `void*` | User context pointer |
+
+The `type` argument is `FWTPM_IO_TYPE_COMMAND` or `FWTPM_IO_TYPE_PLATFORM`. The `send`, `recv`, and `wait` callbacks are required. `wait` must return by its requested timeout so stop requests are observed; override `FWTPM_IO_WAIT_TIMEOUT_MS` to change the default 1000 ms interval. Connectionless transports may omit `accept` and `close_conn`; a transport that provides `accept` must also provide `close_conn` and clean up any partial connection state before returning an accept error.
 
 **Registration:**
 
 ```c
 FWTPM_IO_HAL myHal;
+XMEMSET(&myHal, 0, sizeof(myHal));
 myHal.send = my_send;
 myHal.recv = my_recv;
 myHal.wait = my_wait;
@@ -30,6 +33,8 @@ myHal.ctx = &myTransportCtx;
 
 FWTPM_IO_SetHAL(&ctx, &myHal);
 ```
+
+Register the IO HAL before `FWTPM_Init()`, or after `FWTPM_Init()` but before `FWTPM_IO_Init()`.
 
 ## NV HAL (Persistent Storage)
 
@@ -101,10 +106,12 @@ The clock HAL is optional. It supplies `get_ms()`, which returns milliseconds si
 
 ## Porting Example
 
-A bare-metal embedded target with SPI transport and SPI flash NV:
+A bare-metal target can register SPI transport and SPI flash NV callbacks before initialization:
 
 ```c
 FWTPM_CTX ctx;
+int cleanupRc;
+int rc;
 XMEMSET(&ctx, 0, sizeof(ctx));
 
 /* Set custom NV storage before FWTPM_Init, which loads NV state through it */
@@ -115,25 +122,29 @@ FWTPM_NV_HAL nvHal = {
 };
 FWTPM_NV_SetHAL(&ctx, &nvHal);
 
-FWTPM_Init(&ctx);
-
-/* Set custom IO transport after FWTPM_Init, which does not preserve the IO HAL */
+/* Register a connectionless IO transport before initialization. */
 FWTPM_IO_HAL ioHal = {
     .send = spi_slave_send,
     .recv = spi_slave_recv,
     .wait = spi_slave_poll,
-    .accept = NULL,         /* not connection-oriented */
+    .accept = NULL,
     .close_conn = NULL,
     .ctx = &spiHandle
 };
 FWTPM_IO_SetHAL(&ctx, &ioHal);
 
-/* Initialize IO and run */
-FWTPM_IO_Init(&ctx);
-FWTPM_IO_ServerLoop(&ctx);  /* blocks */
-
-FWTPM_IO_Cleanup(&ctx);
-FWTPM_Cleanup(&ctx);
+rc = FWTPM_Init(&ctx);
+if (rc == 0) {
+    rc = FWTPM_IO_Init(&ctx);
+    if (rc == 0) {
+        rc = FWTPM_IO_ServerLoop(&ctx);  /* blocks */
+        FWTPM_IO_Cleanup(&ctx);
+    }
+    cleanupRc = FWTPM_Cleanup(&ctx);
+    if (rc == 0)
+        rc = cleanupRc;
+}
+return rc;
 ```
 
 ## Available Ports

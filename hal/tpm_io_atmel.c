@@ -52,6 +52,10 @@
     #define SPI_BAUD_RATE_4M    21
     #define CS_SPI_TPM          2
 
+    #ifndef WOLFTPM_ATMEL_SPI_POLL_TRIES
+        #define WOLFTPM_ATMEL_SPI_POLL_TRIES TPM_TIMEOUT_TRIES
+    #endif
+
     /* Atmel ATSAM3X8EA Chip Selects */
     static const byte Spi_CS[] =  {    0,    1,    2,    3 };
     static const byte Spi_PCS[] = { 0x0E, 0x0D, 0x0B, 0x07 };
@@ -89,16 +93,38 @@
         return pcs;
     }
 
+    static int WaitSPI_TPM(word32 statusMask)
+    {
+        word32 tries = WOLFTPM_ATMEL_SPI_POLL_TRIES;
+
+        while ((SPI0->SPI_SR & statusMask) == 0U) {
+            if (tries == 0U) {
+                return TPM_RC_FAILURE;
+            }
+            tries--;
+        }
+        return TPM_RC_SUCCESS;
+    }
+
     static int XferSPI_TPM(byte pcs, const byte* pSendBuf, byte* pReadBuf, word16 wLen)
     {
         int ret = TPM_RC_SUCCESS;
         word16 i;
 
         for (i = 0; i < wLen; i++) {
-            while ((SPI0->SPI_SR & SPI_SR_TXEMPTY) == 0);
-                SPI0->SPI_TDR = (word16)pSendBuf[i] | (pcs << 16);
-            while ((SPI0->SPI_SR & SPI_SR_TDRE) == 0);
-            while ((SPI0->SPI_SR & SPI_SR_RDRF) == 0);
+            ret = WaitSPI_TPM(SPI_SR_TXEMPTY);
+            if (ret != TPM_RC_SUCCESS) {
+                break;
+            }
+            SPI0->SPI_TDR = (word16)pSendBuf[i] | (pcs << 16);
+            ret = WaitSPI_TPM(SPI_SR_TDRE);
+            if (ret != TPM_RC_SUCCESS) {
+                break;
+            }
+            ret = WaitSPI_TPM(SPI_SR_RDRF);
+            if (ret != TPM_RC_SUCCESS) {
+                break;
+            }
             pReadBuf[i] = SPI0->SPI_RDR & 0x00FF;
         }
 
@@ -136,7 +162,7 @@
         #ifdef WOLFTPM_DEBUG_TIMEOUT
             printf("SPI Ready Wait %d\n", TPM_SPI_WAIT_RETRY - timeout);
         #endif
-            if (timeout <= 0) {
+            if (ret != TPM_RC_SUCCESS || timeout <= 0) {
                 SPI0->SPI_CR = SPI_CR_SPIDIS;
                 return TPM_RC_FAILURE;
             }
