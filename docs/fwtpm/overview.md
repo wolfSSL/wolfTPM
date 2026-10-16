@@ -341,7 +341,7 @@ The eight Version 185 PQC commands (`TPM2_Encapsulate`, `TPM2_Decapsulate`, `TPM
 
 Implemented counts assume RSA, ECC, AES, and all feature groups, with SPDM, PQC (except in the Version 185 row), and the vendor test command disabled. Enabling `WOLFTPM_SPDM` adds `PolicyTransportSPDM` (one more implemented code). The Version 185 row includes the eight PQC commands.
 
-Known limitations: `TPM2_SelfTest` is a minimal smoke test and `TPM2_IncrementalSelfTest` is a stub, as noted above, and `SU_STATE` resume is not supported (see the lifecycle section). The command coverage above should not be read as full conformance with the TCG specification.
+Known limitations: `TPM2_SelfTest` is a minimal smoke test and `TPM2_IncrementalSelfTest` is a stub, as noted above, `SU_STATE` resume is not supported (see the lifecycle section), `TPM2_PolicySecret` rejects nonzero expiration because expiring policy tickets are not supported, and `TPM2_DictionaryAttackParameters` limits `newMaxTries` to 65535. The command coverage above should not be read as full conformance with the TCG specification.
 
 ## Startup and Shutdown Lifecycle
 

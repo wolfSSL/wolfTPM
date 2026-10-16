@@ -47,6 +47,10 @@
 
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+#include <wolfssl/wolfcrypt/memory.h>
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -61,6 +65,15 @@
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
 int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
     UINT32 tssCmd);
+#endif
+
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
+    /* wolfSSL 5.8 and older keep this Hash-DRBG state value private. */
+    #ifdef WC_DRBG_FAILED
+        #define FWTPM_TEST_DRBG_FAILED WC_DRBG_FAILED
+    #else
+        #define FWTPM_TEST_DRBG_FAILED 2
+    #endif
 #endif
 
 /* Test Fail Helpers (same as unit_tests.c) */
@@ -238,6 +251,25 @@ static int fwtpm_test_startup(FWTPM_CTX* ctx)
 
     return (int)GetRspRC(gRsp);
 }
+
+#if !defined(FWTPM_NO_NV) && \
+    (!defined(FWTPM_NO_CLOCK) || !defined(FWTPM_NO_DA))
+static int fwtpm_test_shutdown_state(FWTPM_CTX* ctx)
+{
+    int rc;
+    int rspSize = 0;
+    int cmdSz;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + cmdSz, TPM_SU_STATE);
+    cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
+    return (int)GetRspRC(gRsp);
+}
+#endif /* !FWTPM_NO_NV && (!FWTPM_NO_CLOCK || !FWTPM_NO_DA) */
 
 /* ================================================================== */
 /* 1. Core Lifecycle Tests                                             */
@@ -1238,12 +1270,13 @@ static void getcap_paging_check(FWTPM_CTX* ctx, UINT32 cap, int idIs16)
 {
     int rc, rspSize, cmdSz, total, iters;
     UINT32 property, count, id, prev, fullCount;
+    UINT32 firstProperty = (cap == TPM_CAP_TPM_PROPERTIES) ? PT_FIXED : 0;
     byte moreData;
 
     /* Full list in one shot: must fit, so moreData=NO. */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
     PutU32BE(gCmd + cmdSz, cap); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, firstProperty); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 1024); cmdSz += 4;
     PutU32BE(gCmd + 2, (UINT32)cmdSz);
     rspSize = 0;
@@ -1254,7 +1287,7 @@ static void getcap_paging_check(FWTPM_CTX* ctx, UINT32 cap, int idIs16)
     AssertIntGT((int)fullCount, 1);
 
     /* Walk the cursor one entry per page. */
-    property = 0; prev = 0; total = 0;
+    property = firstProperty; prev = 0; total = 0;
     for (iters = 0; iters < 1024; iters++) {
         cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
         PutU32BE(gCmd + cmdSz, cap); cmdSz += 4;
@@ -1494,21 +1527,19 @@ static void test_fwtpm_getcap_ecc_curves(void)
 
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH) && \
     defined(WOLFTPM_FWTPM_UNIT_TEST)
-int FWTPM_TestHexToBin(const char* hex, byte* out, int outSz);
-
 static void test_fwtpm_hex_to_bin(void)
 {
     byte out[2];
 
     XMEMSET(out, 0, sizeof(out));
-    AssertIntEQ(FWTPM_TestHexToBin("abc", out, sizeof(out)), 2);
+    AssertIntEQ(FwHexToBin("abc", out, sizeof(out)), 2);
     AssertIntEQ(out[0], 0x0a);
     AssertIntEQ(out[1], 0xbc);
-    AssertIntEQ(FWTPM_TestHexToBin("f", out, sizeof(out)), 1);
+    AssertIntEQ(FwHexToBin("f", out, sizeof(out)), 1);
     AssertIntEQ(out[0], 0x0f);
-    AssertIntEQ(FWTPM_TestHexToBin("0g", out, sizeof(out)), -1);
-    AssertIntEQ(FWTPM_TestHexToBin("1234", out, 1), -1);
-    AssertIntEQ(FWTPM_TestHexToBin(NULL, out, sizeof(out)), -1);
+    AssertIntEQ(FwHexToBin("0g", out, sizeof(out)), -1);
+    AssertIntEQ(FwHexToBin("1234", out, 1), -1);
+    AssertIntEQ(FwHexToBin(NULL, out, sizeof(out)), -1);
 
     fwtpm_pass("ECC parameter hex decoding:", 0);
 }
@@ -2128,13 +2159,13 @@ static void test_fwtpm_pcr_allocate(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
 
-    /* Oversized selection count is rejected before parsing */
+    /* A selection count that exceeds the remaining packet is truncated */
     cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 1);
     PutU32BE(gCmd + TPM2_HEADER_SIZE + 4 + 13, FWTPM_PCR_BANKS * 4 + 1);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
 
     /* Both banks selected. Per spec 22.5 the change is staged, so the live
      * allocation must not move until the next Startup(CLEAR). */
@@ -2508,13 +2539,17 @@ static void AssertReadClockCounters(FWTPM_CTX* ctx)
 static void test_fwtpm_readclock_counters(void)
 {
     FWTPM_CTX ctx;
+#ifndef FWTPM_NO_NV
     int rc, rspSize, cmdSz;
+#endif
 
     (void)remove(FWTPM_NV_FILE);
     XMEMSET(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
     AssertIntGT((int)ctx.resetCount, 0);
     AssertReadClockCounters(&ctx);
+#ifndef FWTPM_NO_NV
+    AssertIntEQ(fwtpm_test_shutdown_state(&ctx), TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
 
     XMEMSET(&ctx, 0, sizeof(ctx));
@@ -2530,6 +2565,7 @@ static void test_fwtpm_readclock_counters(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     AssertIntGT((int)ctx.restartCount, 0);
     AssertReadClockCounters(&ctx);
+#endif
 
     FWTPM_Cleanup(&ctx);
     (void)remove(FWTPM_NV_FILE);
@@ -3765,7 +3801,8 @@ static void test_fwtpm_mldsa_quote_sign_and_verify(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;            /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -3806,7 +3843,8 @@ static void test_fwtpm_mldsa_quote_scheme_mismatch_rejected(void)
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -3845,7 +3883,8 @@ static void test_fwtpm_mldsa_quote_explicit_empty_scheme(void)
     PutU16BE(gCmd + pos, TPM_ALG_MLDSA); pos += 2; /* explicit, no hashAlg */
     PutU32BE(gCmd + pos, 1); pos += 4;             /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -3921,7 +3960,8 @@ static void test_fwtpm_quote_mldsa_scheme_on_ecc_rejected(void)
     PutU16BE(gCmd + pos, TPM_ALG_MLDSA); pos += 2;    /* ML-DSA selector */
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 1; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -4040,7 +4080,8 @@ static void test_fwtpm_hash_mldsa_quote_sign_and_verify(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;            /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -4167,7 +4208,10 @@ static void test_fwtpm_hash_mldsa_quote_namealg_digest(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;    /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 1; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX);
+    gCmd[pos] = 0x01;
+    pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
@@ -5866,7 +5910,8 @@ static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(gCmd + pos, 1); pos += 4;            /* PCRselect count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3; gCmd[pos++] = 0; gCmd[pos++] = 0; gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
@@ -6059,13 +6104,13 @@ static void test_fwtpm_encapsulate_neg(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* TPM_RC_HANDLE: no object at handle 0x80FFFFFF. */
+    /* TPM_RC_REFERENCE_H0: no object at handle 0x80FFFFFF. */
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_Encapsulate);
     PutU32BE(gCmd + 10, 0x80FFFFFFu);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     /* TPM_RC_KEY: key is not an MLKEM object (MLDSA is signing). */
     mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
@@ -6163,7 +6208,7 @@ static void test_fwtpm_signseqstart_neg(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
 
-    /* TPM_RC_HANDLE: invalid handle. */
+    /* TPM_RC_REFERENCE_H0: invalid handle. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -6175,7 +6220,7 @@ static void test_fwtpm_signseqstart_neg(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqStart negatives (KEY/HANDLE):", 1);
@@ -6274,7 +6319,7 @@ static void test_fwtpm_signseqcomplete_neg(void)
     mldsaHandle2 = mldsaHandle ^ 0x1u; /* different but likely unfindable */
     (void)mldsaHandle2;
 
-    /* Instead: trigger TPM_RC_HANDLE by passing bogus sequence handle. */
+    /* Instead: trigger TPM_RC_REFERENCE_H0 with a bogus sequence handle. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -6294,7 +6339,7 @@ static void test_fwtpm_signseqcomplete_neg(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     /* Clean up the allocated sequence slot. */
     (void)seqHandle;
@@ -6365,7 +6410,7 @@ static void test_fwtpm_verifyseqcomplete_neg(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* TPM_RC_HANDLE: unknown sequence handle. */
+    /* TPM_RC_REFERENCE_H0: unknown sequence handle. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -6376,12 +6421,12 @@ static void test_fwtpm_verifyseqcomplete_neg(void)
     PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
     PutU16BE(gCmd + pos, 0); pos += 2;
     gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
-    /* Empty signature area fine — handler returns RC_HANDLE before parsing. */
+    /* Empty signature area is fine: handle validation runs before parsing. */
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_H0);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifySeqComplete negatives (HANDLE):", 1);
@@ -10304,6 +10349,39 @@ static UINT32 StartSessionHelper(FWTPM_CTX* ctx, UINT8 sessType)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_HANDLE handle);
+
+static void test_fwtpm_bound_session_auth_change(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session sess;
+    static const byte oldAuth[] = {0x11, 0x22, 0x33, 0x44};
+    static const byte newAuth[] = {0x55, 0x66, 0x77, 0x88};
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&sess, 0, sizeof(sess));
+    ctx.ownerAuth.size = (UINT16)sizeof(oldAuth);
+    XMEMCPY(ctx.ownerAuth.buffer, oldAuth, sizeof(oldAuth));
+    sess.isBound = 1;
+    sess.bindName.size = 4;
+    PutU32BE(sess.bindName.name, TPM_RH_OWNER);
+    sess.bindAuth.size = (UINT16)sizeof(oldAuth);
+    XMEMCPY(sess.bindAuth.buffer, oldAuth, sizeof(oldAuth));
+
+    AssertIntEQ(FwSessionIsBoundToEntity(&ctx, &sess,
+        TPM_RH_OWNER), 1);
+    XMEMCPY(ctx.ownerAuth.buffer, newAuth, sizeof(newAuth));
+    AssertIntEQ(FwSessionIsBoundToEntity(&ctx, &sess,
+        TPM_RH_OWNER), 0);
+
+    TPM2_ForceZero(&ctx, sizeof(ctx));
+    TPM2_ForceZero(&sess, sizeof(sess));
+    fwtpm_pass("Bound session invalidated by auth change:", 0);
+}
+#endif
+
 #ifndef FWTPM_NO_POLICY
 /* Helper: send a policy command that takes only sessionHandle */
 static TPM_RC SendPolicyCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 sessHandle)
@@ -10408,17 +10486,14 @@ static TPM_RC SendNvAccessCmd(FWTPM_CTX* ctx, UINT32 nvIndex,
 /* Group E: Sessions                                                   */
 /* ================================================================== */
 
-/* TPM2_FlushContext with a sessions tag carries flushHandle in the parameter
- * area after the authorization area, so the handler must skip that area to
- * find it (Part 3). */
+/* TPM2_FlushContext requires TPM_ST_NO_SESSIONS. */
 static void test_fwtpm_flushcontext_sessions_tag(void)
 {
     FWTPM_CTX ctx;
     UINT32 sessH;
     int pos, rspSize, rc;
 #ifndef FWTPM_NO_POLICY
-    int authStart, rspPos;
-    UINT16 nonceSz, hmacSz;
+    int authStart;
 #endif
 
     memset(&ctx, 0, sizeof(ctx));
@@ -10437,16 +10512,15 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    /* The response tag must match the command tag. */
-    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_NO_SESSIONS);
 
-    /* The session is gone: flushing it again fails with TPM_RC_HANDLE. */
+    /* Rejection leaves the target session loaded. */
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
 
     /* Auth area present but no flushHandle bytes after it: COMMAND_SIZE. */
     pos = 0;
@@ -10458,7 +10532,7 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
 
     /* authSize larger than the remaining bytes is rejected up front. */
     pos = 0;
@@ -10471,10 +10545,9 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTHSIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
 
-    /* A zero-length authorization area still has a parameter area. The
-     * deferred flush must use its offset and release the target session. */
+    /* A zero-length authorization area is rejected the same way. */
     sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
     AssertIntNE(sessH, 0);
     pos = 0;
@@ -10487,8 +10560,8 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_NO_SESSIONS);
 
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
         TPM_CC_FlushContext);
@@ -10497,11 +10570,11 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
 #ifndef FWTPM_NO_POLICY
-    /* The flushed session may also be the response authorization session.
-     * It must remain live until the response auth area has been generated. */
+    /* A target that is also named in the rejected authorization area remains
+     * live and can be flushed by a conforming command. */
     sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
     AssertIntNE(sessH, 0);
 
@@ -10521,24 +10594,9 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_CONTEXT);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_NO_SESSIONS);
 
-    rspPos = TPM2_HEADER_SIZE;
-    AssertTrue(rspPos + 4 <= rspSize);
-    AssertIntEQ(GetU32BE(gRsp + rspPos), 0);  /* parameterSize */
-    rspPos += 4;
-    AssertTrue(rspPos + 2 <= rspSize);
-    nonceSz = GetU16BE(gRsp + rspPos); rspPos += 2;
-    AssertIntEQ((int)nonceSz, TPM2_GetHashDigestSize(TPM_ALG_SHA256));
-    AssertTrue(rspPos + nonceSz + 3 <= rspSize);
-    rspPos += nonceSz;
-    AssertIntEQ(gRsp[rspPos++], TPMA_SESSION_continueSession);
-    hmacSz = GetU16BE(gRsp + rspPos); rspPos += 2;
-    AssertIntEQ((int)hmacSz, TPM2_GetHashDigestSize(TPM_ALG_SHA256));
-    AssertIntEQ(rspPos + hmacSz, rspSize);
-
-    /* FlushContext overrides continueSession: the target is now gone. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
         TPM_CC_FlushContext);
     PutU32BE(gCmd + pos, sessH); pos += 4;
@@ -10546,7 +10604,7 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 #endif /* !FWTPM_NO_POLICY */
 
     FWTPM_Cleanup(&ctx);
@@ -10950,7 +11008,8 @@ static void test_fwtpm_policy_ticket_zero_digest_rejected(void)
     PutU32BE(gCmd + pos, TPM_CC_PolicyTicket); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU16BE(gCmd + pos, 0); pos += 2; /* timeout TPM2B size = 0 */
+    PutU16BE(gCmd + pos, 8); pos += 2; /* timeout TPM2B */
+    memset(gCmd + pos, 0, 8); pos += 8;
     PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA TPM2B size = 0 */
     PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef TPM2B size = 0 */
     PutU16BE(gCmd + pos, sizeof(fakeAuthName)); pos += 2;
@@ -11858,8 +11917,10 @@ static TPM_RC SendPolicyPcrCmd(FWTPM_CTX* ctx, UINT32 sessH,
     }
     PutU32BE(gCmd + pos, 1); pos += 4;               /* count */
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;  /* hash */
-    gCmd[pos++] = 3;                                 /* sizeofSelect */
-    gCmd[pos++] = 0x01; gCmd[pos++] = 0x00; gCmd[pos++] = 0x00; /* PCR 0 */
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;               /* sizeofSelect */
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX);
+    gCmd[pos] = 0x01;                                 /* PCR 0 */
+    pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
@@ -12621,13 +12682,11 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
     PutU16BE(gCmd + pos, TPM_ALG_ECDAA); pos += 2;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
     PutU16BE(gCmd + pos, 0); pos += 2; /* ECDAA count */
-    /* PCRselect: count=1, hashAlg=SHA256, sizeOfSelect=3, no PCRs */
+    /* PCRselect: count=1, hashAlg=SHA256, no PCRs */
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = 3;
-    gCmd[pos++] = 0;
-    gCmd[pos++] = 0;
-    gCmd[pos++] = 0;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
@@ -12864,7 +12923,8 @@ static int BuildQuoteCmd(byte* buf, UINT32 signHandle)
     PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
     PutU32BE(buf + pos, 1); pos += 4; /* PCRselect count */
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
-    buf[pos++] = 3; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+    buf[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(buf + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
 }
@@ -13897,11 +13957,34 @@ static void test_fwtpm_clear(void)
     byte ticketBefore[TPM_MAX_DIGEST_SIZE];
     byte ticketAfter[TPM_MAX_DIGEST_SIZE];
     byte digest[WC_SHA256_DIGEST_SIZE];
+#ifndef FWTPM_NO_POLICY
+    FWTPM_Session* policySess = NULL;
+    UINT32 policySessHandle;
+    int i;
+#endif
     int ticketBeforeSz = 0;
     int ticketAfterSz = 0;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifndef FWTPM_NO_POLICY
+    policySessHandle = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(policySessHandle, 0);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used &&
+                ctx.sessions[i].handle == policySessHandle) {
+            policySess = &ctx.sessions[i];
+            break;
+        }
+    }
+    AssertNotNull(policySess);
+    policySess->startTime = 1000;
+    policySess->timeout = 2000;
+    policySess->commandCode = TPM_CC_Clear;
+    /* Clear must not make an already-expired policy usable again when it
+     * resets Clock. */
+    ctx.clockOffset = 10000;
+#endif
     XMEMCPY(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
     XMEMCPY(endorsementSeed, ctx.endorsementSeed, sizeof(endorsementSeed));
     XMEMSET(digest, 0x5A, sizeof(digest));
@@ -13911,6 +13994,14 @@ static void test_fwtpm_clear(void)
 
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
         TPM_RC_SUCCESS);
+#ifndef FWTPM_NO_POLICY
+    AssertIntEQ(policySess->used, 1);
+    AssertIntEQ(policySess->handle, policySessHandle);
+    AssertIntEQ((int)policySess->timeout, 0);
+    AssertIntEQ(policySess->commandCode, 0);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest,
+        policySessHandle), TPM_RC_SUCCESS);
+#endif
     AssertIntNE(XMEMCMP(ctx.ownerSeed, ownerSeed, sizeof(ownerSeed)), 0);
     AssertIntEQ(XMEMCMP(ctx.endorsementSeed, endorsementSeed,
         sizeof(endorsementSeed)), 0);
@@ -13928,6 +14019,47 @@ static void test_fwtpm_clear(void)
     fwtpm_pass("Clear preserves endorsement seed:", 0);
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
+/* A failed seed replacement must leave the live hierarchy state unchanged. */
+static void test_fwtpm_clear_rng_failure_atomic(void)
+{
+    FWTPM_CTX ctx;
+    TPM2B_AUTH ownerAuth;
+    TPM2B_AUTH endorsementAuth;
+    byte ownerSeed[FWTPM_SEED_SIZE];
+    byte rngStatus;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    ctx.ownerAuth.size = 4;
+    XMEMSET(ctx.ownerAuth.buffer, 0xA5, ctx.ownerAuth.size);
+    ctx.endorsementAuth.size = 4;
+    XMEMSET(ctx.endorsementAuth.buffer, 0x5A, ctx.endorsementAuth.size);
+    XMEMCPY(&ownerAuth, &ctx.ownerAuth, sizeof(ownerAuth));
+    XMEMCPY(&endorsementAuth, &ctx.endorsementAuth,
+        sizeof(endorsementAuth));
+    XMEMCPY(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
+
+    /* Use wolfCrypt's real failed-DRBG path instead of a library test hook. */
+    rngStatus = ctx.rng.status;
+    ctx.rng.status = FWTPM_TEST_DRBG_FAILED;
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_FAILURE);
+    ctx.rng.status = rngStatus;
+    AssertIntEQ(ctx.pendingClear, 0);
+    AssertIntEQ(XMEMCMP(&ctx.ownerAuth, &ownerAuth, sizeof(ownerAuth)), 0);
+    AssertIntEQ(XMEMCMP(&ctx.endorsementAuth, &endorsementAuth,
+        sizeof(endorsementAuth)), 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, ownerSeed, sizeof(ownerSeed)), 0);
+
+    TPM2_ForceZero(&ownerAuth, sizeof(ownerAuth));
+    TPM2_ForceZero(&endorsementAuth, sizeof(endorsementAuth));
+    TPM2_ForceZero(ownerSeed, sizeof(ownerSeed));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear RNG failure is atomic:", 0);
+}
+#endif /* WOLFTPM_FWTPM_UNIT_TEST && HAVE_HASHDRBG */
+
 #ifndef FWTPM_NO_NV
 static int fail_nv_write(void* ctx, word32 offset, const byte* buf,
     word32 size)
@@ -13937,6 +14069,151 @@ static int fail_nv_write(void* ctx, word32 offset, const byte* buf,
     (void)buf;
     (void)size;
     return TPM_RC_FAILURE;
+}
+
+/* A failed global-lock persist must leave the live lock state unchanged. */
+static void test_fwtpm_global_write_lock_nv_failure(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL oldHal, failHal;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.globalNvWriteLock, 0);
+
+    oldHal = ctx.nvHal;
+    failHal = oldHal;
+    failHal.write = fail_nv_write;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &failHal), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_NV_GlobalWriteLock,
+        TPM_RH_OWNER), TPM_RC_FAILURE);
+    AssertIntEQ(ctx.globalNvWriteLock, 0);
+
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GlobalWriteLock NV failure rollback:", 0);
+}
+
+/* A SetBits command missing its mandatory U64 must not write the index. */
+static void test_fwtpm_nv_setbits_truncated(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NvIndex* nv = NULL;
+    UINT32 nvIdx = 0x01500008;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+                   ((UINT32)TPM_NT_BITS << 4);
+    UINT32 oldAttrs;
+    int oldWritten;
+    byte oldData[8];
+    int i, pos, rspSize, cmdSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].nvPublic.nvIndex == nvIdx) {
+            nv = &ctx.nvIndices[i];
+            break;
+        }
+    }
+    AssertNotNull(nv);
+    oldWritten = nv->written;
+    oldAttrs = nv->nvPublic.attributes;
+    XMEMCPY(oldData, nv->data, sizeof(oldData));
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_SetBits);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    AssertIntEQ(nv->written, oldWritten);
+    AssertIntEQ(nv->nvPublic.attributes, oldAttrs);
+    AssertIntEQ(XMEMCMP(nv->data, oldData, sizeof(oldData)), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_SetBits);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, 1); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntNE(nv->nvPublic.attributes & TPMA_NV_WRITTEN, 0);
+    AssertIntEQ(nv->data[7], 1);
+
+    TPM2_ForceZero(oldData, sizeof(oldData));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_SetBits truncated command rejected:", 0);
+}
+
+/* Special NV types have fixed sizes mandated by the TPM specification. */
+static void test_fwtpm_nv_define_type_sizes(void)
+{
+    static const UINT32 nvTypes[] = {
+        TPM_NT_COUNTER,
+        TPM_NT_BITS,
+        TPM_NT_EXTEND,
+        TPM_NT_PIN_FAIL,
+        TPM_NT_PIN_PASS
+    };
+    static const UINT16 invalidSizes[] = {7, 7, 31, 7, 7};
+    static const TPM_RC expectedRc[] = {
+        TPM_RC_SIZE,
+        TPM_RC_SIZE,
+        TPM_RC_SIZE,
+        TPM_RC_ATTRIBUTES,
+        TPM_RC_ATTRIBUTES
+    };
+    FWTPM_CTX ctx;
+    UINT32 attrs;
+    UINT32 nvIdx = 0x01500010;
+    int i, cmdSz, rspSize;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    for (i = 0; i < (int)(sizeof(nvTypes) / sizeof(nvTypes[0])); i++) {
+        attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+            (nvTypes[i] << 4);
+        cmdSz = BuildNvDefineCmd(gCmd, nvIdx + (UINT32)i,
+            invalidSizes[i], attrs);
+        rspSize = 0;
+        AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize,
+            0), TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), expectedRc[i]);
+    }
+
+    attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        ((UINT32)TPM_NT_COUNTER << 4);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        ((UINT32)TPM_NT_EXTEND << 4);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx + 1, WC_SHA256_DIGEST_SIZE, attrs);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_DefineSpace type sizes:", 0);
 }
 
 /* ClearControl must not change disableClear or return success when its NV
@@ -14036,7 +14313,7 @@ static void test_fwtpm_state_change_nv_failure(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
 
-    /* Restore persistence and confirm the counter was rolled back (== 0). */
+    /* Restore persistence and confirm the counter remains unwritten. */
     AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
@@ -14050,10 +14327,7 @@ static void test_fwtpm_state_change_nv_failure(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(GetU16BE(gRsp + 14), 8);
-    AssertIntEQ((int)GetU32BE(gRsp + 16), 0);
-    AssertIntEQ((int)GetU32BE(gRsp + 20), 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_UNINITIALIZED);
 
     /* Remove the counter while owner auth is still empty. */
     pos = 0;
@@ -14183,15 +14457,26 @@ static void test_fwtpm_sessions_short_authcount_rejected(void)
 {
     FWTPM_CTX ctx;
     int rspSize, pos;
+    UINT32 seqH;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_HashSequenceStart);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
 
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_EventSequenceComplete); pos += 4;
-    PutU32BE(gCmd + pos, 0x80000000); pos += 4;      /* handle 1 */
+    PutU32BE(gCmd + pos, seqH); pos += 4;            /* handle 1 */
     PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;  /* handle 2 */
     pos = AppendPwAuth(gCmd, pos, NULL, 0);           /* single auth entry */
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -14414,6 +14699,7 @@ static void test_fwtpm_da_platform_exempt(void)
     fwtpm_pass("DA platform hierarchy exempt:", 0);
 }
 
+#ifndef FWTPM_NO_NV
 /* Startup(SU_STATE) exercises the Restart/Resume DA-flag persist branch. */
 static void test_fwtpm_da_startup_state(void)
 {
@@ -14422,7 +14708,12 @@ static void test_fwtpm_da_startup_state(void)
 
     (void)remove(FWTPM_NV_FILE);
     memset(&ctx, 0, sizeof(ctx));
-    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_test_shutdown_state(&ctx), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
     PutU16BE(gCmd + cmdSz, TPM_SU_STATE); cmdSz += 2;
     PutU32BE(gCmd + 2, (UINT32)cmdSz);
@@ -14434,6 +14725,7 @@ static void test_fwtpm_da_startup_state(void)
     (void)remove(FWTPM_NV_FILE);
     fwtpm_pass("DA Startup(SU_STATE) persist:", 0);
 }
+#endif /* !FWTPM_NO_NV */
 
 #ifdef HAVE_ECC
 /* Create an ECC-P256 sign primary in the owner hierarchy with empty auth and
@@ -15485,23 +15777,135 @@ static void test_fwtpm_param_enc_session_selection(void)
     fwtpm_pass("Param-enc follows decrypt/encrypt session:", 0);
 }
 
-/* HMAC-SHA256 with an empty key over cpHash, nonces and attributes */
-static void ComputeAuthHmac(const byte* cpHash, const byte* nonceCaller,
-    const byte* nonceTPM, UINT16 nonceTPMSz, const byte* nonceExtra,
+/* HMAC-SHA256 over a parameter hash, nonces and session attributes. */
+static void ComputeAuthHmac(const byte* key, UINT16 keySz,
+    const byte* pHash, const byte* nonceFirst, UINT16 nonceFirstSz,
+    const byte* nonceSecond, UINT16 nonceSecondSz, const byte* nonceExtra,
     UINT16 nonceExtraSz, UINT8 attribs, byte* out)
 {
     Hmac hmac;
     AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
-    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, NULL, 0), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, cpHash, WC_SHA256_DIGEST_SIZE), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, nonceCaller, 16), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, nonceTPM, nonceTPMSz), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, key, keySz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, pHash, WC_SHA256_DIGEST_SIZE), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceFirst, nonceFirstSz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceSecond, nonceSecondSz), 0);
     if (nonceExtraSz > 0) {
         AssertIntEQ(wc_HmacUpdate(&hmac, nonceExtra, nonceExtraSz), 0);
     }
     AssertIntEQ(wc_HmacUpdate(&hmac, &attribs, 1), 0);
     AssertIntEQ(wc_HmacFinal(&hmac, out), 0);
     wc_HmacFree(&hmac);
+}
+
+/* A command that changes the bound entity's authValue must use the same
+ * request-time bound-session key decision for its response HMAC. */
+static void test_fwtpm_bound_auth_change_response_hmac(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    static const byte sessionKey[] = {0x10, 0x20, 0x30, 0x40};
+    static const byte newAuth[] = {0x51, 0x52, 0x53, 0x54};
+    byte nonceCaller[16];
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    byte cpHash[WC_SHA256_DIGEST_SIZE];
+    byte rpHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte hashInput[8];
+    UINT16 nonceTPMSz = 0;
+    UINT16 rspNonceSz;
+    UINT16 rspHmacSz;
+    UINT8 attrs = TPMA_SESSION_continueSession;
+    UINT8 rspAttrs;
+    UINT32 sessH;
+    int authStart;
+    int off;
+    int pos;
+    int rspSize = 0;
+    int i;
+    wc_Sha256 sha;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    sessH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_NULL,
+        nonceTPM, &nonceTPMSz);
+    AssertIntNE(sessH, 0);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+            break;
+        }
+    }
+    AssertNotNull(sess);
+    if (sess == NULL) {
+        FWTPM_Cleanup(&ctx);
+        return;
+    }
+    sess->isBound = 1;
+    sess->bindName.size = 4;
+    PutU32BE(sess->bindName.name, TPM_RH_OWNER);
+    sess->bindAuth.size = 0;
+    sess->sessionKey.size = (UINT16)sizeof(sessionKey);
+    XMEMCPY(sess->sessionKey.buffer, sessionKey, sizeof(sessionKey));
+
+    XMEMSET(nonceCaller, 0x6A, sizeof(nonceCaller));
+    PutU32BE(hashInput, TPM_CC_HierarchyChangeAuth);
+    PutU32BE(hashInput + 4, TPM_RH_OWNER);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, hashInput, sizeof(hashInput)), 0);
+    PutU16BE(hashInput, (UINT16)sizeof(newAuth));
+    XMEMCPY(hashInput + 2, newAuth, sizeof(newAuth));
+    AssertIntEQ(wc_Sha256Update(&sha, hashInput, 2 + sizeof(newAuth)), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
+    wc_Sha256Free(&sha);
+    ComputeAuthHmac(sessionKey, (UINT16)sizeof(sessionKey), cpHash,
+        nonceCaller, (UINT16)sizeof(nonceCaller), nonceTPM, nonceTPMSz,
+        NULL, 0, attrs, authHmac);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_HierarchyChangeAuth);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(nonceCaller)); pos += 2;
+    XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+    pos += sizeof(nonceCaller);
+    gCmd[pos++] = attrs;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(authHmac)); pos += 2;
+    XMEMCPY(gCmd + pos, authHmac, sizeof(authHmac)); pos += sizeof(authHmac);
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, (UINT16)sizeof(newAuth)); pos += 2;
+    XMEMCPY(gCmd + pos, newAuth, sizeof(newAuth)); pos += sizeof(newAuth);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.ownerAuth.size, sizeof(newAuth));
+    AssertIntEQ(XMEMCMP(ctx.ownerAuth.buffer, newAuth, sizeof(newAuth)), 0);
+
+    XMEMSET(hashInput, 0, sizeof(hashInput));
+    PutU32BE(hashInput + 4, TPM_CC_HierarchyChangeAuth);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, hashInput, sizeof(hashInput)), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, rpHash), 0);
+    wc_Sha256Free(&sha);
+    off = RspSessOffset(gRsp, 0);
+    rspNonceSz = GetU16BE(gRsp + off);
+    AssertIntLE(rspNonceSz, TPM_MAX_DIGEST_SIZE);
+    rspAttrs = gRsp[off + 2 + rspNonceSz];
+    rspHmacSz = GetU16BE(gRsp + off + 3 + rspNonceSz);
+    AssertIntEQ(rspHmacSz, WC_SHA256_DIGEST_SIZE);
+    ComputeAuthHmac(sessionKey, (UINT16)sizeof(sessionKey), rpHash,
+        gRsp + off + 2, rspNonceSz, nonceCaller,
+        (UINT16)sizeof(nonceCaller), NULL, 0, rspAttrs, expected);
+    AssertIntEQ(XMEMCMP(expected, gRsp + off + 5 + rspNonceSz,
+        sizeof(expected)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Bound auth change response HMAC:", 0);
 }
 
 /* TPM2_HMAC authorized by an HMAC session, plus a param-enc session. With
@@ -15530,7 +15934,7 @@ static int BuildBoundHmacCmd(byte* buf, UINT32 keyH, const byte* name,
     AssertIntEQ(wc_Sha256Update(&sha, params, 2 + dataSz + 2), 0);
     AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
     wc_Sha256Free(&sha);
-    ComputeAuthHmac(cpHash, nonceCaller, nonceH, nonceHSz,
+    ComputeAuthHmac(NULL, 0, cpHash, nonceCaller, 16, nonceH, nonceHSz,
         nonceE, bind ? nonceESz : 0, cont, authHmac);
 
     pos = BuildCmdHeader(buf, TPM_ST_SESSIONS, 0, TPM_CC_HMAC);
@@ -15548,6 +15952,111 @@ static int BuildBoundHmacCmd(byte* buf, UINT32 keyH, const byte* name,
     memcpy(buf + pos, params, 2 + dataSz + 2); pos += 2 + dataSz + 2;
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
+}
+
+/* SequenceComplete must retain the sequence authValue until after the response
+ * HMAC is generated, then flush the sequence. */
+static void test_fwtpm_sequence_complete_response_hmac(void)
+{
+    FWTPM_CTX ctx;
+    static const byte seqAuth[] = {0x11, 0x22, 0x33, 0x44};
+    byte nonceCaller[16];
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    byte cpHash[WC_SHA256_DIGEST_SIZE];
+    byte rpHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte ccBuf[4];
+    byte params[6];
+    UINT16 nonceTPMSz = 0;
+    UINT16 rspNonceSz;
+    UINT16 rspHmacSz;
+    UINT8 attrs = TPMA_SESSION_continueSession;
+    UINT8 rspAttrs;
+    UINT32 seqH;
+    UINT32 sessH;
+    UINT32 rspParamSz;
+    int authStart;
+    int off;
+    int pos;
+    int rspSize = 0;
+    wc_Sha256 sha;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_HashSequenceStart);
+    PutU16BE(gCmd + pos, (UINT16)sizeof(seqAuth)); pos += 2;
+    XMEMCPY(gCmd + pos, seqAuth, sizeof(seqAuth)); pos += sizeof(seqAuth);
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    sessH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_NULL,
+        nonceTPM, &nonceTPMSz);
+    AssertIntNE(sessH, 0);
+    XMEMSET(nonceCaller, 0x5A, sizeof(nonceCaller));
+
+    PutU16BE(params, 0);
+    PutU32BE(params + 2, TPM_RH_OWNER);
+    PutU32BE(ccBuf, TPM_CC_SequenceComplete);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, ccBuf, sizeof(ccBuf)), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, params, sizeof(params)), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
+    wc_Sha256Free(&sha);
+    ComputeAuthHmac(seqAuth, (UINT16)sizeof(seqAuth), cpHash, nonceCaller,
+        (UINT16)sizeof(nonceCaller), nonceTPM, nonceTPMSz, NULL, 0, attrs,
+        authHmac);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_SequenceComplete);
+    PutU32BE(gCmd + pos, seqH); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(nonceCaller)); pos += 2;
+    XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+    pos += sizeof(nonceCaller);
+    gCmd[pos++] = attrs;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(authHmac)); pos += 2;
+    XMEMCPY(gCmd + pos, authHmac, sizeof(authHmac)); pos += sizeof(authHmac);
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    XMEMCPY(gCmd + pos, params, sizeof(params)); pos += sizeof(params);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    rspParamSz = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    XMEMSET(ccBuf, 0, sizeof(ccBuf));
+    AssertIntEQ(wc_Sha256Update(&sha, ccBuf, sizeof(ccBuf)), 0);
+    PutU32BE(ccBuf, TPM_CC_SequenceComplete);
+    AssertIntEQ(wc_Sha256Update(&sha, ccBuf, sizeof(ccBuf)), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, gRsp + TPM2_HEADER_SIZE + 4,
+        rspParamSz), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, rpHash), 0);
+    wc_Sha256Free(&sha);
+
+    off = RspSessOffset(gRsp, 0);
+    rspNonceSz = GetU16BE(gRsp + off);
+    AssertIntLE(rspNonceSz, TPM_MAX_DIGEST_SIZE);
+    rspAttrs = gRsp[off + 2 + rspNonceSz];
+    rspHmacSz = GetU16BE(gRsp + off + 3 + rspNonceSz);
+    AssertIntEQ(rspHmacSz, WC_SHA256_DIGEST_SIZE);
+    ComputeAuthHmac(seqAuth, (UINT16)sizeof(seqAuth), rpHash,
+        gRsp + off + 2, rspNonceSz, nonceCaller,
+        (UINT16)sizeof(nonceCaller), NULL, 0, rspAttrs, expected);
+    AssertIntEQ(XMEMCMP(expected, gRsp + off + 5 + rspNonceSz,
+        sizeof(expected)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SequenceComplete response HMAC uses sequence auth:", 0);
 }
 
 /* With an HMAC authorization first, its HMAC must also cover the nonceTPM
@@ -15650,8 +16159,132 @@ static void test_fwtpm_param_enc_session_bound_to_auth(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Param-enc session bound to auth HMAC:", 0);
 }
+
 #endif /* !FWTPM_NO_PARAM_ENC && FWTPM_MAX_SESSIONS >= 2 */
 #endif /* !FWTPM_NO_HASH_CMDS */
+
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+static wolfSSL_Malloc_cb gFwtpmTestMalloc;
+static int gFwtpmTestAllocCount;
+static int gFwtpmTestFailAllocAt;
+
+static void* test_fwtpm_fail_malloc(size_t size
+#ifdef WOLFSSL_STATIC_MEMORY
+    , void* heap, int type
+#endif
+#ifdef WOLFSSL_DEBUG_MEMORY
+    , const char* func, unsigned int line
+#endif
+)
+{
+    gFwtpmTestAllocCount++;
+    if (gFwtpmTestFailAllocAt > 0 &&
+            gFwtpmTestAllocCount >= gFwtpmTestFailAllocAt) {
+        return NULL;
+    }
+#ifdef WOLFSSL_STATIC_MEMORY
+    #ifdef WOLFSSL_DEBUG_MEMORY
+    return gFwtpmTestMalloc(size, heap, type, func, line);
+    #else
+    return gFwtpmTestMalloc(size, heap, type);
+    #endif
+#else
+    #ifdef WOLFSSL_DEBUG_MEMORY
+    return gFwtpmTestMalloc(size, func, line);
+    #else
+    return gFwtpmTestMalloc(size);
+    #endif
+#endif
+}
+
+/* Small-stack helper allocations must preserve the documented memory error. */
+static void test_fwtpm_command_crypto_allocation_failure(void)
+{
+    wolfSSL_Malloc_cb oldMalloc;
+    wolfSSL_Free_cb oldFree;
+    wolfSSL_Realloc_cb oldRealloc;
+    FWTPM_CTX ctx;
+    FWTPM_Session sess;
+    TPM_HANDLE handles[1];
+    byte data[TPM2_HEADER_SIZE];
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    int digestSz = 0;
+#ifndef FWTPM_NO_POLICY
+    UINT32 sessH;
+    int authStart;
+    int pos;
+    int rspSize;
+    int rc;
+    int i;
+#endif
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(handles, 0, sizeof(handles));
+    XMEMSET(data, 0, sizeof(data));
+    XMEMSET(digest, 0, sizeof(digest));
+    sess.authHash = TPM_ALG_SHA256;
+
+    AssertIntEQ(wolfSSL_GetAllocators(&oldMalloc, &oldFree, &oldRealloc), 0);
+    gFwtpmTestMalloc = oldMalloc;
+    gFwtpmTestAllocCount = 0;
+    gFwtpmTestFailAllocAt = 1;
+    AssertIntEQ(wolfSSL_SetAllocators(test_fwtpm_fail_malloc, oldFree,
+        oldRealloc), 0);
+    AssertIntEQ(FwHashOneShot(TPM_ALG_SHA256, data, sizeof(data), NULL,
+        0, digest), TPM_RC_MEMORY);
+    AssertIntEQ(FwComputeRpHash(TPM_ALG_SHA256, TPM_CC_GetRandom,
+        data, sizeof(data), digest, &digestSz), TPM_RC_MEMORY);
+    AssertIntEQ(FwComputeCpHash(TPM_ALG_SHA256, TPM_CC_GetRandom,
+        data, sizeof(data), handles, 0, &ctx, 0, digest, &digestSz),
+        TPM_RC_MEMORY);
+    AssertIntEQ(FwComputeSessionHmac(&sess, data, sizeof(data), 0, NULL,
+        0, NULL, NULL, 0, digest, &digestSz), TPM_RC_MEMORY);
+    AssertIntEQ(wolfSSL_SetAllocators(oldMalloc, oldFree, oldRealloc), 0);
+
+#ifndef FWTPM_NO_POLICY
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_PolicyGetDigest);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(data)); pos += 2;
+    XMEMCPY(gCmd + pos, data, sizeof(data)); pos += sizeof(data);
+    gCmd[pos++] = TPMA_SESSION_continueSession;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    XMEMSET(gRsp, 0xA5, 64);
+    gFwtpmTestAllocCount = 0;
+    gFwtpmTestFailAllocAt = 1;
+    AssertIntEQ(wolfSSL_SetAllocators(test_fwtpm_fail_malloc, oldFree,
+        oldRealloc), 0);
+    rspSize = FWTPM_MAX_COMMAND_SIZE;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(wolfSSL_SetAllocators(oldMalloc, oldFree, oldRealloc), 0);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(rspSize, 0);
+    for (i = 0; i < TPM2_HEADER_SIZE + 4 + 2 + WC_SHA256_DIGEST_SIZE; i++) {
+        AssertIntEQ(gRsp[i], 0);
+    }
+
+    rspSize = FWTPM_MAX_COMMAND_SIZE;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_REFERENCE_S0);
+    FWTPM_Cleanup(&ctx);
+#endif
+
+    fwtpm_pass("Command crypto allocation failures:", 0);
+}
+#endif /* WOLFTPM_FWTPM_UNIT_TEST && WOLFTPM_SMALL_STACK */
 
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
 static void test_fwtpm_ecc_parameters(void)
@@ -17572,6 +18205,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_clear();
         return 0;
     }
+    #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
+    if (argc == 2 && XSTRCMP(argv[1], "clear-rng-failure") == 0) {
+        test_fwtpm_clear_rng_failure_atomic();
+        return 0;
+    }
+    #endif /* WOLFTPM_FWTPM_UNIT_TEST && HAVE_HASHDRBG */
 #if !defined(FWTPM_NO_POLICY) && !defined(NO_RSA) && \
     defined(WOLFSSL_KEY_GEN)
     if (argc == 2 && XSTRCMP(argv[1], "clear-child") == 0) {
@@ -17586,6 +18225,18 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #endif
 #ifndef FWTPM_NO_NV
+    if (argc == 2 && XSTRCMP(argv[1], "global-write-lock-failure") == 0) {
+        test_fwtpm_global_write_lock_nv_failure();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "nv-setbits-truncated") == 0) {
+        test_fwtpm_nv_setbits_truncated();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "nv-define-type-sizes") == 0) {
+        test_fwtpm_nv_define_type_sizes();
+        return 0;
+    }
     if (argc == 2 && XSTRCMP(argv[1], "nv-stclear") == 0) {
         test_fwtpm_nv_stclear_startup();
         return 0;
@@ -17594,6 +18245,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if !defined(FWTPM_NO_NV) && !defined(FWTPM_NO_POLICY)
     if (argc == 2 && XSTRCMP(argv[1], "policy-nv-lock") == 0) {
         test_fwtpm_policy_nv_read_locked();
+        return 0;
+    }
+#endif
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    if (argc == 2 && XSTRCMP(argv[1], "command-crypto-allocation") == 0) {
+        test_fwtpm_command_crypto_allocation_failure();
         return 0;
     }
 #endif
@@ -17884,8 +18541,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
     test_fwtpm_param_enc_session_selection();
     test_fwtpm_param_enc_session_bound_to_auth();
+    test_fwtpm_bound_auth_change_response_hmac();
+    test_fwtpm_sequence_complete_response_hmac();
 #endif
 #endif /* !FWTPM_NO_HASH_CMDS */
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_command_crypto_allocation_failure();
+#endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_parameters();
 #endif
@@ -17903,6 +18565,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_start_hmac_session();
     test_fwtpm_start_policy_session();
     test_fwtpm_start_trial_session();
+#ifdef WOLFTPM_FWTPM_UNIT_TEST
+    test_fwtpm_bound_session_auth_change();
+#endif
 
     /* Auth */
     test_fwtpm_hierarchy_change_auth();
@@ -17912,8 +18577,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_da_parameters_zero_maxtries_rejected();
     test_fwtpm_da_getcap_properties();
     test_fwtpm_da_platform_exempt();
-    test_fwtpm_da_startup_state();
 #ifndef FWTPM_NO_NV
+    test_fwtpm_da_startup_state();
     test_fwtpm_da_oldformat_journal();
     test_fwtpm_da_failedtries_clamp();
     test_fwtpm_da_no_selfheal_wipe_on_reload();
@@ -18023,6 +18688,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif /* !FWTPM_NO_HASH_CMDS */
     test_fwtpm_sessions_missing_authsize_command_size();
 #ifndef FWTPM_NO_NV
+    test_fwtpm_global_write_lock_nv_failure();
+    test_fwtpm_nv_setbits_truncated();
+    test_fwtpm_nv_define_type_sizes();
     test_fwtpm_clear_control_nv_failure();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
@@ -18030,6 +18698,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_delete_at_capacity();
     test_fwtpm_nv_stclear_startup();
 #endif /* !FWTPM_NO_NV */
+    #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
+    test_fwtpm_clear_rng_failure_atomic();
+    #endif /* WOLFTPM_FWTPM_UNIT_TEST && HAVE_HASHDRBG */
     test_fwtpm_clear();
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)

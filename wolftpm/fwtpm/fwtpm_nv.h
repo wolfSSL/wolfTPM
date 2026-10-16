@@ -111,6 +111,7 @@ typedef struct FWTPM_NV_HEADER {
 
 /* Flags (disableClear, DA params, etc.) */
 #define FWTPM_NV_TAG_FLAGS             0x0030
+#define FWTPM_NV_TAG_SHUTDOWN_STATE    0x0031
 
 /* Hierarchy policies (value: UINT32 hierarchy + UINT16 alg + digest) */
 #define FWTPM_NV_TAG_HIERARCHY_POLICY  0x0035

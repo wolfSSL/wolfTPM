@@ -375,17 +375,6 @@ static int HandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd, UINT32 tssCmd)
     return TransportSend(ctx, FWTPM_IO_TYPE_COMMAND, clientFd, &netVal, 4);
 }
 
-#ifdef WOLFTPM_FWTPM_UNIT_TEST
-int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
-    UINT32 tssCmd);
-
-int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
-    UINT32 tssCmd)
-{
-    return HandleMssimSignal(ctx, clientFd, tssCmd);
-}
-#endif
-
 /* --- Process and send TPM command response --- */
 static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
     SOCKET_T clientFd, int isSwtpm)

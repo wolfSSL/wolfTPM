@@ -49,6 +49,12 @@ jobs:
           - name: "LeakSan"
             cflags: "-fsanitize=leak -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=leak"
+          - name: "ASan (small stack)"
+            cflags: "-fsanitize=address -fno-omit-frame-pointer -g -O1"
+            ldflags: "-fsanitize=address"
+            asan_options: "detect_leaks=0"
+            wolftpm_extra_config: "--enable-smallstack"
+            wolfssl_extra_config: "--enable-smallstack"
 
           # Same base sanitizers, but linked against the latest wolfSSL -stable
           # release instead of master.

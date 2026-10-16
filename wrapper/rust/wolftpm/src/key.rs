@@ -225,7 +225,7 @@ impl Template {
                 &mut t,
                 bits as c_int,
                 sys::TPM_ALG_ID_T_TPM_ALG_CFB as sys::TPM_ALG_ID,
-                0,
+                1,
                 1,
             )
         };

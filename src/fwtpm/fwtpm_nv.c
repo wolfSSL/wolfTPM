@@ -509,6 +509,13 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvUnmarshalU32(buf, pos, maxSz, &nvPub->attributes);
     }
+    if (rc == 0) {
+        UINT32 nt = (nvPub->attributes & TPMA_NV_TPM_NT) >> 4;
+        if (nt != TPM_NT_ORDINARY && nt != TPM_NT_COUNTER &&
+                nt != TPM_NT_BITS && nt != TPM_NT_EXTEND) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
     /* Reserved TPMA_NV bits [9:8] and [24:20] must be clear (Part 2
      * Sec.13.4); a crafted journal entry could otherwise install an index
      * with undefined access-control semantics. */
@@ -1317,7 +1324,21 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             break;
 
         case FWTPM_NV_TAG_PLATFORM_AUTH:
-            FwNvUnmarshalAuth(value, &vPos, vMax, &ctx->platformAuth);
+            if (FwNvUnmarshalAuth(value, &vPos, vMax,
+                    &ctx->platformAuth) == 0 && vPos < vMax) {
+                TPM2B_DIGEST policy;
+                UINT16 alg = TPM_ALG_NULL;
+
+                XMEMSET(&policy, 0, sizeof(policy));
+                if (FwNvUnmarshalU16(value, &vPos, vMax, &alg) == 0 &&
+                        FwNvUnmarshalDigest(value, &vPos, vMax,
+                            &policy) == 0 &&
+                        (policy.size == 0 ||
+                         (int)policy.size == TPM2_GetHashDigestSize(alg))) {
+                    ctx->platformPolicy = policy;
+                    ctx->platformPolicyAlg = alg;
+                }
+            }
             break;
 
         case FWTPM_NV_TAG_LOCKOUT_AUTH:
@@ -1356,6 +1377,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
 
         case FWTPM_NV_TAG_FLAGS: {
             UINT8 flags8 = 0;
+            UINT8 shutdownState = 0;
             FwNvUnmarshalU8(value, &vPos, vMax, &flags8);
             ctx->disableClear = (flags8 & 0x01) ? 1 : 0;
             ctx->globalNvWriteLock = (flags8 & 0x02) ? 1 : 0;
@@ -1407,8 +1429,35 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                 if (ctx->endorsementProofVersion != 1)
                     ctx->endorsementProofVersion = 0;
             }
+            ctx->restartCount = 0;
+            if (vPos + 4 <= vMax) {
+                FwNvUnmarshalU32(value, &vPos, vMax, &ctx->restartCount);
+            }
+            ctx->shutdownStateSaved = 0;
+            if (vPos < vMax) {
+                FwNvUnmarshalU8(value, &vPos, vMax, &shutdownState);
+                ctx->shutdownStateSaved = shutdownState ? 1 : 0;
+            }
+        #ifndef FWTPM_NO_NV
+            if (vPos + 8 <= vMax) {
+                UINT32 lo = 0, hi = 0;
+                UINT64 counterMax;
+                FwNvUnmarshalU32(value, &vPos, vMax, &lo);
+                FwNvUnmarshalU32(value, &vPos, vMax, &hi);
+                counterMax = (UINT64)lo | ((UINT64)hi << 32);
+                if (counterMax > ctx->nvCounterMax) {
+                    ctx->nvCounterMax = counterMax;
+                }
+            }
+        #endif
             break;
         }
+
+        case FWTPM_NV_TAG_SHUTDOWN_STATE:
+            if (valueLen >= 1) {
+                ctx->shutdownStateSaved = value[0] ? 1 : 0;
+            }
+            break;
 
         case FWTPM_NV_TAG_CLOCK: {
             UINT32 lo = 0, hi = 0;
@@ -1466,6 +1515,13 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             FWTPM_NvIndex nv;
             int slot;
             if (FwNvUnmarshalNvIndex(value, &vPos, vMax, &nv) == 0) {
+                UINT32 nt = (nv.nvPublic.attributes & TPMA_NV_TPM_NT) >> 4;
+                if (nt == TPM_NT_COUNTER && nv.written) {
+                    UINT64 counter = FwLoadU64BE(nv.data);
+                    if (counter > ctx->nvCounterMax) {
+                        ctx->nvCounterMax = counter;
+                    }
+                }
                 slot = FwNvFindOrAllocNvSlot(ctx, nv.nvPublic.nvIndex);
                 if (slot >= 0) {
                     XMEMCPY(&ctx->nvIndices[slot], &nv,
@@ -2190,8 +2246,17 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     #ifndef FWTPM_NO_DA
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daFailedTries);
     #endif
-        if (ctx->endorsementProofVersion != 0)
-            FwNvMarshalU8(buf, &pos, bufSz, 1);
+        FwNvMarshalU8(buf, &pos, bufSz,
+            ctx->endorsementProofVersion != 0 ? 1 : 0);
+        FwNvMarshalU32(buf, &pos, bufSz, ctx->restartCount);
+        /* A full snapshot authorizes resume only with its final marker. */
+        FwNvMarshalU8(buf, &pos, bufSz, 0);
+    #ifndef FWTPM_NO_NV
+        FwNvMarshalU32(buf, &pos, bufSz,
+            (UINT32)(ctx->nvCounterMax & 0xFFFFFFFF));
+        FwNvMarshalU32(buf, &pos, bufSz,
+            (UINT32)(ctx->nvCounterMax >> 32));
+    #endif
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     }
 
@@ -2335,19 +2400,21 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
     }
 
-    /* Seal the journal: append-only adds one trailing checkpoint (header was
-     * written after the erase); byte-addressable updates the header in place. */
-    if (rc == 0) {
-#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
-        if (FW_NV_APPEND_ONLY(hal)) {
-            rc = FwNvAppendCheckpoint(ctx);
-        }
-        else
-#endif
-        {
-            rc = FwNvWriteHeader(ctx);
-        }
+    /* Commit the orderly-state marker after every snapshot entry. */
+    if (rc == 0 && ctx->shutdownStateSaved) {
+        const byte stateSaved = 1;
+        rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_SHUTDOWN_STATE,
+            &stateSaved, sizeof(stateSaved));
     }
+
+    /* Append-only compaction defers its checkpoint until every entry is
+     * written. Byte-addressable appends already update the header and MAC;
+     * rewriting them here could report failure after a completed commit. */
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    if (rc == 0 && FW_NV_APPEND_ONLY(hal)) {
+        rc = FwNvAppendCheckpoint(ctx);
+    }
+#endif
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
     /* A compaction that did not reach its checkpoint leaves the rewritten
      * snapshot unsealed on the log, so it must be rebuilt before any append. */
@@ -2390,7 +2457,7 @@ int FWTPM_NV_SaveSeeds(FWTPM_CTX* ctx)
 int FWTPM_NV_SaveAuth(FWTPM_CTX* ctx, UINT32 hierarchy)
 {
     int rc;
-    byte buf[2 + TPM_SHA384_DIGEST_SIZE];
+    byte buf[2 + TPM_MAX_DIGEST_SIZE + 2 + 2 + TPM_MAX_DIGEST_SIZE];
     word32 pos = 0;
     UINT16 tag;
     TPM2B_AUTH* auth;
@@ -2421,6 +2488,16 @@ int FWTPM_NV_SaveAuth(FWTPM_CTX* ctx, UINT32 hierarchy)
     }
 
     rc = FwNvMarshalAuth(buf, &pos, sizeof(buf), auth);
+    /* Keep platform authorization and policy in one journal entry so
+     * Startup(CLEAR) can persist their reset with a single checkpoint. */
+    if (rc == 0 && hierarchy == TPM_RH_PLATFORM) {
+        rc = FwNvMarshalU16(buf, &pos, sizeof(buf),
+            ctx->platformPolicyAlg);
+        if (rc == 0) {
+            rc = FwNvMarshalDigest(buf, &pos, sizeof(buf),
+                &ctx->platformPolicy);
+        }
+    }
     if (rc == 0) {
         rc = FwNvAppendEntry(ctx, tag, buf, (UINT16)pos);
     }
@@ -2498,7 +2575,7 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     return TPM_RC_SUCCESS;
 #else
     int rc;
-    byte buf[1 + 12 + 4 + 4 + 1]; /* flags, DA, counters, proof version */
+    byte buf[1 + 12 + 4 + 4 + 1 + 4 + 1 + 8];
     word32 pos = 0;
 
     if (ctx == NULL) {
@@ -2526,8 +2603,15 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
 #ifndef FWTPM_NO_DA
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daFailedTries);
 #endif
-    if (ctx->endorsementProofVersion != 0)
-        FwNvMarshalU8(buf, &pos, sizeof(buf), 1);
+    FwNvMarshalU8(buf, &pos, sizeof(buf),
+        ctx->endorsementProofVersion != 0 ? 1 : 0);
+    FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->restartCount);
+    FwNvMarshalU8(buf, &pos, sizeof(buf),
+        ctx->shutdownStateSaved ? 1 : 0);
+    FwNvMarshalU32(buf, &pos, sizeof(buf),
+        (UINT32)(ctx->nvCounterMax & 0xFFFFFFFF));
+    FwNvMarshalU32(buf, &pos, sizeof(buf),
+        (UINT32)(ctx->nvCounterMax >> 32));
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     return rc;

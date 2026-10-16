@@ -8937,7 +8937,8 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     encDecIn.keyHandle = key->handle.hndl;
     if (iv == NULL || ivSz == 0) {
-        encDecIn.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
+        encDecIn.ivIn.size = encDecIn.mode == TPM_ALG_ECB ? 0 :
+            MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
     }
     else {
         encDecIn.ivIn.size = ivSz;

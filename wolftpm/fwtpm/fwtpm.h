@@ -527,6 +527,7 @@ typedef struct FWTPM_HashSeq {
     TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
     TPMI_ALG_HASH hashAlg;         /* Hash algorithm for this sequence */
     int isHmac;                     /* 1 if HMAC sequence, 0 if plain hash */
+    UINT8 eventBankMask;            /* Active banks when hashAlg is NULL */
     TPM2B_AUTH authValue;           /* Sequence auth (from HashSequenceStart) */
     UINT16 hmacKeySz;
     byte hmacKey[MAX_SYM_DATA];
@@ -534,6 +535,7 @@ typedef struct FWTPM_HashSeq {
     union {
         wc_HashAlg hash;            /* wolfCrypt hash context (isHmac == 0) */
         Hmac hmac;                  /* wolfCrypt HMAC context (isHmac == 1) */
+        wc_HashAlg eventHash[FWTPM_PCR_BANKS];
     } ctx;
 #endif
 } FWTPM_HashSeq;
@@ -601,12 +603,16 @@ typedef struct FWTPM_Session {
     TPM2B_NONCE nonceCaller;        /* Last caller nonce received */
     TPM2B_AUTH sessionKey;          /* Session HMAC key (from KDFa) */
     TPM2B_AUTH bindAuth;            /* Auth of bound entity */
+    TPM2B_NAME bindName;            /* Name of bound entity */
     TPM_HANDLE bindHandle;          /* Bound entity handle (0 if unbound) */
+    int isBound;                    /* Session has a bound entity */
 #ifndef FWTPM_NO_DA
     int isDaBound;                  /* Bound authValue has DA protection */
     int isLockoutBound;             /* Bound to the lockout hierarchy */
 #endif
     TPM2B_DIGEST policyDigest;      /* Running policy digest (policy sessions) */
+    UINT64 startTime;               /* TPM time when nonceTPM last changed */
+    UINT64 timeout;                 /* Policy expiration in TPM milliseconds */
     int isPasswordPolicy;           /* 1 if PolicyPassword was called */
     int isAuthValuePolicy;          /* 1 if PolicyAuthValue was called */
     TPM2B_DIGEST cpHashA;           /* PolicyCpHash: locked once set */
@@ -761,6 +767,7 @@ typedef struct FWTPM_CTX {
     /* TPM state */
     int powerOn;
     int wasStarted;             /* Has TPM2_Startup been called */
+    int shutdownStateSaved;     /* Previous Shutdown(STATE), persisted */
     int pendingClear;           /* Deferred clear (after response auth) */
     int disableClear;           /* ClearControl: 1 = Clear is disabled */
     int globalNvWriteLock;      /* NV_GlobalWriteLock (reset on Startup CLEAR) */
@@ -794,7 +801,8 @@ typedef struct FWTPM_CTX {
 #endif
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
     UINT32 resetCount;          /* TPM Reset count, persisted across boots */
-    UINT32 restartCount;        /* TPM Restart/Resume count, volatile */
+    UINT32 restartCount;        /* Restart/Resume count, reset by TPM Reset */
+    byte timeEpoch[TPM_SHA384_DIGEST_SIZE]; /* Opaque ticket epoch nonce */
 
     /* PCR state: [pcrIndex][bank][digest bytes] */
     byte pcrDigest[IMPLEMENTATION_PCR][FWTPM_PCR_BANKS][TPM_MAX_DIGEST_SIZE];
@@ -826,6 +834,7 @@ typedef struct FWTPM_CTX {
      * cost of the NV command group, so omit them when that group is disabled. */
 #ifndef FWTPM_NO_NV
     FWTPM_NvIndex nvIndices[FWTPM_MAX_NV_INDICES];
+    UINT64 nvCounterMax;          /* Highest NV counter value ever assigned */
 #endif
 
     /* Hash sequence slots */
@@ -910,6 +919,7 @@ typedef struct FWTPM_CTX {
     /* Live (saved-but-not-yet-loaded) context sequences. A context loads at
      * most once and saved contexts may load in any order. */
     UINT64 contextLive[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
+    TPM_HANDLE contextLiveHandle[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
     int contextLiveCount;
 #endif
 
