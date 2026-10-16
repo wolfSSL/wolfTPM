@@ -405,6 +405,7 @@ static int bench_pqc_mlkem(WOLFTPM2_DEV* dev, double maxDuration,
     if (rc != 0) goto exit;
 
 exit:
+    wc_ForceZero(secret, sizeof(secret));
     wolfTPM2_UnloadHandle(dev, &mlkemKey.handle);
     return rc;
 }
@@ -778,6 +779,8 @@ exit:
     if (rc != 0) {
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
+
+    wc_ForceZero(cipher.buffer, sizeof(cipher.buffer));
 
     /* Cleanup all handles */
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);

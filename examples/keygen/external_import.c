@@ -149,7 +149,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     }
 #endif
 
-    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
@@ -233,6 +233,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         rc = writeKeyBlob(keyblobFile, rsaKey3);
         if (rc != TPM_RC_SUCCESS) {
             printf("Error saving keyblob.bin: %d\n", rc);
+            goto exit;
         }
     #endif
     }
@@ -263,7 +264,6 @@ exit:
 
     wolfTPM2_Cleanup(&dev);
 
-    (void)userCtx;
     (void)argc;
 
 

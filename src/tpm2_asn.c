@@ -132,23 +132,44 @@ int TPM2_ASN_DecodeTag(const uint8_t* input, int inputSz,
 int TPM2_ASN_RsaDecodeSignature(uint8_t** pInput, int inputSz)
 {
     int rc;
-    uint8_t* input = *pInput;
+    uint8_t* input;
     int idx = 0;
     int tot_len, algo_len, digest_len = 0;
+    int sequenceEnd = 0;
+
+    if (pInput == NULL || *pInput == NULL || inputSz <= 0)
+        return TPM_RC_ASN_VALUE;
+
+    input = *pInput;
 
     rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &tot_len,
         (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     if (rc == 0) {
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &algo_len,
+        sequenceEnd = idx + tot_len;
+        if (sequenceEnd != inputSz)
+            rc = TPM_RC_ASN_VALUE;
+    }
+    if (rc == 0) {
+        rc = TPM2_ASN_DecodeTag(input, sequenceEnd, &idx, &algo_len,
             (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
-        idx += algo_len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &digest_len, TPM2_ASN_OCTET_STRING);
+        if (idx + algo_len > sequenceEnd)
+            rc = TPM_RC_ASN_VALUE;
+        else
+            idx += algo_len;
     }
     if (rc == 0) {
-        *pInput = &input[idx];
-        rc = digest_len;
+        rc = TPM2_ASN_DecodeTag(input, sequenceEnd, &idx, &digest_len,
+            TPM2_ASN_OCTET_STRING);
+    }
+    if (rc == 0) {
+        if (idx + digest_len != sequenceEnd)
+            rc = TPM_RC_ASN_VALUE;
+        else {
+            *pInput = &input[idx];
+            rc = digest_len;
+        }
     }
     return rc;
 }

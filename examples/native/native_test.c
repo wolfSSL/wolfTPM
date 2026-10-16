@@ -325,6 +325,8 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     printf("TPM2 Two-Phase ECDH Pass\n");
 
 done:
+    wc_ForceZero(&zCompare, sizeof(zCompare));
+    wc_ForceZero(&cmdOut, sizeof(cmdOut));
     if (eccKey.handle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = eccKey.handle;
         TPM2_FlushContext(&cmdIn.flushCtx);

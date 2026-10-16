@@ -55,7 +55,7 @@ static void usage(void)
 static void dump_hex_bytes(const byte* buf, word32 sz)
 {
     word32 i;
-    /* Print as : separated hex bytes - max 15 bytes per line */
+    /* Print as : separated hex bytes - max 16 bytes per line */
     printf("\t");
     for (i=0; i<sz; i++) {
         printf("%02x", buf[i]);
@@ -128,7 +128,6 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
     int      sigSz = (int)sizeof(sig);
     uint8_t* sigDigest; /* offset to digest in signature */
     int      sigDigestSz = 0;
-
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&nvPublic, 0, sizeof(nvPublic));
     XMEMSET(&issuer, 0, sizeof(issuer));
@@ -302,7 +301,7 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
 
         /* Compare certificate hash with signature hash */
         if (sigDigestSz == (int)hashSz &&
-                memcmp(sigDigest, hashBuf, hashSz) == 0) {
+                XMEMCMP(sigDigest, hashBuf, hashSz) == 0) {
             printf("Certificate signature is valid\n");
         }
         else {
@@ -318,6 +317,7 @@ exit:
             TPM2_GetRCString(rc), rc);
     }
 
+    wolfTPM2_UnloadHandle(&dev, &hash.handle);
     wolfTPM2_UnloadHandle(&dev, &issuer.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
     wolfTPM2_Cleanup(&dev);

@@ -181,16 +181,24 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     /* Read credential from the user file */
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     fp = XFOPEN(input, "rb");
-    if (fp != XBADFILE) {
-        dataSize = (int)XFREAD((BYTE*)&activCredIn.credentialBlob, 1,
-                                sizeof(activCredIn.credentialBlob), fp);
-        if (dataSize > 0) {
-            int secSize = (int)XFREAD((BYTE*)&activCredIn.secret, 1,
-                                       sizeof(activCredIn.secret), fp);
-            if (secSize > 0)
-                dataSize += secSize;
-        }
-        XFCLOSE(fp);
+    if (fp == XBADFILE) {
+        printf("Unable to open credential file %s\n", input);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+    dataSize = (int)XFREAD((BYTE*)&activCredIn.credentialBlob, 1,
+        sizeof(activCredIn.credentialBlob), fp);
+    if (dataSize == (int)sizeof(activCredIn.credentialBlob)) {
+        dataSize += (int)XFREAD((BYTE*)&activCredIn.secret, 1,
+            sizeof(activCredIn.secret), fp);
+    }
+    XFCLOSE(fp);
+    if (dataSize != (int)(sizeof(activCredIn.credentialBlob) +
+            sizeof(activCredIn.secret))) {
+        printf("Credential file %s is incomplete: read %d bytes\n",
+            input, dataSize);
+        rc = BAD_FUNC_ARG;
+        goto exit;
     }
     printf("Read credential blob and secret from %s, %d bytes\n",
         input, dataSize);

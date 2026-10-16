@@ -90,7 +90,7 @@ static void show_nv_attributes(TPMA_NV attr)
 static void dump_hex_bytes(const byte* buf, word32 sz)
 {
     word32 i;
-    /* Print as : separated hex bytes - max 15 bytes per line */
+    /* Print as : separated hex bytes - max 16 bytes per line */
     printf("\t");
     for (i=0; i<sz; i++) {
         printf("%02x", buf[i]);
