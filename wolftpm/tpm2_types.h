@@ -679,11 +679,6 @@ typedef int64_t  INT64;
     #define XTPM_WAIT() /* just poll without delay by default */
 #endif
 
-#if defined(WOLFSSL_ESPIDF) && !defined(XSLEEP_US)
-    #include <esp_rom_sys.h>
-    #define XSLEEP_US(us) esp_rom_delay_us((word32)(us))
-#endif
-
 /* sleep helper, used in firmware update */
 #ifndef XSLEEP_MS
     #if defined(WOLFTPM_ZEPHYR)
@@ -691,7 +686,8 @@ typedef int64_t  INT64;
         #include <zephyr/kernel.h>
         #define XSLEEP_MS(ms) k_msleep(ms)
     #elif defined(WOLFSSL_ESPIDF)
-        #define XSLEEP_MS(ms) vTaskDelay(pdMS_TO_TICKS(ms))
+        #include <esp_rom_sys.h>
+        #define XSLEEP_MS(ms) esp_rom_delay_us((word32)(ms) * 1000U)
     #elif defined(__linux__) || defined(__ARM_EABI__)
         #include <unistd.h>
         static inline void XSLEEP_MS(unsigned int ms) {
