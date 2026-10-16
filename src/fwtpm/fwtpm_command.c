@@ -1212,7 +1212,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 rc = TPM_RC_FAILURE;
             }
 #endif
-#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ZGEN_2PHASE)
             ctx->ecEphemeralCounter = 0;
             ctx->ecEphemeralKeySz = 0;
 #endif
@@ -2612,18 +2612,26 @@ static int FwMlkemPubKeySize(TPMI_MLKEM_PARAMETER_SET ps)
 }
 #endif /* WOLFTPM_MLKEM */
 
-/* Validate an ML-DSA / Hash-ML-DSA / ML-KEM public template. Rejects
+/* Validate constraints shared by TPMT_PUBLIC object templates, followed by
+ * ML-DSA / Hash-ML-DSA / ML-KEM-specific parameters. A non-empty authPolicy
+ * must match the nameAlg digest size (TPM_RC_SIZE). ML templates reject
  * unsupported parameter sets (TPM_RC_PARMS), an out-of-range allowExternalMu
  * (TPM_RC_VALUE), external-mu requests fwTPM cannot honor (TPM_RC_EXT_MU), an
  * invalid Hash-ML-DSA hash (TPM_RC_HASH), and invalid ML-KEM symmetric
  * parameters (TPM_RC_SYMMETRIC). When checkPubSize is set, the caller-supplied
  * unique public key must match the parameter set (TPM_RC_KEY_SIZE). Non-ML
- * types pass through. TCG v1.85 Part 2 Tables 204/207/208/229-231. */
-static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
+ * types otherwise pass through. */
+static TPM_RC FwValidatePublicTemplate(const TPMT_PUBLIC* pub,
+    int checkPubSize)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
-    (void)pub;
     (void)checkPubSize;
+
+    if (pub->authPolicy.size > 0 &&
+            (int)pub->authPolicy.size !=
+                TPM2_GetHashDigestSize(pub->nameAlg)) {
+        return TPM_RC_SIZE;
+    }
 
     switch (pub->type) {
 #ifdef WOLFTPM_MLDSA
@@ -4075,7 +4083,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
     }
     if (rc == 0) {
         rc = FwValidateCreateAttributes(&inPublic->publicArea, NULL,
@@ -4193,6 +4201,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         hashUniqueSz = FwComputeHashUnique(inPublic->publicArea.nameAlg,
             sensData, (int)sensDataSize, uBuf, uSz, hashUnique);
+        if (hashUniqueSz == TPM_RC_MEMORY) {
+            rc = TPM_RC_MEMORY;
+            hashUniqueSz = 0;
+        }
     }
 
     /* Hash the public template + sensData for cache lookup */
@@ -6986,7 +6998,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
     }
     if (rc == 0) {
         rc = FwValidateCreateAttributes(&inPublic->publicArea, parent,
@@ -7465,7 +7477,7 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic.publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic.publicArea, 0);
     }
 #ifdef WOLFTPM_V185
     if (rc == 0) {
@@ -7692,7 +7704,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Validate ML public parameters and the supplied public key size before
      * the object is created (Part 3 Sec.18.4). */
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic.publicArea, 1);
+        rc = FwValidatePublicTemplate(&inPublic.publicArea, 1);
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -7990,7 +8002,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&objectPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&objectPublic->publicArea, 0);
     }
     if (rc == 0 && (objectPublic->publicArea.objectAttributes &
             (TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent)) != 0) {
@@ -9135,7 +9147,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * Tables 204/207/208/229-231). The unique public key is produced by
      * key generation, so no size check applies here. */
     if (rc == 0) {
-        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+        rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
     }
 
     /* Generate key -- same logic as Create */
@@ -14821,6 +14833,10 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         ctx->phNvDisabled) {
         rc = TPM_RC_HIERARCHY;
     }
+    if (rc == 0 && (publicInfo.nvPublic.attributes &
+            FWTPM_NV_RESERVED_ATTR_MASK) != 0) {
+        rc = TPM_RC_RESERVED_BITS;
+    }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, publicInfo.nvPublic.authPolicy.buffer,
             publicInfo.nvPublic.authPolicy.size);
@@ -17639,6 +17655,7 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+#ifndef FWTPM_NO_ZGEN_2PHASE
 /* --- TPM2_EC_Ephemeral (CC 0x018E) --- */
 /* Generate an ephemeral ECC key pair Q = [r]G and return Q + counter.
  * The private key r is stored for the subsequent ZGen_2Phase call.
@@ -17973,6 +17990,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_VAR(peerPub);
     return rc;
 }
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* !FWTPM_NO_ECDH */
 #endif /* HAVE_ECC */
 
@@ -20079,8 +20097,10 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #ifndef FWTPM_NO_ECDH
     { TPM_CC_ECDH_KeyGen,        FwCmd_ECDH_KeyGen,          1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ECDH_ZGen,          FwCmd_ECDH_ZGen,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#ifndef FWTPM_NO_ZGEN_2PHASE
     { TPM_CC_EC_Ephemeral,       FwCmd_EC_Ephemeral,         0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ZGen_2Phase,        FwCmd_ZGen_2Phase,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* !FWTPM_NO_ECDH */
 #endif
     /* --- Sessions --- */

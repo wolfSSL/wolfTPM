@@ -679,7 +679,17 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
     echo -e "./examples/tls/tls_client -p=$port -A=$PEER_CA_FILE -$1 $2"
     ./examples/tls/tls_client -p=$port "-A=$PEER_CA_FILE" -$1 $2 >> $TPMPWD/run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
+    if [ $RESULT -ne 0 ]; then
+        kill $SERVER_PID 2>/dev/null
+        wait $SERVER_PID 2>/dev/null
+        echo -e "tpm tls client $1 $2 failed! $RESULT"
+        exit 1
+    fi
+
+    wait $SERVER_PID
+    RESULT=$?
+    [ $RESULT -ne 0 ] && \
+        echo -e "wolfSSL server $1 $2 failed! $RESULT" && exit 1
 }
 
 run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversion] [extraargs]

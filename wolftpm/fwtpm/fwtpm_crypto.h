@@ -56,7 +56,9 @@ int FwGetMgfType(UINT16 hashAlg);
 int FwComputeUniqueHash(TPMI_ALG_HASH nameAlg, const byte* keyData,
     int keyDataSz, byte* outBuf);
 
-/* hashUnique = H(sensitiveCreate.data || unique_bytes) for primary derivation */
+/* hashUnique = H(sensitiveCreate.data || unique_bytes) for primary derivation.
+ * Returns the digest size, TPM_RC_MEMORY on allocation failure, or 0 for any
+ * other error. */
 int FwComputeHashUnique(TPMI_ALG_HASH nameAlg,
     const byte* sensData, int sensDataSz,
     const byte* uniqueData, int uniqueDataSz,
@@ -338,8 +340,10 @@ int FwGetRsaHashOid(UINT16 hashAlg);
 int FwImportEccKeyFromDer(const FWTPM_Object* obj, ecc_key* key);
 int FwImportEccPubFromPublic(const TPMT_PUBLIC* pub, ecc_key* key);
 int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key);
+#ifndef FWTPM_NO_ZGEN_2PHASE
 int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     byte* xBuf, word32* xSz, byte* yBuf, word32* ySz);
+#endif
 #endif /* HAVE_ECC */
 
 /* --- Sign/Verify --- */
