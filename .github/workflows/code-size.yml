@@ -1,0 +1,128 @@
+name: Code Size
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/**'
+      - 'wolftpm/**'
+      - 'hal/**'
+      - 'configure'
+      - 'configure.ac'
+      - 'autogen.sh'
+      - 'm4/**'
+      - 'Makefile.am'
+      - '**/include.am'
+      - '.github/actions/setup-wolfssl/**'
+      - '.github/scripts/code-size-report.sh'
+      - '.github/scripts/code-size-advisory.sh'
+      - '.github/scripts/test-code-size-advisory.sh'
+      - '.github/scripts/test-code-size-report.sh'
+      - '.github/workflows/_resolve-wolfssl.yml'
+      - '.github/workflows/code-size-advisory.yml'
+      - '.github/workflows/code-size.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'wolftpm/**'
+      - 'hal/**'
+      - 'configure'
+      - 'configure.ac'
+      - 'autogen.sh'
+      - 'm4/**'
+      - 'Makefile.am'
+      - '**/include.am'
+      - '.github/actions/setup-wolfssl/**'
+      - '.github/scripts/code-size-report.sh'
+      - '.github/scripts/code-size-advisory.sh'
+      - '.github/scripts/test-code-size-advisory.sh'
+      - '.github/scripts/test-code-size-report.sh'
+      - '.github/workflows/_resolve-wolfssl.yml'
+      - '.github/workflows/code-size-advisory.yml'
+      - '.github/workflows/code-size.yml'
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Git ref to compare against
+        required: false
+        default: master
+
+permissions:
+  contents: read
+
+# Warn when code-size growth exceeds this percentage.
+env:
+  SIZE_MAX_GROWTH_PERCENT: 5
+
+concurrency:
+  group: code-size-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    if: github.repository_owner == 'wolfSSL'
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
+  code-size:
+    name: Code size (${{ matrix.wolfssl-ref }})
+    if: github.repository_owner == 'wolfSSL'
+    needs: discover
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1@sha256:ec2489d5dc9e9cde5dd97d4e2d59776d6c6748d4134dddd2fb4ede3225aee29f
+    defaults:
+      run:
+        shell: bash -e {0}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        wolfssl-ref: ${{ fromJSON(needs.discover.outputs.refs) }}
+
+    steps:
+      - name: Checkout proposed tree
+        uses: actions/checkout@v4
+        with:
+          path: head
+          fetch-depth: 1
+
+      - name: Checkout comparison base
+        uses: actions/checkout@v4
+        with:
+          path: base
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base_ref || 'master' }}
+
+      - name: Trust workspaces
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/head"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/base"
+
+      - name: Setup wolfSSL ${{ matrix.wolfssl-ref }}
+        uses: ./head/.github/actions/setup-wolfssl
+        with:
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+          cflags: -Os -g0 -DWC_RSA_NO_PADDING
+          ref: ${{ matrix.wolfssl-ref }}
+
+      - name: Test size tooling
+        run: |
+          head/.github/scripts/test-code-size-report.sh
+          head/.github/scripts/test-code-size-advisory.sh
+
+      - name: Compare code size
+        env:
+          SIZE_WARNING_FILE: ${{ runner.temp }}/code-size-warning.txt
+        run: >-
+          head/.github/scripts/code-size-report.sh
+          base head "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload advisory result
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-size-warning-${{ matrix.wolfssl-ref }}
+          path: ${{ runner.temp }}/code-size-warning.txt
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1

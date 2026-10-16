@@ -1,0 +1,55 @@
+name: Code Size Advisory
+
+on:
+  workflow_run:
+    workflows: [Code Size]
+    types: [completed]
+
+permissions:
+  actions: read
+  checks: write
+  contents: read
+
+concurrency:
+  group: code-size-advisory-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: >-
+      github.repository_owner == 'wolfSSL' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1@sha256:ec2489d5dc9e9cde5dd97d4e2d59776d6c6748d4134dddd2fb4ede3225aee29f
+    defaults:
+      run:
+        shell: bash -e {0}
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout reporter
+        uses: actions/checkout@v4
+
+      - name: Trust workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Download advisory results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: code-size-warning-*
+          path: results
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Publish advisory check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SIZE_MAX_GROWTH_PERCENT: 5
+        run: >-
+          .github/scripts/code-size-advisory.sh
+          results
+          "$GITHUB_REPOSITORY"
+          "${{ github.event.workflow_run.head_sha }}"
+          "${{ github.event.workflow_run.html_url }}"
