@@ -4,13 +4,15 @@ This page covers how to build the fwTPM server, the configure options and compil
 
 ## Prerequisites
 
-wolfSSL must be built with TPM support, keygen, and `WC_RSA_NO_PADDING`:
+wolfSSL must be built with TPM support, keygen, and `WC_RSA_NO_PADDING`. wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there:
 
 ```sh
-cd wolfssl
+cd lib/wolfssl
+./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
+cd ../..
 ```
 
 ## Build the fwTPM Server
@@ -18,7 +20,7 @@ sudo make install
 **Socket transport (SWTPM protocol, default for development):**
 
 ```sh
-cd wolftpm
+./autogen.sh
 ./configure --enable-fwtpm --enable-swtpm
 make
 ```
