@@ -66,7 +66,7 @@ WOLFTPM_API int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 */
 WOLFTPM_API void FWTPM_ResetCommandClient(FWTPM_CTX* ctx);
 
-/* Internal crypto helpers exposed only to the fwTPM unit-test build. */
+/* Internal helpers exposed only to the fwTPM unit-test build. */
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
     #define WOLFTPM_TEST_VIS
     int FwHashOneShot(TPMI_ALG_HASH hashAlg,
@@ -83,6 +83,9 @@ WOLFTPM_API void FWTPM_ResetCommandClient(FWTPM_CTX* ctx);
         const byte* authValue, int authValueSz,
         const TPM2B_NONCE* nonceDecrypt, const TPM2B_NONCE* nonceEncrypt,
         int isResponse, byte* hmacOut, int* hmacOutSz);
+    #ifndef FWTPM_NO_ECDH
+    int FwHexToBin(const char* hex, byte* out, int outSz);
+    #endif
 #else
     #define WOLFTPM_TEST_VIS static
 #endif

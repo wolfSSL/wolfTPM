@@ -2288,7 +2288,11 @@ static void test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc(void)
     WOLFTPM2_KEY child;
     WOLFTPM2_SESSION session;
     TPMT_PUBLIC publicTemplate;
-#if !defined(NO_RSA)
+#if defined(WOLFTPM_SMALL_STACK) && defined(WOLFTPM_FWTPM_BUILD) && \
+    defined(HAVE_ECC)
+    /* RSA Create responses exceed the reduced small-stack response buffer. */
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#elif !defined(NO_RSA)
     TPM_ALG_ID srkAlg = TPM_ALG_RSA;
 #else
     TPM_ALG_ID srkAlg = TPM_ALG_ECC;
@@ -2329,7 +2333,13 @@ static void test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     /* Create+load a child under the EmptyAuth SRK; fails pre-fix. */
-#if !defined(NO_RSA)
+#if defined(WOLFTPM_SMALL_STACK) && defined(WOLFTPM_FWTPM_BUILD) && \
+    defined(HAVE_ECC)
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+#elif !defined(NO_RSA)
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
@@ -2368,7 +2378,11 @@ static void test_wolfTPM2_CreateLoaded_ParamEnc(void)
     WOLFTPM2_KEYBLOB child;
     WOLFTPM2_SESSION session;
     TPMT_PUBLIC publicTemplate;
-#if !defined(NO_RSA)
+#if defined(WOLFTPM_SMALL_STACK) && defined(WOLFTPM_FWTPM_BUILD) && \
+    defined(HAVE_ECC)
+    /* RSA CreateLoaded responses exceed the small-stack response buffer. */
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#elif !defined(NO_RSA)
     TPM_ALG_ID srkAlg = TPM_ALG_RSA;
 #else
     TPM_ALG_ID srkAlg = TPM_ALG_ECC;
@@ -2405,7 +2419,13 @@ static void test_wolfTPM2_CreateLoaded_ParamEnc(void)
          TPMA_SESSION_continueSession));
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
-#if !defined(NO_RSA)
+#if defined(WOLFTPM_SMALL_STACK) && defined(WOLFTPM_FWTPM_BUILD) && \
+    defined(HAVE_ECC)
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+#elif !defined(NO_RSA)
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
@@ -10306,7 +10326,10 @@ int unit_tests(int argc, char *argv[])
         !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     test_readKeyBlob_PrivOverflow();
     #endif
+    /* An RSA Create response does not fit the reduced small-stack buffer. */
+    #if !defined(WOLFTPM_SMALL_STACK) || !defined(WOLFTPM_FWTPM_BUILD)
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
+    #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
         !defined(WOLFTPM2_NO_ASN)

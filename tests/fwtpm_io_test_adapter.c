@@ -14,3 +14,12 @@
 #endif
 
 #include "../src/fwtpm/fwtpm_io.c"
+
+int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    UINT32 tssCmd);
+
+int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    UINT32 tssCmd)
+{
+    return HandleMssimSignal(ctx, clientFd, tssCmd);
+}

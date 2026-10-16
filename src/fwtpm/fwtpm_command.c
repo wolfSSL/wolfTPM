@@ -499,7 +499,7 @@ typedef struct FWTPM_EventHashCopies {
  * tpm2_param_enc.c (TPM2_KDFa, TPM2_KDFe, TPM2_ParamEnc_XOR,
  * TPM2_ParamEnc_AESCFB). See wolftpm/tpm2_param_enc.h */
 
-static int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
+WOLFTPM_TEST_VIS int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
     const FWTPM_Session* sess, TPM_HANDLE handle);
 static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
     const byte** authVal, int* authValSz);
@@ -741,7 +741,7 @@ static int FwGetEntityName(FWTPM_CTX* ctx, TPM_HANDLE handle,
     return 0;
 }
 
-static int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
+WOLFTPM_TEST_VIS int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
     const FWTPM_Session* sess, TPM_HANDLE handle)
 {
     byte entityName[sizeof(sess->bindName.name)];
@@ -763,17 +763,6 @@ static int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
     return FwCtAuthCompare(sess->bindAuth.buffer, sess->bindAuth.size,
         entityAuth, entityAuthSz) == 0;
 }
-
-#ifdef WOLFTPM_FWTPM_UNIT_TEST
-int FWTPM_TestSessionIsBoundToEntity(FWTPM_CTX* ctx,
-    const FWTPM_Session* sess, TPM_HANDLE handle);
-
-int FWTPM_TestSessionIsBoundToEntity(FWTPM_CTX* ctx,
-    const FWTPM_Session* sess, TPM_HANDLE handle)
-{
-    return FwSessionIsBoundToEntity(ctx, sess, handle);
-}
-#endif
 
 /** \brief Look up the authValue for an entity by its TPM handle.
  *  Searches hierarchies, NV indices, loaded objects, and hash sequences. */
@@ -6031,26 +6020,6 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
-#ifdef WOLFTPM_FWTPM_UNIT_TEST
-static int gFwTestClearRngFailure;
-
-void FWTPM_TestSetClearRngFailure(int enabled);
-
-void FWTPM_TestSetClearRngFailure(int enabled)
-{
-    gFwTestClearRngFailure = enabled;
-}
-#endif
-
-static int FwGenerateClearSeed(WC_RNG* rng, byte* seed, word32 seedSz)
-{
-#ifdef WOLFTPM_FWTPM_UNIT_TEST
-    if (gFwTestClearRngFailure)
-        return TPM_RC_FAILURE;
-#endif
-    return wc_RNG_GenerateBlock(rng, seed, seedSz);
-}
-
 /* --- TPM2_Clear (CC 0x0126) --- */
 static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
@@ -6094,10 +6063,10 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     #endif
 
         /* Generate new storage primary seed */
-        rc = FwGenerateClearSeed(&ctx->rng, newOwnerSeed,
+        rc = wc_RNG_GenerateBlock(&ctx->rng, newOwnerSeed,
             sizeof(newOwnerSeed));
         if (rc == 0) {
-            rc = FwGenerateClearSeed(&ctx->rng, newTimeEpoch,
+            rc = wc_RNG_GenerateBlock(&ctx->rng, newTimeEpoch,
                 sizeof(newTimeEpoch));
         }
         if (rc != 0) rc = TPM_RC_FAILURE;
@@ -17556,7 +17525,7 @@ static int FwHexNibble(char c)
 
 /* Convert a big-endian hex value to binary. An odd leading digit is the low
  * nibble of the first output byte. Returns byte count, or -1 on error. */
-static int FwHexToBin(const char* hex, byte* out, int outSz)
+WOLFTPM_TEST_VIS int FwHexToBin(const char* hex, byte* out, int outSz)
 {
     int i, len, decodedLen, outPos = 0;
     int hi, lo;
@@ -17585,15 +17554,6 @@ static int FwHexToBin(const char* hex, byte* out, int outSz)
     }
     return outPos;
 }
-
-#ifdef WOLFTPM_FWTPM_UNIT_TEST
-int FWTPM_TestHexToBin(const char* hex, byte* out, int outSz);
-
-int FWTPM_TestHexToBin(const char* hex, byte* out, int outSz)
-{
-    return FwHexToBin(hex, out, outSz);
-}
-#endif
 
 /* --- TPM2_ECC_Parameters (CC 0x0178) ---
  * Returns curve parameters from wolfCrypt's ecc_set_type via

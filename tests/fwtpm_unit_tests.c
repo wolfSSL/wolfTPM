@@ -67,6 +67,15 @@ int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
     UINT32 tssCmd);
 #endif
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
+    /* wolfSSL 5.8 and older keep this Hash-DRBG state value private. */
+    #ifdef WC_DRBG_FAILED
+        #define FWTPM_TEST_DRBG_FAILED WC_DRBG_FAILED
+    #else
+        #define FWTPM_TEST_DRBG_FAILED 2
+    #endif
+#endif
+
 /* Test Fail Helpers (same as unit_tests.c) */
 #ifndef NO_ABORT
     #ifndef XABORT
@@ -1518,21 +1527,19 @@ static void test_fwtpm_getcap_ecc_curves(void)
 
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH) && \
     defined(WOLFTPM_FWTPM_UNIT_TEST)
-int FWTPM_TestHexToBin(const char* hex, byte* out, int outSz);
-
 static void test_fwtpm_hex_to_bin(void)
 {
     byte out[2];
 
     XMEMSET(out, 0, sizeof(out));
-    AssertIntEQ(FWTPM_TestHexToBin("abc", out, sizeof(out)), 2);
+    AssertIntEQ(FwHexToBin("abc", out, sizeof(out)), 2);
     AssertIntEQ(out[0], 0x0a);
     AssertIntEQ(out[1], 0xbc);
-    AssertIntEQ(FWTPM_TestHexToBin("f", out, sizeof(out)), 1);
+    AssertIntEQ(FwHexToBin("f", out, sizeof(out)), 1);
     AssertIntEQ(out[0], 0x0f);
-    AssertIntEQ(FWTPM_TestHexToBin("0g", out, sizeof(out)), -1);
-    AssertIntEQ(FWTPM_TestHexToBin("1234", out, 1), -1);
-    AssertIntEQ(FWTPM_TestHexToBin(NULL, out, sizeof(out)), -1);
+    AssertIntEQ(FwHexToBin("0g", out, sizeof(out)), -1);
+    AssertIntEQ(FwHexToBin("1234", out, 1), -1);
+    AssertIntEQ(FwHexToBin(NULL, out, sizeof(out)), -1);
 
     fwtpm_pass("ECC parameter hex decoding:", 0);
 }
@@ -10343,7 +10350,7 @@ static UINT32 StartSessionHelper(FWTPM_CTX* ctx, UINT8 sessType)
 }
 
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
-int FWTPM_TestSessionIsBoundToEntity(FWTPM_CTX* ctx,
+int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
     const FWTPM_Session* sess, TPM_HANDLE handle);
 
 static void test_fwtpm_bound_session_auth_change(void)
@@ -10363,10 +10370,10 @@ static void test_fwtpm_bound_session_auth_change(void)
     sess.bindAuth.size = (UINT16)sizeof(oldAuth);
     XMEMCPY(sess.bindAuth.buffer, oldAuth, sizeof(oldAuth));
 
-    AssertIntEQ(FWTPM_TestSessionIsBoundToEntity(&ctx, &sess,
+    AssertIntEQ(FwSessionIsBoundToEntity(&ctx, &sess,
         TPM_RH_OWNER), 1);
     XMEMCPY(ctx.ownerAuth.buffer, newAuth, sizeof(newAuth));
-    AssertIntEQ(FWTPM_TestSessionIsBoundToEntity(&ctx, &sess,
+    AssertIntEQ(FwSessionIsBoundToEntity(&ctx, &sess,
         TPM_RH_OWNER), 0);
 
     TPM2_ForceZero(&ctx, sizeof(ctx));
@@ -14012,9 +14019,7 @@ static void test_fwtpm_clear(void)
     fwtpm_pass("Clear preserves endorsement seed:", 0);
 }
 
-#ifdef WOLFTPM_FWTPM_UNIT_TEST
-void FWTPM_TestSetClearRngFailure(int enabled);
-
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
 /* A failed seed replacement must leave the live hierarchy state unchanged. */
 static void test_fwtpm_clear_rng_failure_atomic(void)
 {
@@ -14022,6 +14027,7 @@ static void test_fwtpm_clear_rng_failure_atomic(void)
     TPM2B_AUTH ownerAuth;
     TPM2B_AUTH endorsementAuth;
     byte ownerSeed[FWTPM_SEED_SIZE];
+    byte rngStatus;
 
     XMEMSET(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
@@ -14034,10 +14040,12 @@ static void test_fwtpm_clear_rng_failure_atomic(void)
         sizeof(endorsementAuth));
     XMEMCPY(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
 
-    FWTPM_TestSetClearRngFailure(1);
+    /* Use wolfCrypt's real failed-DRBG path instead of a library test hook. */
+    rngStatus = ctx.rng.status;
+    ctx.rng.status = FWTPM_TEST_DRBG_FAILED;
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
         TPM_RC_FAILURE);
-    FWTPM_TestSetClearRngFailure(0);
+    ctx.rng.status = rngStatus;
     AssertIntEQ(ctx.pendingClear, 0);
     AssertIntEQ(XMEMCMP(&ctx.ownerAuth, &ownerAuth, sizeof(ownerAuth)), 0);
     AssertIntEQ(XMEMCMP(&ctx.endorsementAuth, &endorsementAuth,
@@ -14050,7 +14058,7 @@ static void test_fwtpm_clear_rng_failure_atomic(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Clear RNG failure is atomic:", 0);
 }
-#endif /* WOLFTPM_FWTPM_UNIT_TEST */
+#endif /* WOLFTPM_FWTPM_UNIT_TEST && HAVE_HASHDRBG */
 
 #ifndef FWTPM_NO_NV
 static int fail_nv_write(void* ctx, word32 offset, const byte* buf,
@@ -18197,12 +18205,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_clear();
         return 0;
     }
-    #ifdef WOLFTPM_FWTPM_UNIT_TEST
+    #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
     if (argc == 2 && XSTRCMP(argv[1], "clear-rng-failure") == 0) {
         test_fwtpm_clear_rng_failure_atomic();
         return 0;
     }
-    #endif /* WOLFTPM_FWTPM_UNIT_TEST */
+    #endif /* WOLFTPM_FWTPM_UNIT_TEST && HAVE_HASHDRBG */
 #if !defined(FWTPM_NO_POLICY) && !defined(NO_RSA) && \
     defined(WOLFSSL_KEY_GEN)
     if (argc == 2 && XSTRCMP(argv[1], "clear-child") == 0) {
@@ -18690,9 +18698,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_delete_at_capacity();
     test_fwtpm_nv_stclear_startup();
 #endif /* !FWTPM_NO_NV */
-    #ifdef WOLFTPM_FWTPM_UNIT_TEST
+    #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
     test_fwtpm_clear_rng_failure_atomic();
-    #endif /* WOLFTPM_FWTPM_UNIT_TEST */
+    #endif /* WOLFTPM_FWTPM_UNIT_TEST && HAVE_HASHDRBG */
     test_fwtpm_clear();
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)

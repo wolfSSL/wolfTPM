@@ -25,6 +25,7 @@ FAIL=0
 SKIP=0
 STARTED_SERVER=0
 SKIP_EXAMPLES=0
+SKIP_EXAMPLES_REASON=""
 
 # --- Helpers ---
 
@@ -250,6 +251,15 @@ if [ -f "$WOLFTPM_OPTIONS" ]; then
     if grep -q "^#define NO_GETENV" "$WOLFTPM_OPTIONS"; then
         HAS_GETENV=0
     fi
+    if [ $IS_FWTPM_MODE -eq 1 ] && \
+            grep -q "^#define WOLFTPM_SMALL_STACK" "$WOLFTPM_OPTIONS"; then
+        # fwTPM serializes private RSA state into Create responses that exceed
+        # the supported 1,350-byte small-stack client response buffer. The
+        # unit tests use ECC for those cases; skip the general example suite,
+        # which intentionally exercises RSA child-key creation.
+        SKIP_EXAMPLES=1
+        SKIP_EXAMPLES_REASON="fwTPM RSA responses exceed small-stack buffer"
+    fi
 fi
 
 # Determine mode
@@ -293,6 +303,7 @@ if [ $HAS_RSA_NO_PAD -eq 0 ]; then
     echo "      Rebuild wolfSSL with: CFLAGS=\"-DWC_RSA_NO_PADDING\""
     echo "      fwTPM requires WC_RSA_NO_PADDING for RSA encrypt/decrypt"
     SKIP_EXAMPLES=1
+    SKIP_EXAMPLES_REASON="missing WC_RSA_NO_PADDING"
 fi
 
 # --- Auto-detect feature flags for run_examples.sh ---
@@ -502,7 +513,7 @@ fi
 # --- Run examples ---
 
 if [ $SKIP_EXAMPLES -eq 1 ]; then
-    echo "SKIP: run_examples.sh (missing WC_RSA_NO_PADDING)"
+    echo "SKIP: run_examples.sh ($SKIP_EXAMPLES_REASON)"
     SKIP=$((SKIP + 1))
 elif [ -x "$RUN_EXAMPLES" ]; then
     echo ""
