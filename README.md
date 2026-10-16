@@ -17,7 +17,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 wolfTPM works with any TPM 2.0 compliant module. Tested parts:
 
-* Infineon OPTIGA SLB9670 (SPI), SLB9672 (SPI), SLB9673 (I2C)
+* Infineon OPTIGA SLB9670 (SPI), SLB9672 (SPI), SLB9673 (I2C), SLB9678 (SPI or I2C)
 * STMicroelectronics ST33KTPM2XSPI, ST33KTPM2I, ST33TPHF2XSPI, ST33TPHF2XI2C
 * Microchip ATTPM20
 * Nuvoton NPCT650, NPCT750

@@ -31,6 +31,10 @@ if BUILD_NATIONS
 src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/vendor/spdm_nations.c
 endif
 
+if BUILD_INFINEON_SPDM
+src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/vendor/spdm_infineon.c
+endif
+
 if BUILD_FWTPM_SPDM
 src_libwolftpm_la_SOURCES += lib/wolfSPDM/src/spdm_responder.c
 endif

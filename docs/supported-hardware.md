@@ -31,7 +31,7 @@ An advanced I/O option (`--enable-advio` or `WOLFTPM_ADV_IO`) adds the register 
 
 wolfTPM has been tested with:
 
-* Infineon OPTIGA(TM) Trusted Platform Module 2.0 SLB9670 (SPI), SLB9672 (SPI) and SLB9673 (I2C).
+* Infineon OPTIGA(TM) Trusted Platform Module 2.0 SLB9670 (SPI), SLB9672 (SPI), SLB9673 (I2C) and SLB9678 (SPI or I2C).
     * [LetsTrust](https://letstrust.de) is a vendor of TPM development boards.
 * STMicroelectronics ST33KTPM2XSPI, ST33KTPM2I, ST33TPHF2XSPI (SPI) and ST33TPHF2XI2C (I2C).
 * Microchip ATTPM20 module.
@@ -51,6 +51,7 @@ Device identification is printed in two steps. A direct bus connection first pri
 | Infineon | SLB9670 | SPI | `--enable-infineon=slb9670` | Library SPI clock default 43 MHz. AES key size limited to 128 bits. |
 | Infineon | SLB9672 | SPI | `--enable-infineon` | Default for SPI. Library SPI clock default 33 MHz. Supports firmware upgrade. |
 | Infineon | SLB9673 | I2C | `--enable-infineon=slb9673 --enable-i2c --enable-advio` | I2C only, so no SPI clock applies. |
+| Infineon | SLB9678 | SPI or I2C | `--enable-infineon=slb9678` | Bus selected by a boot-time configuration pin, not a build option, so pair with either `--enable-spi` or `--enable-i2c`. Add `--enable-spdm` for the TCG asymmetric secure channel. |
 | STMicroelectronics | ST33KTPM2XSPI, ST33TPHF2XSPI | SPI | `--enable-st33` | Library SPI clock default 33 MHz. Wait states required. |
 | STMicroelectronics | ST33KTPM2I, ST33TPHF2XI2C | I2C | `--enable-st33 --enable-i2c` | Wait states required. Firmware upgrade support is on by default. |
 | Microchip | ATTPM20 | SPI | `--enable-microchip` | Library SPI clock default 33 MHz. Wait states required. |

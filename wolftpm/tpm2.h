@@ -281,6 +281,9 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
+    /* TPM 2.0 Library v1.85: settable feature configuration. Used by some
+     * Infineon parts to enable/lock SPDM-PSK and other features. */
+    TPM_CC_SetCapability            = 0x0000019F,
 #ifdef WOLFTPM_SPDM
     TPM_CC_PolicyTransportSPDM      = 0x000001A1,
 #endif
@@ -298,7 +301,7 @@ typedef enum {
 #elif defined(WOLFTPM_SPDM)
     TPM_CC_LAST                     = TPM_CC_PolicyTransportSPDM,
 #else
-    TPM_CC_LAST                     = TPM_CC_EncryptDecrypt2,
+    TPM_CC_LAST                     = TPM_CC_SetCapability,
 #endif
 
     CC_VEND                         = 0x20000000,
@@ -320,7 +323,7 @@ typedef enum {
 #if defined(WOLFTPM_NATIONS) || defined(WOLFTPM_AUTODETECT)
     TPM_CC_Nations_IdentityKeySet   = 0x20000708,
 #endif
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#ifdef WOLFTPM_IFX_FW_UPGRADE
     TPM_CC_FieldUpgradeStartVendor    = CC_VEND + 0x12F,
     TPM_CC_FieldUpgradeAbandonVendor  = CC_VEND + 0x130,
     TPM_CC_FieldUpgradeManifestVendor = CC_VEND + 0x131,
@@ -598,6 +601,22 @@ typedef enum {
     TPM_CAP_VENDOR_PROPERTY = 0x00000100,
 } TPM_CAP_T;
 typedef UINT32 TPM_CAP;
+
+/* Settable feature configuration (TPM 2.0 Library v1.85). The first byte
+ * (0x81) encodes the authorization (Platform), the second (0xC9) the vendor
+ * (Infineon). Used with TPM2_SetCapability / TPM2_GetCapability. Kept out of
+ * TPM_CAP_T because ISO C limits enumerators to the range of int. */
+#define TPM_CAP_CONFIGS 0x81C90001U
+
+/* TPM_PT_CONFIG: property identifiers for settable feature configuration,
+ * used inside TPMS_TAGGED_CONFIG (TPM_CAP_CONFIGS). */
+typedef enum {
+    TPM_PT_CONFIG_ENCRYPTDECRYPT2 = 0x00000000,
+    TPM_PT_CONFIG_CHANGEEPS       = 0x00000001,
+    TPM_PT_CONFIG_TPMID_NV        = 0x00000002,
+    TPM_PT_CONFIG_SPDM_PSK        = 0x00000003,
+} TPM_PT_CONFIG_T;
+typedef UINT32 TPM_PT_CONFIG;
 
 #ifdef WOLFTPM_SPDM
 /* TCG SPDM Binding for Secure Communication v1.0 Constants */
@@ -1247,6 +1266,14 @@ typedef struct TPMS_TAGGED_POLICY {
     TPMT_HA policyHash;
 } TPMS_TAGGED_POLICY;
 
+/* Settable feature configuration entry (TPM 2.0 Library v1.85).
+ * Used with TPM_CAP_CONFIGS via TPM2_SetCapability / TPM2_GetCapability. */
+typedef struct TPMS_TAGGED_CONFIG {
+    TPM_PT_CONFIG configuration; /* TPM_PT_CONFIG_* property identifier */
+    UINT8 enable;                /* if SET, configuration is enabled */
+    UINT8 lock;                  /* if SET, configuration is lifetime locked */
+} TPMS_TAGGED_CONFIG;
+
 
 /* Lists */
 
@@ -1310,6 +1337,15 @@ typedef struct TPML_TAGGED_POLICY {
     TPMS_TAGGED_POLICY policies[MAX_TAGGED_POLICIES];
 } TPML_TAGGED_POLICY;
 
+#ifndef MAX_TAGGED_CONFIGS
+#define MAX_TAGGED_CONFIGS 8
+#endif
+/* List of settable feature configurations (TPM_CAP_CONFIGS, v1.85) */
+typedef struct TPML_TAGGED_CONFIG {
+    UINT32 count;
+    TPMS_TAGGED_CONFIG configs[MAX_TAGGED_CONFIGS];
+} TPML_TAGGED_CONFIG;
+
 /* Authenticated Countdown Timers (ACT): Added v1.59 */
 typedef enum {
     TPMA_ACT_signaled         = 0x00000001,
@@ -1368,6 +1404,7 @@ typedef union TPMU_CAPABILITIES {
 #ifdef WOLFTPM_SPDM
     TPML_SPDM_SESSION_INFO spdmSessionInfo; /* TPM_CAP_SPDM_SESSION_INFO - v1.84 */
 #endif
+    TPML_TAGGED_CONFIG tpmConfigs; /* TPM_CAP_CONFIGS - added v1.85 */
     TPM2B_MAX_BUFFER vendor;
 } TPMU_CAPABILITIES;
 
@@ -2352,6 +2389,15 @@ typedef struct {
 } GetCapability_Out;
 WOLFTPM_API TPM_RC TPM2_GetCapability(GetCapability_In* in,
     GetCapability_Out* out);
+
+/* TPM2_SetCapability (TPM 2.0 Library v1.85). Sets one settable feature
+ * configuration at a time. Requires Platform authorization. */
+typedef struct {
+    TPMI_RH_HIERARCHY authHandle; /* TPM_RH_PLATFORM */
+    TPM_CAP capability;           /* TPM_CAP_CONFIGS */
+    TPMS_TAGGED_CONFIG config;    /* the feature to enable/lock */
+} SetCapability_In;
+WOLFTPM_API TPM_RC TPM2_SetCapability(SetCapability_In* in);
 
 typedef struct {
     TPMI_YES_NO fullTest;
@@ -3541,8 +3587,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 #endif /* ST33 Vendor Specific */
 
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
-    defined(WOLFTPM_AUTODETECT)
+#if defined(WOLFTPM_IFX_FW_UPGRADE) || defined(WOLFTPM_AUTODETECT)
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 WOLFTPM_API int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,

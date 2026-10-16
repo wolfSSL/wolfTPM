@@ -39,6 +39,9 @@
 
 #include <wolftpm/tpm2_spdm.h>
 #include <wolftpm/spdm/spdm.h>
+#ifdef WOLFTPM_SPDM_TCG
+#include <wolftpm/spdm/spdm_tcg.h>
+#endif
 
 int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[]);
 
@@ -68,7 +71,15 @@ static void usage(void)
            "  --psk-clear <clearauth>   Clear PSK (32-byte ClearAuth from psk-set)\n"
            "  --lock                Lock SPDM-only mode (PSK mode, use with --psk)\n"
            "  --unlock              Unlock SPDM-only mode (PSK mode, use with --psk)\n"
-           "  --status              Query SPDM status (PSK mode)\n"
+           "  --status              Query SPDM status\n"
+#endif
+#ifdef WOLFSPDM_INFINEON
+           "  --vendor=slb9678      Select Infineon SLB9678 (alias: infineon)\n"
+           "  --enable              Enable SPDM-PSK (TPM2_SetCapability)\n"
+           "  --disable             Disable SPDM-PSK (TPM2_SetCapability)\n"
+           "  --lock                Lock SPDM-only mode\n"
+           "  --unlock              Unlock SPDM-only mode\n"
+           "  --status              Read SPDM configuration and session state\n"
 #endif
 #ifdef WOLFTPM_SPDM_PSK
            "  --psk <hex>           Start a PSK session\n"
@@ -87,6 +98,8 @@ static void usage(void)
            "Build: ./configure --enable-spdm --enable-nuvoton\n"
 #elif defined(WOLFSPDM_NATIONS)
            "Build: ./configure --enable-spdm --enable-nations\n"
+#elif defined(WOLFSPDM_INFINEON)
+           "Build: ./configure --enable-spdm --enable-infineon=slb9678\n"
 #endif
            );
 }
@@ -190,24 +203,35 @@ static int ctrl_policy_nv_op(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     return rc;
 }
 
-/* Define (or replace) the demo index with the given authPolicy. */
+/* Replace only an index created by this demo; track definition separately
+ * from NVOpen so a post-definition failure still permits cleanup. */
 static int ctrl_policy_nv_define(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 dataSz,
-    const byte* policyDigest, word32 policyDigestSz)
+    const byte* policyDigest, word32 policyDigestSz, int* nvOwned)
 {
     int rc;
+    NV_DefineSpace_In in;
 
-    rc = wolfTPM2_NVCreateAuthPolicy(dev, parent, nv, nvIndex, nvAttributes,
-        dataSz, NULL, 0, policyDigest, (int)policyDigestSz);
-    if (rc == TPM_RC_NV_DEFINED) {
+    XMEMSET(&in, 0, sizeof(in));
+    if (*nvOwned) {
         rc = wolfTPM2_NVDeleteAuth(dev, parent, nvIndex);
-        if (rc == 0) {
-            rc = wolfTPM2_NVCreateAuthPolicy(dev, parent, nv, nvIndex,
-                nvAttributes, dataSz, NULL, 0, policyDigest,
-                (int)policyDigestSz);
-        }
+        if (rc != 0) return rc;
+        *nvOwned = 0;
     }
-    return rc;
+    rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
+    if (rc != 0) return rc;
+    in.authHandle = parent->hndl;
+    in.publicInfo.nvPublic.nvIndex = nvIndex;
+    in.publicInfo.nvPublic.nameAlg = WOLFTPM2_WRAP_DIGEST;
+    in.publicInfo.nvPublic.attributes = nvAttributes;
+    in.publicInfo.nvPublic.dataSize = (UINT16)dataSz;
+    in.publicInfo.nvPublic.authPolicy.size = (UINT16)policyDigestSz;
+    XMEMCPY(in.publicInfo.nvPublic.authPolicy.buffer, policyDigest,
+        policyDigestSz);
+    rc = TPM2_NV_DefineSpace(&in);
+    if (rc != 0) return rc;
+    *nvOwned = 1;
+    return wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
 }
 
 /* Define an NV index whose authPolicy is PolicyTransportSPDM bound to the
@@ -238,6 +262,17 @@ static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
 
     printf("\n=== PolicyTransportSPDM NV binding ===\n");
 
+    /* Do not replace unrelated NV data on a customer's TPM. */
+    rc = wolfTPM2_NVOpen(dev, &nv, nvIndex, NULL, 0);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("  NV index 0x%x already exists; refusing to replace it\n",
+            nvIndex);
+        return TPM_RC_NV_DEFINED;
+    }
+    if ((rc & RC_MAX_FMT1) != TPM_RC_HANDLE) {
+        goto exit;
+    }
+
     /* Bind to any SPDM session (empty key names). */
     printf("  Binding NV access to any SPDM session\n");
 
@@ -257,9 +292,8 @@ static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
         TPMA_NV_OWNERREAD | TPMA_NV_OWNERWRITE);
     nvAttributes |= (TPMA_NV_POLICYREAD | TPMA_NV_POLICYWRITE);
 
-    nvAttempted = 1;
     rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
-        (word32)sizeof(writeBuf), policyDigest, policyDigestSz);
+        (word32)sizeof(writeBuf), policyDigest, policyDigestSz, &nvAttempted);
     if (rc != 0) goto exit;
     printf("  Created NV index 0x%x with PolicyTransportSPDM authPolicy\n",
         nvIndex);
@@ -299,7 +333,7 @@ static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
         tpmKeyName, policyDigest, &policyDigestSz);
     if (rc != 0) goto exit;
     rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
-        (word32)sizeof(writeBuf), policyDigest, policyDigestSz);
+        (word32)sizeof(writeBuf), policyDigest, policyDigestSz, &nvAttempted);
     if (rc != 0) goto exit;
     ioSz = (word32)sizeof(writeBuf);
     rc = ctrl_policy_nv_op(dev, &nv, nvIndex, NULL, tpmKeyName,
@@ -326,7 +360,7 @@ static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
         &badName, policyDigest, &policyDigestSz);
     if (rc != 0) goto exit;
     rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
-        (word32)sizeof(writeBuf), policyDigest, policyDigestSz);
+        (word32)sizeof(writeBuf), policyDigest, policyDigestSz, &nvAttempted);
     if (rc != 0) goto exit;
     ioSz = (word32)sizeof(readBuf);
     rc = ctrl_policy_nv_op(dev, &nv, nvIndex, NULL, &badName,
@@ -339,6 +373,53 @@ static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
     rc = TPM_RC_SUCCESS;
     printf("  Bound tpmKeyName policy: mismatch rejected (TPM_RC_CHANNEL_KEY)\n");
 
+    if (info.spdmSessionInfo[0].reqKeyName.size != 0) {
+        reqKeyName = &info.spdmSessionInfo[0].reqKeyName;
+        XMEMSET(policyDigest, 0, sizeof(policyDigest));
+        policyDigestSz = sizeof(policyDigest);
+        rc = wolfTPM2_PolicyTransportSPDMMake(WOLFTPM2_WRAP_DIGEST,
+            reqKeyName, tpmKeyName, policyDigest, &policyDigestSz);
+        if (rc != 0) goto exit;
+        rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
+            sizeof(writeBuf), policyDigest, policyDigestSz, &nvAttempted);
+        if (rc != 0) goto exit;
+        ioSz = sizeof(writeBuf);
+        rc = ctrl_policy_nv_op(dev, &nv, nvIndex, reqKeyName, tpmKeyName,
+            writeBuf, NULL, &ioSz);
+        if (rc != 0) goto exit;
+        ioSz = sizeof(readBuf);
+        rc = ctrl_policy_nv_op(dev, &nv, nvIndex, reqKeyName, tpmKeyName,
+            NULL, readBuf, &ioSz);
+        if (rc != 0) goto exit;
+        if (ioSz != sizeof(writeBuf) ||
+            XMEMCMP(readBuf, writeBuf, ioSz) != 0) {
+            rc = TPM_RC_FAILURE;
+            goto exit;
+        }
+        printf("  Bound requester and TPM key policy: write/read OK\n");
+
+        XMEMCPY(&badName, reqKeyName, sizeof(badName));
+        badName.name[badName.size - 1] ^= 1;
+        XMEMSET(policyDigest, 0, sizeof(policyDigest));
+        policyDigestSz = sizeof(policyDigest);
+        rc = wolfTPM2_PolicyTransportSPDMMake(WOLFTPM2_WRAP_DIGEST,
+            &badName, tpmKeyName, policyDigest, &policyDigestSz);
+        if (rc != 0) goto exit;
+        rc = ctrl_policy_nv_define(dev, &parent, &nv, nvIndex, nvAttributes,
+            sizeof(writeBuf), policyDigest, policyDigestSz, &nvAttempted);
+        if (rc != 0) goto exit;
+        ioSz = sizeof(readBuf);
+        rc = ctrl_policy_nv_op(dev, &nv, nvIndex, &badName, tpmKeyName,
+            NULL, readBuf, &ioSz);
+        if ((rc & RC_MAX_FMT1) != TPM_RC_CHANNEL_KEY) {
+            printf("  Requester-name mismatch not rejected (0x%x)\n", rc);
+            rc = TPM_RC_FAILURE;
+            goto exit;
+        }
+        rc = TPM_RC_SUCCESS;
+        printf("  Requester-name mismatch rejected (TPM_RC_CHANNEL_KEY)\n");
+    }
+
 exit:
     if (rc != 0) {
         printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -348,7 +429,12 @@ exit:
         }
     }
     if (nvAttempted) {
-        (void)wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
+        int cleanupRc = wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
+        if (cleanupRc != 0) {
+            printf("  NV cleanup failed: 0x%x: %s\n", cleanupRc,
+                wolfTPM2_GetRCString(cleanupRc));
+            if (rc == 0) rc = cleanupRc;
+        }
     }
     return rc;
 }
@@ -478,7 +564,8 @@ static int ctrl_lock(WOLFTPM2_DEV* dev, int lock)
 #endif /* WOLFSPDM_NUVOTON */
 
 #if defined(WOLFTPM_SPDM_TCG) || defined(WOLFTPM_SPDM_PSK) || \
-    defined(WOLFSPDM_NATIONS)
+    defined(WOLFSPDM_NATIONS) || defined(WOLFSPDM_INFINEON)
+/* Shared hex->binary helper for PSK / ClearAuth arguments. */
 static int hex2bin(const char* hex, byte* bin, word32* binSz)
 {
     word32 hexLen = (word32)XSTRLEN(hex);
@@ -498,7 +585,8 @@ static int hex2bin(const char* hex, byte* bin, word32* binSz)
     *binSz = hexLen / 2;
     return 0;
 }
-#endif /* WOLFTPM_SPDM_TCG || WOLFTPM_SPDM_PSK || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG || WOLFTPM_SPDM_PSK || WOLFSPDM_NATIONS ||
+        * WOLFSPDM_INFINEON */
 
 #ifdef WOLFSPDM_NATIONS
 static int ctrl_nations_status(WOLFTPM2_DEV* dev)
@@ -781,16 +869,138 @@ static int ctrl_nations_connect(WOLFTPM2_DEV* dev)
 }
 #endif /* WOLFSPDM_NATIONS */
 
+#ifdef WOLFSPDM_INFINEON
+/* Infineon SLB9678 controls; connection uses shared TCG or PSK code. */
+
+static int ctrl_infineon_enable(WOLFTPM2_DEV* dev, int enable)
+{
+    int rc;
+    printf("\n=== Infineon SPDM-PSK %s ===\n", enable ? "Enable" : "Disable");
+    /* lock=0: reversible. Never lifetime-lock from the example. */
+    rc = wolfTPM2_SpdmInfineonEnable(dev, enable, 0);
+    if (rc == 0) {
+        printf("  SPDM-PSK %s (reset TPM if newly configured)\n",
+            enable ? "enabled" : "disabled");
+    }
+    else {
+        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+    }
+    return rc;
+}
+
+static int ctrl_infineon_status(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    int isConn = wolfTPM2_SpdmIsConnected(dev);
+    GetCapability_In in;
+    GetCapability_Out out;
+
+    printf("\n=== Infineon SLB9678 SPDM Status ===\n");
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_CONFIGS;
+    in.property = TPM_PT_CONFIG_SPDM_PSK;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc == TPM_RC_SUCCESS &&
+        out.capabilityData.capability == TPM_CAP_CONFIGS &&
+        out.capabilityData.data.tpmConfigs.count == 1 &&
+        out.capabilityData.data.tpmConfigs.configs[0].configuration ==
+            TPM_PT_CONFIG_SPDM_PSK) {
+        const TPMS_TAGGED_CONFIG* config =
+            &out.capabilityData.data.tpmConfigs.configs[0];
+        printf("  PSK feature: %s  Configuration: %s\n",
+            config->enable ? "enabled" : "disabled",
+            config->lock ? "locked" : "unlocked");
+    }
+    else {
+        printf("  PSK configuration unavailable: 0x%x\n", rc);
+        /* Report it rather than exiting clean: a transport error or an
+         * unexpected capability response must be visible to automation. */
+        if (rc == TPM_RC_SUCCESS) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+    /* TPM capability reads preserve an authenticated session. GET_VERSION
+     * would reset it; GET_STS_ is not part of the asymmetric TCG flow. */
+    printf("  Session: %s\n", isConn ? "active" : "none");
+    if (isConn) {
+        printf("  Mode: %s  SessionID: 0x%08x\n",
+            wolfSPDM_GetMode(dev->spdmCtx->spdmCtx) == WOLFSPDM_MODE_PSK ?
+                "PSK" : "TCG asymmetric", wolfTPM2_SpdmGetSessionId(dev));
+    }
+    return rc;
+}
+
+static int ctrl_infineon_only_mode(WOLFTPM2_DEV* dev, int lock)
+{
+    if (!wolfTPM2_SpdmIsConnected(dev) ||
+        wolfSPDM_GetMode(dev->spdmCtx->spdmCtx) != WOLFSPDM_MODE_PSK) {
+        printf("  --lock/--unlock require an authenticated PSK session\n");
+        return WOLFSPDM_E_BAD_STATE;
+    }
+    return wolfTPM2_SpdmInfineonSetOnlyMode(dev, lock);
+}
+
+static int ctrl_infineon_connect(WOLFTPM2_DEV* dev)
+{
+    int rc;
+
+    printf("\n=== Infineon TCG Asymmetric Connect ===\n");
+    if (wolfTPM2_SpdmIsConnected(dev)) {
+        printf("  Already connected (SessionID: 0x%08x)\n",
+            wolfTPM2_SpdmGetSessionId(dev));
+        return TPM_RC_SUCCESS;
+    }
+    rc = wolfTPM2_SpdmConnectInfineonTcg(dev, NULL, 0, NULL, 0);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("  FAILED: %d: %s\n", rc, ctrl_init_rc_string(rc));
+    }
+    return rc;
+}
+
+static int ctrl_infineon_get_pubkey(WOLFTPM2_DEV* dev)
+{
+    byte pubKey[512];
+    word32 pubKeySz = sizeof(pubKey);
+    int rc;
+
+    if (wolfTPM2_SpdmIsConnected(dev)) {
+        printf("  --get-pubkey must run outside an active session\n");
+        return WOLFSPDM_E_BAD_STATE;
+    }
+    rc = wolfTPM2_SpdmGetVersion(dev);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfSPDM_TCG_GetCapabilities(dev->spdmCtx->spdmCtx,
+            WOLFSPDM_TCG_CAPS_FLAGS_DEFAULT);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfSPDM_TCG_NegotiateAlgorithms(dev->spdmCtx->spdmCtx);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_SpdmGetPubKey(dev, pubKey, &pubKeySz);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_PrintBin(pubKey, pubKeySz);
+    }
+    return rc;
+}
+
+#endif /* WOLFSPDM_INFINEON */
+
 int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
 {
     int rc = TPM_RC_SUCCESS;
     int i;
     int didInit = 0;
     int useNations = 0;
-#if defined(WOLFTPM_SPDM_TCG) && defined(WOLFSPDM_NUVOTON) && \
+    int useInfineon = 0;
+#if defined(WOLFTPM_SPDM_TCG) && \
+    (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_INFINEON)) && \
     defined(WOLFSPDM_NATIONS)
     int explicitVendor = 0;
     int haveNationsOnlyCommand = 0;
+    int havePskProvisionCommand = 0;
 #endif
 #ifdef WOLFSPDM_NATIONS
     int badPskSetArgs = 0;
@@ -801,11 +1011,23 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
     byte rspPubKey[WOLFSPDM_ECC_POINT_SIZE];
     word32 rspPubKeySz = 0;
     int haveRspPubKey = 0;
+    WOLFSPDM_MODE identityMode = WOLFSPDM_MODE_AUTO;
 #endif
 #ifdef WOLFTPM_SPDM_PSK
     byte initPsk[128];
     word32 initPskSz = 0;
     int haveInitPsk = 0;
+#endif
+
+    /* In a single-vendor Infineon build, auto-select Infineon so the user
+     * need not pass --vendor=infineon. */
+#if defined(WOLFSPDM_INFINEON) && !defined(WOLFSPDM_NUVOTON) && \
+    !defined(WOLFSPDM_NATIONS)
+    useInfineon = 1;
+#endif
+#if defined(WOLFSPDM_NATIONS) && !defined(WOLFSPDM_NUVOTON) && \
+    !defined(WOLFSPDM_INFINEON)
+    useNations = 1;
 #endif
 
     if (argc <= 1) { usage(); return 0; }
@@ -821,8 +1043,13 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
             if (XSTRCMP(argv[i] + 9, "nations") == 0) {
             #ifdef WOLFSPDM_NATIONS
                 useNations = 1;
+                useInfineon = 0;
+                #ifdef WOLFTPM_SPDM_TCG
+                identityMode = WOLFSPDM_MODE_NATIONS;
+                #endif
                 #if defined(WOLFTPM_SPDM_TCG) && \
-                    defined(WOLFSPDM_NUVOTON) && \
+                    (defined(WOLFSPDM_NUVOTON) || \
+                     defined(WOLFSPDM_INFINEON)) && \
                     defined(WOLFSPDM_NATIONS)
                 explicitVendor = 1;
                 #endif
@@ -837,13 +1064,37 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
             else if (XSTRCMP(argv[i] + 9, "nuvoton") == 0) {
             #ifdef WOLFSPDM_NUVOTON
                 useNations = 0;
+                useInfineon = 0;
+                #ifdef WOLFTPM_SPDM_TCG
+                identityMode = WOLFSPDM_MODE_NUVOTON;
+                #endif
                 #if defined(WOLFTPM_SPDM_TCG) && \
-                    defined(WOLFSPDM_NUVOTON) && \
+                    (defined(WOLFSPDM_NUVOTON) || \
+                     defined(WOLFSPDM_INFINEON)) && \
                     defined(WOLFSPDM_NATIONS)
                 explicitVendor = 1;
                 #endif
             #else
                 printf("Nuvoton adapter is not available in this build\n");
+                #ifdef WOLFTPM_SPDM_PSK
+                wc_ForceZero(initPsk, sizeof(initPsk));
+                #endif
+                return BAD_FUNC_ARG;
+            #endif
+            }
+            else if (XSTRCMP(argv[i] + 9, "infineon") == 0 ||
+                    XSTRCMP(argv[i] + 9, "slb9678") == 0) {
+            #ifdef WOLFSPDM_INFINEON
+                useNations = 0;
+                useInfineon = 1;
+                #ifdef WOLFTPM_SPDM_TCG
+                identityMode = WOLFSPDM_MODE_TCG;
+                #endif
+                #if defined(WOLFTPM_SPDM_TCG) && defined(WOLFSPDM_NATIONS)
+                explicitVendor = 1;
+                #endif
+            #else
+                printf("Infineon adapter is not available in this build\n");
                 #ifdef WOLFTPM_SPDM_PSK
                 wc_ForceZero(initPsk, sizeof(initPsk));
                 #endif
@@ -899,11 +1150,13 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
         #ifdef WOLFSPDM_NATIONS
             #if defined(WOLFTPM_SPDM_TCG) && \
                 defined(WOLFSPDM_NUVOTON)
-            if (!explicitVendor) {
+            if (!explicitVendor && !useInfineon) {
                 useNations = 1;
             }
             #else
-            useNations = 1;
+            if (!useInfineon) {
+                useNations = 1;
+            }
             #endif
         #endif
             continue;
@@ -911,13 +1164,16 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
 #endif
 #ifdef WOLFSPDM_NATIONS
         if (XSTRCMP(argv[i], "--psk-set") == 0) {
-        #if defined(WOLFTPM_SPDM_TCG) && defined(WOLFSPDM_NUVOTON)
-            haveNationsOnlyCommand = 1;
-            if (!explicitVendor) {
+        #if defined(WOLFTPM_SPDM_TCG) && \
+            (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_INFINEON))
+            havePskProvisionCommand = 1;
+            if (!explicitVendor && !useInfineon) {
                 useNations = 1;
             }
         #else
-            useNations = 1;
+            if (!useInfineon) {
+                useNations = 1;
+            }
         #endif
             if (i + 2 >= argc || XSTRNCMP(argv[i + 1], "--", 2) == 0 ||
                     XSTRNCMP(argv[i + 2], "--", 2) == 0) {
@@ -927,13 +1183,16 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
             continue;
         }
         if (XSTRCMP(argv[i], "--psk-clear") == 0) {
-        #if defined(WOLFTPM_SPDM_TCG) && defined(WOLFSPDM_NUVOTON)
-            haveNationsOnlyCommand = 1;
-            if (!explicitVendor) {
+        #if defined(WOLFTPM_SPDM_TCG) && \
+            (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_INFINEON))
+            havePskProvisionCommand = 1;
+            if (!explicitVendor && !useInfineon) {
                 useNations = 1;
             }
         #else
-            useNations = 1;
+            if (!useInfineon) {
+                useNations = 1;
+            }
         #endif
             if (i + 1 >= argc || XSTRNCMP(argv[i + 1], "--", 2) == 0) {
                 badPskClearArgs = 1;
@@ -943,13 +1202,16 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
         }
         if (XSTRCMP(argv[i], "--identity-key-set") == 0 ||
             XSTRCMP(argv[i], "--identity-key-unset") == 0) {
-        #if defined(WOLFTPM_SPDM_TCG) && defined(WOLFSPDM_NUVOTON)
+        #if defined(WOLFTPM_SPDM_TCG) && \
+            (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_INFINEON))
             haveNationsOnlyCommand = 1;
-            if (!explicitVendor) {
+            if (!explicitVendor && !useInfineon) {
                 useNations = 1;
             }
         #else
-            useNations = 1;
+            if (!useInfineon) {
+                useNations = 1;
+            }
         #endif
             continue;
         }
@@ -957,16 +1219,19 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
     }
 
 #if defined(WOLFTPM_SPDM_PSK) && defined(WOLFTPM_SPDM_TCG) && \
-    defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
-    if (haveInitPsk && explicitVendor && !useNations) {
+    (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_INFINEON)) && \
+    defined(WOLFSPDM_NATIONS)
+    if (haveInitPsk && explicitVendor && !useNations && !useInfineon) {
         printf("PSK sessions require --vendor=nations\n");
         wc_ForceZero(initPsk, sizeof(initPsk));
         return BAD_FUNC_ARG;
     }
 #endif
-#if defined(WOLFTPM_SPDM_TCG) && defined(WOLFSPDM_NUVOTON) && \
+#if defined(WOLFTPM_SPDM_TCG) && \
+    (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_INFINEON)) && \
     defined(WOLFSPDM_NATIONS)
-    if (haveNationsOnlyCommand && explicitVendor && !useNations) {
+    if (explicitVendor && !useNations && (haveNationsOnlyCommand ||
+        (havePskProvisionCommand && !useInfineon))) {
         printf("Nations-only commands require --vendor=nations\n");
     #ifdef WOLFTPM_SPDM_PSK
         wc_ForceZero(initPsk, sizeof(initPsk));
@@ -1003,15 +1268,11 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
 #endif
 #ifdef WOLFTPM_SPDM_TCG
     if (!didInit && haveRspPubKey) {
-    #if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+        if (useInfineon) {
+            identityMode = WOLFSPDM_MODE_TCG;
+        }
         rc = wolfTPM2_InitWithSpdmKey_ex(&dev, TPM2_IoCb, userCtx,
-            rspPubKey, rspPubKeySz, explicitVendor ?
-            (useNations ? WOLFSPDM_MODE_NATIONS : WOLFSPDM_MODE_NUVOTON) :
-            WOLFSPDM_MODE_AUTO);
-    #else
-        rc = wolfTPM2_InitWithSpdmKey(&dev, TPM2_IoCb, userCtx,
-            rspPubKey, rspPubKeySz);
-    #endif
+            rspPubKey, rspPubKeySz, identityMode);
         didInit = 1;
     }
 #endif
@@ -1032,14 +1293,22 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
         return rc;
     }
 
-#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS) || \
+    defined(WOLFSPDM_INFINEON)
     /* AUTO selects from DID/VID during credentialed initialization. Keep
      * command dispatch aligned with the adapter that owns the live session. */
     if (wolfTPM2_SpdmIsConnected(&dev)) {
         WOLFSPDM_MODE mode = wolfSPDM_GetMode(dev.spdmCtx->spdmCtx);
 
-        useNations = (mode == WOLFSPDM_MODE_NATIONS ||
-            mode == WOLFSPDM_MODE_NATIONS_PSK);
+        if (!useInfineon) {
+            useNations = (mode == WOLFSPDM_MODE_NATIONS ||
+                mode == WOLFSPDM_MODE_PSK);
+        }
+    #ifdef WOLFSPDM_INFINEON
+        if (mode == WOLFSPDM_MODE_TCG) {
+            useInfineon = 1;
+        }
+    #endif
     }
 #endif
 
@@ -1050,7 +1319,7 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
     /* Credentialed initialization may already have established the session.
      * Do not reset negotiated mode state or transport callbacks on a live
      * connection. */
-    if (!wolfTPM2_SpdmIsConnected(&dev)) {
+    if (!useInfineon && !wolfTPM2_SpdmIsConnected(&dev)) {
     #if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
         if (useNations) {
             wolfTPM2_SpdmSetNationsMode(&dev);
@@ -1072,8 +1341,17 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
 #else
     (void)useNations;
 #endif
-#if defined(DEBUG_WOLFTPM) && \
-    (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS))
+    /* Infineon SLB9678 (PSK mode). Additive so it composes with the chain
+     * above; in a single-vendor Infineon build useInfineon is auto-selected. */
+#ifdef WOLFSPDM_INFINEON
+    if (useInfineon && !wolfTPM2_SpdmIsConnected(&dev)) {
+        wolfSPDM_SetMode(dev.spdmCtx->spdmCtx, WOLFSPDM_MODE_TCG);
+        wolfTPM2_SPDM_SetTisIO(dev.spdmCtx);
+    }
+#endif
+    (void)useInfineon;
+#if defined(DEBUG_WOLFTPM) && (defined(WOLFSPDM_NUVOTON) || \
+    defined(WOLFSPDM_NATIONS) || defined(WOLFSPDM_INFINEON))
     wolfSPDM_SetDebug(dev.spdmCtx->spdmCtx, 1);
 #endif
 
@@ -1117,72 +1395,103 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
          * Nuvoton GET_STATUS / SPDMONLY payload format, and the proprietary
          * SPDM_ENABLE / SPDM_DISABLE vendor commands. In dual-vendor
          * builds we only enter this block when useNations == 0. */
-        if (!matched && !useNations && XSTRCMP(argv[i], "--connect") == 0) {
+        if (!matched && !useNations && !useInfineon && XSTRCMP(argv[i], "--connect") == 0) {
             rc = ctrl_connect(&dev); matched = 1;
         }
-        else if (!matched && !useNations
+        else if (!matched && !useNations && !useInfineon
                 && XSTRCMP(argv[i], "--get-pubkey") == 0) {
             rc = ctrl_get_pubkey(&dev); matched = 1;
         }
-        else if (!matched && !useNations
+        else if (!matched && !useNations && !useInfineon
                 && XSTRCMP(argv[i], "--enable") == 0) {
             rc = ctrl_enable(&dev); matched = 1;
         }
-        else if (!matched && !useNations
+        else if (!matched && !useNations && !useInfineon
                 && XSTRCMP(argv[i], "--disable") == 0) {
             rc = ctrl_disable(&dev); matched = 1;
         }
-        else if (!matched && !useNations
+        else if (!matched && !useNations && !useInfineon
                 && XSTRCMP(argv[i], "--status") == 0) {
             rc = ctrl_status(&dev); matched = 1;
         }
-        else if (!matched && !useNations
+        else if (!matched && !useNations && !useInfineon
                 && XSTRCMP(argv[i], "--lock") == 0) {
             rc = ctrl_lock(&dev, 1); matched = 1;
         }
-        else if (!matched && !useNations
+        else if (!matched && !useNations && !useInfineon
                 && XSTRCMP(argv[i], "--unlock") == 0) {
             rc = ctrl_lock(&dev, 0); matched = 1;
         }
 #endif /* WOLFSPDM_NUVOTON */
 
+#ifdef WOLFSPDM_INFINEON
+        /* Infineon SLB9678 adapter: shared TCG asymmetric and PSK flows.
+         * GET_STS_ / SPDMONLY status + PSK_SET_ / PSK_CLR_ provisioning.
+         * Gated on useInfineon so it composes with other vendor blocks. */
+        if (useInfineon && !matched && XSTRCMP(argv[i], "--connect") == 0) {
+            rc = ctrl_infineon_connect(&dev); matched = 1;
+        }
+        else if (useInfineon && !matched
+                && XSTRCMP(argv[i], "--get-pubkey") == 0) {
+            rc = ctrl_infineon_get_pubkey(&dev); matched = 1;
+        }
+        else if (useInfineon && !matched
+                && XSTRCMP(argv[i], "--enable") == 0) {
+            rc = ctrl_infineon_enable(&dev, 1); matched = 1;
+        }
+        else if (useInfineon && !matched
+                && XSTRCMP(argv[i], "--disable") == 0) {
+            rc = ctrl_infineon_enable(&dev, 0); matched = 1;
+        }
+        else if (useInfineon && !matched && XSTRCMP(argv[i], "--status") == 0) {
+            rc = ctrl_infineon_status(&dev); matched = 1;
+        }
+        else if (useInfineon && !matched && XSTRCMP(argv[i], "--lock") == 0) {
+            rc = ctrl_infineon_only_mode(&dev, 1); matched = 1;
+        }
+        else if (useInfineon && !matched
+                && XSTRCMP(argv[i], "--unlock") == 0) {
+            rc = ctrl_infineon_only_mode(&dev, 0); matched = 1;
+        }
+#endif /* WOLFSPDM_INFINEON */
+
 #ifdef WOLFSPDM_NATIONS
         /* Nations wire-format adapter: TCG handshake (Nations flavor -
          * always sends GET_CAPABILITIES), NSING GET_STS_ / SPDMONLY,
          * PSK_SET_ / PSK_CLR_ provisioning, IdentityKeySet TPM2 cmd. */
-        if (!matched && XSTRCMP(argv[i], "--identity-key-set") == 0) {
+        if (useNations && !matched && XSTRCMP(argv[i], "--identity-key-set") == 0) {
             rc = ctrl_nations_identity_key_set(&dev, 1); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--identity-key-unset") == 0) {
+        else if (useNations && !matched && XSTRCMP(argv[i], "--identity-key-unset") == 0) {
             rc = ctrl_nations_identity_key_set(&dev, 0); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--get-pubkey") == 0) {
+        else if (useNations && !matched && XSTRCMP(argv[i], "--get-pubkey") == 0) {
             rc = ctrl_nations_get_pubkey(&dev); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--connect") == 0) {
+        else if (useNations && !matched && XSTRCMP(argv[i], "--connect") == 0) {
             rc = ctrl_nations_connect(&dev); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--status") == 0) {
+        else if (useNations && !matched && XSTRCMP(argv[i], "--status") == 0) {
             rc = ctrl_nations_status(&dev); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--psk-set") == 0
+        else if (useNations && !matched && XSTRCMP(argv[i], "--psk-set") == 0
                 && i + 2 < argc) {
             const char* pskArg = argv[++i];
             const char* authArg = argv[++i];
             rc = ctrl_nations_psk_set(&dev, pskArg, authArg);
             matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--psk-clear") == 0
+        else if (useNations && !matched && XSTRCMP(argv[i], "--psk-clear") == 0
                 && i + 1 < argc) {
             rc = ctrl_nations_psk_clear(&dev, argv[++i]); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--lock") == 0) {
+        else if (useNations && !matched && XSTRCMP(argv[i], "--lock") == 0) {
             rc = wolfTPM2_SpdmNationsSetOnlyMode(&dev, 1); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--unlock") == 0) {
+        else if (useNations && !matched && XSTRCMP(argv[i], "--unlock") == 0) {
             rc = wolfTPM2_SpdmNationsSetOnlyMode(&dev, 0); matched = 1;
         }
-        else if (!matched && XSTRCMP(argv[i], "--caps184") == 0) {
+        else if (useNations && !matched && XSTRCMP(argv[i], "--caps184") == 0) {
             rc = ctrl_nations_caps184(&dev); matched = 1;
         }
 #endif /* WOLFSPDM_NATIONS */

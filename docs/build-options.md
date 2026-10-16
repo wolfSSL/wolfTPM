@@ -55,7 +55,7 @@ This page is the reference for the Autotools (`./configure`) options and the pre
 
 | Option | Default | Effect and macros |
 | --- | --- | --- |
-| `--enable-infineon[=slb9670\|slb9672\|slb9673]` | disabled | Plain `--enable-infineon` selects SLB9672 and defines `WOLFTPM_SLB9672`. `--enable-infineon=slb9670` defines `WOLFTPM_SLB9670`. `--enable-infineon=slb9673` defines `WOLFTPM_SLB9673` and is I2C only: use `--enable-i2c` and do not pass `--enable-spi`. |
+| `--enable-infineon[=slb9670\|slb9672\|slb9673\|slb9678]` | disabled | Plain `--enable-infineon` selects SLB9672 and defines `WOLFTPM_SLB9672`. `--enable-infineon=slb9670` defines `WOLFTPM_SLB9670`. `--enable-infineon=slb9673` defines `WOLFTPM_SLB9673` and is I2C only: use `--enable-i2c` and do not pass `--enable-spi`. `--enable-infineon=slb9678` defines `WOLFTPM_SLB9678`, which takes its bus from a boot-time configuration pin, so pair it with either `--enable-spi` or `--enable-i2c`. |
 | `--enable-st33`, `--enable-st` | disabled | ST ST33 support. Defines `WOLFTPM_ST33`. The two flags are equivalent. |
 | `--enable-microchip`, `--enable-mchp` | disabled | Microchip ATTPM20 support. Defines `WOLFTPM_MICROCHIP`. The two flags are equivalent. |
 | `--enable-nuvoton` | disabled | Nuvoton NPCT65x/NPCT75x support. Defines `WOLFTPM_NUVOTON`. |

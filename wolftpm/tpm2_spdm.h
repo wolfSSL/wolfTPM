@@ -176,7 +176,8 @@ WOLFTPM_API void wolfTPM2_SPDM_FreeCtx(
 /* Nuvoton-Specific Functions (requires wolfSPDM with --enable-nuvoton)
  * -------------------------------------------------------------------------- */
 
-/* Transport setter - works for any SPDM-over-TPM flow (cert or PSK). */
+/* Install the default TPM transport for either SPDM mode. An existing
+ * application-supplied callback is retained. */
 WOLFTPM_API int wolfTPM2_SPDM_SetTisIO(
     WOLFTPM2_SPDM_CTX* ctx
 );

@@ -1,7 +1,7 @@
 # TPM SPDM Setup/Control
 
 This directory contains the SPDM setup and control tool for Nuvoton NPCT75x
-and Nations NS350 TPMs with wolfTPM.
+Nations NS350, and Infineon SLB9678 TPMs with wolfTPM.
 
 ## Overview
 
@@ -17,6 +17,7 @@ wolfTPM examples use uncredentialed `wolfTPM2_Init()` and intentionally return
 Supported hardware:
 - **Nuvoton NPCT75x** — Identity key mode (ECDHE P-384)
 - **Nations NS350** — Identity key mode + PSK mode
+- **Infineon SLB9678** - TCG identity key mode
 
 For standard SPDM protocol support (spdm-emu, measurements, challenge, etc.),
 see the [wolfSPDM](https://github.com/aidangarske/wolfSPDM) standalone library.
@@ -52,11 +53,22 @@ cd wolfTPM
 make
 ```
 
+### wolfTPM with Infineon SLB9678 SPDM
+
+```bash
+cd wolfTPM
+./autogen.sh
+./configure --enable-spdm --enable-infineon=slb9678
+make
+```
+
+TCG asymmetric mode is the only mode this part is supported in here.
+
 ## Setup/Control Commands
 
 | Option | Description |
 |--------|-------------|
-| `--vendor=nuvoton\|nations` | Select the identity/vendor adapter explicitly |
+| `--vendor=nuvoton\|nations\|slb9678` | Select the identity/vendor adapter explicitly |
 | `--enable` | Enable SPDM on TPM via NTC2_PreConfig (one-time, requires reset) |
 | `--disable` | Disable SPDM on TPM via NTC2_PreConfig (requires reset) |
 | `--status` | Query SPDM status from TPM |
@@ -117,6 +129,27 @@ PSK sessions report empty key names, since no asymmetric key authenticated them.
 # Reset the TPM
 ```
 
+### Infineon SLB9678
+
+Use one command to connect and run the encrypted TPM and policy checks:
+
+```bash
+./examples/spdm/spdm_ctrl --vendor=slb9678 \
+    --responder-pubkey <trusted_p384_x_y_hex> --connect \
+    --caps --session-info --policy-nv
+```
+
+The responder key is a trusted P-384 X||Y point (192 hex characters).
+`--get-pubkey` retrieves it for diagnostics; that query alone does not
+establish trust. The `infineon` vendor selector is an alias for `slb9678`.
+
+`--policy-nv` creates a temporary NV index protected by
+`TPM2_PolicyTransportSPDM`. It checks successful write/read, TPM key-name
+binding, and requester key-name binding when available. Mismatched names
+must return `TPM_RC_CHANNEL_KEY`. The command preserves an existing demo
+index and removes the index it creates. `--session-info` reads the session
+key names without modifying NV.
+
 ## TPM Reset Pin Control
 
 SPDM enable/disable and SPDM-only mode changes require a TPM reset to take
@@ -147,12 +180,25 @@ export SPDM_RESPONDER_PUBKEY=<trusted_p384_x_y_hex>
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nuvoton
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations
 ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations-psk
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl slb9678
 ```
 
 The identity-mode hardware runs require `SPDM_RESPONDER_PUBKEY` from a trusted
 provisioning source. The PSK run does not use it. The `fwtpm-tcg` test obtains
 the freshly generated public key from the local server's protected startup log
 and passes it through the same pinning interface.
+
+The SLB9678 suite preserves GPIO straps and tests TCG connection, encrypted
+commands, session key names, policy binding, and cleanup. Optional reversible
+PSK configuration checks require `SPDM_TEST_PSK_CONFIG=1`; PSK provisioning
+is not part of this suite.
+
+Mock regression tests run without hardware:
+
+```bash
+./tests/spdm_ctrl.test
+./tests/spdm_config.test # SLB9678 builds
+```
 
 ## Support
 

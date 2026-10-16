@@ -288,7 +288,8 @@ int wolfTPM2_SPDM_SecuredExchange(
      * messages with the TPM2_CMD vendor code. The TPM's SPDM layer only
      * accepts SPDM messages (starting with version byte 0x13), not raw TPM
      * commands (starting with tag 0x80 0x01). */
-    if (wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NUVOTON ||
+    if (wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_TCG ||
+        wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NUVOTON ||
         wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NATIONS ||
         wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NATIONS_PSK) {
     #ifdef WOLFTPM_SMALL_STACK
@@ -373,6 +374,12 @@ int wolfTPM2_SPDM_SetTisIO(WOLFTPM2_SPDM_CTX* ctx)
 {
     if (ctx == NULL || ctx->spdmCtx == NULL || ctx->tpmCtx == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    /* Vendor connect wrappers attach a default transport. Preserve an
+     * application-supplied callback (including in-process responder I/O). */
+    if (wolfSPDM_HasIO(ctx->spdmCtx)) {
+        return TPM_RC_SUCCESS;
     }
 
 #if defined(WOLFTPM_SPDM_TIS_IO)
