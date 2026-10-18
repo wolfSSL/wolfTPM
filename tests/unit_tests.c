@@ -25,6 +25,11 @@
     #include <config.h>
 #endif
 
+/* tpm2_asn.h otherwise redefines TPM_RC_VALUE as an ASN error */
+#ifndef WOLFTPM_NO_DEPRECATED_ASN_RC
+    #define WOLFTPM_NO_DEPRECATED_ASN_RC
+#endif
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
@@ -103,7 +108,41 @@
 #define AssertStrGE(x, y) AssertStr(x, y, >=,  <)
 #define AssertStrLE(x, y) AssertStr(x, y, <=,  >)
 
+/* A v1.85 key creation failed on a TPM that does not list alg */
+#define TEST_V185_UNSUPPORTED(rc, alg) ((rc) != 0 && !test_alg_supported(alg))
+
 #ifndef WOLFTPM2_NO_WRAPPER
+
+#if (defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)) || \
+    (defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))) || \
+    (defined(WOLFTPM_CRYPTOCB) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+     defined(WOLFTPM_MLDSA_SIGN))
+/* Returns 1 if the connected TPM advertises alg in its TPM_CAP_ALGS list */
+static int test_alg_supported(TPM_ALG_ID alg)
+{
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_ALG_PROPERTY* algs;
+    word32 i;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_ALGS;
+    in.property = TPM_ALG_FIRST;
+    in.propertyCount = MAX_CAP_ALGS;
+    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS)
+        return 0;
+
+    algs = &out.capabilityData.data.algorithms;
+    for (i = 0; i < algs->count; i++) {
+        if (algs->algProperties[i].alg == alg)
+            return 1;
+    }
+    return 0;
+}
+#endif
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
     !defined(WOLFTPM2_NO_ASN)
@@ -3158,8 +3197,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &mlkemKey, TPM_RH_OWNER,
         &mlkemPub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLKEM)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "EncryptSecret MLKEM:");
     }
@@ -3442,9 +3480,7 @@ static void test_WOLFTPM_IS_COMMAND_UNAVAILABLE(void)
         WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED((int)TPM_RC_SUCCESS));
     AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(-189));
 
-    /* The shared base macro underlying all three. Note TPM_RC_VALUE is not
-     * usable here: tpm2_asn.h defines it as an ASN error (-203), shadowing the
-     * response code of the same name from tpm2.h in this translation unit. */
+    /* The shared base macro underlying all three. */
     AssertIntNE(0, WOLFTPM_RC_IS((int)TPM_RC_DISABLED, TPM_RC_DISABLED));
     AssertIntEQ(0, WOLFTPM_RC_IS((int)TPM_RC_DISABLED, TPM_RC_COMMAND_CODE));
     AssertIntEQ(0, WOLFTPM_RC_IS(-189, TPM_RC_DISABLED));
@@ -7560,8 +7596,7 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
         rc = wolfTPM2_CreatePrimaryKey(&dev, &tpmKey, TPM_RH_OWNER, &pub,
             NULL, 0);
     }
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
         /* TPM lacks ML-DSA: skip */
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "CryptoDevCb ML-DSA sign:");
@@ -8463,8 +8498,7 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaKeyId(void)
         rc = wolfTPM2_CreateAndLoadKey(&dev, &probe, &srk.handle, &probePub,
             NULL, 0);
     }
-    if ((rc & RC_MAX_FMT1) == TPM_RC_TYPE ||
-            (rc & RC_MAX_FMT1) == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "CryptoDevCb ML-DSA key id:");
         wolfTPM2_UnloadHandle(&dev, &srk.handle);
@@ -8628,20 +8662,26 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaKeyId(void)
     XMEMSET(&probe, 0, sizeof(probe));
     rc = wolfTPM2_CreatePrimaryKey(&dev, &probe, TPM_RH_OWNER, &probePub,
         NULL, 0);
-    AssertIntEQ(rc, 0);
-    rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &probe,
-        TEST_KEYID_HASH_MLDSA_HANDLE);
-    AssertIntEQ(rc, 0);
-    rc = wc_MlDsaKey_InitId(&idKey, hashKeyId, (int)sizeof(hashKeyId), NULL,
-        tpmDevId);
-    AssertIntEQ(rc, 0);
-    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
-    AssertIntEQ(rc, 0);
-    sigSz = WC_MLDSA_65_SIG_SIZE;
-    rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
-    AssertIntEQ(rc, WC_HW_E);
-    wc_MlDsaKey_Free(&idKey);
-    AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &probe), 0);
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "CryptoDevCb Hash-ML-DSA key id:");
+    }
+    else {
+        AssertIntEQ(rc, 0);
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &probe,
+            TEST_KEYID_HASH_MLDSA_HANDLE);
+        AssertIntEQ(rc, 0);
+        rc = wc_MlDsaKey_InitId(&idKey, hashKeyId, (int)sizeof(hashKeyId),
+            NULL, tpmDevId);
+        AssertIntEQ(rc, 0);
+        rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+        AssertIntEQ(rc, 0);
+        sigSz = WC_MLDSA_65_SIG_SIZE;
+        rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
+        AssertIntEQ(rc, WC_HW_E);
+        wc_MlDsaKey_Free(&idKey);
+        AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &probe), 0);
+    }
 #endif
 
     rc = wc_MlDsaKey_InitId(&idKey, keyId, (int)sizeof(keyId), NULL, tpmDevId);
@@ -10407,8 +10447,8 @@ static void test_wolfTPM2_MLDSA_SignSequence(WOLFTPM2_DEV* dev,
 
     rc = wolfTPM2_SignSequenceStart(dev, mldsaKey, context, contextSz,
         &sequenceHandle);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Sign Sequence:");
         *sigSz = 0;
@@ -10444,8 +10484,8 @@ static void test_wolfTPM2_MLDSA_VerifySequence(WOLFTPM2_DEV* dev,
         return;
     }
     rc = wolfTPM2_VerifySequenceStart(dev, mldsaKey, NULL, 0, &sequenceHandle);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Verify Sequence:");
         return;
@@ -10485,8 +10525,7 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &key, TPM_RH_OWNER, &pub,
         gAuth, (int)sizeof(gAuth));
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Sign Seq w/ key auth:");
         return;
@@ -10539,8 +10578,7 @@ static void test_wolfTPM2_MLDSA_VerifySequence_DataChain(WOLFTPM2_DEV* dev)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Verify Seq data-chain:");
         return;
@@ -10607,8 +10645,7 @@ static void test_wolfTPM2_HashMLDSA_SignSequence_Streaming(WOLFTPM2_DEV* dev)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "Hash-ML-DSA SignSeqUpdate streaming:");
         return;
@@ -10690,8 +10727,7 @@ static void test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(WOLFTPM2_DEV* dev)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "Hash-ML-DSA SignDigest roundtrip:");
         return;
@@ -10747,8 +10783,8 @@ static void test_TPM2_SignSequenceStart_NoSession(WOLFTPM2_DEV* dev,
 
     ctx->session = savedSession;
 
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (TPM_RC)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+            rc == (TPM_RC)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA SignSeqStart no-session:");
         return;
@@ -10782,8 +10818,8 @@ static void test_wolfTPM2_MLKEM_Encapsulate(WOLFTPM2_DEV* dev,
 
     rc = wolfTPM2_Encapsulate(dev, mlkemKey, ciphertext, ciphertextSz,
         sharedSecret, &sharedSecretSz);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n", "ML-KEM Encapsulate:");
         *ciphertextSz = 0;
         return;
@@ -10809,8 +10845,8 @@ static void test_wolfTPM2_MLKEM_Decapsulate(WOLFTPM2_DEV* dev,
     /* Test Decapsulate */
     rc = wolfTPM2_Decapsulate(dev, mlkemKey, ciphertext, ciphertextSz,
         sharedSecret, &sharedSecretSz);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n", "ML-KEM Decapsulate:");
         return;
     }
@@ -10839,8 +10875,8 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
     /* Encapsulate */
     rc = wolfTPM2_Encapsulate(dev, mlkemKey, ciphertext, &ciphertextSz,
         sharedSecret1, &sharedSecret1Sz);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n", "ML-KEM Round Trip:");
         return;
     }
@@ -10864,32 +10900,6 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
 #endif /* ML-KEM support */
 
 /* Main PQC test function */
-/* Returns 1 if the connected TPM advertises @alg in its TPM_CAP_ALGS list.
- * Used to skip sub-tests for optional algorithms (e.g. Hash-ML-DSA) that a
- * given TPM may not implement, without hard-coding any model check. */
-static int test_alg_supported(TPM_ALG_ID alg)
-{
-    GetCapability_In in;
-    GetCapability_Out out;
-    TPML_ALG_PROPERTY* algs;
-    word32 i;
-
-    XMEMSET(&in, 0, sizeof(in));
-    XMEMSET(&out, 0, sizeof(out));
-    in.capability = TPM_CAP_ALGS;
-    in.property = TPM_ALG_FIRST;
-    in.propertyCount = MAX_CAP_ALGS;
-    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS)
-        return 0;
-
-    algs = &out.capabilityData.data.algorithms;
-    for (i = 0; i < algs->count; i++) {
-        if (algs->algProperties[i].alg == alg)
-            return 1;
-    }
-    return 0;
-}
-
 /* Regression for the VerifySequenceComplete flush-on-error fix: looping
  * failed verifies must not exhaust transient memory (TPM_RC_OBJECT_MEMORY).
  * Uses an ECC key to cover the classical (non-PQC) wrapper path. */
@@ -10995,8 +11005,7 @@ static void test_wolfTPM2_PQC(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &mldsaKey, TPM_RH_OWNER,
         &mldsaPub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA PQC suite:");
         goto mldsa_done;
@@ -11043,8 +11052,7 @@ mldsa_done:
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &mlkemKey, TPM_RH_OWNER,
         &mlkemPub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLKEM)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-KEM PQC suite:");
         goto mlkem_done;
