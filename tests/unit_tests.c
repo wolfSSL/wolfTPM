@@ -7476,6 +7476,8 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 #endif
 }
 
+#define TEST_MLDSA_LONG_MSG_SZ (2 * MAX_DIGEST_BUFFER + 100)
+
 static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
@@ -7493,10 +7495,13 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
     word32 sigLen = (word32)sizeof(sig);
     byte* bigSig = NULL;
     word32 bigSigLen;
+    byte* longMsg = NULL;
 #ifdef WOLFTPM_MLDSA_VERIFY
     byte otherContext[4];
     TPM_HANDLE vSeq;
     TPMT_TK_VERIFIED vtk;
+    word32 pos;
+    word32 chunk;
 #endif
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
@@ -7539,12 +7544,6 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
     rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
     AssertIntEQ(rc, BAD_FUNC_ARG);
     info.pk.pqc_sign.preHashType = WC_HASH_TYPE_NONE;
-
-    /* too big for one-shot */
-    info.pk.pqc_sign.inlen = MAX_DIGEST_BUFFER + 1;
-    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
-    AssertIntEQ(rc, BAD_FUNC_ARG);
-    info.pk.pqc_sign.inlen = (word32)sizeof(msg);
 
     /* NULL outlen: reject before dereference */
     info.pk.pqc_sign.outlen = NULL;
@@ -7618,6 +7617,37 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
             NULL, 0, bigSig, (int)bigSigLen, &vtk);
         AssertIntNE(rc, 0);
 #endif /* WOLFTPM_MLDSA_VERIFY */
+
+        /* a message longer than one TPM buffer streams through the sequence */
+        longMsg = (byte*)XMALLOC(TEST_MLDSA_LONG_MSG_SZ, NULL,
+            DYNAMIC_TYPE_TMP_BUFFER);
+        AssertNotNull(longMsg);
+        XMEMSET(longMsg, 0xA5, TEST_MLDSA_LONG_MSG_SZ);
+        info.pk.pqc_sign.in = longMsg;
+        info.pk.pqc_sign.inlen = TEST_MLDSA_LONG_MSG_SZ;
+        bigSigLen = (word32)WC_MLDSA_65_SIG_SIZE;
+        info.pk.pqc_sign.outlen = &bigSigLen;
+        rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+        AssertIntEQ(rc, 0);
+#ifdef WOLFTPM_MLDSA_VERIFY
+        rc = wolfTPM2_VerifySequenceStart(&dev, &tpmKey, NULL, 0, &vSeq);
+        AssertIntEQ(rc, 0);
+        for (pos = 0; pos < TEST_MLDSA_LONG_MSG_SZ; pos += chunk) {
+            chunk = TEST_MLDSA_LONG_MSG_SZ - pos;
+            if (chunk > MAX_DIGEST_BUFFER)
+                chunk = MAX_DIGEST_BUFFER;
+            rc = wolfTPM2_VerifySequenceUpdate(&dev, vSeq, longMsg + pos,
+                (int)chunk);
+            AssertIntEQ(rc, 0);
+        }
+        XMEMSET(&vtk, 0, sizeof(vtk));
+        rc = wolfTPM2_VerifySequenceComplete(&dev, vSeq, &tpmKey,
+            NULL, 0, bigSig, (int)bigSigLen, &vtk);
+        AssertIntEQ(rc, 0);
+#endif /* WOLFTPM_MLDSA_VERIFY */
+        info.pk.pqc_sign.in = msg;
+        info.pk.pqc_sign.inlen = (word32)sizeof(msg);
+        XFREE(longMsg, NULL, DYNAMIC_TYPE_TMP_BUFFER);
 
         /* small buffer: preserves the size-error contract, not WC_HW_E */
         bigSigLen = 16;

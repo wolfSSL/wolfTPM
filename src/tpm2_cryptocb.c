@@ -431,6 +431,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             TPM_HANDLE seqHandle = 0;
             WOLFTPM2_HANDLE seqHandleObj;
             int sigSz;
+            const byte* msg = info->pk.pqc_sign.in;
+            word32 msgSz = info->pk.pqc_sign.inlen;
 
             /* Not an ML-DSA request, or no TPM key configured: software can
              * legitimately take it. */
@@ -439,14 +441,11 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 return exit_rc;
             }
             /* The key lives in the TPM, so a software fallback would sign with
-             * absent private material. Fail instead of yielding. Only the pure
-             * one-shot form is supported here. */
+             * absent private material. Fail instead of yielding. */
             if (info->pk.pqc_sign.preHashType != WC_HASH_TYPE_NONE ||
                     info->pk.pqc_sign.out == NULL ||
                     info->pk.pqc_sign.outlen == NULL ||
-                    (info->pk.pqc_sign.in == NULL &&
-                        info->pk.pqc_sign.inlen > 0) ||
-                    info->pk.pqc_sign.inlen > MAX_DIGEST_BUFFER) {
+                    (msg == NULL && msgSz > 0)) {
                 return BAD_FUNC_ARG;
             }
             sigSz = (int)*info->pk.pqc_sign.outlen;
@@ -454,10 +453,17 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             rc = wolfTPM2_SignSequenceStart(tlsCtx->dev, tlsCtx->mldsaKey,
                 info->pk.pqc_sign.context, (int)info->pk.pqc_sign.contextLen,
                 &seqHandle);
+            /* Complete carries one TPM2B_MAX_BUFFER; stream the rest first */
+            while (rc == 0 && msgSz > MAX_DIGEST_BUFFER) {
+                rc = wolfTPM2_SignSequenceUpdate(tlsCtx->dev, seqHandle, msg,
+                    MAX_DIGEST_BUFFER);
+                msg += MAX_DIGEST_BUFFER;
+                msgSz -= MAX_DIGEST_BUFFER;
+            }
             if (rc == 0) {
                 rc = wolfTPM2_SignSequenceComplete(tlsCtx->dev, seqHandle,
-                    tlsCtx->mldsaKey, info->pk.pqc_sign.in,
-                    (int)info->pk.pqc_sign.inlen, info->pk.pqc_sign.out, &sigSz);
+                    tlsCtx->mldsaKey, msg, (int)msgSz, info->pk.pqc_sign.out,
+                    &sigSz);
                 if (rc == 0) {
                     *info->pk.pqc_sign.outlen = (word32)sigSz;
                 }
