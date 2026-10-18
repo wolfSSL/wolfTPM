@@ -4660,10 +4660,30 @@ typedef struct TpmCryptoDevCtx {
 
 #ifdef WOLFTPM_CRYPTOCB
 
+/* Key id asking key generation for a transient key at a handle the TPM picks */
+#define WOLFTPM2_KEYID_TRANSIENT TRANSIENT_FIRST
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief A reference crypto callback API for using the TPM for crypto offload.
     This callback function is registered using wolfTPM2_SetCryptoDevCb or wc_CryptoDev_RegisterDevice
+    \note Key generation, signing and RSA operations on an ECC, RSA or ML-DSA key whose
+    key id is a 4-byte big-endian persistent or transient handle use the TPM key at that
+    handle with an empty authorization value. RSA public operations on an RsaKey that
+    has a modulus use that modulus instead. The TPM key must be unrestricted and must fit
+    the operation: RSA with the NULL scheme and the decrypt attribute, ECC with an ECDSA
+    scheme or the NULL scheme, which signs with the curve's hash, where the hash is no
+    shorter than the input and no longer than the curve, or pure ML-DSA with the
+    parameter set given to wc_MlDsaKey_SetParams. The
+    operation also fails when the wolfCrypt key holds a different public key or only a
+    private key; without either, a transient id names whatever key is loaded at that
+    handle.
+    Key generation creates the key under storageKey with an empty auth and noDA. A
+    persistent handle stores it there, which needs an empty owner authorization.
+    WOLFTPM2_KEYID_TRANSIENT leaves it loaded at a handle the TPM picks and writes that
+    handle to the key id; the caller unloads it with wolfTPM2_UnloadHandle. Key generation
+    fails for any other key id, for a wolfCrypt key that already holds a key and for a
+    curve shorter than its hash (P-192, P-224).
 
     \return TPM_RC_SUCCESS: successful
     \return CRYPTOCB_UNAVAILABLE: Do not use TPM hardware, fall-back to default software crypto.
