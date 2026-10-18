@@ -283,3 +283,113 @@ jobs:
               -S tests/cmake_static_consumer \
               -B build-static-consumer \
               -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install"
+
+  # wolfSSL's CMake leaves ML-DSA off, so this job builds its own wolfSSL and
+  # checks that a fwTPM build detects it and turns on WOLFTPM_V185.
+  cmake-pqc:
+    name: CMake fwTPM v1.85 (ML-DSA / ML-KEM)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    steps:
+      - uses: actions/checkout@master
+        with:
+          submodules: true
+
+      - name: Resolve wolfSSL commit
+        id: wolfssl_rev
+        shell: bash
+        run: echo "sha=$(git ls-remote https://github.com/wolfSSL/wolfssl.git master | awk 'NR==1{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache wolfSSL install
+        id: wolfssl_cache
+        uses: actions/cache@v4
+        with:
+          path: install
+          key: wolfssl-cmake-pqc-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1-ci-v1.1
+
+      - name: Checkout wolfssl
+        if: steps.wolfssl_cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@master
+        with:
+          repository: wolfssl/wolfssl
+          ref: ${{ steps.wolfssl_rev.outputs.sha }}
+          path: wolfssl
+
+      - name: Build and install wolfssl
+        if: steps.wolfssl_cache.outputs.cache-hit != 'true'
+        working-directory: ./wolfssl
+        run: |
+          mkdir build && cd build
+          cmake -DWOLFSSL_TPM=yes -DWOLFSSL_MLDSA=yes -DWOLFSSL_INSTALL=yes \
+              -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" \
+              -DCMAKE_C_FLAGS="-DWC_RSA_NO_PADDING -DWOLFSSL_PUBLIC_MP" ..
+          cmake --build . --parallel
+          cmake --install .
+
+      - name: Build wolfTPM
+        run: |
+          cmake -B build -DWOLFTPM_FWTPM=yes -DWOLFTPM_INTERFACE=SWTPM \
+              -DWOLFTPM_BUILD_OUT_OF_TREE=yes \
+              -DWITH_WOLFSSL="$GITHUB_WORKSPACE/install"
+          grep -q "define WOLFTPM_V185" build/wolftpm/options.h
+          cmake --build build --parallel
+
+      - name: Test
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install/lib"
+          ctest --test-dir build --output-on-failure
+          ./build/bin/fwtpm_server --clear > /tmp/fwtpm_server.log 2>&1 &
+          fwtpm_pid=$!
+          trap 'kill "$fwtpm_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 500); do
+            ss -tln 2>/dev/null | grep ":2321 " > /dev/null && break
+            sleep 0.01
+          done
+          if ! kill -0 "$fwtpm_pid" 2>/dev/null ||
+              ! ss -tln 2>/dev/null | grep ":2321 " > /dev/null; then
+            echo "fwtpm_server failed to start" >&2
+            cat /tmp/fwtpm_server.log >&2
+            exit 1
+          fi
+          ./build/bin/pqc_mssim_e2e
+
+      - name: Build PQC option variants
+        run: |
+          wolfssl="$GITHUB_WORKSPACE/install"
+          cmake -B build-pqc -DWOLFTPM_PQC=yes \
+              -DWOLFTPM_BUILD_OUT_OF_TREE=yes -DWITH_WOLFSSL="$wolfssl"
+          grep -q "define WOLFTPM_PQC$" build-pqc/wolftpm/options.h
+          if grep -q "define WOLFTPM_V185" build-pqc/wolftpm/options.h; then
+            exit 1
+          fi
+          cmake --build build-pqc --parallel
+          cmake -B build-trim -DWOLFTPM_FWTPM=yes -DWOLFTPM_INTERFACE=SWTPM \
+              -DWOLFTPM_PQC=yes \
+              -DWOLFTPM_MLDSA=verify-only -DWOLFTPM_MLKEM=enc \
+              -DWOLFTPM_HASH_MLDSA=OFF -DWOLFTPM_EXAMPLES=no \
+              -DWOLFTPM_BUILD_OUT_OF_TREE=yes -DWITH_WOLFSSL="$wolfssl"
+          for opt in V185 NO_MLDSA_SIGN NO_MLKEM_DECAP NO_HASH_MLDSA; do
+            grep -q "define WOLFTPM_$opt$" build-trim/wolftpm/options.h
+          done
+          cmake --build build-trim --parallel
+          cmake -B build-nopqc -DWOLFTPM_FWTPM=yes -DWOLFTPM_INTERFACE=SWTPM \
+              -DWOLFTPM_V185=OFF \
+              -DWOLFTPM_BUILD_OUT_OF_TREE=yes -DWITH_WOLFSSL="$wolfssl"
+          if grep -Eq "define WOLFTPM_(V185|PQC)" build-nopqc/wolftpm/options.h; then
+            exit 1
+          fi
+          mkdir nomldsa && cp -r "$wolfssl/include" nomldsa/
+          sed -i 's|^#define WOLFSSL_HAVE_MLDSA$||' nomldsa/include/wolfssl/options.h
+          if cmake -B build-nomldsa -DWOLFTPM_V185=yes \
+              -DWOLFTPM_BUILD_OUT_OF_TREE=yes -DWITH_WOLFSSL="$PWD/nomldsa" \
+              > nomldsa.log 2>&1; then
+            exit 1
+          fi
+          grep -q "require wolfSSL built with ML-DSA" nomldsa.log
