@@ -690,11 +690,12 @@ typedef int64_t  INT64;
         #define XSLEEP_MS(ms) esp_rom_delay_us((word32)(ms) * 1000U)
     #elif defined(__linux__) || defined(__ARM_EABI__)
         #include <unistd.h>
-        static inline void XSLEEP_MS(unsigned int ms) {
-            if (ms >= 1000)
-                sleep(ms / 1000);
-            usleep((ms % 1000) * 1000);
-        }
+        #define XSLEEP_MS(ms) do {                       \
+            unsigned int xsleepMs = (unsigned int)(ms);  \
+            if (xsleepMs >= 1000)                        \
+                sleep(xsleepMs / 1000);                  \
+            usleep((xsleepMs % 1000) * 1000);            \
+        } while (0)
     #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
         #include <time.h>
         static inline void XSLEEP_MS(unsigned int ms) {
@@ -710,11 +711,12 @@ typedef int64_t  INT64;
         #define XSLEEP_MS(ms) vTaskDelay(ms)
     #else
         #include <unistd.h>
-        static inline void XSLEEP_MS(unsigned int ms) {
-            if (ms >= 1000)
-                sleep(ms / 1000);
-            usleep((ms % 1000) * 1000);
-        }
+        #define XSLEEP_MS(ms) do {                       \
+            unsigned int xsleepMs = (unsigned int)(ms);  \
+            if (xsleepMs >= 1000)                        \
+                sleep(xsleepMs / 1000);                  \
+            usleep((xsleepMs % 1000) * 1000);            \
+        } while (0)
     #endif
 #endif
 
