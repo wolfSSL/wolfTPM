@@ -82,6 +82,25 @@ The same flags also trim the fwTPM server: `--enable-fwtpm --enable-mldsa=verify
 !!! note
     Trimming does not make the examples allocation-free; they still allocate signature and ciphertext buffers with `XMALLOC`. fwTPM has a separate `WOLFTPM2_NO_HEAP` option that moves all buffers to the stack, at the cost of much larger stack use. See [fwTPM Building](fwtpm/building.md) for details.
 
+### CMake
+
+The CMake build takes the same choices as cache variables, and also accepts `ON` and `OFF` for `yes` and `no`:
+
+```sh
+cmake .. -DWITH_WOLFSSL=/prefix/to/wolfssl -DWOLFTPM_FWTPM=yes \
+         -DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_V185=yes
+```
+
+| Variable | Values | Configure flag |
+|----------|--------|----------------|
+| `WOLFTPM_V185` | `detect` (default) / `yes` / `no` | `--enable-v185` |
+| `WOLFTPM_PQC` | `detect` (default) / `yes` / `no` | `--enable-pqc` |
+| `WOLFTPM_MLDSA` | `all` (default) / `sign-only` / `verify-only` / `no` | `--enable-mldsa` |
+| `WOLFTPM_MLKEM` | `all` (default) / `enc` / `dec` / `no` | `--enable-mlkem` |
+| `WOLFTPM_HASH_MLDSA` | `yes` (default) / `no` | `--disable-hash-mldsa` |
+
+As with configure, a fwTPM build enables v1.85 when wolfCrypt has ML-DSA and ML-KEM, and promotes `WOLFTPM_PQC=yes` to v1.85. With `-DWITH_WOLFSSL_TREE` the check reads the tree's `WOLFSSL_MLDSA` and `WOLFSSL_MLKEM` options instead of compiling against installed headers. wolfSSL's own CMake build leaves ML-DSA off unless it gets `-DWOLFSSL_MLDSA=yes`.
+
 ## Running the examples
 
 ```sh

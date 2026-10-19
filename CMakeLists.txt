@@ -44,6 +44,28 @@ set(WOLFTPM_FWTPM_NV_APPEND_ONLY "no" CACHE STRING
 set_property(CACHE WOLFTPM_FWTPM_NV_APPEND_ONLY
     PROPERTY STRINGS "yes;no")
 
+# TPM 2.0 v1.85 and post-quantum (ML-DSA, ML-KEM), as in configure.ac
+set(WOLFTPM_V185 "detect" CACHE STRING
+    "Enable TPM 2.0 v1.85 features, ML-DSA and ML-KEM included (default: detect with fwTPM and wolfCrypt ML-DSA + ML-KEM)")
+set_property(CACHE WOLFTPM_V185
+    PROPERTY STRINGS "detect;yes;no")
+set(WOLFTPM_PQC "detect" CACHE STRING
+    "Enable only the ML-DSA / ML-KEM part of v1.85 (default: detect)")
+set_property(CACHE WOLFTPM_PQC
+    PROPERTY STRINGS "detect;yes;no")
+set(WOLFTPM_MLDSA "all" CACHE STRING
+    "Limit ML-DSA support (default: all)")
+set_property(CACHE WOLFTPM_MLDSA
+    PROPERTY STRINGS "all;sign-only;verify-only;no")
+set(WOLFTPM_MLKEM "all" CACHE STRING
+    "Limit ML-KEM support (default: all)")
+set_property(CACHE WOLFTPM_MLKEM
+    PROPERTY STRINGS "all;enc;dec;no")
+set(WOLFTPM_HASH_MLDSA "yes" CACHE STRING
+    "Pre-hash ML-DSA key support (default: enabled with ML-DSA)")
+set_property(CACHE WOLFTPM_HASH_MLDSA
+    PROPERTY STRINGS "yes;no")
+
 # fwtpm-only forces fwtpm on
 if(WOLFTPM_FWTPM_ONLY)
     set(WOLFTPM_FWTPM "yes" CACHE STRING "" FORCE)
@@ -491,6 +513,150 @@ if(WOLFTPM_FWTPM AND NOT WOLFCRYPT_AVAILABLE)
         "-DWITH_WOLFSSL_TREE=<path>, or install it system-wide.")
 endif()
 
+# Reads a wolfSSL tree's options, else compiles against the headers only.
+function(wolftpm_check_wolfcrypt_pqc result)
+    if(WITH_WOLFSSL_TREE AND NOT WITH_WOLFSSL)
+        get_filename_component(tree "${WITH_WOLFSSL_TREE}" ABSOLUTE)
+        if(WOLFSSL_MLKEM AND (WOLFSSL_MLDSA OR WOLFSSL_DILITHIUM) AND
+                EXISTS "${tree}/wolfssl/wolfcrypt/wc_mldsa.h" AND
+                EXISTS "${tree}/wolfssl/wolfcrypt/wc_mlkem.h")
+            set(${result} ON PARENT_SCOPE)
+        else()
+            set(${result} OFF PARENT_SCOPE)
+        endif()
+        return()
+    endif()
+    unset(WOLFTPM_HAVE_WOLFCRYPT_PQC CACHE)
+    set(CMAKE_REQUIRED_INCLUDES ${ARGN})
+    set(CMAKE_REQUIRED_LIBRARIES ${WOLFTPM_WOLFSSL_TARGET})
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    include(CheckCSourceCompiles)
+    check_c_source_compiles("
+        #include <wolfssl/options.h>
+        #include <wolfssl/wolfcrypt/wc_mldsa.h>
+        #include <wolfssl/wolfcrypt/wc_mlkem.h>
+        int wolftpm_pqc_probe(void);
+        int wolftpm_pqc_probe(void)
+        {
+            return (int)sizeof(&wc_MlDsaKey_Init) +
+                   (int)sizeof(&wc_MlKemKey_Init);
+        }" WOLFTPM_HAVE_WOLFCRYPT_PQC)
+    set(${result} ${WOLFTPM_HAVE_WOLFCRYPT_PQC} PARENT_SCOPE)
+endfunction()
+
+set(WOLFTPM_WOLFSSL_INCLUDES)
+set(WOLFTPM_WOLFSSL_TARGET)
+if(WITH_WOLFSSL)
+    get_filename_component(WOLFTPM_WOLFSSL_INCLUDES "${WITH_WOLFSSL}/include"
+        ABSOLUTE)
+elseif(WOLFSSL_FOUND)
+    set(WOLFTPM_WOLFSSL_INCLUDES ${WOLFSSL_INCLUDE_DIRS})
+elseif(TARGET wolfssl::wolfssl)
+    set(WOLFTPM_WOLFSSL_TARGET wolfssl::wolfssl)
+endif()
+
+# Accept CMake booleans as well as the configure spellings
+foreach(opt WOLFTPM_V185 WOLFTPM_PQC WOLFTPM_MLDSA WOLFTPM_MLKEM
+        WOLFTPM_HASH_MLDSA)
+    string(TOUPPER "${${opt}}" value)
+    if(value MATCHES "^(ON|YES|Y|TRUE|1)$")
+        set(${opt} "yes")
+    elseif(value MATCHES "^(OFF|NO|N|FALSE|0)$")
+        set(${opt} "no")
+    endif()
+endforeach()
+if("${WOLFTPM_MLDSA}" STREQUAL "yes")
+    set(WOLFTPM_MLDSA "all")
+endif()
+if("${WOLFTPM_MLKEM}" STREQUAL "yes")
+    set(WOLFTPM_MLKEM "all")
+endif()
+foreach(opt WOLFTPM_V185 WOLFTPM_PQC)
+    if(NOT "${${opt}}" MATCHES "^(detect|yes|no)$")
+        message(FATAL_ERROR "invalid ${opt}=${${opt}} (use detect, yes or no)")
+    endif()
+endforeach()
+if(NOT "${WOLFTPM_HASH_MLDSA}" MATCHES "^(yes|no)$")
+    message(FATAL_ERROR
+        "invalid WOLFTPM_HASH_MLDSA=${WOLFTPM_HASH_MLDSA} (use yes or no)")
+endif()
+
+set(WOLFTPM_PQC_MODE "no")
+if("${WOLFTPM_V185}" STREQUAL "no" OR "${WOLFTPM_PQC}" STREQUAL "no")
+    set(WOLFTPM_PQC_MODE "no")
+elseif("${WOLFTPM_V185}" STREQUAL "yes")
+    set(WOLFTPM_PQC_MODE "v185")
+elseif("${WOLFTPM_PQC}" STREQUAL "yes")
+    set(WOLFTPM_PQC_MODE "pqc")
+elseif(WOLFTPM_FWTPM AND WOLFCRYPT_AVAILABLE)
+    wolftpm_check_wolfcrypt_pqc(WOLFTPM_DETECTED_PQC ${WOLFTPM_WOLFSSL_INCLUDES})
+    if(WOLFTPM_DETECTED_PQC)
+        message(STATUS "wolfCrypt ML-DSA + ML-KEM detected; enabling WOLFTPM_V185 "
+            "(-DWOLFTPM_V185=no to opt out)")
+        set(WOLFTPM_PQC_MODE "v185")
+    endif()
+endif()
+
+# fwTPM server code is gated on WOLFTPM_V185
+if(WOLFTPM_PQC_MODE STREQUAL "pqc" AND WOLFTPM_FWTPM)
+    message(STATUS "fwTPM requires full v1.85; promoting WOLFTPM_PQC to WOLFTPM_V185")
+    set(WOLFTPM_PQC_MODE "v185")
+endif()
+
+if(NOT WOLFTPM_PQC_MODE STREQUAL "no")
+    if(WOLFCRYPT_AVAILABLE AND NOT WOLFTPM_DETECTED_PQC)
+        wolftpm_check_wolfcrypt_pqc(WOLFTPM_DETECTED_PQC ${WOLFTPM_WOLFSSL_INCLUDES})
+        if(NOT WOLFTPM_DETECTED_PQC)
+            message(FATAL_ERROR
+                "WOLFTPM_V185 / WOLFTPM_PQC require wolfSSL built with ML-DSA "
+                "(-DWOLFSSL_MLDSA=yes or --enable-mldsa) and ML-KEM")
+        endif()
+    endif()
+
+    if(WOLFTPM_PQC_MODE STREQUAL "v185")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_V185")
+    else()
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_PQC")
+    endif()
+
+    if("${WOLFTPM_MLDSA}" STREQUAL "no")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NO_MLDSA")
+    elseif("${WOLFTPM_MLDSA}" STREQUAL "sign-only")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NO_MLDSA_VERIFY")
+    elseif("${WOLFTPM_MLDSA}" STREQUAL "verify-only")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NO_MLDSA_SIGN")
+    elseif(NOT "${WOLFTPM_MLDSA}" STREQUAL "all")
+        message(FATAL_ERROR "invalid WOLFTPM_MLDSA=${WOLFTPM_MLDSA} "
+            "(use all, sign-only, verify-only or no)")
+    endif()
+
+    if("${WOLFTPM_MLKEM}" STREQUAL "no")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NO_MLKEM")
+    elseif("${WOLFTPM_MLKEM}" STREQUAL "enc")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NO_MLKEM_DECAP")
+    elseif("${WOLFTPM_MLKEM}" STREQUAL "dec")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NO_MLKEM_ENCAP")
+    elseif(NOT "${WOLFTPM_MLKEM}" STREQUAL "all")
+        message(FATAL_ERROR "invalid WOLFTPM_MLKEM=${WOLFTPM_MLKEM} "
+            "(use all, enc, dec or no)")
+    endif()
+
+    if("${WOLFTPM_MLDSA}" STREQUAL "no" AND "${WOLFTPM_MLKEM}" STREQUAL "no")
+        message(FATAL_ERROR "WOLFTPM_MLDSA=no and WOLFTPM_MLKEM=no leave no PQC "
+            "algorithm; use -DWOLFTPM_PQC=no to build without post-quantum support")
+    endif()
+    if("${WOLFTPM_HASH_MLDSA}" STREQUAL "no")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NO_HASH_MLDSA")
+    endif()
+endif()
+
+message(STATUS "Post-Quantum (v185/pqc): ${WOLFTPM_PQC_MODE}")
+if(NOT WOLFTPM_PQC_MODE STREQUAL "no")
+    message(STATUS "    ML-DSA: ${WOLFTPM_MLDSA}")
+    message(STATUS "    ML-KEM: ${WOLFTPM_MLKEM}")
+    message(STATUS "    Hash-ML-DSA: ${WOLFTPM_HASH_MLDSA}")
+endif()
+
 if (WOLFTPM_EXAMPLES AND BUILD_WOLFTPM_LIB)
     add_library(tpm_test_lib STATIC
         examples/tpm_test_keys.c
@@ -810,6 +976,15 @@ if (WOLFTPM_EXAMPLES AND BUILD_WOLFTPM_LIB)
     add_tpm_example(tls_server tls/tls_server.c)
     add_tpm_example(caps wrap/caps.c)
     add_tpm_example(wrap_test wrap/wrap_test.c)
+    if(NOT WOLFTPM_PQC_MODE STREQUAL "no")
+        add_tpm_example(pqc_mssim_e2e pqc/pqc_mssim_e2e.c)
+        add_tpm_example(mlkem_encap pqc/mlkem_encap.c)
+        add_tpm_example(mldsa_sign pqc/mldsa_sign.c)
+        add_tpm_example(mldsa_verify_neg pqc/mldsa_verify_neg.c)
+        add_tpm_example(mlkem_decap_neg pqc/mlkem_decap_neg.c)
+        add_tpm_example(gen_pqc_certs pqc/gen_pqc_certs.c)
+        add_tpm_example(pqc_ctrl pqc/pqc_ctrl.c)
+    endif()
 endif()
 
 

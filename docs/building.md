@@ -72,7 +72,7 @@ cmake .. -DWITH_WOLFSSL_TREE=/path/to/wolfssl/
 cmake --build .
 ```
 
-Use `-DWITH_WOLFSSL=` when wolfSSL is already installed (library and headers), or `-DWITH_WOLFSSL_TREE=` to build against a wolfSSL source tree.
+Use `-DWITH_WOLFSSL=` when wolfSSL is already installed (library and headers), or `-DWITH_WOLFSSL_TREE=` to build against a wolfSSL source tree. The post-quantum (TPM 2.0 v1.85) options are on the [Post-Quantum Cryptography](post-quantum.md#cmake) page.
 
 ## Bare-metal build
 
