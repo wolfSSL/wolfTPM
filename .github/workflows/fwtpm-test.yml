@@ -75,6 +75,24 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-rsa
             build_only: true
 
+          # RSA 4096 at runtime. The chip macros raise MAX_RSA_KEY_BITS to
+          # 4096, which is where a public area outgrows the buffers sized
+          # for RSA 2048; every other entry here leaves it at 2048.
+          - name: fwtpm-rsa4096
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-infineon=slb9672
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+
+          # Build-only: the same chip macros with RSA disabled, so the RSA
+          # sizing branches must not fire and the buffers stay at their
+          # classical sizes.
+          - name: fwtpm-no-rsa-chip4096
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-infineon=slb9672
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-rsa
+            build_only: true
+
           # Build-only: fwTPM with ECC disabled
           - name: fwtpm-no-ecc
             os: ubuntu-latest

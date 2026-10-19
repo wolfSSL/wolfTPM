@@ -315,7 +315,10 @@ static TPM_RC FwSpdmTpmKeyName(const byte* rawPub, word32 rawPubSz,
         pkt.buf = buf;
         pkt.size = (int)FWTPM_MAX_PUB_BUF;
         TPM2_Packet_AppendPublicArea(&pkt, pub);
-        rc = FwNameFromPublicArea(buf, (word32)pkt.pos, name);
+        if (pkt.overflow)
+            rc = TPM_RC_FAILURE;
+        else
+            rc = FwNameFromPublicArea(buf, (word32)pkt.pos, name);
     }
     FWTPM_FREE_BUF(buf);
     FWTPM_FREE_VAR(pub);
@@ -7288,12 +7291,13 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         nameDigSz = TPM2_GetHashDigestSize(inPublic->publicArea.nameAlg);
         FWTPM_ALLOC_BUF(pubBuf2, FWTPM_MAX_PUB_BUF);
         if (rc == 0) {
+            XMEMSET(&tmpPkt2, 0, sizeof(tmpPkt2));
             tmpPkt2.buf = pubBuf2;
             tmpPkt2.pos = 0;
             tmpPkt2.size = (int)FWTPM_MAX_PUB_BUF;
             TPM2_Packet_AppendPublicArea(&tmpPkt2, &inPublic->publicArea);
             FwStoreU16BE(objName, inPublic->publicArea.nameAlg);
-            if (nameDigSz > 0) {
+            if (nameDigSz > 0 && !tmpPkt2.overflow) {
                 int hashRc = wc_Hash(
                     FwGetWcHashType(inPublic->publicArea.nameAlg),
                     pubBuf2, tmpPkt2.pos, objName + 2, nameDigSz);
@@ -8147,15 +8151,18 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        XMEMSET(&tmpPkt, 0, sizeof(tmpPkt));
         tmpPkt.buf = pubAreaBuf;
         tmpPkt.pos = 0;
         tmpPkt.size = (int)FWTPM_MAX_PUB_BUF;
         TPM2_Packet_AppendPublicArea(&tmpPkt, &objectPublic->publicArea);
         pubAreaSz = tmpPkt.pos;
         FwStoreU16BE(nameBuf, objNameAlg);
-        rc = wc_Hash(objWcHash, pubAreaBuf, pubAreaSz,
-            nameBuf + 2, objDigestSz);
-        if (rc != 0) {
+        if (tmpPkt.overflow) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (wc_Hash(objWcHash, pubAreaBuf, pubAreaSz,
+                nameBuf + 2, objDigestSz) != 0) {
             rc = TPM_RC_FAILURE;
         }
         else {

@@ -447,6 +447,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     double start;
     int count;
     int sha1Supported;
+    int rsaBits = WOLFTPM2_WRAP_RSA_KEY_BITS;
     int skipDec = 0; /* skip a decrypt op whose paired encrypt was unsupported */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
@@ -621,10 +622,12 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count, maxKeyGenDurSec));
-    bench_stats_asym_finish("RSA", 2048, "key gen", count, start);
+    bench_stats_asym_finish("RSA", rsaBits, "key gen", count, start);
 
     /* Perform RSA encrypt / decrypt (no pad) */
-    message.size = 256; /* test message 0x11,0x11,etc */
+    /* No padding means the message is exactly the modulus width, which the
+     * chip defaults take to 512 bytes on an RSA 4096 part. */
+    message.size = rsaBits / 8;
     XMEMSET(message.buffer, 0x11, message.size);
 
     bench_stats_start(&count, &start);
@@ -635,11 +638,12 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
     skipDec = (rc != 0 && bench_unsupported(rc));
-    rc = bench_asym_done("RSA", 2048, "Public", count, start, rc);
+    rc = bench_asym_done("RSA", rsaBits, "Public", count, start, rc);
     if (rc != 0) goto exit;
 
     if (skipDec) {
-        printf("%-6s %5d %-9s Skipped (not supported)\n", "RSA", 2048, "Private");
+        printf("%-6s %5d %-9s Skipped (not supported)\n", "RSA", rsaBits,
+            "Private");
     }
     else {
         bench_stats_start(&count, &start);
@@ -649,7 +653,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
                 cipher.buffer, cipher.size, plain.buffer, &plain.size);
             if (rc != 0) break;
         } while (bench_stats_check(start, &count, maxDuration));
-        rc = bench_asym_done("RSA", 2048, "Private", count, start, rc);
+        rc = bench_asym_done("RSA", rsaBits, "Private", count, start, rc);
         if (rc != 0) goto exit;
     }
 
@@ -666,11 +670,11 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
     skipDec = (rc != 0 && bench_unsupported(rc));
-    rc = bench_asym_done("RSA", 2048, "Pub  OAEP", count, start, rc);
+    rc = bench_asym_done("RSA", rsaBits, "Pub  OAEP", count, start, rc);
     if (rc != 0) goto exit;
 
     if (skipDec) {
-        printf("%-6s %5d %-9s Skipped (not supported)\n", "RSA", 2048,
+        printf("%-6s %5d %-9s Skipped (not supported)\n", "RSA", rsaBits,
             "Priv OAEP");
     }
     else {
@@ -681,7 +685,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
                 cipher.buffer, cipher.size, plain.buffer, &plain.size);
             if (rc != 0) break;
         } while (bench_stats_check(start, &count, maxDuration));
-        rc = bench_asym_done("RSA", 2048, "Priv OAEP", count, start, rc);
+        rc = bench_asym_done("RSA", rsaBits, "Priv OAEP", count, start, rc);
         if (rc != 0) goto exit;
     }
 
