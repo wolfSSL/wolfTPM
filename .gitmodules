@@ -3,3 +3,6 @@
 	url = https://github.com/wolfSSL/wolfSPDM.git
 	branch = main
 	ignore = dirty
+[submodule "lib/wolfHAL"]
+	path = lib/wolfHAL
+	url = https://github.com/wolfSSL/wolfHAL.git

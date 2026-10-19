@@ -37,7 +37,7 @@ This HAL is placed last in the platform selection chain, so it is used only when
 
 ### Board definitions
 
-wolfTPM does not ship board definitions. `tpm_io_wolfhal.c` includes `"board.h"`, which the application provides on its include path. A wolfHAL project already has one, so in most cases only the TPM-specific entries below need to be added to it.
+wolfTPM does not ship board definitions. `tpm_io_wolfhal.c` includes `"wolfHAL_board.h"`, which the application provides on its include path. A wolfHAL project already has one, so in most cases only the TPM-specific entries below need to be added to it.
 
 For SPI:
 
@@ -61,7 +61,7 @@ A TPM 2.0 I2C part takes roughly 80 us to wake and NAKs until it is ready, so ea
 
 A missing entry is reported at compile time, naming the macro that is required. Only the macros needed by the selected bus are checked.
 
-Example additions to an existing wolfHAL `board.h`:
+Example additions to an existing `wolfHAL_board.h`:
 
 ```c
 /* TPM on SPI1, chip select on PA15 */
@@ -80,7 +80,7 @@ whal_I2c_ComCfg g_tpmI2cComCfg = {
     .addrSz = 7,      /* bits */
 };
 
-/* board.h */
+/* wolfHAL_board.h */
 extern whal_I2c_ComCfg g_tpmI2cComCfg;
 #define BOARD_I2C_COM_CFG  (&g_tpmI2cComCfg)
 ```
