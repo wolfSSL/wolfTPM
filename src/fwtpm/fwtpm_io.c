@@ -164,6 +164,9 @@ static int TransportSend(FWTPM_CTX* ctx, int type, SOCKET_T fd,
     if (ctx->ioHal.wait != NULL) {
         return ctx->ioHal.send(ctx->ioHal.ctx, type, buf, sz);
     }
+    if (fd == FWTPM_INVALID_FD) {
+        return TPM_RC_FAILURE;
+    }
     return SocketSend(fd, buf, sz);
 }
 
@@ -172,6 +175,9 @@ static int TransportRecv(FWTPM_CTX* ctx, int type, SOCKET_T fd,
 {
     if (ctx->ioHal.wait != NULL) {
         return ctx->ioHal.recv(ctx->ioHal.ctx, type, buf, sz);
+    }
+    if (fd == FWTPM_INVALID_FD) {
+        return TPM_RC_FAILURE;
     }
     return SocketRecv(fd, buf, sz);
 }
