@@ -631,6 +631,100 @@ static void test_fwtpm_zero_size_command(void)
     fwtpm_pass("Zero-size command (MEDIUM-4):", 0);
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+static int gFwTpmAllocFailCount;
+
+int FWTPM_TestShouldFailAlloc(void)
+{
+    if (gFwTpmAllocFailCount > 0) {
+        gFwTpmAllocFailCount--;
+        return gFwTpmAllocFailCount == 0;
+    }
+    return 0;
+}
+
+static void fwtpm_test_fail_next_alloc(void)
+{
+    gFwTpmAllocFailCount = 1;
+}
+
+static void test_fwtpm_crypto_alloc_failure(void)
+{
+    byte hash[WC_SHA256_DIGEST_SIZE];
+    byte der[1];
+    int derSz = 0;
+    int rc;
+    FWTPM_CTX ctx;
+    FWTPM_Object parent;
+    TPM2B_NAME name;
+    TPM2B_AUTH auth;
+    TPM2B_PRIVATE privateBlob;
+    UINT16 sensitiveType = 0;
+    byte aesKey[WC_SHA256_DIGEST_SIZE];
+    byte macKey[WC_SHA256_DIGEST_SIZE];
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    TPM2B_PUBLIC_KEY_RSA rsaPub;
+    byte seed[FWTPM_SEED_SIZE];
+#endif
+#ifdef HAVE_ECC
+    TPMS_ECC_POINT eccPub;
+#endif
+
+    fwtpm_test_fail_next_alloc();
+    rc = FwComputeHashUnique(TPM_ALG_SHA256, NULL, 0, NULL, 0, hash);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    memset(&rsaPub, 0, sizeof(rsaPub));
+    fwtpm_test_fail_next_alloc();
+    rc = FwGenerateRsaKey(NULL, 2048, WC_RSA_EXPONENT, &rsaPub,
+        der, sizeof(der), &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    memset(seed, 0, sizeof(seed));
+    fwtpm_test_fail_next_alloc();
+    rc = FwDeriveRsaPrimaryKey(TPM_ALG_SHA256, seed, hash, sizeof(hash),
+        2048, WC_RSA_EXPONENT, NULL, &rsaPub, der, sizeof(der), &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+#endif
+
+#ifdef HAVE_ECC
+    memset(&eccPub, 0, sizeof(eccPub));
+    fwtpm_test_fail_next_alloc();
+    rc = FwGenerateEccKey(NULL, TPM_ECC_NIST_P256, &eccPub,
+        der, sizeof(der), &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&parent, 0, sizeof(parent));
+    memset(&name, 0, sizeof(name));
+    memset(&auth, 0, sizeof(auth));
+    memset(&privateBlob, 0, sizeof(privateBlob));
+    parent.hierarchy = TPM_RH_OWNER;
+    parent.privKeySize = 1;
+    name.size = 1;
+    fwtpm_test_fail_next_alloc();
+    rc = FwDeriveWrapKey(&ctx, &parent, &name, aesKey, macKey);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    fwtpm_test_fail_next_alloc();
+    rc = FwWrapPrivate(&ctx, &parent, NULL, &name, TPM_ALG_RSA, &auth,
+        der, 0, &privateBlob);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    memset(&privateBlob, 0, sizeof(privateBlob));
+    privateBlob.size = 2 + WC_SHA256_DIGEST_SIZE + AES_BLOCK_SIZE + 2;
+    PutU16BE(privateBlob.buffer, WC_SHA256_DIGEST_SIZE);
+    fwtpm_test_fail_next_alloc();
+    rc = FwUnwrapPrivate(&ctx, &parent, &name, &privateBlob,
+        &sensitiveType, &auth, der, &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    fwtpm_pass("Crypto allocation failures preserved:", 0);
+}
+#endif
+
 /* ================================================================== */
 /* 4. GetRandom / StirRandom                                           */
 /* ================================================================== */
@@ -1720,6 +1814,12 @@ static void test_fwtpm_getcap_handles_ordered(void)
 #else
     #define FW_GATED_ECDH 0
 #endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH) && \
+    !defined(FWTPM_NO_ZGEN_2PHASE)
+    #define FW_GATED_ZGEN_2PHASE 1
+#else
+    #define FW_GATED_ZGEN_2PHASE 0
+#endif
 #ifdef FWTPM_NO_HASH_CMDS
     #define FW_GATED_HASH_CMDS 0
 #else
@@ -1788,7 +1888,8 @@ static const FwGateCase fwGateCases[] = {
     { TPM_CC_Duplicate,          FW_GATED_KEY_MIGRATION, "Duplicate" },
     { TPM_CC_Rewrap,             FW_GATED_KEY_MIGRATION, "Rewrap" },
     { TPM_CC_ECC_Parameters,     FW_GATED_ECDH,          "ECC_Parameters" },
-    { TPM_CC_EC_Ephemeral,       FW_GATED_ECDH,          "EC_Ephemeral" },
+    { TPM_CC_EC_Ephemeral,       FW_GATED_ZGEN_2PHASE,    "EC_Ephemeral" },
+    { TPM_CC_ZGen_2Phase,        FW_GATED_ZGEN_2PHASE,    "ZGen_2Phase" },
     { TPM_CC_Hash,               FW_GATED_HASH_CMDS,     "Hash" },
     { TPM_CC_HashSequenceStart,  FW_GATED_HASH_CMDS,     "HashSequenceStart" },
     { TPM_CC_SequenceComplete,   FW_GATED_HASH_CMDS,     "SequenceComplete" },
@@ -2737,6 +2838,27 @@ static int BuildCreatePrimaryCmd(byte* buf, TPM_ALG_ID algType)
 }
 
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+/* Replace the empty authPolicy in a command produced by
+ * BuildCreatePrimaryCmdEx. That builder has a fixed prefix through the
+ * TPMT_PUBLIC authPolicy field for every supported public type. */
+static int SetCreatePublicAuthPolicy(byte* buf, int cmdSz,
+    const byte* policy, UINT16 policySz)
+{
+    const int publicSizeOffset = TPM2_HEADER_SIZE + 4 + 4 + 9 + 6;
+    const int policySizeOffset = publicSizeOffset + 2 + 2 + 2 + 4;
+    const int policyOffset = policySizeOffset + 2;
+    UINT16 publicSz = GetU16BE(buf + publicSizeOffset);
+
+    memmove(buf + policyOffset + policySz, buf + policyOffset,
+        (size_t)(cmdSz - policyOffset));
+    PutU16BE(buf + policySizeOffset, policySz);
+    memcpy(buf + policyOffset, policy, policySz);
+    PutU16BE(buf + publicSizeOffset, (UINT16)(publicSz + policySz));
+    cmdSz += policySz;
+    PutU32BE(buf + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
 static void test_fwtpm_create_primary_rsa(void)
 {
     FWTPM_CTX ctx;
@@ -2769,6 +2891,31 @@ static void test_fwtpm_create_primary_rsa(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("CreatePrimary(RSA-2048):", 0);
+}
+
+/* A non-empty object authPolicy must match the nameAlg digest size. Accepting
+ * a different size creates an object that NV persistence later rejects. */
+static void test_fwtpm_object_auth_policy_size_rejected(void)
+{
+    FWTPM_CTX ctx;
+    byte badPolicy[20];
+    int rc, rspSize, cmdSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(badPolicy, 0xA5, sizeof(badPolicy));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA);
+    cmdSz = SetCreatePublicAuthPolicy(gCmd, cmdSz, badPolicy,
+        (UINT16)sizeof(badPolicy));
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Object authPolicy size mismatch rejected:", 0);
 }
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN */
 
@@ -12671,6 +12818,23 @@ static void test_fwtpm_nv_journal_tamper_rejected(void)
     printf("Test fwTPM:\tNV journal tamper rejected:\tPassed\n");
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+static void test_fwtpm_nv_journal_mac_alloc_failure(void)
+{
+    FWTPM_CTX ctx;
+    int rc;
+
+    memset(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+
+    fwtpm_test_fail_next_alloc();
+    rc = FWTPM_NV_Save(&ctx);
+
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+    printf("Test fwTPM:\tNV journal MAC allocation failure:\tPassed\n");
+}
+#endif
+
 static void test_fwtpm_nv_counter(void)
 {
     FWTPM_CTX ctx;
@@ -12947,7 +13111,7 @@ static void test_fwtpm_ecdh_zgen_signkey_returns_attributes(void)
 }
 #endif /* !FWTPM_NO_ECDH */
 
-#ifndef FWTPM_NO_ECDH
+#if !defined(FWTPM_NO_ECDH) && !defined(FWTPM_NO_ZGEN_2PHASE)
 static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
 {
     FWTPM_CTX ctx;
@@ -12980,7 +13144,7 @@ static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tZGen_2Phase(sign key) rejected:\tPassed\n");
 }
-#endif /* !FWTPM_NO_ECDH */
+#endif /* !FWTPM_NO_ECDH && !FWTPM_NO_ZGEN_2PHASE */
 
 /* Quote requires a restricted signing key per Part 3 Sec.18.4. Build the
  * command once and run it against keys that violate each requirement. */
@@ -16663,6 +16827,7 @@ static void test_fwtpm_decrypt_primitives_reject_storage_key(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
 
+#ifndef FWTPM_NO_ZGEN_2PHASE
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ZGen_2Phase);
     PutU32BE(gCmd + pos, keyH); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
@@ -16676,6 +16841,7 @@ static void test_fwtpm_decrypt_primitives_reject_storage_key(void)
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
     FlushHandle(&ctx, keyH);
 #endif
 
@@ -17580,7 +17746,6 @@ static void test_fwtpm_nv_append_atomic(void)
     fwtpm_pass("NV append atomic on commit failure:", 0);
 }
 
-#ifndef FWTPM_NO_DA
 static void PutU32LE(byte* p, UINT32 v)
 {
     p[0] = (byte)(v & 0xFF);
@@ -17588,6 +17753,164 @@ static void PutU32LE(byte* p, UINT32 v)
     p[2] = (byte)((v >> 16) & 0xFF);
     p[3] = (byte)((v >> 24) & 0xFF);
 }
+
+static void PutU16LE(byte* p, UINT16 v)
+{
+    p[0] = (byte)(v & 0xFF);
+    p[1] = (byte)((v >> 8) & 0xFF);
+}
+
+static int NvLoadCraftedEntry(FWTPM_CTX* ctx, UINT16 tag,
+    const byte* value, UINT16 valueLen)
+{
+    FWTPM_NV_HAL hal;
+    word32 writePos = (word32)sizeof(FWTPM_NV_HEADER) + 4 + valueLen;
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    PutU32LE(gMockNvStore + 0, 0x66775450);   /* magic "fwTP" */
+    PutU32LE(gMockNvStore + 4, 4);            /* version (TLV journal) */
+    PutU32LE(gMockNvStore + 8, writePos);
+    PutU32LE(gMockNvStore + 12, MOCK_NV_SIZE);
+    gMockNvStore[16] = (byte)(tag & 0xFF);
+    gMockNvStore[17] = (byte)((tag >> 8) & 0xFF);
+    gMockNvStore[18] = (byte)(valueLen & 0xFF);
+    gMockNvStore[19] = (byte)((valueLen >> 8) & 0xFF);
+    if (valueLen > 0) {
+        memcpy(gMockNvStore + 20, value, valueLen);
+    }
+
+    memset(ctx, 0, sizeof(*ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(ctx, &hal), 0);
+    return FWTPM_NV_Init(ctx);
+}
+
+static void test_fwtpm_nv_malformed_entry_rejected(void)
+{
+    FWTPM_CTX ctx;
+    byte malformedCache[40];
+    byte malformedObject[8];
+    const byte validAuth[2] = {0, 0};
+    const byte shortAuth[1] = {0};
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_OWNER_AUTH,
+        validAuth, (UINT16)sizeof(validAuth)), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.ownerAuth.size, 0);
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_OWNER_AUTH,
+        shortAuth, (UINT16)sizeof(shortAuth)), TPM_RC_FAILURE);
+
+    /* The TPM2B_PUBLIC size must bound parsing. These records declare room for
+     * only the public type, so nameAlg must not be read from the next field. */
+    XMEMSET(malformedObject, 0, sizeof(malformedObject));
+    PutU32LE(malformedObject, PERSISTENT_FIRST);
+    malformedObject[5] = 2;
+    malformedObject[7] = TPM_ALG_RSA;
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_PERSISTENT,
+        malformedObject, (UINT16)sizeof(malformedObject)), TPM_RC_FAILURE);
+
+    XMEMSET(malformedCache, 0, sizeof(malformedCache));
+    PutU32LE(malformedCache, TPM_RH_OWNER);
+    malformedCache[37] = 2;
+    malformedCache[39] = TPM_ALG_RSA;
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_PRIMARY_CACHE,
+        malformedCache, (UINT16)sizeof(malformedCache)), TPM_RC_FAILURE);
+
+    fwtpm_pass("NV malformed entry rejected:", 0);
+}
+
+static void test_fwtpm_nv_reserved_attributes_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int cmdSz;
+    int rspSize = 0;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        FWTPM_NV_RESERVED_ATTR_MASK;
+
+    XMEMSET(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    cmdSz = BuildNvDefineCmd(gCmd, 0x01500071, 8, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_RESERVED_BITS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV reserved attributes rejected:", 0);
+}
+
+static void test_fwtpm_nv_semantic_entry_skipped(void)
+{
+    FWTPM_CTX ctx;
+    byte valid[19];
+    byte value[19];
+    FWTPM_NV_HAL hal;
+    word32 writePos;
+    word32 pos = 0;
+    int i;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        FWTPM_NV_RESERVED_ATTR_MASK;
+
+    XMEMSET(value, 0, sizeof(value));
+    PutU32LE(value + pos, 0x01500072); pos += 4;
+    PutU16LE(value + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32LE(value + pos, attrs); pos += 4;
+    PutU16LE(value + pos, 0); pos += 2; /* authPolicy */
+    PutU16LE(value + pos, 0); pos += 2; /* dataSize */
+    PutU16LE(value + pos, 0); pos += 2; /* authValue */
+    value[pos++] = 0;                   /* written */
+    PutU16LE(value + pos, 0); pos += 2; /* data length */
+    AssertIntEQ(pos, sizeof(value));
+
+    XMEMCPY(valid, value, sizeof(valid));
+    PutU32LE(valid + 6, attrs & ~FWTPM_NV_RESERVED_ATTR_MASK);
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_NV_INDEX,
+        value, (UINT16)sizeof(value)), TPM_RC_SUCCESS);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        AssertIntEQ(ctx.nvIndices[i].inUse, 0);
+    }
+
+    /* A semantically invalid newer snapshot must also discard an earlier
+     * snapshot of the same index rather than restoring stale authorization or
+     * data. */
+    XMEMSET(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    writePos = (word32)sizeof(FWTPM_NV_HEADER) + 8 + sizeof(valid) +
+        sizeof(value);
+    PutU32LE(gMockNvStore + 0, 0x66775450);
+    PutU32LE(gMockNvStore + 4, 4);
+    PutU32LE(gMockNvStore + 8, writePos);
+    PutU32LE(gMockNvStore + 12, MOCK_NV_SIZE);
+    PutU16LE(gMockNvStore + 16, FWTPM_NV_TAG_NV_INDEX);
+    PutU16LE(gMockNvStore + 18, (UINT16)sizeof(valid));
+    XMEMCPY(gMockNvStore + 20, valid, sizeof(valid));
+    PutU16LE(gMockNvStore + 20 + sizeof(valid), FWTPM_NV_TAG_NV_INDEX);
+    PutU16LE(gMockNvStore + 22 + sizeof(valid), (UINT16)sizeof(value));
+    XMEMCPY(gMockNvStore + 24 + sizeof(valid), value, sizeof(value));
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_Init(&ctx), TPM_RC_SUCCESS);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        AssertIntEQ(ctx.nvIndices[i].inUse, 0);
+    }
+
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_NV_INDEX,
+        value, 10), TPM_RC_FAILURE);
+
+    TPM2_ForceZero(&ctx, sizeof(ctx));
+    fwtpm_pass("NV semantic journal entry skipped:", 0);
+}
+
+#ifndef FWTPM_NO_DA
 
 /* Build a minimal NV journal (header + one FLAGS entry) in gMockNvStore and
  * load it through the mock HAL (no integrity key, so the MAC check is skipped).
@@ -18513,6 +18836,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
     }
 #endif
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    if (argc == 2 && XSTRCMP(argv[1], "crypto-alloc-failure") == 0) {
+        test_fwtpm_crypto_alloc_failure();
+        return 0;
+    }
+#endif
+
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();
         return 0;
@@ -18594,6 +18924,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Security fix regressions */
     test_fwtpm_auth_area_oversize();
     test_fwtpm_zero_size_command();
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_crypto_alloc_failure();
+#endif
 
     /* GetRandom / StirRandom */
     test_fwtpm_getrandom();
@@ -18668,6 +19001,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Key operations */
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_create_primary_rsa();
+    test_fwtpm_object_auth_policy_size_rejected();
 #endif
 #if defined(WOLFTPM_V185) && !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_create_primary_limited_attrs();
@@ -18967,6 +19301,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_nv_journal_mac_alloc_failure();
+#endif
+    test_fwtpm_nv_malformed_entry_rejected();
+    test_fwtpm_nv_reserved_attributes_rejected();
+    test_fwtpm_nv_semantic_entry_skipped();
     test_fwtpm_nv_counter();
 #ifndef FWTPM_NO_ATTESTATION
     test_fwtpm_nv_certify_digest_mode();
@@ -18977,7 +19317,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_ECDH
     test_fwtpm_ecdh_keygen_signkey_returns_attributes();
     test_fwtpm_ecdh_zgen_signkey_returns_attributes();
+#ifndef FWTPM_NO_ZGEN_2PHASE
     test_fwtpm_zgen_2phase_signkey_returns_attributes();
+#endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* !FWTPM_NO_ECDH */
     test_fwtpm_quote_decrypt_key_returns_key();
     test_fwtpm_quote_unrestricted_sign_returns_attributes();

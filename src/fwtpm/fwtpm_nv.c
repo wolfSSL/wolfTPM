@@ -59,6 +59,10 @@
 /* TLV header size: tag(2) + length(2) */
 #define TLV_HDR_SIZE  4
 
+/* A structurally valid record whose contents are no longer accepted is
+ * ignored for compatibility with journals written by older versions. */
+#define FWTPM_NV_SKIP_ENTRY  -1
+
 /* Append-only is active only when both the HAL opts in and the feature is
  * built. Reading the field through this macro keeps the byte-addressable MAC
  * write/verify and writePos validation active if a port sets appendOnly
@@ -412,27 +416,38 @@ static int FwNvUnmarshalPublic(const byte* buf, word32* pos, word32 maxSz,
 {
     TPM2_Packet pkt;
     TPM2B_PUBLIC pub2b;
+    UINT16 pubSz;
+    int skipEntry = 0;
+
+    if (*pos > maxSz || maxSz - *pos < 2) {
+        return TPM_RC_FAILURE;
+    }
+    pubSz = (UINT16)(((UINT16)buf[*pos] << 8) | buf[*pos + 1]);
+    if ((word32)pubSz > maxSz - *pos - 2) {
+        return TPM_RC_FAILURE;
+    }
 
     XMEMSET(&pkt, 0, sizeof(pkt));
+    XMEMSET(&pub2b, 0, sizeof(pub2b));
     pkt.buf = (byte*)(buf + *pos);
     pkt.pos = 0;
-    pkt.size = (int)(maxSz - *pos);
+    pkt.size = (int)pubSz + 2;
 
     TPM2_Packet_ParsePublic(&pkt, &pub2b);
 
-    if (pkt.pos <= 0 || (word32)pkt.pos > (maxSz - *pos)) {
+    if (pkt.overflow || pkt.pos != pkt.size || pub2b.size != pubSz) {
         return TPM_RC_FAILURE;
     }
     /* authPolicy.size must equal the nameAlg digest size (Part 3 Sec.31.3) */
     if (pub2b.publicArea.authPolicy.size > 0 &&
             (int)pub2b.publicArea.authPolicy.size !=
                 TPM2_GetHashDigestSize(pub2b.publicArea.nameAlg)) {
-        return TPM_RC_FAILURE;
+        skipEntry = 1;
     }
     XMEMCPY(pub, &pub2b.publicArea, sizeof(TPMT_PUBLIC));
 
     *pos += pkt.pos;
-    return 0;
+    return skipEntry ? FWTPM_NV_SKIP_ENTRY : TPM_RC_SUCCESS;
 }
 
 /* Marshal TPM2B_NAME: UINT16 size + byte[size] */
@@ -495,14 +510,9 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
     TPMS_NV_PUBLIC* nvPub)
 {
     int rc;
+    UINT32 nvType = TPM_NT_ORDINARY;
+
     rc = FwNvUnmarshalU32(buf, pos, maxSz, &nvPub->nvIndex);
-    /* nvIndex must be in the NV handle range or a later lookup could be
-     * confused with another handle class (Part 2 Sec.7.4). */
-    if (rc == 0 &&
-            (nvPub->nvIndex < NV_INDEX_FIRST ||
-             nvPub->nvIndex > NV_INDEX_LAST)) {
-        rc = TPM_RC_FAILURE;
-    }
     if (rc == 0) {
         rc = FwNvUnmarshalU16(buf, pos, maxSz, &nvPub->nameAlg);
     }
@@ -510,39 +520,31 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
         rc = FwNvUnmarshalU32(buf, pos, maxSz, &nvPub->attributes);
     }
     if (rc == 0) {
-        UINT32 nt = (nvPub->attributes & TPMA_NV_TPM_NT) >> 4;
-        if (nt != TPM_NT_ORDINARY && nt != TPM_NT_COUNTER &&
-                nt != TPM_NT_BITS && nt != TPM_NT_EXTEND) {
-            rc = TPM_RC_FAILURE;
-        }
-    }
-    /* Reserved TPMA_NV bits [9:8] and [24:20] must be clear (Part 2
-     * Sec.13.4); a crafted journal entry could otherwise install an index
-     * with undefined access-control semantics. */
-    if (rc == 0 && (nvPub->attributes & 0x01F00300UL) != 0) {
-        rc = TPM_RC_FAILURE;
+        nvType = (nvPub->attributes & TPMA_NV_TPM_NT) >> 4;
     }
     if (rc == 0) {
         rc = FwNvUnmarshalDigest(buf, pos, maxSz, &nvPub->authPolicy);
     }
-    /* Per TPM 2.0 Part 3 Sec.31.3, authPolicy.size must equal the digest
-     * size of nameAlg. A mismatched length installs a policy whose size
-     * never matches any legitimate session policyDigest, permanently
-     * denying policy-based access to this NV index. */
-    if (rc == 0 && nvPub->authPolicy.size > 0 &&
-            (int)nvPub->authPolicy.size !=
-                TPM2_GetHashDigestSize(nvPub->nameAlg)) {
-        rc = TPM_RC_FAILURE;
-    }
     if (rc == 0) {
         rc = FwNvUnmarshalU16(buf, pos, maxSz, &nvPub->dataSize);
     }
-    /* nv->data[] is sized to FWTPM_MAX_NV_DATA; rejecting an inflated
-     * dataSize here prevents the later NV_Write bounds check from
-     * comparing offset+size against an attacker-chosen ceiling and
-     * overrunning the fixed destination buffer. */
-    if (rc == 0 && nvPub->dataSize > FWTPM_MAX_NV_DATA) {
-        rc = TPM_RC_FAILURE;
+
+    if (rc == 0) {
+        /* These checks are semantic, so perform them only after the complete
+         * structure was consumed and structural truncation was ruled out. */
+        if (nvPub->nvIndex < NV_INDEX_FIRST ||
+                nvPub->nvIndex > NV_INDEX_LAST ||
+                (nvType != TPM_NT_ORDINARY &&
+                 nvType != TPM_NT_COUNTER &&
+                 nvType != TPM_NT_BITS &&
+                 nvType != TPM_NT_EXTEND) ||
+                (nvPub->attributes & FWTPM_NV_RESERVED_ATTR_MASK) != 0 ||
+                (nvPub->authPolicy.size > 0 &&
+                 (int)nvPub->authPolicy.size !=
+                    TPM2_GetHashDigestSize(nvPub->nameAlg)) ||
+                nvPub->dataSize > FWTPM_MAX_NV_DATA) {
+            rc = FWTPM_NV_SKIP_ENTRY;
+        }
     }
     return rc;
 }
@@ -584,6 +586,7 @@ static int FwNvUnmarshalNvIndex(const byte* buf, word32* pos, word32 maxSz,
     FWTPM_NvIndex* nv)
 {
     int rc;
+    int skipEntry = 0;
     UINT16 dataLen;
     UINT8 written = 0;
 
@@ -591,6 +594,10 @@ static int FwNvUnmarshalNvIndex(const byte* buf, word32* pos, word32 maxSz,
     nv->inUse = 1;
 
     rc = FwNvUnmarshalNvPublic(buf, pos, maxSz, &nv->nvPublic);
+    if (rc == FWTPM_NV_SKIP_ENTRY) {
+        skipEntry = 1;
+        rc = TPM_RC_SUCCESS;
+    }
     if (rc == 0) {
         rc = FwNvUnmarshalAuth(buf, pos, maxSz, &nv->authValue);
     }
@@ -608,6 +615,9 @@ static int FwNvUnmarshalNvIndex(const byte* buf, word32* pos, word32 maxSz,
         if (dataLen > 0) {
             rc = FwNvUnmarshalBytes(buf, pos, maxSz, nv->data, dataLen);
         }
+    }
+    if (rc == TPM_RC_SUCCESS && skipEntry) {
+        rc = FWTPM_NV_SKIP_ENTRY;
     }
     return rc;
 }
@@ -654,19 +664,18 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     FWTPM_Object* obj)
 {
     int rc;
+    int skipEntry = 0;
     UINT16 privSz;
 
     XMEMSET(obj, 0, sizeof(FWTPM_Object));
 
     rc = FwNvUnmarshalU32(buf, pos, maxSz, &obj->handle);
-    /* A persistent object handle must stay in range or a later FwFindObject
-     * lookup could resolve a transient handle to this slot. */
-    if (rc == 0 &&
-            (obj->handle < PERSISTENT_FIRST || obj->handle > PERSISTENT_LAST)) {
-        rc = TPM_RC_VALUE;
-    }
     if (rc == 0) {
         rc = FwNvUnmarshalPublic(buf, pos, maxSz, &obj->pub);
+        if (rc == FWTPM_NV_SKIP_ENTRY) {
+            skipEntry = 1;
+            rc = TPM_RC_SUCCESS;
+        }
     }
     if (rc == 0) {
         rc = FwNvUnmarshalAuth(buf, pos, maxSz, &obj->authValue);
@@ -700,7 +709,18 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
         obj->hierarchy = TPM_RH_PLATFORM;
     }
     if (rc == 0) {
-        obj->used = 1;
+        /* Validate the handle after consuming the complete record so a
+         * truncated entry cannot be mistaken for a legacy semantic reject. */
+        if (obj->handle < PERSISTENT_FIRST ||
+                obj->handle > PERSISTENT_LAST) {
+            skipEntry = 1;
+        }
+        if (skipEntry) {
+            rc = FWTPM_NV_SKIP_ENTRY;
+        }
+        else {
+            obj->used = 1;
+        }
     }
     return rc;
 }
@@ -737,6 +757,7 @@ static int FwNvUnmarshalPrimaryCache(const byte* buf, word32* pos,
     word32 maxSz, FWTPM_PrimaryCache* cache)
 {
     int rc;
+    int skipEntry = 0;
     UINT16 privSz;
 
     XMEMSET(cache, 0, sizeof(FWTPM_PrimaryCache));
@@ -748,6 +769,10 @@ static int FwNvUnmarshalPrimaryCache(const byte* buf, word32* pos,
     }
     if (rc == 0) {
         rc = FwNvUnmarshalPublic(buf, pos, maxSz, &cache->pub);
+        if (rc == FWTPM_NV_SKIP_ENTRY) {
+            skipEntry = 1;
+            rc = TPM_RC_SUCCESS;
+        }
     }
     if (rc == 0) {
         rc = FwNvUnmarshalU16(buf, pos, maxSz, &privSz);
@@ -764,7 +789,12 @@ static int FwNvUnmarshalPrimaryCache(const byte* buf, word32* pos,
         }
     }
     if (rc == 0) {
-        cache->used = 1;
+        if (skipEntry) {
+            rc = FWTPM_NV_SKIP_ENTRY;
+        }
+        else {
+            cache->used = 1;
+        }
     }
     return rc;
 }
@@ -975,11 +1005,13 @@ static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
     FWTPM_DECLARE_VAR(hmac, Hmac);
     byte chunk[256];
     word32 off = sizeof(FWTPM_NV_HEADER);
-    int rc;
+    int rc = 0;
 
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
-    rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    }
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, WC_SHA256, key, keySz);
     }
@@ -997,6 +1029,7 @@ static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, macOut);
     }
+    wc_ForceZero(chunk, sizeof(chunk));
     wc_HmacFree(hmac);
     FWTPM_FREE_VAR(hmac);
     return rc;
@@ -1293,177 +1326,315 @@ static int FwNvFindOrAllocCacheSlot(FWTPM_CTX* ctx, UINT32 hierarchy,
 static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
     const byte* value, UINT16 valueLen)
 {
+    int rc = TPM_RC_SUCCESS;
     word32 vPos = 0;
     word32 vMax = (word32)valueLen;
 
     switch (tag) {
         case FWTPM_NV_TAG_OWNER_SEED:
-            if (valueLen >= FWTPM_SEED_SIZE) {
+            if (valueLen == FWTPM_SEED_SIZE) {
                 XMEMCPY(ctx->ownerSeed, value, FWTPM_SEED_SIZE);
+            }
+            else {
+                rc = TPM_RC_FAILURE;
             }
             break;
 
         case FWTPM_NV_TAG_ENDORSEMENT_SEED:
-            if (valueLen >= FWTPM_SEED_SIZE) {
+            if (valueLen == FWTPM_SEED_SIZE) {
                 XMEMCPY(ctx->endorsementSeed, value, FWTPM_SEED_SIZE);
+            }
+            else {
+                rc = TPM_RC_FAILURE;
             }
             break;
 
         case FWTPM_NV_TAG_PLATFORM_SEED:
-            if (valueLen >= FWTPM_SEED_SIZE) {
+            if (valueLen == FWTPM_SEED_SIZE) {
                 XMEMCPY(ctx->platformSeed, value, FWTPM_SEED_SIZE);
+            }
+            else {
+                rc = TPM_RC_FAILURE;
             }
             break;
 
         case FWTPM_NV_TAG_OWNER_AUTH:
-            FwNvUnmarshalAuth(value, &vPos, vMax, &ctx->ownerAuth);
-            break;
-
         case FWTPM_NV_TAG_ENDORSEMENT_AUTH:
-            FwNvUnmarshalAuth(value, &vPos, vMax, &ctx->endorsementAuth);
+        case FWTPM_NV_TAG_LOCKOUT_AUTH: {
+            TPM2B_AUTH auth;
+            TPM2B_AUTH* target;
+
+            XMEMSET(&auth, 0, sizeof(auth));
+            rc = FwNvUnmarshalAuth(value, &vPos, vMax, &auth);
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == TPM_RC_SUCCESS) {
+                if (tag == FWTPM_NV_TAG_OWNER_AUTH) {
+                    target = &ctx->ownerAuth;
+                }
+                else if (tag == FWTPM_NV_TAG_ENDORSEMENT_AUTH) {
+                    target = &ctx->endorsementAuth;
+                }
+                else {
+                    target = &ctx->lockoutAuth;
+                }
+                XMEMCPY(target, &auth, sizeof(auth));
+            }
+            wc_ForceZero(&auth, sizeof(auth));
             break;
+        }
 
-        case FWTPM_NV_TAG_PLATFORM_AUTH:
-            if (FwNvUnmarshalAuth(value, &vPos, vMax,
-                    &ctx->platformAuth) == 0 && vPos < vMax) {
-                TPM2B_DIGEST policy;
-                UINT16 alg = TPM_ALG_NULL;
+        case FWTPM_NV_TAG_PLATFORM_AUTH: {
+            TPM2B_AUTH auth;
+            TPM2B_DIGEST policy;
+            UINT16 alg = TPM_ALG_NULL;
+            int havePolicy = 0;
 
-                XMEMSET(&policy, 0, sizeof(policy));
-                if (FwNvUnmarshalU16(value, &vPos, vMax, &alg) == 0 &&
-                        FwNvUnmarshalDigest(value, &vPos, vMax,
-                            &policy) == 0 &&
-                        (policy.size == 0 ||
-                         (int)policy.size == TPM2_GetHashDigestSize(alg))) {
-                    ctx->platformPolicy = policy;
+            XMEMSET(&auth, 0, sizeof(auth));
+            XMEMSET(&policy, 0, sizeof(policy));
+            rc = FwNvUnmarshalAuth(value, &vPos, vMax, &auth);
+            if (rc == TPM_RC_SUCCESS && vPos < vMax) {
+                rc = FwNvUnmarshalU16(value, &vPos, vMax, &alg);
+                if (rc == TPM_RC_SUCCESS) {
+                    rc = FwNvUnmarshalDigest(value, &vPos, vMax, &policy);
+                }
+                if (rc == TPM_RC_SUCCESS && policy.size > 0 &&
+                        (int)policy.size != TPM2_GetHashDigestSize(alg)) {
+                    rc = TPM_RC_FAILURE;
+                }
+                havePolicy = 1;
+            }
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == TPM_RC_SUCCESS) {
+                XMEMCPY(&ctx->platformAuth, &auth, sizeof(auth));
+                if (havePolicy) {
+                    XMEMCPY(&ctx->platformPolicy, &policy, sizeof(policy));
                     ctx->platformPolicyAlg = alg;
                 }
             }
+            wc_ForceZero(&auth, sizeof(auth));
+            wc_ForceZero(&policy, sizeof(policy));
             break;
+        }
 
-        case FWTPM_NV_TAG_LOCKOUT_AUTH:
-            FwNvUnmarshalAuth(value, &vPos, vMax, &ctx->lockoutAuth);
-            break;
+        case FWTPM_NV_TAG_PCR_STATE: {
+            UINT32 updateCounter = 0;
 
-        case FWTPM_NV_TAG_PCR_STATE:
-            if (valueLen >= (word32)sizeof(ctx->pcrDigest) + 4) {
+            if (valueLen != (word32)sizeof(ctx->pcrDigest) + 4) {
+                rc = TPM_RC_FAILURE;
+                break;
+            }
+            vPos = (word32)sizeof(ctx->pcrDigest);
+            rc = FwNvUnmarshalU32(value, &vPos, vMax, &updateCounter);
+            if (rc == TPM_RC_SUCCESS && vPos == vMax) {
                 XMEMCPY(ctx->pcrDigest, value, sizeof(ctx->pcrDigest));
-                vPos = (word32)sizeof(ctx->pcrDigest);
-                FwNvUnmarshalU32(value, &vPos, vMax,
-                    &ctx->pcrUpdateCounter);
+                ctx->pcrUpdateCounter = updateCounter;
+            }
+            else {
+                rc = TPM_RC_FAILURE;
             }
             break;
+        }
 
         case FWTPM_NV_TAG_PCR_AUTH: {
             int idx;
             UINT8 allocBanks = FWTPM_PCR_ALLOC_DEFAULT;
-            FwNvUnmarshalU8(value, &vPos, vMax, &allocBanks);
-            ctx->pcrAllocatedBanks = allocBanks;
-            for (idx = 0; idx < IMPLEMENTATION_PCR && vPos < vMax; idx++) {
-                FwNvUnmarshalAuth(value, &vPos, vMax, &ctx->pcrAuth[idx]);
-                FwNvUnmarshalDigest(value, &vPos, vMax,
-                    &ctx->pcrPolicy[idx]);
-                FwNvUnmarshalU16(value, &vPos, vMax,
-                    &ctx->pcrPolicyAlg[idx]);
+            UINT8 allocPending = 0;
+            UINT8 banksPending = 0;
+            TPM2B_AUTH auth;
+            TPM2B_DIGEST policy;
+            UINT16 policyAlg = 0;
+
+            XMEMSET(&auth, 0, sizeof(auth));
+            XMEMSET(&policy, 0, sizeof(policy));
+            rc = FwNvUnmarshalU8(value, &vPos, vMax, &allocBanks);
+            for (idx = 0; idx < IMPLEMENTATION_PCR &&
+                    rc == TPM_RC_SUCCESS; idx++) {
+                rc = FwNvUnmarshalAuth(value, &vPos, vMax, &auth);
+                if (rc == TPM_RC_SUCCESS) {
+                    rc = FwNvUnmarshalDigest(value, &vPos, vMax, &policy);
+                }
+                if (rc == TPM_RC_SUCCESS) {
+                    rc = FwNvUnmarshalU16(value, &vPos, vMax, &policyAlg);
+                }
             }
             /* Absent in records written before staging existed */
-            if (vPos < vMax) {
-                FwNvUnmarshalU8(value, &vPos, vMax, &ctx->pcrAllocPending);
-                FwNvUnmarshalU8(value, &vPos, vMax,
-                    &ctx->pcrAllocatedBanksPending);
+            if (rc == TPM_RC_SUCCESS && vPos < vMax) {
+                rc = FwNvUnmarshalU8(value, &vPos, vMax, &allocPending);
+                if (rc == TPM_RC_SUCCESS) {
+                    rc = FwNvUnmarshalU8(value, &vPos, vMax,
+                        &banksPending);
+                }
+            }
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            TPM2_ForceZero(&auth, sizeof(auth));
+            TPM2_ForceZero(&policy, sizeof(policy));
+
+            if (rc == TPM_RC_SUCCESS) {
+                vPos = 0;
+                rc = FwNvUnmarshalU8(value, &vPos, vMax,
+                    &ctx->pcrAllocatedBanks);
+                for (idx = 0; idx < IMPLEMENTATION_PCR; idx++) {
+                    if (rc == TPM_RC_SUCCESS) {
+                        rc = FwNvUnmarshalAuth(value, &vPos, vMax,
+                            &ctx->pcrAuth[idx]);
+                    }
+                    if (rc == TPM_RC_SUCCESS) {
+                        rc = FwNvUnmarshalDigest(value, &vPos, vMax,
+                            &ctx->pcrPolicy[idx]);
+                    }
+                    if (rc == TPM_RC_SUCCESS) {
+                        rc = FwNvUnmarshalU16(value, &vPos, vMax,
+                            &ctx->pcrPolicyAlg[idx]);
+                    }
+                }
+                if (rc == TPM_RC_SUCCESS && vPos < vMax) {
+                    ctx->pcrAllocPending = allocPending;
+                    ctx->pcrAllocatedBanksPending = banksPending;
+                }
             }
             break;
         }
 
         case FWTPM_NV_TAG_FLAGS: {
             UINT8 flags8 = 0;
+            UINT8 proofVersion = 0;
             UINT8 shutdownState = 0;
-            FwNvUnmarshalU8(value, &vPos, vMax, &flags8);
-            ctx->disableClear = (flags8 & 0x01) ? 1 : 0;
-            ctx->globalNvWriteLock = (flags8 & 0x02) ? 1 : 0;
-            /* Inverted bits: a pre-existing journal (clear) leaves every
-             * hierarchy enabled. */
-            ctx->shDisabled = (flags8 & 0x10) ? 1 : 0;
-            ctx->ehDisabled = (flags8 & 0x20) ? 1 : 0;
-            ctx->phDisabled = (flags8 & 0x40) ? 1 : 0;
-            ctx->phNvDisabled = (flags8 & 0x80) ? 1 : 0;
+            UINT32 resetCount = ctx->resetCount;
+            UINT32 restartCount = 0;
+        #ifndef FWTPM_NO_NV
+            UINT32 counterLo = 0;
+            UINT32 counterHi = 0;
+            UINT64 counterMax = ctx->nvCounterMax;
+        #endif
         #ifndef FWTPM_NO_DA
-            FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daMaxTries);
-            FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daRecoveryTime);
-            FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daLockoutRecovery);
-            /* A tampered journal must not disable lockout with 0 or a value
-             * so large the gate never engages */
-            if (ctx->daMaxTries == 0 ||
-                    ctx->daMaxTries > FWTPM_DA_MAX_TRIES_LIMIT) {
-                ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
+            UINT32 maxTries = 0;
+            UINT32 recoveryTime = 0;
+            UINT32 lockoutRecovery = 0;
+            UINT32 failedTries = 0;
+            int haveFailedTries = 0;
+        #endif
+
+            rc = FwNvUnmarshalU8(value, &vPos, vMax, &flags8);
+        #ifndef FWTPM_NO_DA
+            if (rc == TPM_RC_SUCCESS) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax, &maxTries);
             }
-            ctx->daUsed = 0; /* per-boot, reset on load */
+            if (rc == TPM_RC_SUCCESS) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax, &recoveryTime);
+            }
+            if (rc == TPM_RC_SUCCESS) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax,
+                    &lockoutRecovery);
+            }
         #endif
             /* resetCount trails the DA fields in newer journals */
-            if (vPos + 4 <= vMax) {
-                FwNvUnmarshalU32(value, &vPos, vMax, &ctx->resetCount);
+            if (rc == TPM_RC_SUCCESS && vPos + 4 <= vMax) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax, &resetCount);
             }
         #ifndef FWTPM_NO_DA
             /* daFailedTries trails resetCount in journals that record it.
              * Older journals lack it: treat as a clean orderly checkpoint so
              * an upgrade does not trigger a spurious lockout penalty. */
-            if (vPos + 4 <= vMax) {
-                FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daFailedTries);
-                if (ctx->daFailedTries > FWTPM_DA_MAX_TRIES_LIMIT) {
-                    ctx->daFailedTries = ctx->daMaxTries;
-                }
-                ctx->orderly = (flags8 & 0x04) ? 1 : 0;
-                ctx->lockoutAuthFailed = (flags8 & 0x08) ? 1 : 0;
-            }
-            else {
-                ctx->daFailedTries = 0;
-                ctx->orderly = 1;
-                ctx->lockoutAuthFailed = 0;
+            if (rc == TPM_RC_SUCCESS && vPos + 4 <= vMax) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax, &failedTries);
+                haveFailedTries = 1;
             }
         #endif
             /* Old journals end here and keep their original proof/KDF. */
-            ctx->endorsementProofVersion = 0;
-            if (vPos < vMax) {
-                FwNvUnmarshalU8(value, &vPos, vMax,
-                    &ctx->endorsementProofVersion);
-                if (ctx->endorsementProofVersion != 1)
-                    ctx->endorsementProofVersion = 0;
+            if (rc == TPM_RC_SUCCESS && vPos < vMax) {
+                rc = FwNvUnmarshalU8(value, &vPos, vMax, &proofVersion);
             }
-            ctx->restartCount = 0;
-            if (vPos + 4 <= vMax) {
-                FwNvUnmarshalU32(value, &vPos, vMax, &ctx->restartCount);
+            if (rc == TPM_RC_SUCCESS && vPos + 4 <= vMax) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax, &restartCount);
             }
-            ctx->shutdownStateSaved = 0;
-            if (vPos < vMax) {
-                FwNvUnmarshalU8(value, &vPos, vMax, &shutdownState);
-                ctx->shutdownStateSaved = shutdownState ? 1 : 0;
+            if (rc == TPM_RC_SUCCESS && vPos < vMax) {
+                rc = FwNvUnmarshalU8(value, &vPos, vMax, &shutdownState);
             }
         #ifndef FWTPM_NO_NV
-            if (vPos + 8 <= vMax) {
-                UINT32 lo = 0, hi = 0;
-                UINT64 counterMax;
-                FwNvUnmarshalU32(value, &vPos, vMax, &lo);
-                FwNvUnmarshalU32(value, &vPos, vMax, &hi);
-                counterMax = (UINT64)lo | ((UINT64)hi << 32);
+            if (rc == TPM_RC_SUCCESS && vPos + 8 <= vMax) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax, &counterLo);
+                if (rc == TPM_RC_SUCCESS) {
+                    rc = FwNvUnmarshalU32(value, &vPos, vMax, &counterHi);
+                }
+                counterMax = (UINT64)counterLo | ((UINT64)counterHi << 32);
+            }
+        #endif
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == TPM_RC_SUCCESS) {
+                ctx->disableClear = (flags8 & 0x01) ? 1 : 0;
+                ctx->globalNvWriteLock = (flags8 & 0x02) ? 1 : 0;
+                /* Inverted bits: a pre-existing journal (clear) leaves every
+                 * hierarchy enabled. */
+                ctx->shDisabled = (flags8 & 0x10) ? 1 : 0;
+                ctx->ehDisabled = (flags8 & 0x20) ? 1 : 0;
+                ctx->phDisabled = (flags8 & 0x40) ? 1 : 0;
+                ctx->phNvDisabled = (flags8 & 0x80) ? 1 : 0;
+                ctx->resetCount = resetCount;
+            #ifndef FWTPM_NO_DA
+                if (maxTries == 0 ||
+                        maxTries > FWTPM_DA_MAX_TRIES_LIMIT) {
+                    maxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
+                }
+                ctx->daMaxTries = maxTries;
+                ctx->daRecoveryTime = recoveryTime;
+                ctx->daLockoutRecovery = lockoutRecovery;
+                ctx->daUsed = 0;
+                if (haveFailedTries) {
+                    if (failedTries > FWTPM_DA_MAX_TRIES_LIMIT) {
+                        failedTries = maxTries;
+                    }
+                    ctx->daFailedTries = failedTries;
+                    ctx->orderly = (flags8 & 0x04) ? 1 : 0;
+                    ctx->lockoutAuthFailed = (flags8 & 0x08) ? 1 : 0;
+                }
+                else {
+                    ctx->daFailedTries = 0;
+                    ctx->orderly = 1;
+                    ctx->lockoutAuthFailed = 0;
+                }
+            #endif
+                ctx->endorsementProofVersion =
+                    (proofVersion == 1) ? 1 : 0;
+                ctx->restartCount = restartCount;
+                ctx->shutdownStateSaved = shutdownState ? 1 : 0;
+            #ifndef FWTPM_NO_NV
                 if (counterMax > ctx->nvCounterMax) {
                     ctx->nvCounterMax = counterMax;
                 }
+            #endif
             }
-        #endif
             break;
         }
 
         case FWTPM_NV_TAG_SHUTDOWN_STATE:
-            if (valueLen >= 1) {
+            if (valueLen == 1) {
                 ctx->shutdownStateSaved = value[0] ? 1 : 0;
+            }
+            else {
+                rc = TPM_RC_FAILURE;
             }
             break;
 
         case FWTPM_NV_TAG_CLOCK: {
             UINT32 lo = 0, hi = 0;
-            FwNvUnmarshalU32(value, &vPos, vMax, &lo);
-            FwNvUnmarshalU32(value, &vPos, vMax, &hi);
-            ctx->clockOffset = (UINT64)lo | ((UINT64)hi << 32);
+            rc = FwNvUnmarshalU32(value, &vPos, vMax, &lo);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = FwNvUnmarshalU32(value, &vPos, vMax, &hi);
+            }
+            if (rc == TPM_RC_SUCCESS && vPos == vMax) {
+                ctx->clockOffset = (UINT64)lo | ((UINT64)hi << 32);
+            }
+            else {
+                rc = TPM_RC_FAILURE;
+            }
             break;
         }
 
@@ -1472,9 +1643,19 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             UINT16 alg = 0;
             TPM2B_DIGEST policy;
             XMEMSET(&policy, 0, sizeof(policy));
-            FwNvUnmarshalU32(value, &vPos, vMax, &hier);
-            FwNvUnmarshalU16(value, &vPos, vMax, &alg);
-            FwNvUnmarshalDigest(value, &vPos, vMax, &policy);
+            rc = FwNvUnmarshalU32(value, &vPos, vMax, &hier);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = FwNvUnmarshalU16(value, &vPos, vMax, &alg);
+            }
+            if (rc == TPM_RC_SUCCESS) {
+                rc = FwNvUnmarshalDigest(value, &vPos, vMax, &policy);
+            }
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc != TPM_RC_SUCCESS) {
+                break;
+            }
             /* Per TPM 2.0 Part 3 Sec.23.1, policy.size must equal the
              * digest size of alg. Discard a journal entry where the
              * sizes diverge so it cannot lock the hierarchy out by
@@ -1513,11 +1694,37 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
     #ifndef FWTPM_NO_NV
         case FWTPM_NV_TAG_NV_INDEX: {
             FWTPM_NvIndex nv;
+            UINT32 nvType;
+            UINT64 counter;
+            int i;
             int slot;
-            if (FwNvUnmarshalNvIndex(value, &vPos, vMax, &nv) == 0) {
-                UINT32 nt = (nv.nvPublic.attributes & TPMA_NV_TPM_NT) >> 4;
-                if (nt == TPM_NT_COUNTER && nv.written) {
-                    UINT64 counter = FwLoadU64BE(nv.data);
+
+            rc = FwNvUnmarshalNvIndex(value, &vPos, vMax, &nv);
+            if ((rc == TPM_RC_SUCCESS || rc == FWTPM_NV_SKIP_ENTRY) &&
+                    vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == FWTPM_NV_SKIP_ENTRY) {
+                if (nv.nvPublic.nvIndex < NV_INDEX_FIRST ||
+                        nv.nvPublic.nvIndex > NV_INDEX_LAST) {
+                    rc = TPM_RC_FAILURE;
+                }
+                else {
+                    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+                        if (ctx->nvIndices[i].inUse &&
+                            ctx->nvIndices[i].nvPublic.nvIndex ==
+                                nv.nvPublic.nvIndex) {
+                            wc_ForceZero(&ctx->nvIndices[i],
+                                sizeof(FWTPM_NvIndex));
+                            break;
+                        }
+                    }
+                }
+            }
+            if (rc == TPM_RC_SUCCESS) {
+                nvType = (nv.nvPublic.attributes & TPMA_NV_TPM_NT) >> 4;
+                if (nvType == TPM_NT_COUNTER && nv.written) {
+                    counter = FwLoadU64BE(nv.data);
                     if (counter > ctx->nvCounterMax) {
                         ctx->nvCounterMax = counter;
                     }
@@ -1531,18 +1738,25 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                     WOLFSSL_MSG("fwTPM NV: no free NV slot, entry dropped");
                 }
             }
+            wc_ForceZero(&nv, sizeof(nv));
             break;
         }
 
         case FWTPM_NV_TAG_NV_INDEX_DEL: {
             UINT32 nvHandle = 0;
             int i;
-            FwNvUnmarshalU32(value, &vPos, vMax, &nvHandle);
-            for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
-                if (ctx->nvIndices[i].inUse &&
-                    ctx->nvIndices[i].nvPublic.nvIndex == nvHandle) {
-                    XMEMSET(&ctx->nvIndices[i], 0, sizeof(FWTPM_NvIndex));
-                    break;
+            rc = FwNvUnmarshalU32(value, &vPos, vMax, &nvHandle);
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == TPM_RC_SUCCESS) {
+                for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+                    if (ctx->nvIndices[i].inUse &&
+                        ctx->nvIndices[i].nvPublic.nvIndex == nvHandle) {
+                        XMEMSET(&ctx->nvIndices[i], 0,
+                            sizeof(FWTPM_NvIndex));
+                        break;
+                    }
                 }
             }
             break;
@@ -1551,22 +1765,49 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
 
         case FWTPM_NV_TAG_PERSISTENT: {
             FWTPM_Object obj;
+            int i;
             int slot;
-            if (FwNvUnmarshalObject(value, &vPos, vMax, &obj) == 0) {
+            rc = FwNvUnmarshalObject(value, &vPos, vMax, &obj);
+            if ((rc == TPM_RC_SUCCESS || rc == FWTPM_NV_SKIP_ENTRY) &&
+                    vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == FWTPM_NV_SKIP_ENTRY) {
+                if (obj.handle < PERSISTENT_FIRST ||
+                        obj.handle > PERSISTENT_LAST) {
+                    rc = TPM_RC_FAILURE;
+                }
+                else {
+                    for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+                        if (ctx->persistent[i].used &&
+                                ctx->persistent[i].handle == obj.handle) {
+                            TPM2_ForceZero(&ctx->persistent[i],
+                                sizeof(FWTPM_Object));
+                            break;
+                        }
+                    }
+                }
+            }
+            if (rc == TPM_RC_SUCCESS) {
                 slot = FwNvFindOrAllocPersSlot(ctx, obj.handle);
                 if (slot >= 0) {
                     XMEMCPY(&ctx->persistent[slot], &obj,
                         sizeof(FWTPM_Object));
                 }
             }
+            wc_ForceZero(&obj, sizeof(obj));
             break;
         }
 
         case FWTPM_NV_TAG_PERSISTENT_DEL: {
             UINT32 handle = 0;
             int i;
-            FwNvUnmarshalU32(value, &vPos, vMax, &handle);
-            if (handle >= PERSISTENT_FIRST && handle <= PERSISTENT_LAST) {
+            rc = FwNvUnmarshalU32(value, &vPos, vMax, &handle);
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == TPM_RC_SUCCESS && handle >= PERSISTENT_FIRST &&
+                    handle <= PERSISTENT_LAST) {
                 for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
                     if (ctx->persistent[i].used &&
                         ctx->persistent[i].handle == handle) {
@@ -1580,8 +1821,26 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
 
         case FWTPM_NV_TAG_PRIMARY_CACHE: {
             FWTPM_PrimaryCache cache;
+            int i;
             int slot;
-            if (FwNvUnmarshalPrimaryCache(value, &vPos, vMax, &cache) == 0) {
+            rc = FwNvUnmarshalPrimaryCache(value, &vPos, vMax, &cache);
+            if ((rc == TPM_RC_SUCCESS || rc == FWTPM_NV_SKIP_ENTRY) &&
+                    vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == FWTPM_NV_SKIP_ENTRY) {
+                for (i = 0; i < FWTPM_MAX_PRIMARY_CACHE; i++) {
+                    if (ctx->primaryCache[i].used &&
+                        ctx->primaryCache[i].hierarchy == cache.hierarchy &&
+                        XMEMCMP(ctx->primaryCache[i].templateHash,
+                            cache.templateHash, WC_SHA256_DIGEST_SIZE) == 0) {
+                        TPM2_ForceZero(&ctx->primaryCache[i],
+                            sizeof(FWTPM_PrimaryCache));
+                        break;
+                    }
+                }
+            }
+            if (rc == TPM_RC_SUCCESS) {
                 slot = FwNvFindOrAllocCacheSlot(ctx, cache.hierarchy,
                     cache.templateHash);
                 if (slot >= 0) {
@@ -1589,6 +1848,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                         sizeof(FWTPM_PrimaryCache));
                 }
             }
+            wc_ForceZero(&cache, sizeof(cache));
             break;
         }
 
@@ -1596,10 +1856,15 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             UINT32 hierarchy = 0;
             byte tmplHash[WC_SHA256_DIGEST_SIZE];
             int i;
-            FwNvUnmarshalU32(value, &vPos, vMax, &hierarchy);
-            if (vPos + WC_SHA256_DIGEST_SIZE <= vMax) {
-                FwNvUnmarshalBytes(value, &vPos, vMax, tmplHash,
+            rc = FwNvUnmarshalU32(value, &vPos, vMax, &hierarchy);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = FwNvUnmarshalBytes(value, &vPos, vMax, tmplHash,
                     WC_SHA256_DIGEST_SIZE);
+            }
+            if (rc == TPM_RC_SUCCESS && vPos != vMax) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == TPM_RC_SUCCESS) {
                 for (i = 0; i < FWTPM_MAX_PRIMARY_CACHE; i++) {
                     if (ctx->primaryCache[i].used &&
                         ctx->primaryCache[i].hierarchy == hierarchy &&
@@ -1619,7 +1884,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             break;
     }
 
-    return 0;
+    return rc;
 }
 
 /* ========================================================================= */
@@ -1852,7 +2117,13 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
                     break;
                 }
             }
-            FwNvProcessEntry(ctx, tag, valueBuf, len);
+            rc = FwNvProcessEntry(ctx, tag, valueBuf, len);
+            if (rc == FWTPM_NV_SKIP_ENTRY) {
+                rc = TPM_RC_SUCCESS;
+            }
+            else if (rc != TPM_RC_SUCCESS) {
+                break;
+            }
         }
         pos += TLV_HDR_SIZE + len;
     }
@@ -2037,7 +2308,13 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
                 }
             }
 
-            FwNvProcessEntry(ctx, tag, valueBuf, len);
+            rc = FwNvProcessEntry(ctx, tag, valueBuf, len);
+            if (rc == FWTPM_NV_SKIP_ENTRY) {
+                rc = TPM_RC_SUCCESS;
+            }
+            else if (rc != TPM_RC_SUCCESS) {
+                break;
+            }
             pos += TLV_HDR_SIZE + len;
         }
 

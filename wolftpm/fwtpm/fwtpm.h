@@ -132,6 +132,9 @@
  *   FWTPM_NO_KEY_MIGRATION - Import/Duplicate/Rewrap
  *   FWTPM_NO_ECDH          - ECDH_KeyGen/ECDH_ZGen/EC_Ephemeral/ZGen_2Phase/
  *                            ECC_Parameters (ECDSA sign/verify are retained)
+ *   FWTPM_NO_ZGEN_2PHASE    - EC_Ephemeral/ZGen_2Phase only; automatically
+ *                            set unless wolfCrypt exports its RNG-blinded ECC
+ *                            scalar multiplication API
  *   FWTPM_NO_HASH_CMDS     - Hash, HMAC, and the hash/HMAC sequence commands
  *   FWTPM_NO_CONTEXT       - ContextSave/ContextLoad (FlushContext retained)
  *   FWTPM_NO_SYM_ENCRYPT   - EncryptDecrypt/EncryptDecrypt2
@@ -153,8 +156,16 @@
  *                        numbered above the hash-sequence range, so removing it
  *                        would renumber them between gated and ungated builds.
  *   FWTPM_NO_CONTEXT   - ctxProtectKey/ctxProtectKeyValid, contextSeqCounter,
- *                        contextLive[]/contextLiveCount
- *   FWTPM_NO_ECDH      - ecEphemeralCounter/Key/KeySz/Curve */
+ *                        contextLive[]/contextLiveCount */
+
+/* ZGen_2Phase operates on secret scalars and caller-supplied points. Its
+ * full-point multiplication requires the public, RNG-taking wolfCrypt API so
+ * the operation cannot silently lose projective-coordinate randomization. */
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ZGEN_2PHASE) && \
+    (defined(FWTPM_NO_ECDH) || \
+     !defined(WOLFSSL_PUBLIC_ECC_ADD_DBL))
+    #define FWTPM_NO_ZGEN_2PHASE
+#endif
 
 /* Dictionary Attack (DA) feature toggles:
  *   FWTPM_NO_DA          - compile out all DA lockout protection.
@@ -439,12 +450,23 @@
  *   FWTPM_FREE_BUF(buf);                     // cleanup
  */
 #ifdef WOLFTPM_SMALL_STACK
+    #ifdef WOLFTPM_FWTPM_UNIT_TEST
+        int FWTPM_TestShouldFailAlloc(void);
+        #define FWTPM_TEST_ALLOC_FAIL() FWTPM_TestShouldFailAlloc()
+    #else
+        #define FWTPM_TEST_ALLOC_FAIL() 0
+    #endif
     #define FWTPM_DECLARE_VAR(name, type) \
         type* name = NULL
     #define FWTPM_ALLOC_VAR(name, type) \
         do { \
-            (name) = (type*)XMALLOC(sizeof(type), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (type*)XMALLOC(sizeof(type), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
         } while (0)
     /* Allocate AND zero-initialize. Use this when the variable will be
@@ -752,7 +774,7 @@ struct FWTPM_PP_HAL_S {
 
 /* fwTPM context - holds all TPM state */
 typedef struct FWTPM_CTX {
-    volatile int running;       /* Server running flag (volatile for signal handler) */
+    volatile int running;       /* Server-loop state; signals use a sig_atomic_t flag */
 
 #ifndef WOLFTPM_FWTPM_TIS
     /* Socket transport configuration (not used in TIS mode) */
@@ -928,7 +950,7 @@ typedef struct FWTPM_CTX {
     /* Set once TPM2_SelfTest has completed successfully */
     int selfTestRun;
 
-#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ZGEN_2PHASE)
     /* EC_Ephemeral commit counter and key storage (volatile). Only the ECDH
      * command group (EC_Ephemeral / ZGen_2Phase) uses this state. */
     UINT16 ecEphemeralCounter;
@@ -979,7 +1001,8 @@ typedef struct FWTPM_CTX {
 /*!
     \ingroup wolfTPM_fwTPM
     \brief Initialize a fwTPM context. Seeds the RNG, clears TPM state,
-    and prepares the context for FWTPM_NV_Init / FWTPM_IO_Init.
+    and initializes NV storage through a previously registered HAL or the
+    default file backend.
 
     \return 0 on success
     \return TPM_RC_MEMORY if RNG initialization fails

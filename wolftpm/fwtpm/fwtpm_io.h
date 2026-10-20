@@ -93,8 +93,10 @@ WOLFTPM_API void FWTPM_IO_Cleanup(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM
-    \brief Run the selected fwTPM transport loop. Blocks until ctx->running is
-    cleared or FWTPM_IO_RequestStop is called.
+    \brief Run the selected fwTPM transport loop. Blocks until a platform stop
+    command clears ctx->running or FWTPM_IO_RequestStop requests shutdown.
+    Signal handlers must call FWTPM_IO_RequestStop instead of modifying
+    ctx->running directly.
 
     \return 0 on clean shutdown
     \return BAD_FUNC_ARG if ctx is NULL
