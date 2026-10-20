@@ -25,13 +25,22 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: Checkout wolfTPM with direct submodules
+      - name: Checkout wolfTPM with recursive submodules
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          # wolfTPM builds wolfSPDM sources against its own wolfSSL selection.
-          # wolfSPDM's nested wolfSSL checkout is only for standalone builds.
-          submodules: true
+          submodules: recursive
           persist-credentials: false
+
+      - name: Verify wolfSPDM keeps its standalone wolfSSL opt-in
+        run: |
+          # Older wolfSPDM pins do not have a wolfSSL submodule at all.
+          if git -C lib/wolfSPDM config -f .gitmodules \
+              --get submodule.lib/wolfssl.path >/dev/null; then
+            test "$(git -C lib/wolfSPDM config -f .gitmodules \
+                --get submodule.lib/wolfssl.update)" = none
+          fi
+          test -f lib/wolfssl/.git
+          test ! -e lib/wolfSPDM/lib/wolfssl/.git
 
       - name: Build and test the pinned submodule in Docker
         env:

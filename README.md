@@ -119,6 +119,12 @@ against the same wolfSSL headers and library as the rest of wolfTPM. It does not
 build or use `lib/wolfSPDM/lib/wolfssl`, so recursive submodule initialization
 is unnecessary.
 
+wolfSPDM's standalone wolfSSL submodule uses `update = none` so normal recursive
+clones and updates skip it. CI checks this policy when the pinned wolfSPDM has
+that submodule. Older wolfSPDM pins have no nested wolfSSL submodule. An explicit
+`--checkout` override or an existing local update setting can still opt in;
+already initialized copies are not removed automatically.
+
 An existing wolfSSL installation can be shared: pass
 `--with-wolfcrypt=/path/to/wolfssl-install` to wolfTPM and, when building
 wolfSPDM separately, `--with-wolfssl=/path/to/wolfssl-install` to wolfSPDM.
