@@ -2038,7 +2038,8 @@ static void test_fwtpm_total_commands(void)
     /* TPMS_TAGGED_PROPERTY list: count, then (property, value) pairs. */
     props = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
     AssertIntGT(props, 0);
-    for (i = 0; i < props; i++) {
+    for (i = 0; i < props &&
+            TPM2_HEADER_SIZE + 9 + (int)((i + 1) * 8) <= rspSize; i++) {
         int off = TPM2_HEADER_SIZE + 9 + (int)(i * 8);
         if (GetU32BE(gRsp + off) == (UINT32)TPM_PT_TOTAL_COMMANDS) {
             total = GetU32BE(gRsp + off + 4);
@@ -11845,6 +11846,8 @@ static TPM_RC SendLoadCmd(FWTPM_CTX* ctx, UINT32 parent,
 {
     int pos, rspSize = 0;
 
+    if (privSz > sizeof(TPM2B_PRIVATE) || pubSz > sizeof(TPM2B_PUBLIC) - 2)
+        return TPM_RC_SIZE;
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
     PutU32BE(gCmd + pos, parent); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
@@ -16213,8 +16216,10 @@ static void test_fwtpm_bound_auth_change_response_hmac(void)
     AssertIntEQ(wc_Sha256Final(&sha, rpHash), 0);
     wc_Sha256Free(&sha);
     off = RspSessOffset(gRsp, 0);
+    AssertTrue(off > 0 && off + 2 <= rspSize);
     rspNonceSz = GetU16BE(gRsp + off);
-    AssertIntLE(rspNonceSz, TPM_MAX_DIGEST_SIZE);
+    AssertTrue(rspNonceSz <= TPM_MAX_DIGEST_SIZE &&
+        off + 5 + rspNonceSz + WC_SHA256_DIGEST_SIZE <= rspSize);
     rspAttrs = gRsp[off + 2 + rspNonceSz];
     rspHmacSz = GetU16BE(gRsp + off + 3 + rspNonceSz);
     AssertIntEQ(rspHmacSz, WC_SHA256_DIGEST_SIZE);
@@ -16365,8 +16370,10 @@ static void test_fwtpm_sequence_complete_response_hmac(void)
     wc_Sha256Free(&sha);
 
     off = RspSessOffset(gRsp, 0);
+    AssertTrue(off > 0 && off + 2 <= rspSize);
     rspNonceSz = GetU16BE(gRsp + off);
-    AssertIntLE(rspNonceSz, TPM_MAX_DIGEST_SIZE);
+    AssertTrue(rspNonceSz <= TPM_MAX_DIGEST_SIZE &&
+        off + 5 + rspNonceSz + WC_SHA256_DIGEST_SIZE <= rspSize);
     rspAttrs = gRsp[off + 2 + rspNonceSz];
     rspHmacSz = GetU16BE(gRsp + off + 3 + rspNonceSz);
     AssertIntEQ(rspHmacSz, WC_SHA256_DIGEST_SIZE);
@@ -17823,6 +17830,25 @@ static void test_fwtpm_nv_malformed_entry_rejected(void)
     fwtpm_pass("NV malformed entry rejected:", 0);
 }
 
+static void test_fwtpm_nv_pcr_auth_truncated(void)
+{
+    /* Bank mask, empty auth, then a 4-byte policy digest with 2 bytes left,
+     * and the same record cut to 1 digest byte */
+    static const byte record[] = {
+        FWTPM_PCR_ALLOC_DEFAULT, 0x00, 0x00, 0x04, 0x00, 0x01, 0x02
+    };
+    FWTPM_CTX ctx;
+    UINT16 len;
+
+    for (len = (UINT16)sizeof(record); len >= sizeof(record) - 1; len--) {
+        AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_PCR_AUTH,
+            record, len), TPM_RC_FAILURE);
+        AssertIntEQ((int)ctx.pcrAllocPending, 0);
+        AssertIntEQ((int)ctx.pcrAllocatedBanksPending, 0);
+    }
+    fwtpm_pass("NV truncated PCR auth rejected:", 0);
+}
+
 static void test_fwtpm_nv_reserved_attributes_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -18595,6 +18621,23 @@ static void test_fwtpm_mssim_hash_data_framing(void)
     (void)close(sockets[0]);
     fwtpm_pass("MSSIM unsupported hash-data framing:", 0);
 }
+
+static void test_fwtpm_mssim_invalid_fd(void)
+{
+    FWTPM_CTX ctx;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    /* errno stays clear only if no socket call is made on the invalid fd */
+    errno = 0;
+    AssertIntEQ(FWTPM_IO_TestHandleMssimSignal(&ctx, FWTPM_INVALID_FD,
+        FWTPM_TCP_SIGNAL_HASH_DATA), TPM_RC_FAILURE);
+    AssertIntEQ(errno, 0);
+    errno = 0;
+    AssertIntEQ(FWTPM_IO_TestHandleMssimSignal(&ctx, FWTPM_INVALID_FD,
+        FWTPM_TCP_SIGNAL_POWER_ON), TPM_RC_FAILURE);
+    AssertIntEQ(errno, 0);
+    fwtpm_pass("MSSIM invalid socket rejected:", 0);
+}
 #endif
 
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
@@ -18623,7 +18666,8 @@ static int test_io_hal_send(void* userCtx, int type, const void* buf, int sz)
 
     if (sz < 0 || test->outputPos + sz > (int)sizeof(test->output))
         return TPM_RC_FAILURE;
-    XMEMCPY(test->output + test->outputPos, buf, (size_t)sz);
+    if (sz > 0)
+        XMEMCPY(test->output + test->outputPos, buf, (size_t)sz);
     test->outputPos += sz;
     test->sendType = type;
     return TPM_RC_SUCCESS;
@@ -18637,7 +18681,8 @@ static int test_io_hal_recv(void* userCtx, int type, void* buf, int sz)
         return TPM_RC_FAILURE;
     if (sz < 0 || test->inputPos + sz > (int)sizeof(test->input))
         return TPM_RC_FAILURE;
-    XMEMCPY(buf, test->input + test->inputPos, (size_t)sz);
+    if (sz > 0)
+        XMEMCPY(buf, test->input + test->inputPos, (size_t)sz);
     test->inputPos += sz;
     test->recvType = type;
     return TPM_RC_SUCCESS;
@@ -19305,6 +19350,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_journal_mac_alloc_failure();
 #endif
     test_fwtpm_nv_malformed_entry_rejected();
+    test_fwtpm_nv_pcr_auth_truncated();
     test_fwtpm_nv_reserved_attributes_rejected();
     test_fwtpm_nv_semantic_entry_skipped();
     test_fwtpm_nv_counter();
@@ -19364,6 +19410,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
     test_fwtpm_mssim_hash_data_framing();
+    test_fwtpm_mssim_invalid_fd();
 #endif
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
     test_fwtpm_custom_io_hal();
