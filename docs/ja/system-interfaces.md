@@ -226,8 +226,9 @@ QEMU のターミナルで、wolfTPM をチェックアウトしてビルドし�
 sudo apt install automake libtool gcc git make
 
 # get wolfTPM (wolfSSL is bundled as the lib/wolfssl submodule)
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+git clone https://github.com/wolfSSL/wolfTPM.git
 pushd wolfTPM
+git submodule update --init lib/wolfssl
 
 # build wolfSSL from the submodule
 pushd lib/wolfssl
@@ -453,7 +454,7 @@ Unknown    SecurityDevices Trusted Platform Module 2.0
 
 ### MSYS2 でのビルド
 
-MSYS2 を使用してテストしました。wolfSSL は `lib/wolfssl` サブモジュールとして同梱されています。wolfTPM を `--recursive` 付きでクローンし (または `git submodule update --init lib/wolfssl` を実行し)、そこからビルドします。
+MSYS2 を使用してテストしました。wolfSSL は `lib/wolfssl` サブモジュールとして同梱されています。`git submodule update --init lib/wolfssl` で初期化し、そこからビルドします。
 
 ```bash
 export PREFIX=$PWD/tmp_install

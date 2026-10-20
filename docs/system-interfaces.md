@@ -226,8 +226,9 @@ In the QEMU terminal, check out and build wolfTPM:
 sudo apt install automake libtool gcc git make
 
 # get wolfTPM (wolfSSL is bundled as the lib/wolfssl submodule)
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+git clone https://github.com/wolfSSL/wolfTPM.git
 pushd wolfTPM
+git submodule update --init lib/wolfssl
 
 # build wolfSSL from the submodule
 pushd lib/wolfssl
@@ -453,7 +454,7 @@ Unknown    SecurityDevices Trusted Platform Module 2.0
 
 ### Building in MSYS2
 
-Tested using MSYS2. wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there:
+Tested using MSYS2. wolfSSL is bundled as the `lib/wolfssl` submodule; initialize it with `git submodule update --init lib/wolfssl` and build it from there:
 
 ```bash
 export PREFIX=$PWD/tmp_install

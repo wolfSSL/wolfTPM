@@ -10,8 +10,8 @@ source.
 
 The SPDM code lives in the [wolfSPDM](https://github.com/wolfSSL/wolfSPDM)
 library, included as the `lib/wolfSPDM` submodule and compiled into libwolftpm
-in its TPM profile. Because SPDM is a submodule, any wolfTPM checkout that will
-use SPDM must be cloned with `--recursive` (see [Building](#building) step 1).
+in its TPM profile. Initialize the direct SPDM submodule with
+`git submodule update --init lib/wolfSPDM` (see [Building](#building) step 1).
 Without the submodule, `./configure --enable-spdm` stops with: `--enable-spdm
 needs the wolfSPDM submodule: run git submodule update --init lib/wolfSPDM`.
 
@@ -28,13 +28,19 @@ and full MCTP for spdm-emu testing.
 ### Get the source
 
 ```bash
-# SPDM and wolfSSL live in the lib/ submodules, so clone wolfTPM recursively
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+# Initialize only the direct SPDM and wolfSSL dependencies
+git clone https://github.com/wolfSSL/wolfTPM.git
 cd wolfTPM
+git submodule update --init lib/wolfSPDM lib/wolfssl
 ```
 
-Already cloned without `--recursive`? Run `git submodule update --init
+For an existing checkout, run `git submodule update --init
 lib/wolfSPDM lib/wolfssl` once inside the checkout.
+
+wolfTPM compiles wolfSPDM against its selected wolfSSL, so
+`lib/wolfSPDM/lib/wolfssl` does not need to be initialized. An existing wolfSSL
+installation can be selected with `--with-wolfcrypt=PATH`; see
+[Building wolfTPM](../../docs/building.md#using-an-alternate-wolfssl-directory).
 
 ### Nuvoton NPCT75x
 
@@ -44,7 +50,7 @@ cd lib/wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
 make && sudo make install && sudo ldconfig && cd ../..
 
-# Build wolfTPM (submodule already present from the recursive clone)
+# Build wolfTPM (direct submodules initialized above)
 ./autogen.sh && ./configure --enable-spdm --enable-nuvoton && make
 
 # Enable SPDM (one-time), reset, connect
@@ -64,7 +70,7 @@ cd lib/wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
 make && sudo make install && sudo ldconfig && cd ../..
 
-# Build wolfTPM (submodule already present from the recursive clone)
+# Build wolfTPM (direct submodules initialized above)
 ./autogen.sh && ./configure --enable-spdm --enable-nations && make
 
 # Connect (identity key is factory default)
@@ -177,14 +183,15 @@ See [How Auto-SPDM Works](#how-auto-spdm-works) for details.
 
 ### 1. Clone with the wolfSPDM submodule
 
-SPDM is built from the `lib/wolfSPDM` submodule, so clone wolfTPM recursively:
+SPDM is built from the `lib/wolfSPDM` submodule. Initialize the direct dependencies:
 
 ```bash
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
+git clone https://github.com/wolfSSL/wolfTPM.git
 cd wolfTPM
+git submodule update --init lib/wolfSPDM lib/wolfssl
 ```
 
-Already cloned wolfTPM without `--recursive`? Pull the submodules in:
+For an existing checkout, initialize the direct submodules:
 
 ```bash
 git submodule update --init lib/wolfSPDM lib/wolfssl
@@ -192,7 +199,7 @@ git submodule update --init lib/wolfSPDM lib/wolfssl
 
 ### 2. wolfSSL
 
-wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there.
+wolfSSL is bundled as the `lib/wolfssl` submodule; initialize it with `git submodule update --init lib/wolfssl` and build it from there.
 
 ```bash
 cd lib/wolfssl

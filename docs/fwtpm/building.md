@@ -4,7 +4,7 @@ This page covers how to build the fwTPM server, the configure options and compil
 
 ## Prerequisites
 
-wolfSSL must be built with TPM support, keygen, and `WC_RSA_NO_PADDING`. wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there:
+wolfSSL must be built with TPM support, keygen, and `WC_RSA_NO_PADDING`. wolfSSL is bundled as the `lib/wolfssl` submodule; initialize it with `git submodule update --init lib/wolfssl` and build it from there:
 
 ```sh
 cd lib/wolfssl

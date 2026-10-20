@@ -26,7 +26,7 @@ see the [wolfSPDM](https://github.com/aidangarske/wolfSPDM) standalone library.
 
 ### Prerequisites
 
-wolfSSL with crypto algorithms required for SPDM Algorithm Set B. wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there.
+wolfSSL with crypto algorithms required for SPDM Algorithm Set B. wolfSSL is bundled as the `lib/wolfssl` submodule; initialize it with `git submodule update --init lib/wolfssl` and build it from there.
 
 ```bash
 cd lib/wolfssl

@@ -4,11 +4,13 @@ wolfTPM is built on top of wolfSSL (wolfCrypt) and can be built with autotools, 
 
 ## Building wolfSSL
 
-wolfSSL must be built and installed first. wolfSSL is bundled as the `lib/wolfssl` submodule at a known-good commit, so clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl` in an existing checkout) and build wolfSSL from there:
+wolfSSL must be built and installed first. wolfSSL is bundled as the `lib/wolfssl` submodule at a known-good commit, so initialize it with `git submodule update --init lib/wolfssl` and build wolfSSL from there:
 
 ```bash
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
-cd wolfTPM/lib/wolfssl
+git clone https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM
+git submodule update --init lib/wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
@@ -27,6 +29,20 @@ The `--enable-wolftpm` option is equivalent to passing these options:
 ```
 
 ## Using an alternate wolfSSL directory
+
+wolfTPM and wolfSPDM can use one wolfSSL installation. wolfTPM compiles the
+wolfSPDM sources directly against its selected wolfSSL; it does not use
+`lib/wolfSPDM/lib/wolfssl`. Initialize direct dependencies without `--recursive`:
+
+```sh
+git submodule update --init lib/wolfssl lib/wolfSPDM
+```
+
+To use an existing installation, skip initializing `lib/wolfssl` and configure
+wolfTPM with `--with-wolfcrypt=/path/to/wolfssl-install`. When building wolfSPDM
+separately, use `--with-wolfssl=/path/to/wolfssl-install` there. Build the shared
+wolfSSL with the features needed by both projects and use its matching headers
+and library throughout.
 
 The bundled `lib/wolfssl` submodule is the default wolfSSL source. To build wolfTPM against a different wolfSSL, such as one from the [downloads page](https://wolfssl.com/download/) installed in a non-default location, install wolfSSL to a prefix and point wolfTPM at it with `--with-wolfcrypt`:
 

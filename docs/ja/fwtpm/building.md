@@ -4,7 +4,7 @@
 
 ## 前提条件
 
-wolfSSL は、TPM サポート、keygen、および `WC_RSA_NO_PADDING` を有効にしてビルドする必要があります。wolfSSL は `lib/wolfssl` サブモジュールとして同梱されています。wolfTPM を `--recursive` 付きでクローンし (または `git submodule update --init lib/wolfssl` を実行し)、そこからビルドします。
+wolfSSL は、TPM サポート、keygen、および `WC_RSA_NO_PADDING` を有効にしてビルドする必要があります。wolfSSL は `lib/wolfssl` サブモジュールとして同梱されています。`git submodule update --init lib/wolfssl` で初期化し、そこからビルドします。
 
 ```sh
 cd lib/wolfssl

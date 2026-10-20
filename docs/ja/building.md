@@ -4,11 +4,13 @@ wolfTPM は wolfSSL (wolfCrypt) の上に構築されており、autotools、CMa
 
 ## wolfSSL のビルド
 
-最初に wolfSSL をビルドしてインストールする必要があります。wolfSSL は動作確認済みのコミットで `lib/wolfssl` サブモジュールとして同梱されているため、wolfTPM を `--recursive` 付きでクローンし (既存のチェックアウトでは `git submodule update --init lib/wolfssl` を実行し)、そこから wolfSSL をビルドします。
+最初に wolfSSL をビルドしてインストールする必要があります。wolfSSL は動作確認済みのコミットで `lib/wolfssl` サブモジュールとして同梱されているため、`git submodule update --init lib/wolfssl` で初期化し、そこから wolfSSL をビルドします。
 
 ```bash
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
-cd wolfTPM/lib/wolfssl
+git clone https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM
+git submodule update --init lib/wolfssl
+cd lib/wolfssl
 ./autogen.sh
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make
@@ -27,6 +29,14 @@ cd ../..
 ```
 
 ## 別の wolfSSL ディレクトリを使用する
+
+wolfTPM と wolfSPDM は、1 つの wolfSSL インストールを共有できます。wolfTPM は、選択した wolfSSL に対して wolfSPDM のソースを直接コンパイルします。`lib/wolfSPDM/lib/wolfssl` は使用しません。`--recursive` を付けずに、直接の依存関係を初期化します。
+
+```sh
+git submodule update --init lib/wolfssl lib/wolfSPDM
+```
+
+既存のインストールを使用する場合は、`lib/wolfssl` を初期化せず、wolfTPM に `--with-wolfcrypt=/path/to/wolfssl-install` を指定します。wolfSPDM を単独でビルドする場合は、同じインストールを `--with-wolfssl=/path/to/wolfssl-install` で指定します。共有する wolfSSL では、両方のプロジェクトに必要な機能を有効にし、対応するヘッダーとライブラリを使用してください。
 
 同梱の `lib/wolfssl` サブモジュールが既定の wolfSSL ソースです。[ダウンロードページ](https://wolfssl.com/download/)から入手した wolfSSL など、既定以外の場所にインストールした別の wolfSSL に対して wolfTPM をビルドするには、wolfSSL を任意のプレフィックスにインストールし、`--with-wolfcrypt` で wolfTPM にその場所を指定します。
 

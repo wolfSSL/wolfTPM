@@ -2,29 +2,31 @@
 
 wolfTPM には、wolfSSL/wolfCrypt を使用した、Nuvoton NPCT75x および Nations NS350 TPM 向けの SPDM (Security Protocol and Data Model、DMTF DSP0274) サポートが組み込まれています。SPDM は、TCG の SPDM-over-TPM バインディング上でプロトコルバージョン 1.3 をネゴシエートします。両ベンダーとも、セッション確立のためのアイデンティティ鍵モード (ECDHE P-384) をサポートしています。Nations NS350 は、さらに PSK (事前共有鍵) モードもサポートしています。セッションが確立されると、すべての TPM コマンドとレスポンスは、既存の SPI または I2C バス上で AES-256-GCM により暗号化されます。アイデンティティ鍵モードでは、信頼できるプロビジョニング元から得たレスポンダーの P-384 公開鍵が必要です。TCG の交換は生の公開鍵の交換 (GET_PUBK と GIVE_PUB) であり、証明書は交換されません。
 
-SPDM のコードは [wolfSPDM](https://github.com/wolfSSL/wolfSPDM) ライブラリにあり、`lib/wolfSPDM` サブモジュールとして含まれ、TPM プロファイルで libwolftpm にコンパイルされます。SPDM を使用するチェックアウトには、再帰的なクローン、または後からの初期化によって、このサブモジュールが存在している必要があります。サブモジュールがない場合、`./configure --enable-spdm` は次のメッセージで停止します: `--enable-spdm needs the wolfSPDM submodule: run git submodule update --init lib/wolfSPDM`。
+SPDM のコードは [wolfSPDM](https://github.com/wolfSSL/wolfSPDM) ライブラリにあり、`lib/wolfSPDM` サブモジュールとして含まれ、TPM プロファイルで libwolftpm にコンパイルされます。SPDM を使用するチェックアウトには、`git submodule update --init lib/wolfSPDM` で、このサブモジュールを初期化する必要があります。サブモジュールがない場合、`./configure --enable-spdm` は次のメッセージで停止します: `--enable-spdm needs the wolfSPDM submodule: run git submodule update --init lib/wolfSPDM`。
 
 ## クイックスタート
 
-SPDM は `lib/wolfSPDM` サブモジュールにあるため、再帰的にクローンします。
+wolfTPM をクローンし、直接の SPDM と wolfSSL の依存関係を初期化します。
 
 ```sh
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
-git clone https://github.com/wolfSSL/wolfssl.git   # sibling checkout
+git clone https://github.com/wolfSSL/wolfTPM.git
 cd wolfTPM
+git submodule update --init lib/wolfSPDM lib/wolfssl
 ```
 
-`--recursive` なしでクローン済みの場合は、チェックアウト内で `git submodule update --init lib/wolfSPDM` を一度実行してください。
+既存のチェックアウトでは、`git submodule update --init lib/wolfSPDM lib/wolfssl` を一度実行してください。
+
+wolfTPM は、選択した wolfSSL に対して wolfSPDM をコンパイルします。入れ子の `lib/wolfSPDM/lib/wolfssl` チェックアウトは不要です。既存の wolfSSL インストールの共有方法は、[wolfTPM のビルド](building.md)を参照してください。
 
 ### Nuvoton NPCT75x
 
 ```sh
-# Build wolfSSL (in the sibling checkout, then return here)
-cd ../wolfssl && ./autogen.sh && \
+# Build wolfSSL (direct lib/wolfssl submodule, then return here)
+cd lib/wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
-make && sudo make install && sudo ldconfig && cd -
+make && sudo make install && sudo ldconfig && cd ../..
 
-# Build wolfTPM (submodule already present from the recursive clone)
+# Build wolfTPM (direct submodules initialized above)
 ./autogen.sh && ./configure --enable-spdm --enable-nuvoton && make
 
 # Enable SPDM (one-time), then reset the TPM, then connect
@@ -39,12 +41,12 @@ RESPONDER_PUBKEY="$(cat responder_pubkey.hex)"
 ### Nations NS350
 
 ```sh
-# Build wolfSSL (in the sibling checkout, then return here)
-cd ../wolfssl && ./autogen.sh && \
+# Build wolfSSL (direct lib/wolfssl submodule, then return here)
+cd lib/wolfssl && ./autogen.sh && \
 ./configure --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp && \
-make && sudo make install && sudo ldconfig && cd -
+make && sudo make install && sudo ldconfig && cd ../..
 
-# Build wolfTPM (submodule already present from the recursive clone)
+# Build wolfTPM (direct submodules initialized above)
 ./autogen.sh && ./configure --enable-spdm --enable-nations && make
 
 # Connect (identity key is factory default)
@@ -149,7 +151,7 @@ SPDM 専用モードは、TPM コマンドを暗号化された SPDM チャネ�
 
 ### 1. wolfSPDM サブモジュールを含めてクローンする
 
-クイックスタートのセクションを参照してください。SPDM は `lib/wolfSPDM` サブモジュールからビルドされるため、wolfTPM を再帰的にクローンするか、既存のチェックアウトで `git submodule update --init lib/wolfSPDM` を実行してください。
+クイックスタートのセクションを参照してください。SPDM は `lib/wolfSPDM` サブモジュールからビルドされます。wolfTPM のチェックアウトで `git submodule update --init lib/wolfSPDM lib/wolfssl` を実行してください。
 
 ### 2. wolfSSL
 

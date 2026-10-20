@@ -53,11 +53,13 @@ The firmware TPM (fwTPM) server also implements v1.85 PQC — see [FWTPM.md](FWT
 
 ## Building wolfTPM
 
-To build the wolfTPM library, it's required to first build and install the wolfSSL library. wolfSSL is bundled as the `lib/wolfssl` submodule; clone wolfTPM with `--recursive` (or run `git submodule update --init lib/wolfssl`) and build it from there.
+To build the wolfTPM library, it's required to first build and install the wolfSSL library. wolfSSL is bundled as the `lib/wolfssl` submodule; initialize it with `git submodule update --init lib/wolfssl` and build it from there.
 
 ```sh
-git clone --recursive https://github.com/wolfSSL/wolfTPM.git
-cd wolfTPM/lib/wolfssl
+git clone https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM
+git submodule update --init lib/wolfssl
+cd lib/wolfssl
 ```
 
 The wolfSSL library needs to be built with the following options being passed to the configure script:
