@@ -5254,6 +5254,10 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
         else {
             rc = FwAppendHashState(&packet, &hashSeq->ctx.hash, hashSeqType);
         }
+        if (rc == 0) {
+            TPM2_Packet_AppendU8(&packet, hashSeq->firstBlockDone);
+            TPM2_Packet_AppendU8(&packet, hashSeq->ticketSafe);
+        }
         rc = (rc == 0 && !packet.overflow) ? TPM_RC_SUCCESS :
             TPM_RC_FAILURE;
     }
@@ -5399,6 +5403,13 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
                 TPM2_ForceZero(&raw, sizeof(raw));
             }
             if (rc != 0) {
+                rc = TPM_RC_INTEGRITY;
+            }
+        }
+        if (rc == 0) {
+            TPM2_Packet_ParseU8(&packet, &seq->firstBlockDone);
+            TPM2_Packet_ParseU8(&packet, &seq->ticketSafe);
+            if (seq->firstBlockDone > 1u || seq->ticketSafe > 1u) {
                 rc = TPM_RC_INTEGRITY;
             }
         }
@@ -8389,18 +8400,18 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPMA_OBJECT_fixedParent)) {
         rc = TPM_RC_ATTRIBUTES;
     }
-    /* Per TPM 2.0 Part 3 Section 12.5: if encryptedDuplication is set,
-     * caller must supply a non-null symmetric algorithm */
+    /* Per TPM 2.0 Part 3 Section 13.1: encryptedDuplication needs both an
+     * inner wrap and an outer wrap to a new parent. The outer-wrap path below
+     * does not also apply the inner wrap, so no new parent is accepted yet. */
     if (rc == 0 && (obj->pub.objectAttributes &
         TPMA_OBJECT_encryptedDuplication)) {
         if (symAlg == TPM_ALG_NULL) {
             rc = TPM_RC_SYMMETRIC;
         }
-        /* The outer-wrap path to a real parent does not also apply the
-         * mandatory inner wrap, which would leave the new parent able to
-         * recover the sensitive. Require the inner-wrap export path
-         * (newParent == TPM_RH_NULL) for such objects. */
-        else if (newParentHandle != TPM_RH_NULL) {
+        else if (newParentHandle == TPM_RH_NULL) {
+            rc = TPM_RC_HIERARCHY | TPM_RC_2;
+        }
+        else {
             rc = TPM_RC_SYMMETRIC;
         }
     }
@@ -10027,6 +10038,13 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* ================================================================== */
 
 #ifndef FWTPM_NO_HASH_CMDS
+/* Data that could be a TPM-generated structure gets only a NULL HASHCHECK
+ * ticket, or a restricted key would sign it (Part 3 Sec.15.4, 17.6). */
+static int FwTicketIsSafe(const byte* buf, UINT16 bufSz)
+{
+    return bufSz >= 4 && FwLoadU32BE(buf) != TPM_GENERATED_VALUE;
+}
+
 /* --- TPM2_Hash (CC 0x017D) --- */
 static TPM_RC FwCmd_Hash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -10093,6 +10111,10 @@ static TPM_RC FwCmd_Hash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
+    }
+
+    if (rc == 0 && dataSize >= 4 && !FwTicketIsSafe(dataBuf, dataSize)) {
+        hierarchy = TPM_RH_NULL;
     }
 
     if (rc == 0) {
@@ -10725,6 +10747,10 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (rc != 0) {
                 rc = TPM_RC_FAILURE;
             }
+            else if (!seq->firstBlockDone) {
+                seq->firstBlockDone = 1;
+                seq->ticketSafe = (UINT8)FwTicketIsSafe(dataBuf, dataSize);
+            }
         }
 #endif
     }
@@ -10774,6 +10800,7 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int trc;
     int hashCopyInit = 0;
     int hmacCopyInit = 0;
+    int ticketSafe = 0;
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
     FWTPM_CALLOC_VAR(hashCopy, wc_HashAlg);
@@ -10878,6 +10905,15 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
         }
+    }
+
+    /* An HMAC sequence never gets a ticket */
+    if (rc == 0 && !seq->isHmac) {
+        ticketSafe = seq->firstBlockDone ? seq->ticketSafe :
+            FwTicketIsSafe(dataBuf, dataSize);
+    }
+    if (rc == 0 && !ticketSafe) {
+        hierarchy = TPM_RH_NULL;
     }
 
     if (rc == 0) {
@@ -21541,7 +21577,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* HMAC session command verification per TPM 2.0 Part 1 Section 19.6.
      * Compute cpHash and verify the command HMAC for each HMAC session. */
     for (hj = 0; hj < cmdAuthCnt && hj < (int)entry->authHandleCnt; hj++) {
-        if (cmdAuths[hj].sess != NULL && cmdAuths[hj].cmdHmacSize > 0) {
+        if (cmdAuths[hj].sess != NULL && (cmdAuths[hj].cmdHmacSize > 0 ||
+                (cmdAuths[hj].sess->sessionType == TPM_SE_POLICY &&
+                 (cmdAuths[hj].sess->isPasswordPolicy ||
+                  cmdAuths[hj].sess->isAuthValuePolicy)))) {
             FWTPM_Session* hSess = cmdAuths[hj].sess;
             byte cpHash[TPM_MAX_DIGEST_SIZE];
             int cpHashSz = 0;
@@ -21635,6 +21674,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             if (cmdAuths[hj].omitAuthValue) {
                 authVal = NULL;
                 authValSz = 0;
+            }
+
+            /* An empty HMAC is valid only for an empty HMAC key, or an empty
+             * authValue under PolicyPassword (a password, not an HMAC) */
+            if (cmdAuths[hj].cmdHmacSize == 0 && authValSz == 0 &&
+                    (hSess->sessionKey.size == 0 || hSess->isPasswordPolicy)) {
+                TPM2_ForceZero(cpHash, sizeof(cpHash));
+                continue;
             }
 
             /* Compute expected command HMAC (nonceCaller first, then nonceTPM) */
