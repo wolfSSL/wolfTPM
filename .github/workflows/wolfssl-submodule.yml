@@ -25,10 +25,12 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: Checkout wolfTPM with submodules
+      - name: Checkout wolfTPM with direct submodules
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          submodules: recursive
+          # wolfTPM builds wolfSPDM sources against its own wolfSSL selection.
+          # wolfSPDM's nested wolfSSL checkout is only for standalone builds.
+          submodules: true
           persist-credentials: false
 
       - name: Build and test the pinned submodule in Docker

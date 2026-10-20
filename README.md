@@ -90,8 +90,8 @@ for build instructions, responder modes, and the end-to-end test scripts.
 ### wolfSSL
 
 wolfTPM links against wolfSSL/wolfCrypt. wolfSSL is bundled as the `lib/wolfssl`
-submodule at a known-good commit, so clone wolfTPM with `--recursive` (or run
-`git submodule update --init lib/wolfssl`) and build it from there. **Build
+submodule at a known-good commit. Run
+`git submodule update --init lib/wolfssl` and build it from there. **Build
 wolfSSL with `--enable-wolftpm`**; it turns on the RSA, ECC, and crypto-callback
 support wolfTPM relies on. wolfTPM's `configure` only link-checks
 `wolfCrypt_Init`, so it will not flag a wolfSSL built without it, but the
@@ -110,6 +110,21 @@ sudo make install
 sudo ldconfig
 cd ../..
 ```
+
+#### Sharing wolfSSL with wolfSPDM
+
+For SPDM builds, initialize the direct dependency with
+`git submodule update --init lib/wolfSPDM`. wolfTPM compiles the wolfSPDM sources
+against the same wolfSSL headers and library as the rest of wolfTPM. It does not
+build or use `lib/wolfSPDM/lib/wolfssl`, so recursive submodule initialization
+is unnecessary.
+
+An existing wolfSSL installation can be shared: pass
+`--with-wolfcrypt=/path/to/wolfssl-install` to wolfTPM and, when building
+wolfSPDM separately, `--with-wolfssl=/path/to/wolfssl-install` to wolfSPDM.
+Neither bundled wolfSSL checkout is needed in that case. Build the shared
+wolfSSL with the features required by both consumers and use its matching
+headers and library throughout.
 
 ### wolfTPM
 
