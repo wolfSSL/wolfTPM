@@ -25,6 +25,11 @@
     #include <config.h>
 #endif
 
+/* tpm2_asn.h otherwise redefines TPM_RC_VALUE as an ASN error */
+#ifndef WOLFTPM_NO_DEPRECATED_ASN_RC
+    #define WOLFTPM_NO_DEPRECATED_ASN_RC
+#endif
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
@@ -103,7 +108,41 @@
 #define AssertStrGE(x, y) AssertStr(x, y, >=,  <)
 #define AssertStrLE(x, y) AssertStr(x, y, <=,  >)
 
+/* A v1.85 key creation failed on a TPM that does not list alg */
+#define TEST_V185_UNSUPPORTED(rc, alg) ((rc) != 0 && !test_alg_supported(alg))
+
 #ifndef WOLFTPM2_NO_WRAPPER
+
+#if (defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)) || \
+    (defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))) || \
+    (defined(WOLFTPM_CRYPTOCB) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+     defined(WOLFTPM_MLDSA_SIGN))
+/* Returns 1 if the connected TPM advertises alg in its TPM_CAP_ALGS list */
+static int test_alg_supported(TPM_ALG_ID alg)
+{
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_ALG_PROPERTY* algs;
+    word32 i;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_ALGS;
+    in.property = TPM_ALG_FIRST;
+    in.propertyCount = MAX_CAP_ALGS;
+    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS)
+        return 0;
+
+    algs = &out.capabilityData.data.algorithms;
+    for (i = 0; i < algs->count; i++) {
+        if (algs->algProperties[i].alg == alg)
+            return 1;
+    }
+    return 0;
+}
+#endif
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
     !defined(WOLFTPM2_NO_ASN)
@@ -3187,8 +3226,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &mlkemKey, TPM_RH_OWNER,
         &mlkemPub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLKEM)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "EncryptSecret MLKEM:");
     }
@@ -3471,9 +3509,7 @@ static void test_WOLFTPM_IS_COMMAND_UNAVAILABLE(void)
         WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED((int)TPM_RC_SUCCESS));
     AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE_OR_DISABLED(-189));
 
-    /* The shared base macro underlying all three. Note TPM_RC_VALUE is not
-     * usable here: tpm2_asn.h defines it as an ASN error (-203), shadowing the
-     * response code of the same name from tpm2.h in this translation unit. */
+    /* The shared base macro underlying all three. */
     AssertIntNE(0, WOLFTPM_RC_IS((int)TPM_RC_DISABLED, TPM_RC_DISABLED));
     AssertIntEQ(0, WOLFTPM_RC_IS((int)TPM_RC_DISABLED, TPM_RC_COMMAND_CODE));
     AssertIntEQ(0, WOLFTPM_RC_IS(-189, TPM_RC_DISABLED));
@@ -7505,6 +7541,8 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 #endif
 }
 
+#define TEST_MLDSA_LONG_MSG_SZ (2 * MAX_DIGEST_BUFFER + 100)
+
 static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
@@ -7522,10 +7560,13 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
     word32 sigLen = (word32)sizeof(sig);
     byte* bigSig = NULL;
     word32 bigSigLen;
+    byte* longMsg = NULL;
 #ifdef WOLFTPM_MLDSA_VERIFY
     byte otherContext[4];
     TPM_HANDLE vSeq;
     TPMT_TK_VERIFIED vtk;
+    word32 pos;
+    word32 chunk;
 #endif
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
@@ -7569,12 +7610,6 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
     info.pk.pqc_sign.preHashType = WC_HASH_TYPE_NONE;
 
-    /* too big for one-shot */
-    info.pk.pqc_sign.inlen = MAX_DIGEST_BUFFER + 1;
-    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
-    AssertIntEQ(rc, BAD_FUNC_ARG);
-    info.pk.pqc_sign.inlen = (word32)sizeof(msg);
-
     /* NULL outlen: reject before dereference */
     info.pk.pqc_sign.outlen = NULL;
     rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
@@ -7590,8 +7625,7 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
         rc = wolfTPM2_CreatePrimaryKey(&dev, &tpmKey, TPM_RH_OWNER, &pub,
             NULL, 0);
     }
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
         /* TPM lacks ML-DSA: skip */
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "CryptoDevCb ML-DSA sign:");
@@ -7648,6 +7682,37 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
         AssertIntNE(rc, 0);
 #endif /* WOLFTPM_MLDSA_VERIFY */
 
+        /* a message longer than one TPM buffer streams through the sequence */
+        longMsg = (byte*)XMALLOC(TEST_MLDSA_LONG_MSG_SZ, NULL,
+            DYNAMIC_TYPE_TMP_BUFFER);
+        AssertNotNull(longMsg);
+        XMEMSET(longMsg, 0xA5, TEST_MLDSA_LONG_MSG_SZ);
+        info.pk.pqc_sign.in = longMsg;
+        info.pk.pqc_sign.inlen = TEST_MLDSA_LONG_MSG_SZ;
+        bigSigLen = (word32)WC_MLDSA_65_SIG_SIZE;
+        info.pk.pqc_sign.outlen = &bigSigLen;
+        rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+        AssertIntEQ(rc, 0);
+#ifdef WOLFTPM_MLDSA_VERIFY
+        rc = wolfTPM2_VerifySequenceStart(&dev, &tpmKey, NULL, 0, &vSeq);
+        AssertIntEQ(rc, 0);
+        for (pos = 0; pos < TEST_MLDSA_LONG_MSG_SZ; pos += chunk) {
+            chunk = TEST_MLDSA_LONG_MSG_SZ - pos;
+            if (chunk > MAX_DIGEST_BUFFER)
+                chunk = MAX_DIGEST_BUFFER;
+            rc = wolfTPM2_VerifySequenceUpdate(&dev, vSeq, longMsg + pos,
+                (int)chunk);
+            AssertIntEQ(rc, 0);
+        }
+        XMEMSET(&vtk, 0, sizeof(vtk));
+        rc = wolfTPM2_VerifySequenceComplete(&dev, vSeq, &tpmKey,
+            NULL, 0, bigSig, (int)bigSigLen, &vtk);
+        AssertIntEQ(rc, 0);
+#endif /* WOLFTPM_MLDSA_VERIFY */
+        info.pk.pqc_sign.in = msg;
+        info.pk.pqc_sign.inlen = (word32)sizeof(msg);
+        XFREE(longMsg, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+
         /* small buffer: preserves the size-error contract, not WC_HW_E */
         bigSigLen = 16;
         info.pk.pqc_sign.outlen = &bigSigLen;
@@ -7660,6 +7725,1015 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
     }
 
     wolfTPM2_Cleanup(&dev);
+#endif
+}
+
+#define TEST_KEYID_ECC_HANDLE 0x81000220
+#define TEST_KEYID_RSA_HANDLE 0x81000221
+#define TEST_KEYID_MLDSA_HANDLE 0x81000222
+#define TEST_KEYID_HASH_MLDSA_HANDLE 0x81000223
+#define TEST_KEYID_HANDLE(id) (((TPM_HANDLE)(id)[0] << 24) | \
+    ((TPM_HANDLE)(id)[1] << 16) | ((TPM_HANDLE)(id)[2] << 8) | \
+    (TPM_HANDLE)(id)[3])
+/* An RSA Create response does not fit the reduced small-stack buffer */
+#if !defined(WOLFTPM_SMALL_STACK) || !defined(WOLFTPM_FWTPM_BUILD)
+    #define TEST_KEYID_RSA_CREATE
+#endif
+
+static void test_wolfTPM2_CryptoDevCb_KeyId(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLF_PRIVATE_KEY_ID) && \
+    defined(HAVE_ECC) && defined(HAVE_ECC_KEY_IMPORT) && \
+    defined(HAVE_ECC_KEY_EXPORT) && !defined(WC_NO_RNG) && \
+    !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY persist;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    WC_RNG rng;
+    ecc_key genKey;
+    ecc_key idKey;
+    ecc_key swKey;
+    ecc_key curveKey;
+    byte eccId[4] = { 0x81, 0x00, 0x02, 0x20 };
+    byte pub[1 + 2 * MAX_ECC_BYTES];
+    word32 pubSz = (word32)sizeof(pub);
+    byte hash[TPM_SHA256_DIGEST_SIZE];
+    byte sig[ECC_MAX_SIG_SIZE];
+    word32 sigSz = (word32)sizeof(sig);
+    int verified = 0;
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    RsaKey rsaId;
+    byte rsaSig[256];
+#endif
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
+    defined(TEST_KEYID_RSA_CREATE)
+    RsaKey rsaGen;
+    byte rsaKeyId[4] = { 0x81, 0x00, 0x02, 0x21 };
+    byte rsaOut[256];
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    XMEMSET(hash, 0x5A, sizeof(hash));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb key id:");
+        return;
+    }
+    rc = wolfTPM2_CreateSRK(&dev, &srk, TPM_ALG_ECC, NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    /* drop keys an earlier run left behind */
+    XMEMSET(&persist, 0, sizeof(persist));
+    if (wolfTPM2_ReadPublicKey(&dev, &persist, TEST_KEYID_ECC_HANDLE) == 0) {
+        AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &persist), 0);
+    }
+    XMEMSET(&persist, 0, sizeof(persist));
+    if (wolfTPM2_ReadPublicKey(&dev, &persist, TEST_KEYID_RSA_HANDLE) == 0) {
+        AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &persist), 0);
+    }
+
+    tpmCtx.storageKey = &srk;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_InitRng(&rng);
+    AssertIntEQ(rc, 0);
+
+    /* keygen by id needs a storage key and leaves the handle free without */
+    rc = wc_ecc_init_id(&genKey, eccId, (int)sizeof(eccId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    tpmCtx.storageKey = NULL;
+    rc = wc_ecc_make_key_ex(&rng, 32, &genKey, ECC_SECP256R1);
+    AssertIntEQ(rc, WC_HW_E);
+    tpmCtx.storageKey = &srk;
+    XMEMSET(&persist, 0, sizeof(persist));
+    AssertIntNE(wolfTPM2_ReadPublicKey(&dev, &persist, TEST_KEYID_ECC_HANDLE),
+        0);
+
+    /* keygen under a handle id persists the key there */
+    rc = wc_ecc_make_key_ex(&rng, 32, &genKey, ECC_SECP256R1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(mp_iszero(wc_ecc_key_get_priv(&genKey)), 1);
+    rc = wc_ecc_export_x963(&genKey, pub, &pubSz);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&persist, 0, sizeof(persist));
+    rc = wolfTPM2_ReadPublicKey(&dev, &persist, TEST_KEYID_ECC_HANDLE);
+    AssertIntEQ(rc, 0);
+
+    /* an occupied handle is not overwritten */
+    rc = wc_ecc_init_id(&curveKey, eccId, (int)sizeof(eccId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_make_key_ex(&rng, 32, &curveKey, ECC_SECP256R1);
+    AssertIntNE(rc, 0);
+    wc_ecc_free(&curveKey);
+
+    /* a key holding only the id signs with the TPM key */
+    rc = wc_ecc_init_id(&idKey, eccId, (int)sizeof(eccId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &idKey);
+    AssertIntEQ(rc, 0);
+
+    rc = wc_ecc_init_ex(&swKey, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_import_x963_ex(pub, pubSz, &swKey, ECC_SECP256R1);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_verify_hash(sig, sigSz, hash, (word32)sizeof(hash), &verified,
+        &swKey);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verified, 1);
+
+#if (defined(HAVE_ECC384) || defined(HAVE_ALL_CURVES)) && ECC_MIN_KEY_SZ <= 384
+    /* a P-384 key whose id names the P-256 key is refused */
+    rc = wc_ecc_init_id(&curveKey, eccId, (int)sizeof(eccId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_set_curve(&curveKey, 48, ECC_SECP384R1);
+    AssertIntEQ(rc, 0);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &curveKey);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_ecc_free(&curveKey);
+#endif
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    /* an RSA key whose id names the ECC key is refused */
+    rc = wc_InitRsaKey_Id(&rsaId, eccId, (int)sizeof(eccId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaSSL_Sign(hash, (word32)sizeof(hash), rsaSig,
+        (word32)sizeof(rsaSig), &rsaId, &rng);
+    AssertIntLT(rc, 0);
+    wc_FreeRsaKey(&rsaId);
+#endif
+
+    /* a TPM error must not reach wolfCrypt as a positive signature length */
+    AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &persist), 0);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &idKey);
+    AssertIntEQ(rc, WC_HW_E);
+
+    wc_ecc_free(&swKey);
+    wc_ecc_free(&idKey);
+    wc_ecc_free(&genKey);
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
+    defined(TEST_KEYID_RSA_CREATE)
+    rc = wc_InitRsaKey_Id(&rsaGen, rsaKeyId, (int)sizeof(rsaKeyId), NULL,
+        tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MakeRsaKey(&rsaGen, 2048, WC_RSA_EXPONENT, &rng);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wc_RsaEncryptSize(&rsaGen), 256);
+    rc = wc_InitRsaKey_Id(&rsaId, rsaKeyId, (int)sizeof(rsaKeyId), NULL,
+        tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MakeRsaKey(&rsaId, 2048, WC_RSA_EXPONENT, &rng);
+    AssertIntNE(rc, 0);
+    wc_FreeRsaKey(&rsaId);
+
+    /* private and public ops on an id-only key both use the TPM key */
+    rc = wc_InitRsaKey_Id(&rsaId, rsaKeyId, (int)sizeof(rsaKeyId), NULL,
+        tpmDevId);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wc_RsaEncryptSize(&rsaId), 256);
+    rc = wc_RsaSSL_Sign(hash, (word32)sizeof(hash), rsaSig,
+        (word32)sizeof(rsaSig), &rsaId, &rng);
+    AssertIntEQ(rc, 256);
+    rc = wc_RsaSSL_Verify(rsaSig, 256, rsaOut, (word32)sizeof(rsaOut),
+        &rsaId);
+    AssertIntEQ(rc, (int)sizeof(hash));
+    AssertIntEQ(XMEMCMP(rsaOut, hash, sizeof(hash)), 0);
+
+    /* the public key keygen exported verifies it in software */
+    rsaGen.devId = INVALID_DEVID;
+    rc = wc_RsaSSL_Verify(rsaSig, 256, rsaOut, (word32)sizeof(rsaOut),
+        &rsaGen);
+    AssertIntEQ(rc, (int)sizeof(hash));
+    AssertIntEQ(XMEMCMP(rsaOut, hash, sizeof(hash)), 0);
+
+    XMEMSET(&persist, 0, sizeof(persist));
+    rc = wolfTPM2_ReadPublicKey(&dev, &persist, TEST_KEYID_RSA_HANDLE);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &persist), 0);
+
+    /* with the handle gone, every RSA operation on the id fails */
+    AssertIntEQ(wc_RsaEncryptSize(&rsaId), 0);
+    rc = wc_RsaSSL_Sign(hash, (word32)sizeof(hash), rsaSig,
+        (word32)sizeof(rsaSig), &rsaId, &rng);
+    AssertIntLT(rc, 0);
+    rc = wc_RsaSSL_Verify(rsaSig, 256, rsaOut, (word32)sizeof(rsaOut),
+        &rsaId);
+    AssertIntLT(rc, 0);
+    wc_FreeRsaKey(&rsaId);
+    wc_FreeRsaKey(&rsaGen);
+#endif
+
+    wc_FreeRng(&rng);
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb key id:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb key id:");
+#endif
+}
+
+static void test_wolfTPM2_CryptoDevCb_TransientKeyId(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLF_PRIVATE_KEY_ID) && \
+    defined(HAVE_ECC) && defined(HAVE_ECC_KEY_IMPORT) && \
+    defined(HAVE_ECC_KEY_EXPORT) && !defined(WC_NO_RNG)
+    int rc;
+    int i;
+    int transients;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY tpmKey;
+    WOLFTPM2_KEYBLOB blob;
+    TPMT_PUBLIC publicTemplate;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    WC_RNG rng;
+    ecc_key genKey;
+    ecc_key idKey;
+    ecc_key swKey;
+    byte transientId[4] = { 0x80, 0x00, 0x00, 0x00 };
+    byte swappedId[4] = { 0x20, 0x02, 0x00, 0x81 };
+    byte shortId[3] = { 0x81, 0x00, 0x02 };
+    byte otherId[4] = { 0x80, 0x00, 0x00, 0x01 };
+    const byte* badIds[3];
+    int badIdLens[3] = { 4, 3, 4 };
+    byte blobId[4];
+    byte pub[1 + 2 * MAX_ECC_BYTES];
+    word32 pubSz = (word32)sizeof(pub);
+    byte otherPub[1 + 2 * MAX_ECC_BYTES];
+    word32 otherPubSz = (word32)sizeof(otherPub);
+    byte priv[32];
+    byte hash[TPM_SHA256_DIGEST_SIZE];
+    byte sig[ECC_MAX_SIG_SIZE];
+    word32 sigSz = (word32)sizeof(sig);
+    int verified = 0;
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
+    defined(TEST_KEYID_RSA_CREATE)
+    RsaKey rsaGen;
+    RsaKey rsaId;
+    byte rsaSig[256];
+    byte rsaOut[256];
+    byte n[256];
+    word32 nSz = (word32)sizeof(n);
+    byte e[4];
+    word32 eSz = (word32)sizeof(e);
+    byte e3[1] = { 0x03 };
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    XMEMSET(hash, 0x5A, sizeof(hash));
+    badIds[0] = swappedId;
+    badIds[1] = shortId;
+    badIds[2] = otherId;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "CryptoDevCb transient key id:");
+        return;
+    }
+    rc = wolfTPM2_CreateSRK(&dev, &srk, TPM_ALG_ECC, NULL, 0);
+    AssertIntEQ(rc, 0);
+    tpmCtx.storageKey = &srk;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_InitRng(&rng);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(TEST_KEYID_HANDLE(transientId), WOLFTPM2_KEYID_TRANSIENT);
+    transients = wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL);
+
+    /* keygen refuses a byte-swapped, short or non-sentinel transient id */
+    for (i = 0; i < 3; i++) {
+        rc = wc_ecc_init_id(&genKey, (byte*)badIds[i], badIdLens[i], NULL,
+            tpmDevId);
+        AssertIntEQ(rc, 0);
+        rc = wc_ecc_make_key_ex(&rng, 32, &genKey, ECC_SECP256R1);
+        AssertIntEQ(rc, WC_HW_E);
+        wc_ecc_free(&genKey);
+    }
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), transients);
+
+    /* the sentinel id makes keygen write back the handle the TPM picked */
+    rc = wc_ecc_init_id(&genKey, transientId, (int)sizeof(transientId), NULL,
+        tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_make_key_ex(&rng, 32, &genKey, ECC_SECP256R1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(genKey.idLen, 4);
+    AssertIntEQ((TEST_KEYID_HANDLE(genKey.id) >> HR_SHIFT), TPM_HT_TRANSIENT);
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), transients + 1);
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+    rc = wolfTPM2_ReadPublicKey(&dev, &tpmKey, TEST_KEYID_HANDLE(genKey.id));
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_export_x963(&genKey, pub, &pubSz);
+    AssertIntEQ(rc, 0);
+
+    /* a key holding only that id signs with the transient key */
+    rc = wc_ecc_init_id(&idKey, genKey.id, genKey.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &idKey);
+    AssertIntEQ(rc, 0);
+    wc_ecc_free(&idKey);
+    rc = wc_ecc_init_ex(&swKey, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_import_x963_ex(pub, pubSz, &swKey, ECC_SECP256R1);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_verify_hash(sig, sigSz, hash, (word32)sizeof(hash), &verified,
+        &swKey);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verified, 1);
+    wc_ecc_free(&swKey);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &genKey);
+    AssertIntEQ(rc, 0);
+
+    /* an id whose key holds another public point is refused */
+    rc = wc_ecc_init_ex(&swKey, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_make_key_ex(&rng, 32, &swKey, ECC_SECP256R1);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_export_x963(&swKey, otherPub, &otherPubSz);
+    AssertIntEQ(rc, 0);
+    wc_ecc_free(&swKey);
+    rc = wc_ecc_init_id(&idKey, genKey.id, genKey.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_import_x963_ex(otherPub, otherPubSz, &idKey, ECC_SECP256R1);
+    AssertIntEQ(rc, 0);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &idKey);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_ecc_free(&idKey);
+
+    /* an id whose key holds only a private scalar is refused */
+    XMEMSET(priv, 0x11, sizeof(priv));
+    rc = wc_ecc_init_id(&idKey, genKey.id, genKey.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_import_private_key_ex(priv, (word32)sizeof(priv), NULL, 0,
+        &idKey, ECC_SECP256R1);
+    AssertIntEQ(rc, 0);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &idKey);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_ecc_free(&idKey);
+
+    /* the caller unloads a generated transient key */
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), transients);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &genKey);
+    AssertIntEQ(rc, WC_HW_E);
+
+    /* keygen into a key that already holds one is refused */
+    XMEMCPY(genKey.id, transientId, sizeof(transientId));
+    rc = wc_ecc_make_key_ex(&rng, 32, &genKey, ECC_SECP256R1);
+    AssertIntEQ(rc, WC_HW_E);
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), transients);
+    wc_ecc_free(&genKey);
+
+    /* a key blob loaded at a transient handle signs through that handle */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA, TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&blob, 0, sizeof(blob));
+    rc = wolfTPM2_CreateKey(&dev, &blob, &srk.handle, &publicTemplate, NULL, 0);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_LoadKey(&dev, &blob, &srk.handle);
+    AssertIntEQ(rc, 0);
+    blobId[0] = (byte)(blob.handle.hndl >> 24);
+    blobId[1] = (byte)(blob.handle.hndl >> 16);
+    blobId[2] = (byte)(blob.handle.hndl >> 8);
+    blobId[3] = (byte)blob.handle.hndl;
+    rc = wc_ecc_init_id(&idKey, blobId, (int)sizeof(blobId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &idKey);
+    AssertIntEQ(rc, 0);
+    wc_ecc_free(&idKey);
+    rc = wc_ecc_init_ex(&swKey, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_EccKey_TpmToWolf(&dev, (WOLFTPM2_KEY*)&blob, &swKey);
+    AssertIntEQ(rc, 0);
+    verified = 0;
+    rc = wc_ecc_verify_hash(sig, sigSz, hash, (word32)sizeof(hash), &verified,
+        &swKey);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verified, 1);
+    wc_ecc_free(&swKey);
+
+    /* a byte-swapped id is refused for signing too */
+    rc = wc_ecc_init_id(&idKey, swappedId, (int)sizeof(swappedId), NULL,
+        tpmDevId);
+    AssertIntEQ(rc, 0);
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(hash, (word32)sizeof(hash), sig, &sigSz, &rng,
+        &idKey);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_ecc_free(&idKey);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &blob.handle), 0);
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
+    defined(TEST_KEYID_RSA_CREATE)
+    /* RSA keygen with the sentinel id, then a key with another modulus */
+    rc = wc_InitRsaKey_Id(&rsaGen, transientId, (int)sizeof(transientId),
+        NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MakeRsaKey(&rsaGen, 2048, WC_RSA_EXPONENT, &rng);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((TEST_KEYID_HANDLE(rsaGen.id) >> HR_SHIFT), TPM_HT_TRANSIENT);
+    rc = wc_RsaSSL_Sign(hash, (word32)sizeof(hash), rsaSig,
+        (word32)sizeof(rsaSig), &rsaGen, &rng);
+    AssertIntEQ(rc, 256);
+
+    rc = wc_RsaFlattenPublicKey(&rsaGen, e, &eSz, n, &nSz);
+    AssertIntEQ(rc, 0);
+    n[nSz - 1] ^= 0x02;
+    rc = wc_InitRsaKey_Id(&rsaId, rsaGen.id, rsaGen.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, &rsaId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaSSL_Sign(hash, (word32)sizeof(hash), rsaOut,
+        (word32)sizeof(rsaOut), &rsaId, &rng);
+    AssertIntLT(rc, 0);
+
+    /* public ops use the RsaKey's own modulus */
+    rc = wc_RsaSSL_Verify(rsaSig, 256, rsaOut, (word32)sizeof(rsaOut),
+        &rsaId);
+    AssertIntLT(rc, 0);
+    rc = wc_RsaPublicEncrypt(hash, (word32)sizeof(hash), rsaOut,
+        (word32)sizeof(rsaOut), &rsaId, &rng);
+    AssertIntEQ(rc, 256);
+    wc_FreeRsaKey(&rsaId);
+
+    /* the TPM modulus signs with its own exponent, not with another */
+    n[nSz - 1] ^= 0x02;
+    rc = wc_InitRsaKey_Id(&rsaId, rsaGen.id, rsaGen.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, &rsaId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaSSL_Sign(hash, (word32)sizeof(hash), rsaOut,
+        (word32)sizeof(rsaOut), &rsaId, &rng);
+    AssertIntEQ(rc, 256);
+    wc_FreeRsaKey(&rsaId);
+    rc = wc_InitRsaKey_Id(&rsaId, rsaGen.id, rsaGen.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e3, (word32)sizeof(e3), &rsaId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaSSL_Sign(hash, (word32)sizeof(hash), rsaOut,
+        (word32)sizeof(rsaOut), &rsaId, &rng);
+    AssertIntLT(rc, 0);
+    wc_FreeRsaKey(&rsaId);
+
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+    tpmKey.handle.hndl = TEST_KEYID_HANDLE(rsaGen.id);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+    wc_FreeRsaKey(&rsaGen);
+#endif
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), transients);
+
+    wc_FreeRng(&rng);
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb transient key id:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n",
+        "CryptoDevCb transient key id:");
+#endif
+}
+
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLF_PRIVATE_KEY_ID) && \
+    !defined(NO_RSA) && defined(HAVE_ECC) && !defined(WC_NO_RNG)
+/* Creates a transient key from publicTemplate and writes its handle to id */
+static void test_KeyIdLoad(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* srk,
+    TPMT_PUBLIC* publicTemplate, WOLFTPM2_KEY* key, byte* id)
+{
+    XMEMSET(key, 0, sizeof(*key));
+    AssertIntEQ(wolfTPM2_CreateAndLoadKey(dev, key, &srk->handle,
+        publicTemplate, NULL, 0), 0);
+    id[0] = (byte)(key->handle.hndl >> 24);
+    id[1] = (byte)(key->handle.hndl >> 16);
+    id[2] = (byte)(key->handle.hndl >> 8);
+    id[3] = (byte)key->handle.hndl;
+}
+#endif
+
+static void test_wolfTPM2_CryptoDevCb_KeyIdRefused(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLF_PRIVATE_KEY_ID) && \
+    !defined(NO_RSA) && defined(HAVE_ECC) && !defined(WC_NO_RNG)
+    int rc;
+    int transients;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY rsaSrk;
+    WOLFTPM2_KEY tpmKey;
+    TPMT_PUBLIC publicTemplate;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    WC_RNG rng;
+    RsaKey rsaId;
+    ecc_key eccId;
+    byte id[4];
+    byte hash[TPM_SHA384_DIGEST_SIZE];
+    byte out[512];
+    word32 outSz = (word32)sizeof(out);
+#ifdef HAVE_ECC_KEY_IMPORT
+    ecc_key swKey;
+    int verified = 0;
+#endif
+    TPMA_OBJECT attribs = TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&rsaSrk, 0, sizeof(rsaSrk));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    XMEMSET(hash, 0x5A, sizeof(hash));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "CryptoDevCb key id refused:");
+        return;
+    }
+    rc = wolfTPM2_CreateSRK(&dev, &srk, TPM_ALG_ECC, NULL, 0);
+    AssertIntEQ(rc, 0);
+    tpmCtx.storageKey = &srk;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_InitRng(&rng);
+    AssertIntEQ(rc, 0);
+    transients = wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL);
+
+    /* a restricted RSA storage key */
+    rc = wolfTPM2_CreateSRK(&dev, &rsaSrk, TPM_ALG_RSA, NULL, 0);
+    AssertIntEQ(rc, 0);
+    id[0] = (byte)(rsaSrk.handle.hndl >> 24);
+    id[1] = (byte)(rsaSrk.handle.hndl >> 16);
+    id[2] = (byte)(rsaSrk.handle.hndl >> 8);
+    id[3] = (byte)rsaSrk.handle.hndl;
+    rc = wc_InitRsaKey_Id(&rsaId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wc_RsaEncryptSize(&rsaId), 0);
+    rc = wc_RsaPublicEncrypt(hash, (word32)sizeof(hash), out,
+        (word32)sizeof(out), &rsaId, &rng);
+    AssertIntLT(rc, 0);
+    wc_FreeRsaKey(&rsaId);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &rsaSrk.handle), 0);
+
+#ifdef TEST_KEYID_RSA_CREATE
+    /* an RSA key with a padding scheme */
+    rc = wolfTPM2_GetKeyTemplate_RSA_ex(&publicTemplate, TPM_ALG_SHA256,
+        attribs | TPMA_OBJECT_decrypt, 2048, 0, TPM_ALG_OAEP, TPM_ALG_SHA256);
+    AssertIntEQ(rc, 0);
+    test_KeyIdLoad(&dev, &srk, &publicTemplate, &tpmKey, id);
+    rc = wc_InitRsaKey_Id(&rsaId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wc_RsaEncryptSize(&rsaId), 0);
+    wc_FreeRsaKey(&rsaId);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+
+    /* an RSA key without the decrypt attribute */
+    rc = wolfTPM2_GetKeyTemplate_RSA_ex(&publicTemplate, TPM_ALG_SHA256,
+        attribs | TPMA_OBJECT_sign, 2048, 0, TPM_ALG_NULL, TPM_ALG_SHA256);
+    AssertIntEQ(rc, 0);
+    test_KeyIdLoad(&dev, &srk, &publicTemplate, &tpmKey, id);
+    rc = wc_InitRsaKey_Id(&rsaId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wc_RsaEncryptSize(&rsaId), 0);
+    wc_FreeRsaKey(&rsaId);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+
+    /* an RSA key with exponent 0 matches its public key */
+    rc = wolfTPM2_GetKeyTemplate_RSA_ex(&publicTemplate, TPM_ALG_SHA256,
+        attribs | TPMA_OBJECT_decrypt, 2048, 0, TPM_ALG_NULL, TPM_ALG_SHA256);
+    AssertIntEQ(rc, 0);
+    test_KeyIdLoad(&dev, &srk, &publicTemplate, &tpmKey, id);
+    rc = wc_InitRsaKey_Id(&rsaId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &tpmKey, &rsaId);
+    AssertIntEQ(rc, 0);
+    rc = wc_RsaSSL_Sign(hash, TPM_SHA256_DIGEST_SIZE, out,
+        (word32)sizeof(out), &rsaId, &rng);
+    AssertIntEQ(rc, 256);
+    wc_FreeRsaKey(&rsaId);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+#endif
+
+    /* an ECC key with a scheme other than ECDSA */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        attribs | TPMA_OBJECT_decrypt, TPM_ECC_NIST_P256, TPM_ALG_ECDH);
+    AssertIntEQ(rc, 0);
+    test_KeyIdLoad(&dev, &srk, &publicTemplate, &tpmKey, id);
+    rc = wc_ecc_init_id(&eccId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_sign_hash(hash, TPM_SHA256_DIGEST_SIZE, out, &outSz, &rng,
+        &eccId);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_ecc_free(&eccId);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+
+#ifdef HAVE_ECC_KEY_IMPORT
+    /* an ECC key with the NULL scheme signs with the curve hash */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        attribs | TPMA_OBJECT_sign, TPM_ECC_NIST_P256, TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+    test_KeyIdLoad(&dev, &srk, &publicTemplate, &tpmKey, id);
+    rc = wc_ecc_init_id(&eccId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    outSz = (word32)sizeof(out);
+    rc = wc_ecc_sign_hash(hash, TPM_SHA256_DIGEST_SIZE, out, &outSz, &rng,
+        &eccId);
+    AssertIntEQ(rc, 0);
+    wc_ecc_free(&eccId);
+    rc = wc_ecc_init_ex(&swKey, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_EccKey_TpmToWolf(&dev, &tpmKey, &swKey);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_verify_hash(out, outSz, hash, TPM_SHA256_DIGEST_SIZE,
+        &verified, &swKey);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verified, 1);
+    wc_ecc_free(&swKey);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+#endif
+
+    /* an ECDSA scheme hash longer than the curve */
+    rc = wolfTPM2_GetKeyTemplate_ECC_ex(&publicTemplate, TPM_ALG_SHA256,
+        attribs | TPMA_OBJECT_sign, TPM_ECC_NIST_P256, TPM_ALG_ECDSA,
+        TPM_ALG_SHA384);
+    AssertIntEQ(rc, 0);
+    test_KeyIdLoad(&dev, &srk, &publicTemplate, &tpmKey, id);
+    rc = wc_ecc_init_id(&eccId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    outSz = (word32)sizeof(out);
+    rc = wc_ecc_sign_hash(hash, TPM_SHA256_DIGEST_SIZE, out, &outSz, &rng,
+        &eccId);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_ecc_free(&eccId);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+
+#if (defined(HAVE_ECC384) || defined(HAVE_ALL_CURVES)) && \
+    ECC_MIN_KEY_SZ <= 384 && defined(HAVE_ECC_KEY_IMPORT)
+    /* an ECDSA scheme hash shorter than the input, but not than the curve */
+    rc = wolfTPM2_GetKeyTemplate_ECC_ex(&publicTemplate, TPM_ALG_SHA256,
+        attribs | TPMA_OBJECT_sign, TPM_ECC_NIST_P384, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    AssertIntEQ(rc, 0);
+    test_KeyIdLoad(&dev, &srk, &publicTemplate, &tpmKey, id);
+    rc = wc_ecc_init_id(&eccId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    outSz = (word32)sizeof(out);
+    rc = wc_ecc_sign_hash(hash, TPM_SHA384_DIGEST_SIZE, out, &outSz, &rng,
+        &eccId);
+    AssertIntEQ(rc, WC_HW_E);
+    outSz = (word32)sizeof(out);
+    rc = wc_ecc_sign_hash(hash, TPM_SHA256_DIGEST_SIZE, out, &outSz, &rng,
+        &eccId);
+    AssertIntEQ(rc, 0);
+    wc_ecc_free(&eccId);
+    rc = wc_ecc_init_ex(&swKey, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_EccKey_TpmToWolf(&dev, &tpmKey, &swKey);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_verify_hash(out, outSz, hash, TPM_SHA256_DIGEST_SIZE,
+        &verified, &swKey);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verified, 1);
+    wc_ecc_free(&swKey);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tpmKey.handle), 0);
+#endif
+
+    id[0] = 0x80;
+    id[1] = id[2] = id[3] = 0;
+#if (defined(HAVE_ECC224) || defined(HAVE_ALL_CURVES)) && \
+    ECC_MIN_KEY_SZ <= 224
+    /* a curve shorter than its hash creates no key */
+    rc = wc_ecc_init_id(&eccId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_ecc_make_key_ex(&rng, 28, &eccId, ECC_SECP224R1);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_ecc_free(&eccId);
+#endif
+
+#ifdef WOLFSSL_KEY_GEN
+    /* an RSA size the export cannot hold creates no key */
+    rc = wc_InitRsaKey_Id(&rsaId, id, (int)sizeof(id), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MakeRsaKey(&rsaId, WOLFTPM2_WRAP_RSA_KEY_BITS + 1024,
+        WC_RSA_EXPONENT, &rng);
+    AssertIntNE(rc, 0);
+    wc_FreeRsaKey(&rsaId);
+#endif
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), transients);
+
+    wc_FreeRng(&rng);
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb key id refused:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb key id refused:");
+#endif
+}
+
+static void test_wolfTPM2_CryptoDevCb_MlDsaKeyId(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLF_PRIVATE_KEY_ID) && \
+    defined(WOLFTPM_MLDSA_SIGN) && !defined(WC_NO_RNG) && \
+    !defined(WOLFSSL_MLDSA_VERIFY_ONLY) && !defined(WOLFSSL_MLDSA_NO_SIGN) && \
+    !defined(WOLFSSL_MLDSA_NO_VERIFY) && \
+    !defined(WOLFSSL_MLDSA_NO_MAKE_KEY) && \
+    !defined(WOLFSSL_DILITHIUM_NO_MAKE_KEY) && \
+    !defined(WOLFSSL_NO_ML_DSA_65) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY persist;
+    WOLFTPM2_KEY probe;
+    TPMT_PUBLIC probePub;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    WC_RNG rng;
+    wc_MlDsaKey genKey;
+    wc_MlDsaKey idKey;
+    wc_MlDsaKey tmpKey;
+    WOLFTPM2_HANDLE tmpHandle;
+    byte keyId[4] = { 0x81, 0x00, 0x02, 0x22 };
+    byte transientId[4] = { 0x80, 0x00, 0x00, 0x00 };
+#ifdef WOLFTPM_HASH_MLDSA
+    byte hashKeyId[4] = { 0x81, 0x00, 0x02, 0x23 };
+#endif
+    byte pub[WC_MLDSA_65_PUB_KEY_SIZE];
+    word32 pubSz = (word32)sizeof(pub);
+    byte* msg = NULL;
+    byte* sig = NULL;
+    word32 sigSz = WC_MLDSA_65_SIG_SIZE;
+    int verified = 0;
+#ifdef WOLFSSL_MLDSA_PRIVATE_KEY
+    int transients;
+    byte* prv = NULL;
+    word32 prvSz = WC_MLDSA_65_KEY_SIZE;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb ML-DSA key id:");
+        return;
+    }
+    rc = wolfTPM2_CreateSRK(&dev, &srk, TPM_ALG_ECC, NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&probe, 0, sizeof(probe));
+    rc = wolfTPM2_GetKeyTemplate_MLDSA(&probePub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_MLDSA_65, 0);
+    if (rc == 0) {
+        rc = wolfTPM2_CreateAndLoadKey(&dev, &probe, &srk.handle, &probePub,
+            NULL, 0);
+    }
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "CryptoDevCb ML-DSA key id:");
+        wolfTPM2_UnloadHandle(&dev, &srk.handle);
+        wolfTPM2_Cleanup(&dev);
+        return;
+    }
+    AssertIntEQ(rc, 0);
+    wolfTPM2_UnloadHandle(&dev, &probe.handle);
+
+    XMEMSET(&persist, 0, sizeof(persist));
+    if (wolfTPM2_ReadPublicKey(&dev, &persist, TEST_KEYID_MLDSA_HANDLE) == 0) {
+        AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &persist), 0);
+    }
+
+    tpmCtx.storageKey = &srk;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_InitRng(&rng);
+    AssertIntEQ(rc, 0);
+    msg = (byte*)XMALLOC(TEST_MLDSA_LONG_MSG_SZ, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    sig = (byte*)XMALLOC(WC_MLDSA_65_SIG_SIZE, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    AssertNotNull(msg);
+    AssertNotNull(sig);
+    XMEMSET(msg, 0x3C, TEST_MLDSA_LONG_MSG_SZ);
+
+    /* keygen under a handle id persists the key there */
+    rc = wc_MlDsaKey_InitId(&genKey, keyId, (int)sizeof(keyId), NULL,
+        tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&genKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_MakeKey(&genKey, &rng);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&persist, 0, sizeof(persist));
+    rc = wolfTPM2_ReadPublicKey(&dev, &persist, TEST_KEYID_MLDSA_HANDLE);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_ExportPubRaw(&genKey, pub, &pubSz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)pubSz, (int)persist.pub.publicArea.unique.mldsa.size);
+    AssertIntEQ(XMEMCMP(pub, persist.pub.publicArea.unique.mldsa.buffer,
+        pubSz), 0);
+
+    /* an occupied handle is not overwritten */
+    rc = wc_MlDsaKey_InitId(&idKey, keyId, (int)sizeof(keyId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_MakeKey(&idKey, &rng);
+    AssertIntNE(rc, 0);
+    wc_MlDsaKey_Free(&idKey);
+
+    /* a key holding only the id signs a long message with the TPM key */
+    rc = wc_MlDsaKey_InitId(&idKey, keyId, (int)sizeof(keyId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg,
+        TEST_MLDSA_LONG_MSG_SZ, &rng);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_VerifyCtx(&genKey, sig, sigSz, NULL, 0, msg,
+        TEST_MLDSA_LONG_MSG_SZ, &verified);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verified, 1);
+    wc_MlDsaKey_Free(&idKey);
+
+    /* the sentinel id makes keygen write back the handle the TPM picked */
+    rc = wc_MlDsaKey_InitId(&tmpKey, transientId, (int)sizeof(transientId),
+        NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&tmpKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_MakeKey(&tmpKey, &rng);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((TEST_KEYID_HANDLE(tmpKey.id) >> HR_SHIFT), TPM_HT_TRANSIENT);
+    sigSz = WC_MLDSA_65_SIG_SIZE;
+    rc = wc_MlDsaKey_SignCtx(&tmpKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
+    AssertIntEQ(rc, 0);
+    verified = 0;
+    rc = wc_MlDsaKey_VerifyCtx(&tmpKey, sig, sigSz, NULL, 0, msg, 32,
+        &verified);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verified, 1);
+
+    /* an id whose key holds another public key is refused */
+    rc = wc_MlDsaKey_InitId(&idKey, tmpKey.id, tmpKey.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_ImportPubRaw(&idKey, pub, pubSz);
+    AssertIntEQ(rc, 0);
+    sigSz = WC_MLDSA_65_SIG_SIZE;
+    rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_MlDsaKey_Free(&idKey);
+
+#ifdef WOLFSSL_MLDSA_PRIVATE_KEY
+    /* a key holding only a private key is refused for signing and keygen */
+    prv = (byte*)XMALLOC(prvSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    AssertNotNull(prv);
+    rc = wc_MlDsaKey_Init(&idKey, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_MakeKey(&idKey, &rng);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_ExportPrivRaw(&idKey, prv, &prvSz);
+    AssertIntEQ(rc, 0);
+    wc_MlDsaKey_Free(&idKey);
+    rc = wc_MlDsaKey_InitId(&idKey, tmpKey.id, tmpKey.idLen, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_ImportPrivRaw(&idKey, prv, prvSz);
+    AssertIntEQ(rc, 0);
+    sigSz = WC_MLDSA_65_SIG_SIZE;
+    rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
+    AssertIntEQ(rc, WC_HW_E);
+    transients = wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL);
+    XMEMCPY(idKey.id, transientId, sizeof(transientId));
+    rc = wc_MlDsaKey_MakeKey(&idKey, &rng);
+    AssertIntNE(rc, 0);
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), transients);
+    wc_MlDsaKey_Free(&idKey);
+    XFREE(prv, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+#endif
+
+    XMEMSET(&tmpHandle, 0, sizeof(tmpHandle));
+    tmpHandle.hndl = TEST_KEYID_HANDLE(tmpKey.id);
+    AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &tmpHandle), 0);
+    sigSz = WC_MLDSA_65_SIG_SIZE;
+    rc = wc_MlDsaKey_SignCtx(&tmpKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_MlDsaKey_Free(&tmpKey);
+
+    /* an id naming another parameter set or key type is refused */
+#ifndef WOLFSSL_NO_ML_DSA_87
+    rc = wc_MlDsaKey_InitId(&idKey, keyId, (int)sizeof(keyId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_87);
+    AssertIntEQ(rc, 0);
+    XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    sig = (byte*)XMALLOC(WC_MLDSA_87_SIG_SIZE, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    AssertNotNull(sig);
+    sigSz = WC_MLDSA_87_SIG_SIZE;
+    rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
+    AssertIntEQ(rc, WC_HW_E);
+    wc_MlDsaKey_Free(&idKey);
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
+    XMEMSET(&probe, 0, sizeof(probe));
+    if (wolfTPM2_ReadPublicKey(&dev, &probe,
+            TEST_KEYID_HASH_MLDSA_HANDLE) == 0) {
+        AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &probe), 0);
+    }
+    rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&probePub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_MLDSA_65, TPM_ALG_SHA384);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&probe, 0, sizeof(probe));
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &probe, TPM_RH_OWNER, &probePub,
+        NULL, 0);
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "CryptoDevCb Hash-ML-DSA key id:");
+    }
+    else {
+        AssertIntEQ(rc, 0);
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &probe,
+            TEST_KEYID_HASH_MLDSA_HANDLE);
+        AssertIntEQ(rc, 0);
+        rc = wc_MlDsaKey_InitId(&idKey, hashKeyId, (int)sizeof(hashKeyId),
+            NULL, tpmDevId);
+        AssertIntEQ(rc, 0);
+        rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+        AssertIntEQ(rc, 0);
+        sigSz = WC_MLDSA_65_SIG_SIZE;
+        rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg, 32, &rng);
+        AssertIntEQ(rc, WC_HW_E);
+        wc_MlDsaKey_Free(&idKey);
+        AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &probe), 0);
+    }
+#endif
+
+    rc = wc_MlDsaKey_InitId(&idKey, keyId, (int)sizeof(keyId), NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_MlDsaKey_SetParams(&idKey, WC_ML_DSA_65);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &persist), 0);
+    sigSz = WC_MLDSA_65_SIG_SIZE;
+    rc = wc_MlDsaKey_SignCtx(&idKey, NULL, 0, sig, &sigSz, msg,
+        TEST_MLDSA_LONG_MSG_SZ, &rng);
+    AssertIntEQ(rc, WC_HW_E);
+
+    wc_MlDsaKey_Free(&idKey);
+    wc_MlDsaKey_Free(&genKey);
+    XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    XFREE(msg, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    wc_FreeRng(&rng);
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb ML-DSA key id:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb ML-DSA key id:");
 #endif
 }
 
@@ -9402,8 +10476,8 @@ static void test_wolfTPM2_MLDSA_SignSequence(WOLFTPM2_DEV* dev,
 
     rc = wolfTPM2_SignSequenceStart(dev, mldsaKey, context, contextSz,
         &sequenceHandle);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Sign Sequence:");
         *sigSz = 0;
@@ -9439,8 +10513,8 @@ static void test_wolfTPM2_MLDSA_VerifySequence(WOLFTPM2_DEV* dev,
         return;
     }
     rc = wolfTPM2_VerifySequenceStart(dev, mldsaKey, NULL, 0, &sequenceHandle);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Verify Sequence:");
         return;
@@ -9480,8 +10554,7 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &key, TPM_RH_OWNER, &pub,
         gAuth, (int)sizeof(gAuth));
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Sign Seq w/ key auth:");
         return;
@@ -9534,8 +10607,7 @@ static void test_wolfTPM2_MLDSA_VerifySequence_DataChain(WOLFTPM2_DEV* dev)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA Verify Seq data-chain:");
         return;
@@ -9602,8 +10674,7 @@ static void test_wolfTPM2_HashMLDSA_SignSequence_Streaming(WOLFTPM2_DEV* dev)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "Hash-ML-DSA SignSeqUpdate streaming:");
         return;
@@ -9685,8 +10756,7 @@ static void test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(WOLFTPM2_DEV* dev)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_HASH_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "Hash-ML-DSA SignDigest roundtrip:");
         return;
@@ -9742,8 +10812,8 @@ static void test_TPM2_SignSequenceStart_NoSession(WOLFTPM2_DEV* dev,
 
     ctx->session = savedSession;
 
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (TPM_RC)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+            rc == (TPM_RC)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA SignSeqStart no-session:");
         return;
@@ -9777,8 +10847,8 @@ static void test_wolfTPM2_MLKEM_Encapsulate(WOLFTPM2_DEV* dev,
 
     rc = wolfTPM2_Encapsulate(dev, mlkemKey, ciphertext, ciphertextSz,
         sharedSecret, &sharedSecretSz);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n", "ML-KEM Encapsulate:");
         *ciphertextSz = 0;
         return;
@@ -9804,8 +10874,8 @@ static void test_wolfTPM2_MLKEM_Decapsulate(WOLFTPM2_DEV* dev,
     /* Test Decapsulate */
     rc = wolfTPM2_Decapsulate(dev, mlkemKey, ciphertext, ciphertextSz,
         sharedSecret, &sharedSecretSz);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n", "ML-KEM Decapsulate:");
         return;
     }
@@ -9834,8 +10904,8 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
     /* Encapsulate */
     rc = wolfTPM2_Encapsulate(dev, mlkemKey, ciphertext, &ciphertextSz,
         sharedSecret1, &sharedSecret1Sz);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+        rc == (int)(RC_VER1 + 0x043)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n", "ML-KEM Round Trip:");
         return;
     }
@@ -9859,32 +10929,6 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
 #endif /* ML-KEM support */
 
 /* Main PQC test function */
-/* Returns 1 if the connected TPM advertises @alg in its TPM_CAP_ALGS list.
- * Used to skip sub-tests for optional algorithms (e.g. Hash-ML-DSA) that a
- * given TPM may not implement, without hard-coding any model check. */
-static int test_alg_supported(TPM_ALG_ID alg)
-{
-    GetCapability_In in;
-    GetCapability_Out out;
-    TPML_ALG_PROPERTY* algs;
-    word32 i;
-
-    XMEMSET(&in, 0, sizeof(in));
-    XMEMSET(&out, 0, sizeof(out));
-    in.capability = TPM_CAP_ALGS;
-    in.property = TPM_ALG_FIRST;
-    in.propertyCount = MAX_CAP_ALGS;
-    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS)
-        return 0;
-
-    algs = &out.capabilityData.data.algorithms;
-    for (i = 0; i < algs->count; i++) {
-        if (algs->algProperties[i].alg == alg)
-            return 1;
-    }
-    return 0;
-}
-
 /* Regression for the VerifySequenceComplete flush-on-error fix: looping
  * failed verifies must not exhaust transient memory (TPM_RC_OBJECT_MEMORY).
  * Uses an ECC key to cover the classical (non-PQC) wrapper path. */
@@ -9990,8 +11034,7 @@ static void test_wolfTPM2_PQC(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &mldsaKey, TPM_RH_OWNER,
         &mldsaPub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-DSA PQC suite:");
         goto mldsa_done;
@@ -10038,8 +11081,7 @@ mldsa_done:
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &mlkemKey, TPM_RH_OWNER,
         &mlkemPub, NULL, 0);
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
-            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLKEM)) {
         printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
             "ML-KEM PQC suite:");
         goto mlkem_done;
@@ -10323,6 +11365,10 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_CryptoDevCb_HashCacheStream();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_wolfTPM2_CryptoDevCb_MlDsaSign();
+    test_wolfTPM2_CryptoDevCb_KeyId();
+    test_wolfTPM2_CryptoDevCb_TransientKeyId();
+    test_wolfTPM2_CryptoDevCb_KeyIdRefused();
+    test_wolfTPM2_CryptoDevCb_MlDsaKeyId();
     test_TPM2_ASN_DecodeX509Cert_Errors();
     test_TPM2_ASN_RsaUnpadPkcsv15();
     test_TPM2_ASN_DecodeX509Cert_Valid();

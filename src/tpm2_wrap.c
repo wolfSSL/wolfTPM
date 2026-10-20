@@ -4262,6 +4262,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* Read public key */
     XMEMSET(&readPubIn, 0, sizeof(readPubIn));
+    XMEMSET(&readPubOut, 0, sizeof(readPubOut));
     readPubIn.objectHandle = handle;
     rc = TPM2_ReadPublic(&readPubIn, &readPubOut);
     if (rc != TPM_RC_SUCCESS) {
