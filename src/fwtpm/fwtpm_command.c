@@ -8400,18 +8400,18 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPMA_OBJECT_fixedParent)) {
         rc = TPM_RC_ATTRIBUTES;
     }
-    /* Per TPM 2.0 Part 3 Section 12.5: if encryptedDuplication is set,
-     * caller must supply a non-null symmetric algorithm */
+    /* Per TPM 2.0 Part 3 Section 13.1: encryptedDuplication needs both an
+     * inner wrap and an outer wrap to a new parent. The outer-wrap path below
+     * does not also apply the inner wrap, so no new parent is accepted yet. */
     if (rc == 0 && (obj->pub.objectAttributes &
         TPMA_OBJECT_encryptedDuplication)) {
         if (symAlg == TPM_ALG_NULL) {
             rc = TPM_RC_SYMMETRIC;
         }
-        /* The outer-wrap path to a real parent does not also apply the
-         * mandatory inner wrap, which would leave the new parent able to
-         * recover the sensitive. Require the inner-wrap export path
-         * (newParent == TPM_RH_NULL) for such objects. */
-        else if (newParentHandle != TPM_RH_NULL) {
+        else if (newParentHandle == TPM_RH_NULL) {
+            rc = TPM_RC_HIERARCHY | TPM_RC_2;
+        }
+        else {
             rc = TPM_RC_SYMMETRIC;
         }
     }

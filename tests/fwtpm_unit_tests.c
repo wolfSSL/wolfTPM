@@ -15565,6 +15565,91 @@ static void test_fwtpm_rewrap_null_newparent_rejected(void)
 }
 #endif /* !FWTPM_NO_KEY_MIGRATION */
 
+#if !defined(FWTPM_NO_KEY_MIGRATION) && !defined(FWTPM_NO_POLICY)
+static TPM_RC SendDuplicateToNullCmd(FWTPM_CTX* ctx, UINT32 objH,
+    UINT32 sessH, UINT16 symAlg)
+{
+    int pos, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Duplicate);
+    PutU32BE(gCmd + pos, objH); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* newParentHandle */
+    pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession,
+        NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* encryptionKeyIn */
+    PutU16BE(gCmd + pos, symAlg); pos += 2;
+    if (symAlg != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, 128); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* An encryptedDuplication object may leave the TPM only under both an inner
+ * symmetric wrap and an outer wrap to a new parent (Part 3 Sec.13.1). */
+static void test_fwtpm_duplicate_encrypted_needs_new_parent(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj = NULL;
+    FWTPM_Session* sess = NULL;
+    UINT32 keyH, sessH;
+    int i, pos, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyCommandCode);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, TPM_CC_Duplicate); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx.objects[i].used && ctx.objects[i].handle == keyH) {
+            obj = &ctx.objects[i];
+        }
+    }
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(obj);
+    AssertNotNull(sess);
+    obj->pub.objectAttributes &=
+        ~(TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent);
+    obj->pub.objectAttributes |= TPMA_OBJECT_encryptedDuplication;
+    XMEMCPY(&obj->pub.authPolicy, &sess->policyDigest,
+        sizeof(obj->pub.authPolicy));
+
+    AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_NULL),
+        TPM_RC_SYMMETRIC);
+    AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_AES),
+        TPM_RC_HIERARCHY | TPM_RC_2);
+
+    obj->pub.objectAttributes &= ~TPMA_OBJECT_encryptedDuplication;
+    AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_AES),
+        TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Duplicate encryptedDuplication needs new parent:", 0);
+}
+#endif /* !FWTPM_NO_KEY_MIGRATION && !FWTPM_NO_POLICY */
+
 /* ================================================================== */
 /* Group D: Hash/HMAC Sequences                                        */
 /* ================================================================== */
@@ -18746,6 +18831,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
 #ifndef FWTPM_NO_KEY_MIGRATION
     test_fwtpm_rewrap_null_newparent_rejected();
+#ifndef FWTPM_NO_POLICY
+    test_fwtpm_duplicate_encrypted_needs_new_parent();
+#endif
 #endif /* !FWTPM_NO_KEY_MIGRATION */
     test_fwtpm_evict_control();
     test_fwtpm_evict_control_cross_hierarchy_rejected();
