@@ -73,7 +73,17 @@ tests/unit.test
 tests/unit.log
 tests/fwtpm_unit.log
 tests/fwtpm_unit.test
+tests/fwtpm_hal_unit.test
+tests/fwtpm_hal_unit.log
 tests/fwtpm_check.sh.log
+tests/packet_auth.test
+tests/packet_auth.log
+tests/spdm_config.test
+tests/spdm_config.log
+tests/spdm_ctrl.test
+tests/spdm_ctrl.log
+src/spdm/unit_test
+src/spdm/unit_test.log
 examples/keygen/create_primary
 examples/keygen/keyload
 examples/keygen/keygen

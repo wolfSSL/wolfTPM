@@ -581,10 +581,16 @@ fi
 
 # Infineon SLB9670/SLB9672/SLB9673
 AC_ARG_ENABLE([infineon],
-    [AS_HELP_STRING([--enable-infineon],[Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)])],
+    [AS_HELP_STRING([--enable-infineon],[Enable Infineon SLB9670/SLB9672/SLB9673/SLB9678 TPM Support (default: disabled)])],
     [ ENABLED_INFINEON=$enableval ],
     [ ENABLED_INFINEON=no ]
     )
+# Set to yes for Infineon parts that speak SPDM (SLB9678). Drives the
+# wolfSPDM Infineon vendor binding and the TCG auto-enable below.
+ENABLED_INFINEON_SPDM=no
+# Set only inside the SPDM block, so it implies both slb9678 and --enable-spdm
+# and is what the Infineon-specific tests are conditioned on.
+BUILD_SPDM_INFINEON=no
 if test "x$ENABLED_INFINEON" != "xno"
 then
     if test "x$ENABLED_INFINEON" = "xslb9670"
@@ -601,7 +607,15 @@ then
             enable_i2c=yes
             AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9673"
         else
-            AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9672"
+            if test "x$ENABLED_INFINEON" = "xslb9678"
+            then
+                # slb9678 takes SPI or I2C by a boot-time CONFIG pin and adds
+                # an SPDM 1.3 secure channel (Algorithm Set B).
+                AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9678"
+                ENABLED_INFINEON_SPDM=yes
+            else
+                AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9672"
+            fi
         fi
     fi
 fi
@@ -769,7 +783,8 @@ then
     then
         if test "x$ENABLED_FWTPM" = "xyes" || \
            test "x$ENABLED_NUVOTON" = "xyes" || \
-           test "x$ENABLED_NATIONS" = "xyes"
+           test "x$ENABLED_NATIONS" = "xyes" || \
+           test "x$ENABLED_INFINEON_SPDM" = "xyes"
         then
             ENABLED_TCG=yes
         else
@@ -790,12 +805,25 @@ then
     if test "x$ENABLED_TCG" = "xyes"
     then
         AC_DEFINE([WOLFTPM_SPDM_TCG], [1], [Enable SPDM TCG Binding mode])
+        AC_DEFINE([WOLFSPDM_TCG], [1], [Enable the TCG binding in wolfSPDM])
         AC_MSG_NOTICE([SPDM TCG Binding mode enabled])
     fi
     if test "x$ENABLED_PSK" = "xyes"
     then
         AC_DEFINE([WOLFTPM_SPDM_PSK], [1], [Enable SPDM PSK mode])
+        AC_DEFINE([WOLFSPDM_PSK], [1], [Enable PSK mode in wolfSPDM])
         AC_MSG_NOTICE([SPDM PSK mode enabled])
+    fi
+    # The SLB9678 vendor commands live in wolfSPDM; this only turns them on.
+    if test "x$ENABLED_INFINEON_SPDM" = "xyes"
+    then
+        AC_DEFINE([WOLFSPDM_INFINEON], [1], [Enable Infineon SLB9678 SPDM vendor commands])
+        AC_MSG_NOTICE([Infineon SLB9678 SPDM vendor commands enabled])
+        BUILD_SPDM_INFINEON=yes
+    fi
+    if test "x$ENABLED_INFINEON_SPDM" = "xyes" && test "x$ENABLED_TCG" != "xyes"
+    then
+        AC_MSG_ERROR([--enable-infineon=slb9678 --enable-spdm requires --enable-tcg (the SLB9678 uses the TCG SPDM Binding)])
     fi
 
     if test "x$ENABLED_FWTPM" = "xyes" && \
@@ -1072,6 +1100,7 @@ AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST" = "xyes"])
 AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" != "xno"])
+AM_CONDITIONAL([BUILD_INFINEON_SPDM], [test "x$BUILD_SPDM_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"])
 AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
@@ -1241,6 +1270,7 @@ echo "   * HAL Reset (nRST GPIO):     $ENABLED_HAL_RESET"
 echo "   * wolfHAL IO:                $ENABLED_WOLFHAL"
 
 echo "   * Infineon SLB967X           $ENABLED_INFINEON"
+echo "   * SPDM Infineon SLB9678:     $BUILD_SPDM_INFINEON"
 echo "   * STM ST33:                  $ENABLED_ST"
 echo "   * Microchip ATTPM20:         $ENABLED_MICROCHIP"
 echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"

@@ -25,6 +25,7 @@ nobase_include_HEADERS+= \
                          wolftpm/spdm/spdm_tcg.h \
                          wolftpm/spdm/spdm_nuvoton.h \
                          wolftpm/spdm/spdm_nations.h \
+                         wolftpm/spdm/spdm_infineon.h \
                          wolftpm/spdm/spdm_psk.h \
                          wolftpm/spdm/spdm_responder.h \
                          wolftpm/fwtpm/fwtpm.h \
@@ -43,6 +44,7 @@ wolfspdminc_HEADERS = \
                          lib/wolfSPDM/wolfspdm/spdm_tcg.h \
                          lib/wolfSPDM/wolfspdm/spdm_nuvoton.h \
                          lib/wolfSPDM/wolfspdm/spdm_nations.h \
+                         lib/wolfSPDM/wolfspdm/spdm_infineon.h \
                          lib/wolfSPDM/wolfspdm/spdm_psk.h \
                          lib/wolfSPDM/wolfspdm/spdm_responder.h \
                          src/spdm/wolfspdm/options.h

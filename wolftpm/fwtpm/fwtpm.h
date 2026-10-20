@@ -198,12 +198,13 @@
 #define FWTPM_MAX_PERSISTENT   8
 #endif
 
-/* Maximum private key DER size (RSA 2048 ~1193 bytes, ECC P384 ~167 bytes) */
+/* Maximum private key DER (ECC P384 ~167 bytes). An RSA private DER holds n,
+ * d, p, q, dP, dQ and qInv: 1280 bytes at RSA 2048, 2560 at RSA 4096. */
 #ifndef FWTPM_MAX_PRIVKEY_DER
     #ifdef NO_RSA
         #define FWTPM_MAX_PRIVKEY_DER  256
     #else
-        #define FWTPM_MAX_PRIVKEY_DER  1280
+        #define FWTPM_MAX_PRIVKEY_DER  ((MAX_RSA_KEY_BITS / 8) * 5)
     #endif
 #endif
 

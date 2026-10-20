@@ -54,6 +54,8 @@ jobs:
             wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-psk --enable-nuvoton --enable-nations"
           - name: spdm-requester-only
             wolftpm_config: "--enable-spdm --enable-nuvoton --enable-nations"
+          - name: spdm-infineon
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-infineon=slb9678"
           - name: spdm-debug-on
             wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-psk --enable-debug"
           - name: spdm-no-getenv
@@ -108,6 +110,8 @@ jobs:
   # against fwtpm_server instead of real silicon. fwtpm-tcg covers pinned and
   # rejected initialization, the full unit suite over SPDM, lock/status/caps,
   # unlock, and cleartext recovery. fwtpm-psk mirrors the Nations-PSK flow.
+  # fwtpm-tcg-generic repeats the pinned handshake in WOLFSPDM_MODE_TCG, the
+  # adapter-less path the SLB9678 uses, which no vendor-adapter run reaches.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -120,6 +124,8 @@ jobs:
             mode: fwtpm-tcg
           - name: fwtpm-psk
             mode: fwtpm-psk
+          - name: fwtpm-tcg-generic
+            mode: fwtpm-tcg-generic
 
     steps:
       - name: Harden Runner

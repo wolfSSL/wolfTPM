@@ -30,6 +30,11 @@ if [ "$SPDM_MODE" = build ]; then
 else
     config=(--enable-fwtpm --enable-spdm --enable-tcg --enable-psk
         --enable-nuvoton --enable-nations --enable-debug --enable-swtpm)
+    # The generic TCG identity mode needs no vendor adapter, but reaching it
+    # from spdm_ctrl means selecting a part that uses it.
+    if [ "$SPDM_MODE" = fwtpm-tcg-generic ]; then
+        config+=(--enable-infineon=slb9678)
+    fi
 fi
 ./configure "${config[@]}" --with-wolfcrypt="$prefix"
 make -j"$(nproc)"
@@ -52,6 +57,13 @@ if [ "$SPDM_MODE" = build ]; then
         spdm-nations)
             vendor=nuvoton
             expected='Nuvoton adapter is not available in this build' ;;
+        spdm-infineon)
+            # The offline suites are the only CI coverage of the SLB9678
+            # dispatch; a full make check here would want a TPM server.
+            ./tests/spdm_ctrl.test
+            ./tests/spdm_config.test
+            ./src/spdm/unit_test
+            exit 0 ;;
         *) exit 0 ;;
     esac
     if output=$(./examples/spdm/spdm_ctrl "--vendor=$vendor" --status 2>&1); then
