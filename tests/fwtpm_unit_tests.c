@@ -12367,6 +12367,79 @@ static void test_fwtpm_nv_access_matches_auth_method(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("NV access method matches attributes:", 0);
 }
+
+/* A policy that asserts PolicyAuthValue or PolicyPassword needs authValue
+ * proof in the session HMAC field; only an empty authValue accepts none. */
+static void test_fwtpm_nv_policy_auth_proof_required(void)
+{
+    FWTPM_CTX ctx;
+    const byte authValue[] = {0xA5, 0x5A, 0xC3, 0x3C};
+    const UINT32 policyCc[2] = {
+        TPM_CC_PolicyAuthValue, TPM_CC_PolicyPassword
+    };
+    TPM2B_DIGEST policyDigest;
+    UINT32 nvIdx;
+    UINT32 sessH;
+    int i, si, hasAuth, cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < 4; i++) {
+        nvIdx = 0x01500078 + (UINT32)i;
+        hasAuth = (i < 2);
+        sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+        AssertIntNE(sessH, 0);
+        AssertIntEQ(SendPolicyCmd(&ctx, policyCc[i % 2], sessH),
+            TPM_RC_SUCCESS);
+
+        memset(&policyDigest, 0, sizeof(policyDigest));
+        for (si = 0; si < FWTPM_MAX_SESSIONS; si++) {
+            if (ctx.sessions[si].used && ctx.sessions[si].handle == sessH) {
+                memcpy(&policyDigest, &ctx.sessions[si].policyDigest,
+                    sizeof(policyDigest));
+            }
+        }
+        AssertIntEQ(policyDigest.size, WC_SHA256_DIGEST_SIZE);
+
+        cmdSz = BuildNvDefineCmdEx(gCmd, nvIdx, 8,
+            TPMA_NV_POLICYWRITE | TPMA_NV_POLICYREAD | TPMA_NV_NO_DA,
+            hasAuth ? authValue : NULL,
+            hasAuth ? (UINT16)sizeof(authValue) : 0,
+            policyDigest.buffer, policyDigest.size);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+        AssertIntEQ(SendNvAccessCmd(&ctx, nvIdx, sessH, NULL, 0, 1),
+            hasAuth ? TPM_RC_BAD_AUTH : TPM_RC_SUCCESS);
+        FlushHandle(&ctx, sessH);
+    }
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyPassword, sessH),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvAccessCmd(&ctx, 0x01500079, sessH,
+        authValue, sizeof(authValue), 1), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    /* A bound session has a sessionKey; PolicyPassword stays a password */
+    cmdSz = BuildStartAuthSessionCmd(gCmd, TPM_SE_POLICY, TPM_ALG_SHA256);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 4, TPM_RH_OWNER);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    sessH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyPassword, sessH),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvAccessCmd(&ctx, 0x0150007B, sessH, NULL, 0, 1),
+        TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV policy authValue proof required:", 0);
+}
 #endif /* !FWTPM_NO_POLICY */
 
 #ifdef WOLFTPM_V185
@@ -18647,6 +18720,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_define_write_read();
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_nv_access_matches_auth_method();
+    test_fwtpm_nv_policy_auth_proof_required();
 #endif
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();

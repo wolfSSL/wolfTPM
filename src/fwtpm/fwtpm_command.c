@@ -21541,7 +21541,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* HMAC session command verification per TPM 2.0 Part 1 Section 19.6.
      * Compute cpHash and verify the command HMAC for each HMAC session. */
     for (hj = 0; hj < cmdAuthCnt && hj < (int)entry->authHandleCnt; hj++) {
-        if (cmdAuths[hj].sess != NULL && cmdAuths[hj].cmdHmacSize > 0) {
+        if (cmdAuths[hj].sess != NULL && (cmdAuths[hj].cmdHmacSize > 0 ||
+                (cmdAuths[hj].sess->sessionType == TPM_SE_POLICY &&
+                 (cmdAuths[hj].sess->isPasswordPolicy ||
+                  cmdAuths[hj].sess->isAuthValuePolicy)))) {
             FWTPM_Session* hSess = cmdAuths[hj].sess;
             byte cpHash[TPM_MAX_DIGEST_SIZE];
             int cpHashSz = 0;
@@ -21635,6 +21638,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             if (cmdAuths[hj].omitAuthValue) {
                 authVal = NULL;
                 authValSz = 0;
+            }
+
+            /* An empty HMAC is valid only for an empty HMAC key, or an empty
+             * authValue under PolicyPassword (a password, not an HMAC) */
+            if (cmdAuths[hj].cmdHmacSize == 0 && authValSz == 0 &&
+                    (hSess->sessionKey.size == 0 || hSess->isPasswordPolicy)) {
+                TPM2_ForceZero(cpHash, sizeof(cpHash));
+                continue;
             }
 
             /* Compute expected command HMAC (nonceCaller first, then nonceTPM) */
