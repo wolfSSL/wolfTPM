@@ -5254,6 +5254,10 @@ static TPM_RC FwSerializeSequence(FWTPM_CTX* ctx, TPM_HANDLE handle,
         else {
             rc = FwAppendHashState(&packet, &hashSeq->ctx.hash, hashSeqType);
         }
+        if (rc == 0) {
+            TPM2_Packet_AppendU8(&packet, hashSeq->firstBlockDone);
+            TPM2_Packet_AppendU8(&packet, hashSeq->ticketSafe);
+        }
         rc = (rc == 0 && !packet.overflow) ? TPM_RC_SUCCESS :
             TPM_RC_FAILURE;
     }
@@ -5399,6 +5403,13 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
                 TPM2_ForceZero(&raw, sizeof(raw));
             }
             if (rc != 0) {
+                rc = TPM_RC_INTEGRITY;
+            }
+        }
+        if (rc == 0) {
+            TPM2_Packet_ParseU8(&packet, &seq->firstBlockDone);
+            TPM2_Packet_ParseU8(&packet, &seq->ticketSafe);
+            if (seq->firstBlockDone > 1u || seq->ticketSafe > 1u) {
                 rc = TPM_RC_INTEGRITY;
             }
         }
@@ -10027,6 +10038,13 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* ================================================================== */
 
 #ifndef FWTPM_NO_HASH_CMDS
+/* Data that could be a TPM-generated structure gets only a NULL HASHCHECK
+ * ticket, or a restricted key would sign it (Part 3 Sec.15.4, 17.6). */
+static int FwTicketIsSafe(const byte* buf, UINT16 bufSz)
+{
+    return bufSz >= 4 && FwLoadU32BE(buf) != TPM_GENERATED_VALUE;
+}
+
 /* --- TPM2_Hash (CC 0x017D) --- */
 static TPM_RC FwCmd_Hash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -10093,6 +10111,10 @@ static TPM_RC FwCmd_Hash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
+    }
+
+    if (rc == 0 && dataSize >= 4 && !FwTicketIsSafe(dataBuf, dataSize)) {
+        hierarchy = TPM_RH_NULL;
     }
 
     if (rc == 0) {
@@ -10725,6 +10747,10 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (rc != 0) {
                 rc = TPM_RC_FAILURE;
             }
+            else if (!seq->firstBlockDone) {
+                seq->firstBlockDone = 1;
+                seq->ticketSafe = (UINT8)FwTicketIsSafe(dataBuf, dataSize);
+            }
         }
 #endif
     }
@@ -10774,6 +10800,7 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int trc;
     int hashCopyInit = 0;
     int hmacCopyInit = 0;
+    int ticketSafe = 0;
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
     FWTPM_CALLOC_VAR(hashCopy, wc_HashAlg);
@@ -10878,6 +10905,15 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
         }
+    }
+
+    /* An HMAC sequence never gets a ticket */
+    if (rc == 0 && !seq->isHmac) {
+        ticketSafe = seq->firstBlockDone ? seq->ticketSafe :
+            FwTicketIsSafe(dataBuf, dataSize);
+    }
+    if (rc == 0 && !ticketSafe) {
+        hierarchy = TPM_RH_NULL;
     }
 
     if (rc == 0) {

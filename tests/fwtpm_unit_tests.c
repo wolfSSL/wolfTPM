@@ -16234,6 +16234,160 @@ static void test_fwtpm_param_enc_session_bound_to_auth(void)
 }
 
 #endif /* !FWTPM_NO_PARAM_ENC && FWTPM_MAX_SESSIONS >= 2 */
+
+static UINT32 StartHashSeqHelper(FWTPM_CTX* ctx)
+{
+    int pos, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_HashSequenceStart);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* auth */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* SequenceUpdate, or SequenceComplete asking for an owner ticket */
+static TPM_RC SendSeqDataCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 seqH,
+    const byte* data, UINT16 dataSz)
+{
+    int pos, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, cc);
+    PutU32BE(gCmd + pos, seqH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, dataSz); pos += 2;
+    if (dataSz > 0) {
+        memcpy(gCmd + pos, data, dataSz);
+        pos += dataSz;
+    }
+    if (cc == TPM_CC_SequenceComplete) {
+        PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+static void AssertHashCheckTicket(int off, UINT32 hierarchy)
+{
+    AssertIntEQ(GetU16BE(gRsp + off), TPM_ST_HASHCHECK);
+    AssertIntEQ(GetU32BE(gRsp + off + 2), hierarchy);
+    AssertIntEQ(GetU16BE(gRsp + off + 6),
+        hierarchy == TPM_RH_NULL ? 0 : WC_SHA256_DIGEST_SIZE);
+}
+
+/* A HASHCHECK ticket must not vouch for data that begins with
+ * TPM_GENERATED_VALUE, nor for the result of an HMAC sequence. */
+static void test_fwtpm_hashcheck_ticket_generated_prefix(void)
+{
+    FWTPM_CTX ctx;
+    static const byte generated[] = {0xFF, 0x54, 0x43, 0x47, 0x80, 0x18};
+    /* updSz < 0 skips SequenceUpdate */
+    static const struct {
+        int updOff, updSz, cmpOff, cmpSz;
+        UINT32 hierarchy;
+    } seqCases[] = {
+        { 0,  2, 2, 4, TPM_RH_NULL  },
+        { 0,  6, 0, 0, TPM_RH_NULL  },
+        { 1,  5, 0, 6, TPM_RH_OWNER },
+        { 0, -1, 0, 6, TPM_RH_NULL  },
+        { 0, -1, 1, 5, TPM_RH_OWNER }
+    };
+    const int hashTicketOff = TPM2_HEADER_SIZE + 2 + WC_SHA256_DIGEST_SIZE;
+    const int seqTicketOff = hashTicketOff + 4;
+    UINT32 seqH;
+    int i, pos, rspSize;
+#ifndef FWTPM_NO_CONTEXT
+    byte saved[MAX_CONTEXT_SIZE];
+    int ctxSz;
+#endif
+#if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
+    UINT32 keyH;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < 2; i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_Hash);
+        PutU16BE(gCmd + pos, (UINT16)(sizeof(generated) - i)); pos += 2;
+        memcpy(gCmd + pos, generated + i, sizeof(generated) - i);
+        pos += (int)sizeof(generated) - i;
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        AssertHashCheckTicket(hashTicketOff,
+            i == 0 ? TPM_RH_NULL : TPM_RH_OWNER);
+    }
+
+    /* The first sequence block decides; a short one is never safe */
+    for (i = 0; i < (int)(sizeof(seqCases) / sizeof(seqCases[0])); i++) {
+        seqH = StartHashSeqHelper(&ctx);
+        AssertIntNE(seqH, 0);
+        if (seqCases[i].updSz >= 0) {
+            AssertIntEQ(SendSeqDataCmd(&ctx, TPM_CC_SequenceUpdate, seqH,
+                generated + seqCases[i].updOff,
+                (UINT16)seqCases[i].updSz), TPM_RC_SUCCESS);
+        }
+        AssertIntEQ(SendSeqDataCmd(&ctx, TPM_CC_SequenceComplete, seqH,
+            generated + seqCases[i].cmpOff, (UINT16)seqCases[i].cmpSz),
+            TPM_RC_SUCCESS);
+        AssertHashCheckTicket(seqTicketOff, seqCases[i].hierarchy);
+    }
+
+#ifndef FWTPM_NO_CONTEXT
+    seqH = StartHashSeqHelper(&ctx);
+    AssertIntNE(seqH, 0);
+    AssertIntEQ(SendSeqDataCmd(&ctx, TPM_CC_SequenceUpdate, seqH,
+        generated, sizeof(generated)), TPM_RC_SUCCESS);
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, seqH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSz, 0);
+    memcpy(saved, gRsp + TPM2_HEADER_SIZE, ctxSz);
+    FlushHandle(&ctx, seqH);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, saved, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendSeqDataCmd(&ctx, TPM_CC_SequenceComplete, seqH,
+        generated + 1, sizeof(generated) - 1), TPM_RC_SUCCESS);
+    AssertHashCheckTicket(seqTicketOff, TPM_RH_NULL);
+#endif /* !FWTPM_NO_CONTEXT */
+
+#if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
+    keyH = CreateHmacKeyHelper(&ctx);
+    AssertIntNE(keyH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_HMAC_Start);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* auth */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendSeqDataCmd(&ctx, TPM_CC_SequenceComplete, seqH,
+        generated + 1, 3), TPM_RC_SUCCESS);
+    AssertHashCheckTicket(seqTicketOff, TPM_RH_NULL);
+    FlushHandle(&ctx, keyH);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("HASHCHECK ticket withheld for generated data:", 0);
+}
 #endif /* !FWTPM_NO_HASH_CMDS */
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
@@ -18611,6 +18765,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_hash();
     test_fwtpm_hash_sequence();
+    test_fwtpm_hashcheck_ticket_generated_prefix();
 #if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
     test_fwtpm_param_enc_session_selection();
     test_fwtpm_param_enc_session_bound_to_auth();

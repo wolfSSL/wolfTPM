@@ -538,6 +538,8 @@ typedef struct FWTPM_HashSeq {
         wc_HashAlg eventHash[FWTPM_PCR_BANKS];
     } ctx;
 #endif
+    UINT8 firstBlockDone;           /* First data block has been checked */
+    UINT8 ticketSafe;               /* First block allows a HASHCHECK ticket */
 } FWTPM_HashSeq;
 
 /* Guarded on WOLFTPM_MLDSA, not WOLFTPM_V185: a lean WOLFTPM_PQC build defines
