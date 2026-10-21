@@ -10566,6 +10566,11 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
 
     test_wolfTPM2_MLDSA_SignSequence(dev, &key, gMsg, msgSz, sig, &sigSz);
+    if (sigSz == 0) {
+        /* sign sequence unsupported; the helper reported the skip */
+        wolfTPM2_UnloadHandle(dev, &key.handle);
+        return;
+    }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Signing must leave a caller's slot-1 param-encryption session in
