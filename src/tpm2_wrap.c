@@ -6056,6 +6056,10 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     SignSequenceComplete_In signSeqCompleteIn;
     SignSequenceComplete_Out signSeqCompleteOut;
     WOLFTPM2_HANDLE seqHandleObj;
+    TPM2_AUTH_SESSION session1;
+#if MAX_SESSION_NUM > 2
+    int moved = 0;
+#endif
 
     if (dev == NULL || key == NULL || sig == NULL || sigSz == NULL) {
         return BAD_FUNC_ARG;
@@ -6077,6 +6081,17 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
     seqHandleObj.hndl = sequenceHandle;
     wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
+    /* SetAuthHandle resets slot 1 to password auth; restore the caller's
+     * slot-1 session (e.g. parameter encryption) after the command. While
+     * slot 2 is free, that session also protects this command from there. */
+    XMEMCPY(&session1, &dev->session[1], sizeof(session1));
+#if MAX_SESSION_NUM > 2
+    if (TPM2_IS_HMAC_SESSION(session1.sessionHandle) &&
+            dev->session[2].sessionHandle == 0) {
+        XMEMCPY(&dev->session[2], &session1, sizeof(session1));
+        moved = 1;
+    }
+#endif
     wolfTPM2_SetAuthHandle(dev, 1, &key->handle);
 
     XMEMSET(&signSeqCompleteIn, 0, sizeof(signSeqCompleteIn));
@@ -6089,6 +6104,15 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
 
     XMEMSET(&signSeqCompleteOut, 0, sizeof(signSeqCompleteOut));
     rc = TPM2_SignSequenceComplete(&signSeqCompleteIn, &signSeqCompleteOut);
+#if MAX_SESSION_NUM > 2
+    if (moved) {
+        /* keep the nonces the command advanced */
+        XMEMCPY(&session1, &dev->session[2], sizeof(session1));
+        TPM2_ForceZero(&dev->session[2], sizeof(dev->session[2]));
+    }
+#endif
+    XMEMCPY(&dev->session[1], &session1, sizeof(session1));
+    TPM2_ForceZero(&session1, sizeof(session1));
     if (rc == TPM_RC_SUCCESS) {
         /* Extract signature based on algorithm */
         if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDSA ||

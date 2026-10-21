@@ -10543,6 +10543,10 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
     int rc;
     WOLFTPM2_KEY key;
     TPMT_PUBLIC pub;
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    WOLFTPM2_SESSION sess;
+    TPM2B_NONCE nonceTPM;
+#endif
     static const byte gAuth[] = { 'p','q','c','_','a','u','t','h' };
     byte sig[5000];
     int sigSz = (int)sizeof(sig);
@@ -10562,6 +10566,29 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
 
     test_wolfTPM2_MLDSA_SignSequence(dev, &key, gMsg, msgSz, sig, &sigSz);
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* Signing must leave a caller's slot-1 param-encryption session in
+     * place; replacing it with password auth sends the next command's
+     * secrets (e.g. a Decapsulate shared secret) in the clear. */
+    rc = wolfTPM2_StartSession(dev, &sess, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_SetAuthSession(dev, 1, &sess, (TPMA_SESSION_decrypt |
+        TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, 0);
+    XMEMCPY(&nonceTPM, &dev->session[1].nonceTPM, sizeof(nonceTPM));
+    sigSz = (int)sizeof(sig);
+    test_wolfTPM2_MLDSA_SignSequence(dev, &key, gMsg, msgSz, sig, &sigSz);
+    AssertIntEQ(dev->session[1].sessionHandle, sess.handle.hndl);
+    /* The sign ran the session (nonce rolled); verifying through it checks
+     * the encrypted message and the session's nonces both survived. */
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev->session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    test_wolfTPM2_MLDSA_VerifySequence(dev, &key, gMsg, msgSz, sig, sigSz);
+    wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(dev, &sess.handle);
+#endif
 
     wolfTPM2_UnloadHandle(dev, &key.handle);
     printf("Test TPM Wrapper: %-40s Passed\n",
