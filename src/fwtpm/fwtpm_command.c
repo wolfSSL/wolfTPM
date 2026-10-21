@@ -18910,6 +18910,14 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && !(keyObj->pub.objectAttributes & TPMA_OBJECT_sign)) {
         rc = TPM_RC_KEY;
     }
+    /* Reject a public-only ML-DSA object: its all-zero seed derives a
+     * universally reproducible key. Checked here rather than at
+     * SequenceStart because a public-only twin shares the key's Name. */
+    if (rc == 0 && (keyObj->pub.type == TPM_ALG_MLDSA ||
+            keyObj->pub.type == TPM_ALG_HASH_MLDSA) &&
+            keyObj->privKeySize != MAX_MLDSA_PRIV_SEED_SIZE) {
+        rc = TPM_RC_KEY;
+    }
     /* Part 3 Sec.20.6.1: the x509sign attribute of keyHandle MUST NOT be SET
      * (TPM_RC_ATTRIBUTES). Keys with x509sign restrict what digests can be
      * signed for X.509 cert use; SignSequenceComplete is not the right
@@ -19574,6 +19582,13 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     /* Part 3 Sec.20.7.1: SignDigest requires a signing key (TPM_RC_KEY
      * otherwise). Mirrors FwCmd_VerifyDigestSignature / SignSequenceStart. */
     if (rc == 0 && !(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
+        rc = TPM_RC_KEY;
+    }
+    /* Reject a public-only ML-DSA object: its all-zero seed derives a
+     * universally reproducible key. */
+    if (rc == 0 && (obj->pub.type == TPM_ALG_MLDSA ||
+            obj->pub.type == TPM_ALG_HASH_MLDSA) &&
+            obj->privKeySize != MAX_MLDSA_PRIV_SEED_SIZE) {
         rc = TPM_RC_KEY;
     }
 

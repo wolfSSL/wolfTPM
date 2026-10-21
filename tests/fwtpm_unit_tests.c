@@ -6072,6 +6072,126 @@ static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
 }
 #endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY && !FWTPM_NO_ATTESTATION */
 
+/* LoadExternal a public-only ML-DSA-44 (or Hash-ML-DSA-44/SHA-256) signing
+ * key and return its handle. */
+static UINT32 LoadPublicOnlyMldsa(FWTPM_CTX* ctx, UINT16 algType)
+{
+    int rspSize = 0, pos = 0, pubStart;
+
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_LoadExternal); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;                 /* inPrivate empty */
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;                 /* size placeholder */
+    PutU16BE(gCmd + pos, algType); pos += 2;           /* type */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;    /* nameAlg */
+    PutU32BE(gCmd + pos, 0x00040040); pos += 4;        /* sign|userWithAuth */
+    PutU16BE(gCmd + pos, 0); pos += 2;                 /* authPolicy */
+    PutU16BE(gCmd + pos, TPM_MLDSA_44); pos += 2;      /* parameterSet */
+    if (algType == TPM_ALG_HASH_MLDSA) {
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* hashAlg */
+    }
+    else {
+        gCmd[pos++] = NO;                              /* allowExternalMu */
+    }
+    PutU16BE(gCmd + pos, sizeof(gNistMldsa44Pk)); pos += 2;
+    memcpy(gCmd + pos, gNistMldsa44Pk, sizeof(gNistMldsa44Pk));
+    pos += sizeof(gNistMldsa44Pk);
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;       /* hierarchy */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    AssertIntEQ(FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* A public-only ML-DSA key has no private seed. SignSequenceComplete and
+ * SignDigest must return TPM_RC_KEY rather than sign from an all-zero seed. */
+static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize, pos;
+    UINT32 handle, seqHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    handle = LoadPublicOnlyMldsa(&ctx, TPM_ALG_MLDSA);
+
+    /* SignSequenceStart (no auth, empty context) */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignSequenceComplete must refuse: no private seed. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 4); pos += 2;            /* buffer */
+    memset(gCmd + pos, 0xAA, 4); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
+    FlushHandle(&ctx, seqHandle);
+    FlushHandle(&ctx, handle);
+
+#ifdef WOLFTPM_HASH_MLDSA
+    handle = LoadPublicOnlyMldsa(&ctx, TPM_ALG_HASH_MLDSA);
+
+    /* SignDigest must refuse: no private seed. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;            /* context empty */
+    PutU16BE(gCmd + pos, 32); pos += 2;           /* digest */
+    memset(gCmd + pos, 0xAA, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
+    FlushHandle(&ctx, handle);
+#endif /* WOLFTPM_HASH_MLDSA */
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("MLDSA sign public-only key rejected:", 1);
+}
+
 /* TPM2_LoadExternal must reject ML public areas with an unsupported parameter
  * set, an out-of-range allowExternalMu, an invalid Hash-ML-DSA hash, invalid
  * ML-KEM symmetric parameters, or a public key size inconsistent with the
@@ -19140,6 +19260,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signseqcomplete_truncated_buffer();
     test_fwtpm_verifyseqcomplete_neg();
     test_fwtpm_signdigest_neg();
+    test_fwtpm_mldsa_sign_public_only_returns_key();
 #ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_signdigest_malformed_hashcheck_tag();
     test_fwtpm_signdigest_restricted_null_ticket_returns_ticket();
