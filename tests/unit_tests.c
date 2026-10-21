@@ -10623,6 +10623,82 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
         "ML-DSA Sign Seq w/ key auth:");
 }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+/* A policy-authorized key signs on the slot-1 policy session itself, so
+ * SignSequenceComplete must leave that session in slot 1 with the nonces
+ * the command rolled; a second sign on it fails if they went stale. */
+static void test_wolfTPM2_MLDSA_SignSequence_PolicyAuth(WOLFTPM2_DEV* dev,
+    const TPMT_PUBLIC* mldsaPub)
+{
+    int rc;
+    WOLFTPM2_KEY key;
+    WOLFTPM2_SESSION sess;
+    TPMT_PUBLIC pub;
+    TPM2B_NONCE nonceTPM;
+    word32 polSz;
+    static const byte gAuth[] = { 'p','o','l','_','a','u','t','h' };
+    byte sig[5000];
+    int sigSz = (int)sizeof(sig);
+    static const byte gMsg[] = "Policy-auth ML-DSA test message";
+    int msgSz = (int)sizeof(gMsg) - 1;
+
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMCPY(&pub, mldsaPub, sizeof(pub));
+    /* policy-only: authPolicy = PolicyAuthValue, no userWithAuth */
+    pub.objectAttributes &= ~TPMA_OBJECT_userWithAuth;
+    XMEMSET(pub.authPolicy.buffer, 0, sizeof(pub.authPolicy.buffer));
+    polSz = (word32)TPM2_GetHashDigestSize(pub.nameAlg);
+    AssertIntEQ(wolfTPM2_PolicyHash(pub.nameAlg, pub.authPolicy.buffer,
+        &polSz, TPM_CC_PolicyAuthValue, NULL, 0), 0);
+    pub.authPolicy.size = (UINT16)polSz;
+
+    rc = wolfTPM2_CreatePrimaryKey(dev, &key, TPM_RH_OWNER, &pub,
+        gAuth, (int)sizeof(gAuth));
+    if (TEST_V185_UNSUPPORTED(rc, TPM_ALG_MLDSA)) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "ML-DSA Sign Seq w/ policy auth:");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+    key.handle.policyAuth = 1;
+
+    /* bound: the PolicyAuthValue HMAC key layout needs a session key */
+    rc = wolfTPM2_StartSession(dev, &sess, NULL, &key.handle, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wolfTPM2_PolicyAuthValue(dev, &sess, gAuth,
+        (int)sizeof(gAuth)), 0);
+    rc = wolfTPM2_SetAuthSession(dev, 1, &sess, TPMA_SESSION_continueSession);
+    AssertIntEQ(rc, 0);
+    XMEMCPY(&nonceTPM, &dev->session[1].nonceTPM, sizeof(nonceTPM));
+
+    test_wolfTPM2_MLDSA_SignSequence(dev, &key, gMsg, msgSz, sig, &sigSz);
+    if (sigSz == 0) {
+        /* sign sequence unsupported; the helper reported the skip */
+        goto done;
+    }
+    AssertIntEQ(dev->session[1].sessionHandle, sess.handle.hndl);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev->session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+
+    /* the TPM reset the policy digest on use; satisfy it again and sign */
+    AssertIntEQ(wolfTPM2_PolicyAuthValue(dev, &sess, NULL, 0), 0);
+    sigSz = (int)sizeof(sig);
+    test_wolfTPM2_MLDSA_SignSequence(dev, &key, gMsg, msgSz, sig, &sigSz);
+    AssertIntEQ(dev->session[1].sessionHandle, sess.handle.hndl);
+
+    wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
+    test_wolfTPM2_MLDSA_VerifySequence(dev, &key, gMsg, msgSz, sig, sigSz);
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "ML-DSA Sign Seq w/ policy auth:");
+
+done:
+    wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(dev, &sess.handle);
+    wolfTPM2_UnloadHandle(dev, &key.handle);
+}
+#endif
+
 /* Regression for the VerifySequenceComplete data-chain fix.
  *
  * The wrapper used to silently drop the data/dataSz arguments; the fix
@@ -11119,6 +11195,9 @@ static void test_wolfTPM2_PQC(void)
     }
     test_TPM2_SignSequenceStart_NoSession(&dev, &mldsaKey);
     test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(&dev, &mldsaPub);
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    test_wolfTPM2_MLDSA_SignSequence_PolicyAuth(&dev, &mldsaPub);
+#endif
 
     wolfTPM2_UnloadHandle(&dev, &mldsaKey.handle);
 mldsa_done:
