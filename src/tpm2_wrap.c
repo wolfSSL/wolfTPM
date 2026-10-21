@@ -6096,6 +6096,9 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
         if (TPM2_IS_HMAC_SESSION(session1.sessionHandle) &&
                 dev->session[2].sessionHandle == 0) {
             XMEMCPY(&dev->session[2], &session1, sizeof(session1));
+            /* slot 2 authorizes no handle; a bound Name would fold the bind
+             * authValue into the param-enc key, which the TPM does not */
+            dev->session[2].name.size = 0;
             moved = 1;
         }
     #endif
@@ -6117,7 +6120,12 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     if (restore) {
     #if MAX_SESSION_NUM > 2
         if (moved) {
-            /* keep the nonces the command advanced */
+            /* keep the nonces the command advanced; a retired session
+             * stays cleared */
+            if (dev->session[2].sessionHandle == session1.sessionHandle) {
+                XMEMCPY(&dev->session[2].name, &session1.name,
+                    sizeof(session1.name));
+            }
             XMEMCPY(&session1, &dev->session[2], sizeof(session1));
             TPM2_ForceZero(&dev->session[2], sizeof(dev->session[2]));
         }

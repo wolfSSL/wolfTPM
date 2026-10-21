@@ -10591,6 +10591,26 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
     test_wolfTPM2_MLDSA_VerifySequence(dev, &key, gMsg, msgSz, sig, sigSz);
     wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
     wolfTPM2_UnloadHandle(dev, &sess.handle);
+
+    /* Same with a session bound to the key and slot 1 holding the key's
+     * Name (as the NV wrappers leave it): while the session runs from
+     * slot 2 the bind authValue must stay out of the param-enc key. */
+    rc = wolfTPM2_StartSession(dev, &sess, NULL, &key.handle, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_SetAuthSession(dev, 1, &sess, (TPMA_SESSION_decrypt |
+        TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_SetAuthHandleName(dev, 1, &key.handle);
+    AssertIntEQ(rc, 0);
+    sigSz = (int)sizeof(sig);
+    test_wolfTPM2_MLDSA_SignSequence(dev, &key, gMsg, msgSz, sig, &sigSz);
+    AssertIntEQ(dev->session[1].sessionHandle, sess.handle.hndl);
+    AssertIntEQ(dev->session[1].name.size, key.handle.name.size);
+    /* Verify with password auth: a wrong decrypt above signed other bytes */
+    wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
+    test_wolfTPM2_MLDSA_VerifySequence(dev, &key, gMsg, msgSz, sig, sigSz);
+    wolfTPM2_UnloadHandle(dev, &sess.handle);
 #endif
 
     wolfTPM2_UnloadHandle(dev, &key.handle);
