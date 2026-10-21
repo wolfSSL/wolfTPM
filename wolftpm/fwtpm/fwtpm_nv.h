@@ -50,7 +50,8 @@
 #endif
 
 /* PUBAREA_EST: largest enabled PQC pub key + 128 B TPMT_PUBLIC header
- * slack, or 600 classical floor — whichever is bigger. */
+ * slack, or the 600 classical floor, or RSA's own 604 at 4096 bits. The
+ * chip macros raise MAX_RSA_KEY_BITS whether or not RSA is built. */
 #ifdef WOLFTPM_V185
     #if FWTPM_MAX_MLDSA_PUB_SIZE >= FWTPM_MAX_MLKEM_PUB_SIZE
         #define FWTPM_NV_PUBAREA_UNIQUE  FWTPM_MAX_MLDSA_PUB_SIZE
@@ -59,9 +60,13 @@
     #endif
     #if FWTPM_NV_PUBAREA_UNIQUE > 472   /* 600 - 128 = classical floor */
         #define FWTPM_NV_PUBAREA_EST  (FWTPM_NV_PUBAREA_UNIQUE + 128)
+    #elif !defined(NO_RSA) && ((MAX_RSA_KEY_BITS / 8) + 128) > 600
+        #define FWTPM_NV_PUBAREA_EST  ((MAX_RSA_KEY_BITS / 8) + 128)
     #else
         #define FWTPM_NV_PUBAREA_EST  600
     #endif
+#elif !defined(NO_RSA) && ((MAX_RSA_KEY_BITS / 8) + 128) > 600
+#define FWTPM_NV_PUBAREA_EST   ((MAX_RSA_KEY_BITS / 8) + 128)
 #else
 #define FWTPM_NV_PUBAREA_EST   600
 #endif

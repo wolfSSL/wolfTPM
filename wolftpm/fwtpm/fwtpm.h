@@ -309,6 +309,10 @@
     #endif
     #if FWTPM_MAX_PUB_BUF_RAW > 384
         #define FWTPM_MAX_PUB_BUF  (FWTPM_MAX_PUB_BUF_RAW + 128)
+    /* An RSA public area reaches 604 bytes at RSA 4096. The chip macros
+     * raise MAX_RSA_KEY_BITS whether or not RSA is built. */
+    #elif !defined(NO_RSA) && ((MAX_RSA_KEY_BITS / 8) + 128) > 512
+        #define FWTPM_MAX_PUB_BUF  ((MAX_RSA_KEY_BITS / 8) + 128)
     #else
         #define FWTPM_MAX_PUB_BUF  512  /* classical RSA/ECC default */
     #endif

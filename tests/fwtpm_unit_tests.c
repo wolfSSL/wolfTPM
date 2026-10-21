@@ -18852,6 +18852,115 @@ static void test_fwtpm_custom_io_hal(void)
 }
 #endif
 
+#ifndef NO_RSA
+/* The largest valid RSA public area this build can produce, with the
+ * modulus filled so two keys can be told apart by their bytes. */
+static void fwtpm_rsa_max_pub(TPMT_PUBLIC* pub, byte fill)
+{
+    UINT16 modSz = (UINT16)(MAX_RSA_KEY_BITS / 8);
+
+    XMEMSET(pub, 0, sizeof(*pub));
+    pub->type = TPM_ALG_RSA;
+    pub->nameAlg = TPM_ALG_SHA256;
+    pub->objectAttributes = TPMA_OBJECT_fixedTPM |
+        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_restricted |
+        TPMA_OBJECT_decrypt;
+    pub->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+    pub->parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    pub->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    pub->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    pub->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    pub->parameters.rsaDetail.exponent = 0x10001;
+    pub->unique.rsa.size = modSz;
+    XMEMSET(pub->unique.rsa.buffer, fill, modSz);
+}
+
+/* A public area too large for the buffer, which stays in bounds because
+ * MAX_RSA_KEY_BYTES is twice the modulus width. */
+static void fwtpm_rsa_oversize_pub(TPMT_PUBLIC* pub, byte fill)
+{
+    fwtpm_rsa_max_pub(pub, fill);
+    pub->unique.rsa.size = (UINT16)MAX_RSA_KEY_BYTES;
+    XMEMSET(pub->unique.rsa.buffer, fill, MAX_RSA_KEY_BYTES);
+}
+
+/* An oversized area must be refused, not named from the part that fit. */
+static void test_fwtpm_public_name_rsa_overflow(void)
+{
+    TPMT_PUBLIC pub;
+    TPM2B_NAME name;
+    TPM2_Packet pkt;
+    byte bufA[FWTPM_MAX_PUB_BUF];
+    byte bufB[FWTPM_MAX_PUB_BUF];
+    int posA;
+
+    fwtpm_rsa_oversize_pub(&pub, 0xAA);
+    XMEMSET(&pkt, 0, sizeof(pkt));
+    pkt.buf = bufA;
+    pkt.size = (int)sizeof(bufA);
+    TPM2_Packet_AppendPublicArea(&pkt, &pub);
+    if (!pkt.overflow) {
+        /* A PQC build sizes this buffer for ML-DSA, so no RSA public area
+         * the build can represent is large enough to overflow it. */
+        printf("Test fwTPM: %-6s %-42s Skipped\n", "",
+            "Public name refuses an oversized area:");
+        return;
+    }
+    posA = pkt.pos;
+
+    /* The modulus does not fit, and an append that does not fit is skipped
+     * whole, so a second key differing only there marshals identically. */
+    fwtpm_rsa_oversize_pub(&pub, 0xBB);
+    XMEMSET(&pkt, 0, sizeof(pkt));
+    pkt.buf = bufB;
+    pkt.size = (int)sizeof(bufB);
+    TPM2_Packet_AppendPublicArea(&pkt, &pub);
+    AssertIntEQ(pkt.pos, posA);
+    AssertIntEQ(XMEMCMP(bufA, bufB, (size_t)posA), 0);
+
+    /* Which is why naming it has to fail: those two keys would otherwise
+     * share one Name, and a Name is what binds authorization. */
+    XMEMSET(&name, 0, sizeof(name));
+    AssertIntEQ(FwComputePublicName(&pub, &name), TPM_RC_FAILURE);
+    AssertIntEQ(name.size, 0);
+
+    fwtpm_pass("Public name refuses an oversized area:", 0);
+}
+
+static void test_fwtpm_public_name_rsa_max(void)
+{
+    TPMT_PUBLIC pub;
+    TPM2B_NAME nameA;
+    TPM2B_NAME nameB;
+    TPM2_Packet pkt;
+    byte buf[FWTPM_MAX_PUB_BUF];
+    UINT16 modSz = (UINT16)(MAX_RSA_KEY_BITS / 8);
+
+    XMEMSET(&nameA, 0, sizeof(nameA));
+    XMEMSET(&nameB, 0, sizeof(nameB));
+    fwtpm_rsa_max_pub(&pub, 0xAA);
+
+    /* A field that does not fit is skipped rather than truncated, so the
+     * buffer has to hold the largest public area whole. */
+    XMEMSET(&pkt, 0, sizeof(pkt));
+    pkt.buf = buf;
+    pkt.size = (int)sizeof(buf);
+    TPM2_Packet_AppendPublicArea(&pkt, &pub);
+    AssertIntEQ(pkt.overflow, 0);
+
+    /* The modulus is all that tells these two apart: a skipped one gives
+     * them the same Name, and Names bind authorization. */
+    AssertIntEQ(FwComputePublicName(&pub, &nameA), TPM_RC_SUCCESS);
+    XMEMSET(pub.unique.rsa.buffer, 0xBB, modSz);
+    AssertIntEQ(FwComputePublicName(&pub, &nameB), TPM_RC_SUCCESS);
+    AssertIntEQ(nameA.size, nameB.size);
+    AssertIntNE(XMEMCMP(nameA.name, nameB.name, nameA.size), 0);
+
+    fwtpm_pass("Public name at max RSA size:", 0);
+}
+#endif /* !NO_RSA */
+
 /* ================================================================== */
 /* main                                                                */
 /* ================================================================== */
@@ -19377,6 +19486,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 
     /* Hierarchy & misc */
+#ifndef NO_RSA
+    test_fwtpm_public_name_rsa_max();
+    test_fwtpm_public_name_rsa_overflow();
+#endif
     test_fwtpm_test_parms();
     test_fwtpm_incremental_selftest();
     test_fwtpm_incremental_selftest_truncated_returns_cmd_size();

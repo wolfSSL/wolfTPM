@@ -202,6 +202,7 @@ int FwComputePublicName(TPMT_PUBLIC* pub, TPM2B_NAME* name)
 
     if (rc == 0) {
         /* Marshal public area into temp buffer */
+        XMEMSET(&tmpPkt, 0, sizeof(tmpPkt));
         tmpPkt.buf = pubBuf;
         tmpPkt.pos = 0;
         tmpPkt.size = (int)FWTPM_MAX_PUB_BUF;
@@ -210,7 +211,12 @@ int FwComputePublicName(TPMT_PUBLIC* pub, TPM2B_NAME* name)
 
         wcHash = FwGetWcHashType(pub->nameAlg);
         digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
-        if (wcHash == WC_HASH_TYPE_NONE || digestSz == 0) {
+        if (tmpPkt.overflow) {
+            /* An append that does not fit is skipped, so a short buffer
+             * names a partial area: two keys could share one Name. */
+            rc = TPM_RC_FAILURE;
+        }
+        else if (wcHash == WC_HASH_TYPE_NONE || digestSz == 0) {
             rc = TPM_RC_HASH;
         }
     }
