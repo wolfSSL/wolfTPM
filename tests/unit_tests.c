@@ -10581,10 +10581,13 @@ static void test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(WOLFTPM2_DEV* dev,
     sigSz = (int)sizeof(sig);
     test_wolfTPM2_MLDSA_SignSequence(dev, &key, gMsg, msgSz, sig, &sigSz);
     AssertIntEQ(dev->session[1].sessionHandle, sess.handle.hndl);
-    /* The sign ran the session (nonce rolled); verifying through it checks
-     * the encrypted message and the session's nonces both survived. */
+#if MAX_SESSION_NUM > 2
+    /* With a free slot 2 the sign ran the session (nonce rolled) */
     AssertIntNE(XMEMCMP(&nonceTPM, &dev->session[1].nonceTPM,
         sizeof(nonceTPM)), 0);
+#endif
+    /* Verifying through the session checks the encrypted message and the
+     * session's nonces both survived. */
     test_wolfTPM2_MLDSA_VerifySequence(dev, &key, gMsg, msgSz, sig, sigSz);
     wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
     wolfTPM2_UnloadHandle(dev, &sess.handle);
