@@ -104,6 +104,9 @@ jobs:
           - name: "No HAL"
             os: ubuntu-latest
             options: "-DWOLFTPM_HAL=no"
+          - name: "No HAL SPI"
+            os: ubuntu-latest
+            options: "-DWOLFTPM_INTERFACE=SPI -DWOLFTPM_HAL=no"
           # Test Firmware disabled
           - name: "No Firmware"
             os: ubuntu-latest

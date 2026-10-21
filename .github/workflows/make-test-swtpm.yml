@@ -112,6 +112,10 @@ jobs:
           - name: hal-reset
             wolftpm_config: --enable-st33 --enable-hal-reset --disable-fwtpm
             test_command: "true"
+          # No example HAL, caller supplies the IO callback (compile-only)
+          - name: no-hal
+            wolftpm_config: --enable-spi --disable-hal --disable-fwtpm
+            test_command: "true"
           # SPDM + Nuvoton (compile-only, no hardware in CI)
           - name: spdm-nuvoton
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp

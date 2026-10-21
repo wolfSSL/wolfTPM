@@ -46,7 +46,9 @@
 /* Native Windows, native Linux and TPM Simulator do not need an IO callback */
 #if ! (defined(WOLFTPM_LINUX_DEV) || \
        defined(WOLFTPM_SWTPM) ||     \
-       defined(WOLFTPM_WINAPI) )
+       defined(WOLFTPM_WINAPI) ) && \
+    (defined(WOLFTPM_EXAMPLE_HAL) || defined(WOLFTPM_MMIO) || \
+     defined(WOLFTPM_FWTPM_HAL))
 
 /* Set WOLFTPM_INCLUDE_IO_FILE so each .c is built here and not compiled directly */
 #define WOLFTPM_INCLUDE_IO_FILE
@@ -280,7 +282,8 @@ int TPM2_IoCb_Reset(TPM2_CTX* ctx, void* userCtx)
 }
 #endif /* WOLFTPM_HAL_RESET */
 
-#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
+#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) &&
+        * (WOLFTPM_EXAMPLE_HAL || WOLFTPM_MMIO || WOLFTPM_FWTPM_HAL) */
 
 /******************************************************************************/
 /* --- END IO Callback Logic -- */

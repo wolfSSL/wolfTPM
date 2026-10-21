@@ -64,7 +64,8 @@
 
 #else
 
-#ifdef WOLFTPM_EXAMPLE_HAL
+#if defined(WOLFTPM_EXAMPLE_HAL) || defined(WOLFTPM_MMIO) || \
+    defined(WOLFTPM_FWTPM_HAL)
 
 #ifdef WOLFTPM_ADV_IO
 WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
@@ -160,7 +161,12 @@ WOLFTPM_LOCAL int TPM2_IoCb_Linux_Reset(TPM2_CTX* ctx, void* userCtx);
 #endif
 #endif
 
-#endif /* WOLFTPM_EXAMPLE_HAL */
+#else
+
+/* No example HAL: caller supplies its own IO callback to wolfTPM2_Init */
+#define TPM2_IoCb NULL
+
+#endif /* WOLFTPM_EXAMPLE_HAL || WOLFTPM_MMIO || WOLFTPM_FWTPM_HAL */
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 
 #ifdef __cplusplus
