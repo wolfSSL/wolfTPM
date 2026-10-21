@@ -8840,6 +8840,36 @@ static void test_TPM2_ASN_RsaUnpadPkcsv15(void)
 #endif
 }
 
+static void test_TPM2_ASN_TrimZeros(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    /* ECDSA S from a failed CI run: only the first zero may go */
+    byte s[] = { 0x00, 0x71, 0x00, 0x4F, 0x95 };
+    byte hi[] = { 0x00, 0x80, 0x01 };
+    byte two[] = { 0x00, 0x00, 0x05 };
+    byte* p;
+    word32 len;
+
+    len = (word32)sizeof(s);
+    p = TPM2_ASN_TrimZeros(s, &len);
+    AssertIntEQ(len, 4);
+    AssertTrue(p == &s[1]);
+
+    /* A zero before a high bit byte is kept */
+    len = (word32)sizeof(hi);
+    p = TPM2_ASN_TrimZeros(hi, &len);
+    AssertIntEQ(len, 3);
+    AssertTrue(p == &hi[0]);
+
+    len = (word32)sizeof(two);
+    p = TPM2_ASN_TrimZeros(two, &len);
+    AssertIntEQ(len, 1);
+    AssertTrue(p == &two[2]);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN TrimZeros:");
+#endif
+}
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
 #include <examples/endorsement/trusted_certs_der.h>
 #endif
@@ -11371,6 +11401,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_CryptoDevCb_MlDsaKeyId();
     test_TPM2_ASN_DecodeX509Cert_Errors();
     test_TPM2_ASN_RsaUnpadPkcsv15();
+    test_TPM2_ASN_TrimZeros();
     test_TPM2_ASN_DecodeX509Cert_Valid();
     test_TPM2_ASN_DecodeTag_Errors();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
