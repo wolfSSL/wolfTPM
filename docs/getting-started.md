@@ -31,7 +31,7 @@ make
 ```
 
 !!! note
-    On any non-Windows x86_64/aarch64 host (Linux, macOS, or BSD), a bare `./configure` automatically enables the software TPM backends (swTPM and fwTPM). This lets `make check` run without any TPM hardware attached. Selecting a hardware path turns this default off: any `--enable-<vendor>`, or `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-devtpm`, `--enable-autodetect`, `--enable-winapi`, or `--enable-wintbs`. See [System Interfaces](system-interfaces.md).
+    On any non-Windows x86_64/aarch64 host (Linux, macOS, or BSD), a bare `./configure` automatically enables the software TPM backends (swTPM and fwTPM). This lets `make check` run without any TPM hardware attached. Selecting a hardware path turns this default off: any `--enable-<vendor>`, or `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-devtpm`, `--enable-pikeos`, `--enable-autodetect`, `--enable-winapi`, or `--enable-wintbs`. See [System Interfaces](system-interfaces.md).
 
 For hardware specific build steps, see [Supported Hardware](supported-hardware.md).
 

@@ -247,6 +247,22 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_LINUX_DEV"
 fi
 
+# PikeOS TPM driver through the vm_open/vm_read/vm_write file provider
+AC_ARG_ENABLE([pikeos],
+    [AS_HELP_STRING([--enable-pikeos],[Enable use of TPM through the PikeOS driver file provider (default: disabled)])],
+    [ ENABLED_PIKEOS=$enableval ],
+    [ ENABLED_PIKEOS=no ]
+    )
+
+if test "x$ENABLED_PIKEOS" = "xyes"
+then
+    if test "x$ENABLED_DEVTPM" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both pikeos and devtpm])
+    fi
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PIKEOS"
+fi
+
 # If the user explicitly picked any hardware path (vendor, bus, kernel
 # driver, autodetect), don't default-enable the software TPMs — the SPI HAL
 # in hal/tpm_io_linux.c is excluded when WOLFTPM_SWTPM is defined.
@@ -255,7 +271,7 @@ for _wt_v in "$enable_infineon" "$enable_st" "$enable_st33" \
              "$enable_microchip" "$enable_mchp" \
              "$enable_nuvoton" "$enable_nations" "$enable_sealsq" \
              "$enable_spi" "$enable_i2c" "$enable_mmio" \
-             "$enable_devtpm" "$enable_autodetect" \
+             "$enable_devtpm" "$enable_pikeos" "$enable_autodetect" \
              "$enable_winapi" "$enable_wintbs"; do
     if test -n "$_wt_v" && test "x$_wt_v" != "xno"; then
         WOLFTPM_HW_SELECTED=yes
@@ -284,7 +300,7 @@ fi
 
 # SW TPM device Support
 AC_ARG_ENABLE([swtpm],
-    [AS_HELP_STRING([--enable-swtpm],[Enable use of TPM through the SW socket driver (default: enabled on Linux x86_64/aarch64, disabled elsewhere or when any --enable-<vendor>/--enable-spi/--enable-i2c/--enable-mmio/--enable-devtpm/--enable-autodetect is explicitly set)])],
+    [AS_HELP_STRING([--enable-swtpm],[Enable use of TPM through the SW socket driver (default: enabled on Linux x86_64/aarch64, disabled elsewhere or when any --enable-<vendor>/--enable-spi/--enable-i2c/--enable-mmio/--enable-devtpm/--enable-pikeos/--enable-autodetect is explicitly set)])],
     [ ENABLED_SWTPM=$enableval ],
     [ ENABLED_SWTPM=$WOLFTPM_DEFAULT_SWTPM ]
     )
@@ -305,6 +321,10 @@ then
     if test "x$ENABLED_DEVTPM" = "xyes"
     then
         AC_MSG_ERROR([Cannot enable both swtpm and devtpm])
+    fi
+    if test "x$ENABLED_PIKEOS" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both swtpm and pikeos])
     fi
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
@@ -345,7 +365,7 @@ AC_SUBST([DISTCHECK_SWTPM_PORT_FLAG])
 
 # Firmware TPM (fwTPM) - software TPM 2.0 simulator
 AC_ARG_ENABLE([fwtpm],
-    [AS_HELP_STRING([--enable-fwtpm],[Enable firmware TPM (fwTPM) server (default: enabled on Linux x86_64/aarch64, disabled elsewhere or when any --enable-<vendor>/--enable-spi/--enable-i2c/--enable-mmio/--enable-devtpm/--enable-autodetect is explicitly set)])],
+    [AS_HELP_STRING([--enable-fwtpm],[Enable firmware TPM (fwTPM) server (default: enabled on Linux x86_64/aarch64, disabled elsewhere or when any --enable-<vendor>/--enable-spi/--enable-i2c/--enable-mmio/--enable-devtpm/--enable-pikeos/--enable-autodetect is explicitly set)])],
     [ ENABLED_FWTPM=$enableval ],
     [ ENABLED_FWTPM=$WOLFTPM_DEFAULT_FWTPM ]
     )
@@ -1253,6 +1273,7 @@ SPI_ACTUAL=yes
 if test "x$ENABLED_I2C" = "xyes"     || \
    test "x$ENABLED_SWTPM" = "xyes"   || test "x$ENABLED_SWTPM" = "xuart" || \
    test "x$ENABLED_DEVTPM" = "xyes"  || \
+   test "x$ENABLED_PIKEOS" = "xyes"  || \
    test "x$ENABLED_WINAPI" = "xyes"
 then
     SPI_ACTUAL=no
@@ -1260,6 +1281,7 @@ fi
 echo "   * SPI:                       $SPI_ACTUAL"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
+echo "   * PikeOS TPM driver:         $ENABLED_PIKEOS"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
 if test "x$ENABLED_SWTPM" = "xyes"; then
     echo "   * SWTPM Port:                 $SWTPM_PORT"

@@ -2243,6 +2243,16 @@ struct wolfTPM_tcpContext {
 };
 #endif /* WOLFTPM_SWTPM */
 
+#ifdef WOLFTPM_PIKEOS
+#include <p4.h>
+#include <vm.h>
+
+struct wolfTPM_pikeosContext {
+    vm_file_desc_t fd;
+    int isOpen;
+};
+#endif /* WOLFTPM_PIKEOS */
+
 #ifdef WOLFTPM_WINAPI
 #include <tbs.h>
 #include <winerror.h>
@@ -2326,6 +2336,9 @@ typedef struct TPM2_CTX {
 #endif
 #ifdef WOLFTPM_WINAPI
     struct wolfTPM_winContext winCtx;
+#endif
+#ifdef WOLFTPM_PIKEOS
+    struct wolfTPM_pikeosContext pikeosCtx;
 #endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifdef WOLFTPM2_USE_WOLF_RNG

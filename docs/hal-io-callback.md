@@ -8,6 +8,7 @@ The available system TPM interfaces are:
 
 * Linux `/dev/tpm0`: enabled with `WOLFTPM_LINUX_DEV` or `--enable-devtpm`.
 * Windows TBS: enabled with `WOLFTPM_WINAPI` or `--enable-winapi`.
+* PikeOS TPM driver: enabled with `WOLFTPM_PIKEOS` or `--enable-pikeos`.
 * Software TPM simulator: enabled with `WOLFTPM_SWTPM` or `--enable-swtpm`.
 
 If you use a HAL IO callback, it is registered on library initialization with:
