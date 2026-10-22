@@ -75,6 +75,7 @@ Selecting an Infineon device with its argument looks like this:
 | Option | Default | Effect and macros |
 | --- | --- | --- |
 | `--enable-devtpm` | disabled | Use the Linux kernel driver (`/dev/tpmrm0` or `/dev/tpm0`). Defines `WOLFTPM_LINUX_DEV`. Cannot be combined with swTPM. |
+| `--enable-pikeos` | disabled | Use the PikeOS TPM driver through its file provider (`vm_open`/`vm_write`/`vm_read`). Defines `WOLFTPM_PIKEOS`. The device defaults to `/dev/tpm0`; override with `-DTPM2_PIKEOS_DEV="..."`. The application must call `vm_init()` first. PikeOS native has no `ssize_t`, so build the examples with `-DNO_FILESYSTEM`. Cannot be combined with swTPM or devtpm. |
 | `--enable-swtpm` | see below | Talk to a simulator over the swtpm TCP protocol. Defines `WOLFTPM_SWTPM` and `TPM2_SWTPM_PORT`. |
 | `--enable-swtpm=uart` | disabled | swtpm protocol over a UART serial port, for fwTPM on embedded targets such as STM32H5. Defines `WOLFTPM_SWTPM`, `WOLFTPM_SWTPM_UART` and `TPM2_SWTPM_PORT`, where the port value is the baud rate (default 115200). |
 | `--with-swtpm-port=PORT` | 2321 | Sets `TPM2_SWTPM_PORT`. For `--enable-swtpm=uart` it sets the baud rate instead. |
@@ -88,7 +89,7 @@ Selecting an Infineon device with its argument looks like this:
 - the host CPU is x86_64, amd64 or aarch64;
 - the host OS is not Windows (mingw, cygwin, msys, win32);
 - wolfCrypt is enabled;
-- no hardware path was selected with any of `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-devtpm`, `--enable-autodetect`, `--enable-winapi`, `--enable-infineon`, `--enable-st`, `--enable-st33`, `--enable-microchip`, `--enable-nuvoton`, `--enable-nations` or `--enable-sealsq`.
+- no hardware path was selected with any of `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-devtpm`, `--enable-pikeos`, `--enable-autodetect`, `--enable-winapi`, `--enable-infineon`, `--enable-st`, `--enable-st33`, `--enable-microchip`, `--enable-nuvoton`, `--enable-nations` or `--enable-sealsq`.
 
 This applies to macOS and BSD as well as Linux. Everywhere else the default is off.
 

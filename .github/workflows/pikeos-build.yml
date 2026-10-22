@@ -1,0 +1,76 @@
+name: PikeOS Build (WOLFTPM_PIKEOS)
+
+# Compile-only check of the PikeOS TPM driver transport (--enable-pikeos).
+# The PikeOS SDK is not available in CI, so minimal p4.h/vm.h stubs supply the
+# types and prototypes used by src/tpm2_pikeos.c with the SDK's signatures.
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pikeos:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Write PikeOS p4.h/vm.h stubs
+        run: |
+          mkdir -p pikeos_stub
+          cat > pikeos_stub/p4.h <<'EOF'
+          #ifndef PIKEOS_STUB_P4_H
+          #define PIKEOS_STUB_P4_H
+          typedef int P4_e_t;
+          typedef unsigned long P4_size_t;
+          typedef unsigned long long P4_time_t;
+          #define P4_E_OK 0
+          #define P4_MSEC(to) ((to) * 1000000ULL)
+          P4_e_t p4_sleep(P4_time_t timeout);
+          P4_time_t p4_get_time(void);
+          #endif
+          EOF
+          cat > pikeos_stub/vm.h <<'EOF'
+          #ifndef PIKEOS_STUB_VM_H
+          #define PIKEOS_STUB_VM_H
+          #include <p4.h>
+          typedef struct { unsigned int gdh; } vm_file_desc_t;
+          #define VM_O_RD_WR 3
+          P4_e_t vm_open(const char *name, unsigned int oflags,
+              vm_file_desc_t *fd);
+          P4_e_t vm_read(vm_file_desc_t *fd, void *buff, P4_size_t buff_size,
+              P4_size_t *read_size);
+          P4_e_t vm_write(vm_file_desc_t *fd, const void *buff,
+              P4_size_t buff_size, P4_size_t *written_size);
+          P4_e_t vm_close(vm_file_desc_t *fd);
+          #endif
+          EOF
+
+      - name: Configure (PikeOS transport, no wolfCrypt)
+        run: |
+          ./autogen.sh
+          ./configure --enable-pikeos --disable-wolfcrypt --disable-examples
+
+      - name: Build library
+        run: |
+          make src/libwolftpm.la CFLAGS="-Ipikeos_stub -Werror"
+
+      - name: Build library (debug)
+        run: |
+          make clean
+          make src/libwolftpm.la \
+            CFLAGS="-Ipikeos_stub -Werror -DDEBUG_WOLFTPM -DWOLFTPM_DEBUG_VERBOSE"

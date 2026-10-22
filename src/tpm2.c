@@ -38,6 +38,9 @@
 #ifdef WOLFTPM_WINAPI
     #include <wolftpm/tpm2_winapi.h>
 #endif
+#ifdef WOLFTPM_PIKEOS
+    #include <wolftpm/tpm2_pikeos.h>
+#endif
 #include <wolftpm/tpm2_param_enc.h>
 #ifdef WOLFTPM_SPDM
 #include <wolftpm/tpm2_spdm.h>
@@ -81,6 +84,9 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #elif defined(WOLFTPM_WINAPI)
 #define INTERNAL_SEND_COMMAND      TPM2_WinApi_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx) TPM2_WinApi_Cleanup(ctx)
+#elif defined(WOLFTPM_PIKEOS)
+#define INTERNAL_SEND_COMMAND      TPM2_PIKEOS_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx) TPM2_PIKEOS_Cleanup(ctx)
 #else
 #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
@@ -1072,7 +1078,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #endif
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-    defined(WOLFTPM_WINAPI)
+    defined(WOLFTPM_WINAPI) || defined(WOLFTPM_PIKEOS)
     if (ioCb != NULL || userCtx != NULL) {
         rc = BAD_FUNC_ARG;
         goto exit;
