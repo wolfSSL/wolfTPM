@@ -103,6 +103,7 @@ examples/nvram/read
 examples/nvram/counter
 examples/nvram/policy_nv
 examples/nvram/seal_nv
+examples/nvram/nvauth
 examples/gpio/gpio_config
 examples/gpio/gpio_set
 examples/gpio/gpio_read
