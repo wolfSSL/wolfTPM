@@ -6056,6 +6056,13 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     SignSequenceComplete_In signSeqCompleteIn;
     SignSequenceComplete_Out signSeqCompleteOut;
     WOLFTPM2_HANDLE seqHandleObj;
+#if MAX_SESSION_NUM > 1
+    TPM2_AUTH_SESSION session1;
+    int restore = 0;
+#endif
+#if MAX_SESSION_NUM > 2
+    int moved = 0;
+#endif
 
     if (dev == NULL || key == NULL || sig == NULL || sigSz == NULL) {
         return BAD_FUNC_ARG;
@@ -6077,6 +6084,26 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
     seqHandleObj.hndl = sequenceHandle;
     wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
+#if MAX_SESSION_NUM > 1
+    /* SetAuthHandle resets slot 1 to password auth; restore the caller's
+     * slot-1 session (e.g. parameter encryption) after the command. While
+     * slot 2 is free, that session also protects this command from there.
+     * A policy-auth key runs on the slot-1 session itself; keep it live. */
+    if (!key->handle.policyAuth) {
+        XMEMCPY(&session1, &dev->session[1], sizeof(session1));
+        restore = 1;
+    #if MAX_SESSION_NUM > 2
+        if (TPM2_IS_HMAC_SESSION(session1.sessionHandle) &&
+                dev->session[2].sessionHandle == 0) {
+            XMEMCPY(&dev->session[2], &session1, sizeof(session1));
+            /* slot 2 authorizes no handle; a bound Name would fold the bind
+             * authValue into the param-enc key, which the TPM does not */
+            dev->session[2].name.size = 0;
+            moved = 1;
+        }
+    #endif
+    }
+#endif
     wolfTPM2_SetAuthHandle(dev, 1, &key->handle);
 
     XMEMSET(&signSeqCompleteIn, 0, sizeof(signSeqCompleteIn));
@@ -6089,6 +6116,24 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
 
     XMEMSET(&signSeqCompleteOut, 0, sizeof(signSeqCompleteOut));
     rc = TPM2_SignSequenceComplete(&signSeqCompleteIn, &signSeqCompleteOut);
+#if MAX_SESSION_NUM > 1
+    if (restore) {
+    #if MAX_SESSION_NUM > 2
+        if (moved) {
+            /* keep the nonces the command advanced; a retired session
+             * stays cleared */
+            if (dev->session[2].sessionHandle == session1.sessionHandle) {
+                XMEMCPY(&dev->session[2].name, &session1.name,
+                    sizeof(session1.name));
+            }
+            XMEMCPY(&session1, &dev->session[2], sizeof(session1));
+            TPM2_ForceZero(&dev->session[2], sizeof(dev->session[2]));
+        }
+    #endif
+        XMEMCPY(&dev->session[1], &session1, sizeof(session1));
+        TPM2_ForceZero(&session1, sizeof(session1));
+    }
+#endif
     if (rc == TPM_RC_SUCCESS) {
         /* Extract signature based on algorithm */
         if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDSA ||
