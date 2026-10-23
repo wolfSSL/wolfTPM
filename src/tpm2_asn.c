@@ -100,6 +100,7 @@ static int TPM2_ASN_GetHeader(const uint8_t* input, byte tag, word32* inOutIdx, 
     word32 idx = *inOutIdx;
     byte   b;
     int    length;
+    int    rc;
 
     if ((idx + 1) > maxIdx)
         return TPM_RC_ASN_INSUFFICIENT;
@@ -108,8 +109,9 @@ static int TPM2_ASN_GetHeader(const uint8_t* input, byte tag, word32* inOutIdx, 
     if (b != tag)
         return TPM_RC_ASN_VALUE;
 
-    if (TPM2_ASN_GetLength(input, &idx, &length, maxIdx) < 0)
-        return TPM_RC_ASN_VALUE;
+    rc = TPM2_ASN_GetLength(input, &idx, &length, maxIdx);
+    if (rc < 0)
+        return rc;
 
     *len      = length;
     *inOutIdx = idx;
@@ -177,7 +179,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     DecodedX509* x509)
 {
     int rc = 0;
-    word32 idx = 0, sigAlgEnd = 0;
+    word32 idx = 0, sigAlgEnd = 0, nameBegin = 0;
     word32 tbsSigAlgBegin = 0, tbsSigAlgSz = 0;
     word32 outerSigAlgBegin = 0, outerSigAlgSz = 0;
     int tot_len, cert_len = 0, len, pubkey_len = 0, sig_len = 0;
@@ -244,13 +246,16 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
         tbsSigAlgSz = idx - tbsSigAlgBegin + (word32)len;
         idx += len; /* skip signature oid */
 
-        /* Skip issuer */
+        /* Issuer */
+        x509->issuer = &input[idx];
+        nameBegin = idx;
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
                                &idx, &len, inputSz);
     }
 
     if (rc >= 0) {
         idx += len; /* skip issuer */
+        x509->issuerSz = idx - nameBegin;
 
         /* Skip validity */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
@@ -260,13 +265,16 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     if (rc >= 0) {
         idx += len; /* skip validity */
 
-        /* Skip subject */
+        /* Subject */
+        x509->subject = &input[idx];
+        nameBegin = idx;
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
                                &idx, &len, inputSz);
     }
 
     if (rc >= 0) {
         idx += len; /* skip subject */
+        x509->subjectSz = idx - nameBegin;
         /* subject public key info */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
                                &idx, &len, inputSz);
@@ -355,6 +363,79 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
         rc = TPM_RC_SUCCESS;
         }
     return rc;
+}
+
+int TPM2_ASN_GetNameAttr(const uint8_t* name, word32 nameSz,
+    const uint8_t* oid, word32 oidSz, const uint8_t** value, word32* valueSz)
+{
+    int rc;
+    int len, setLen, attrLen, oidLen;
+    int match;
+    word32 idx = 0, nameEnd, setEnd, attrEnd;
+
+    if (name == NULL || oid == NULL || oidSz == 0 || value == NULL ||
+            valueSz == NULL) {
+        return TPM_RC_ASN_VALUE;
+    }
+
+    /* Name ::= SEQUENCE OF RelativeDistinguishedName */
+    rc = TPM2_ASN_GetHeader(name, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, nameSz);
+    if (rc < 0) {
+        return rc;
+    }
+    nameEnd = idx + (word32)len;
+
+    while (idx < nameEnd) {
+        /* RelativeDistinguishedName ::= SET OF AttributeTypeAndValue */
+        rc = TPM2_ASN_GetHeader(name, TPM2_ASN_SET | TPM2_ASN_CONSTRUCTED,
+                               &idx, &setLen, nameEnd);
+        if (rc < 0) {
+            return rc;
+        }
+        setEnd = idx + (word32)setLen;
+
+        while (idx < setEnd) {
+            /* AttributeTypeAndValue ::= SEQUENCE { type OID, value ANY } */
+            rc = TPM2_ASN_GetHeader(name,
+                    TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED, &idx, &attrLen,
+                    setEnd);
+            if (rc < 0) {
+                return rc;
+            }
+            attrEnd = idx + (word32)attrLen;
+
+            rc = TPM2_ASN_GetHeader(name, TPM2_ASN_OBJECT_ID, &idx, &oidLen,
+                                   attrEnd);
+            if (rc < 0) {
+                return rc;
+            }
+            match = ((word32)oidLen == oidSz &&
+                     XMEMCMP(&name[idx], oid, oidSz) == 0);
+            idx += (word32)oidLen;
+
+            /* value must be exactly one TLV filling the rest of the SEQUENCE */
+            if (idx >= attrEnd) {
+                return TPM_RC_ASN_VALUE;
+            }
+            idx++; /* any string tag */
+            rc = TPM2_ASN_GetLength(name, &idx, &len, attrEnd);
+            if (rc < 0) {
+                return rc;
+            }
+            if (idx + (word32)len != attrEnd) {
+                return TPM_RC_ASN_VALUE;
+            }
+            if (match) {
+                *value = &name[idx];
+                *valueSz = (word32)len;
+                return 0;
+            }
+            idx = attrEnd;
+        }
+    }
+
+    return TPM_RC_ASN_VALUE;
 }
 
 int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
