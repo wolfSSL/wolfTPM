@@ -7741,6 +7741,34 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     return TPM_RC_SUCCESS;
 }
 
+/* Read the NV Index public area and compute its Name */
+static int wolfTPM2_NVComputeName(WOLFTPM2_DEV* dev, word32 nvIndex,
+    TPM2B_NAME* name, TPMA_NV* attributes)
+{
+    int rc;
+    TPMS_NV_PUBLIC nvPublic;
+
+    rc = wolfTPM2_NVReadPublic(dev, nvIndex, &nvPublic);
+    if (rc == TPM_RC_SUCCESS) {
+        if (attributes != NULL) {
+            *attributes = nvPublic.attributes;
+        }
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+        rc = TPM2_HashNvPublic(&nvPublic, (byte*)&name->name, &name->size);
+    #else
+        (void)name;
+    #endif
+    }
+    return rc;
+}
+
+/* NV read/write authHandle may be the owner or platform hierarchy instead of
+ * the NV Index (TPMA_NV_OWNERWRITE/PPWRITE/OWNERREAD/PPREAD) */
+static int wolfTPM2_NVIsHierarchyAuth(TPM_HANDLE authHandle)
+{
+    return (authHandle == TPM_RH_OWNER || authHandle == TPM_RH_PLATFORM);
+}
+
 /* nv is the populated handle and auth */
 /* auth and authSz are optional NV authentication */
 /* authPolicy and authPolicySz are optional policy digest */
@@ -7908,6 +7936,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 {
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
+    int hierAuth;
     union {
         NV_Write_In write;
         NV_Extend_In extend;
@@ -7916,14 +7945,32 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     if (dev == NULL || nv == NULL || dataBuf == NULL) {
         return BAD_FUNC_ARG;
     }
+    if ((pcrArray == NULL) != (pcrArraySz == 0)) {
+        return BAD_FUNC_ARG;
+    }
+    /* A caller built policy (no PCR) is consumed by the first chunk */
+    if (tpmSession != NULL && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)
+            && pcrArray == NULL && dataSz > MAX_NV_BUFFER_SIZE) {
+        return BUFFER_E;
+    }
+    hierAuth = wolfTPM2_NVIsHierarchyAuth(nv->handle.hndl);
 
     while (dataSz > 0) {
         towrite = dataSz;
         if (towrite > MAX_NV_BUFFER_SIZE)
             towrite = MAX_NV_BUFFER_SIZE;
 
+        if (hierAuth) {
+            /* Keep the hierarchy authHandle, only refresh the NV Index Name */
+            if (pos == 0 || (nv->attributes & TPMA_NV_WRITTEN) == 0) {
+                rc = wolfTPM2_NVComputeName(dev, nvIndex, &nv->handle.name,
+                    &nv->attributes);
+                if (rc != 0)
+                    break;
+            }
+        }
         /* Refresh for the first policy chunk and until NV_WRITTEN is cached. */
-        if (!nv->handle.nameLoaded ||
+        else if (!nv->handle.nameLoaded ||
             nv->handle.hndl != (TPM_HANDLE)nvIndex ||
             (nv->attributes & TPMA_NV_WRITTEN) == 0 ||
             (pos == 0 && tpmSession != NULL &&
@@ -7936,10 +7983,12 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         if (tpmSession != NULL
                            && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
             /* PCR resets after each call for TPMA_SESSION_continueSession */
-            rc = wolfTPM2_PolicyPCR(dev, tpmSession->handle.hndl,
-                pcrAlg, pcrArray, pcrArraySz);
-            if (rc != TPM_RC_SUCCESS)
-                break;
+            if (pcrArray != NULL) {
+                rc = wolfTPM2_PolicyPCR(dev, tpmSession->handle.hndl,
+                    pcrAlg, pcrArray, pcrArraySz);
+                if (rc != TPM_RC_SUCCESS)
+                    break;
+            }
 
             /* Set policy session while saving nonceTPM */
             wolfTPM2_SetSessionHandle(dev, 0, tpmSession);
@@ -8037,6 +8086,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 {
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, toread, dataSz;
+    int hierAuth;
     NV_Read_In in;
     NV_Read_Out out;
 
@@ -8045,13 +8095,32 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     }
 
     dataSz = *pDataSz;
+    if ((pcrArray == NULL) != (pcrArraySz == 0)) {
+        return BAD_FUNC_ARG;
+    }
+    /* A caller built policy (no PCR) is consumed by the first chunk */
+    if (tpmSession != NULL && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)
+            && pcrArray == NULL && dataSz > MAX_NV_BUFFER_SIZE) {
+        return BUFFER_E;
+    }
+    hierAuth = wolfTPM2_NVIsHierarchyAuth(nv->handle.hndl);
+
     while (dataSz > 0) {
         toread = dataSz;
         if (toread > MAX_NV_BUFFER_SIZE)
             toread = MAX_NV_BUFFER_SIZE;
 
+        if (hierAuth) {
+            /* Keep the hierarchy authHandle, only refresh the NV Index Name */
+            if (pos == 0) {
+                rc = wolfTPM2_NVComputeName(dev, nvIndex, &nv->handle.name,
+                    &nv->attributes);
+                if (rc != 0)
+                    break;
+            }
+        }
         /* Make sure the name is computed for the handle. */
-        if (!nv->handle.nameLoaded || (pos == 0 && tpmSession != NULL
+        else if (!nv->handle.nameLoaded || (pos == 0 && tpmSession != NULL
                          && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl))) {
             rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
             if (rc != 0)
@@ -8061,10 +8130,12 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         if (tpmSession != NULL
                            && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
             /* PCR resets after each call for TPMA_SESSION_continueSession */
-            rc = wolfTPM2_PolicyPCR(dev, tpmSession->handle.hndl,
-                pcrAlg, pcrArray, pcrArraySz);
-            if (rc != 0)
-                break;
+            if (pcrArray != NULL) {
+                rc = wolfTPM2_PolicyPCR(dev, tpmSession->handle.hndl,
+                    pcrAlg, pcrArray, pcrArraySz);
+                if (rc != 0)
+                    break;
+            }
 
             /* Set policy session while saving nonceTPM */
             wolfTPM2_SetSessionHandle(dev, 0, tpmSession);
@@ -8201,7 +8272,6 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     const byte* auth, word32 authSz)
 {
     int rc = TPM_RC_SUCCESS;
-    TPMS_NV_PUBLIC nvPublic;
     TPM2B_AUTH newAuth;
 
     if (dev == NULL || nv == NULL || authSz > sizeof(nv->handle.auth.buffer)) {
@@ -8217,8 +8287,10 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
         XMEMCPY(newAuth.buffer, auth, authSz);
     }
 
-    /* Read the NV Index publicArea to have up to date NV Index Name */
-    rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
+    /* Read the NV Index publicArea to have up to date NV Index Name.
+     * Name is needed in case of parameter encryption */
+    rc = wolfTPM2_NVComputeName(dev, nvIndex, &nv->handle.name,
+        &nv->attributes);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("Failed to open (read) NV\n");
@@ -8226,21 +8298,11 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
         goto nv_open_exit;
     }
 
-    /* Compute NV Index name in case of parameter encryption */
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
-                           &nv->handle.name.size);
-    if (rc != TPM_RC_SUCCESS) {
-        goto nv_open_exit;
-    }
-#endif
-
     if (auth != NULL && authSz > 0) {
         wolfTPM2_CopyAuth(&nv->handle.auth, &newAuth);
     }
     /* flag that the NV was "opened" and name was loaded */
     nv->handle.nameLoaded = 1;
-    nv->attributes = nvPublic.attributes;
 
 nv_open_exit:
     TPM2_ForceZero(&newAuth, sizeof(newAuth));

@@ -32,6 +32,7 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_NVRAM_PolicyNV_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_NVRAM_Auth_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

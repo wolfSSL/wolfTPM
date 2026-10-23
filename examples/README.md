@@ -431,6 +431,18 @@ Extraction of key from NVRAM at index 0x1800202 succeeded
 
 After successful key extraction using "read", the NV Index is destroyed. Therefore, to use "read" again, the "store" example must be run again as well.
 
+### NV Index with Owner Authorization
+
+The `nvram/nvauth` example creates an NV Index that can be read without a password (`TPMA_NV_AUTHREAD` with an empty NV Index auth), while write and delete require the owner hierarchy authorization (`TPMA_NV_OWNERWRITE`). For an owner or platform authorized index set `nv.handle.hndl` to `TPM_RH_OWNER` or `TPM_RH_PLATFORM` and `nv.handle.auth` to that hierarchy auth after `wolfTPM2_NVOpen`, then use `wolfTPM2_NVWriteAuth` or `wolfTPM2_NVReadAuth`.
+
+With `-policy` the write uses `TPMA_NV_POLICYWRITE` with a PolicyCommandCode(NV_Write) + PolicySecret(owner) policy, satisfied by the caller and passed to `wolfTPM2_NVWriteAuthPolicy` with no PCR's.
+
+Deleting an NV Index (`TPM2_NV_UndefineSpace`) always requires the owner (or platform) auth. The owner auth can be changed with `TPM2_HierarchyChangeAuth` using only the current owner auth; the index is bound to the hierarchy, not its auth value, so it keeps working. `-rotate=<newpw>` demonstrates this and restores the original owner auth.
+
+```sh
+./examples/nvram/nvauth [-ownerauth=<pw>] [-rotate=<newpw>] [-policy] [-aes/-xor]
+```
+
 ## Seal / Unseal
 
 TPM 2.0 can protect secrets using a standard Seal/Unseal procedure. Seal can be created using a TPM 2.0 key or against a set of PCR values. Note: Secret data sealed in a key is limited to a maximum size of 128 bytes.

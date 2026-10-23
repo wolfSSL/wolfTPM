@@ -596,6 +596,25 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "nv policy nv aes failed! $RESULT" && exit 1
 
+# NV read without auth, write/delete with owner auth
+./examples/nvram/nvauth >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "nv auth failed! $RESULT" && exit 1
+./examples/nvram/nvauth -rotate=ownerpw >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "nv auth rotate failed! $RESULT" && exit 1
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/nvram/nvauth -aes -rotate=ownerpw >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "nv auth aes failed! $RESULT" && exit 1
+    ./examples/nvram/nvauth -policy >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "nv auth policy failed! $RESULT" && exit 1
+    ./examples/nvram/nvauth -policy -xor -rotate=ownerpw >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "nv auth policy xor failed! $RESULT" && exit 1
+fi
+
 
 # CSR Tests
 ./examples/keygen/keygen rsa_test_blob.raw -rsa -t >> $TPMPWD/run.out 2>&1

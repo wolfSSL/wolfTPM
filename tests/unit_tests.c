@@ -2856,6 +2856,226 @@ static void test_wolfTPM2_NVWriteChunked(void)
 #endif
 }
 
+/* OWNERWRITE/OWNERREAD index authorized by the owner hierarchy through the
+ * existing NV wrappers, multi-chunk under an HMAC parameter encryption
+ * session so the NV index name refresh is exercised. */
+static void test_wolfTPM2_NVOwnerAuth(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    WOLFTPM2_SESSION policySession;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE owner;
+    WOLFTPM2_HANDLE platform;
+    const word32 nvIndex = TPM2_DEMO_NVRAM_AUTH_INDEX;
+    const word32 ppIndex = 0x01400206;
+    word32 nvAttributes = (TPMA_NV_AUTHREAD | TPMA_NV_OWNERREAD |
+        TPMA_NV_OWNERWRITE | TPMA_NV_NO_DA | TPM_NT_ORDINARY);
+    byte buf[MAX_NV_BUFFER_SIZE*2 + 64];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+    word32 i;
+    byte pcrIndex = 0;
+    byte policyDigest[TPM_MAX_DIGEST_SIZE];
+    word32 policyDigestSz;
+    byte ownerName[4];
+    PolicySecret_In secIn;
+    PolicySecret_Out secOut;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&policySession, 0, sizeof(policySession));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&owner, 0, sizeof(owner));
+    XMEMSET(&platform, 0, sizeof(platform));
+    for (i = 0; i < (word32)sizeof(buf); i++) {
+        buf[i] = (byte)(i & 0xFF);
+    }
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tNV owner auth:\t\tSkipped\n");
+        return;
+    }
+
+    owner.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_NVCreateAuth(&dev, &owner, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), NULL, 0);
+    if (rc == TPM_RC_NV_DEFINED) {
+        wolfTPM2_NVDeleteAuth(&dev, &owner, nvIndex);
+        XMEMSET(&nv, 0, sizeof(nv));
+        rc = wolfTPM2_NVCreateAuth(&dev, &owner, &nv, nvIndex, nvAttributes,
+            (word32)sizeof(buf), NULL, 0);
+    }
+    if (rc != 0) {
+        /* NV limits vary by device. */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tNV owner auth:\t\tSkipped\n");
+        return;
+    }
+
+    /* No AUTHWRITE, so the NV index itself cannot authorize a write */
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, 16, 0);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* First chunk sets TPMA_NV_WRITTEN, the name must be refreshed */
+    nv.handle.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(nv.handle.hndl, TPM_RH_OWNER);
+
+    /* OWNERREAD */
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    /* AUTHREAD with the empty NV index auth */
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVOpen(&dev, &nv, nvIndex, NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+
+    /* A caller satisfied policy (no PCR's) only covers one chunk */
+    rc = wolfTPM2_StartSession(&dev, &policySession, NULL, NULL,
+        TPM_SE_POLICY, TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVWriteAuthPolicy(&dev, &policySession, TPM_ALG_NULL, NULL,
+        0, &nv, nvIndex, buf, MAX_NV_BUFFER_SIZE + 1, 0);
+    AssertIntEQ(rc, BUFFER_E);
+    readSz = MAX_NV_BUFFER_SIZE + 1;
+    rc = wolfTPM2_NVReadAuthPolicy(&dev, &policySession, TPM_ALG_NULL, NULL,
+        0, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, BUFFER_E);
+    /* PCR array and size must be both set or both empty */
+    rc = wolfTPM2_NVWriteAuthPolicy(&dev, &policySession, TPM_ALG_SHA256,
+        NULL, 1, &nv, nvIndex, buf, 16, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_NVWriteAuthPolicy(&dev, &policySession, TPM_ALG_SHA256,
+        &pcrIndex, 0, &nv, nvIndex, buf, 16, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    readSz = 16;
+    rc = wolfTPM2_NVReadAuthPolicy(&dev, &policySession, TPM_ALG_SHA256,
+        NULL, 1, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_NVReadAuthPolicy(&dev, &policySession, TPM_ALG_SHA256,
+        &pcrIndex, 0, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    wolfTPM2_UnloadHandle(&dev, &policySession.handle);
+
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    rc = wolfTPM2_NVDeleteAuth(&dev, &owner, nvIndex);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* POLICYREAD: PolicyCommandCode(NV_Read) + PolicySecret(owner) */
+    ownerName[0] = (byte)((TPM_RH_OWNER >> 24) & 0xFF);
+    ownerName[1] = (byte)((TPM_RH_OWNER >> 16) & 0xFF);
+    ownerName[2] = (byte)((TPM_RH_OWNER >> 8) & 0xFF);
+    ownerName[3] = (byte)(TPM_RH_OWNER & 0xFF);
+    policyDigestSz = (word32)sizeof(policyDigest);
+    rc = wolfTPM2_PolicyCommandCodeMake(WOLFTPM2_WRAP_DIGEST, policyDigest,
+        &policyDigestSz, TPM_CC_NV_Read);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_PolicyHash(WOLFTPM2_WRAP_DIGEST, policyDigest,
+        &policyDigestSz, TPM_CC_PolicySecret, ownerName, sizeof(ownerName));
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_PolicyRefMake(WOLFTPM2_WRAP_DIGEST, policyDigest,
+        &policyDigestSz, NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&nv, 0, sizeof(nv));
+    rc = wolfTPM2_NVCreateAuthPolicy(&dev, &owner, &nv, nvIndex,
+        (TPMA_NV_POLICYREAD | TPMA_NV_OWNERWRITE | TPMA_NV_NO_DA |
+         TPM_NT_ORDINARY), 64, NULL, 0, policyDigest, (int)policyDigestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    nv.handle.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, 32, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_StartSession(&dev, &policySession, NULL, NULL,
+        TPM_SE_POLICY, TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_PolicyCommandCode(&dev, &policySession, TPM_CC_NV_Read);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    wolfTPM2_SetAuthHandle(&dev, 0, &owner);
+    XMEMSET(&secIn, 0, sizeof(secIn));
+    secIn.authHandle = TPM_RH_OWNER;
+    secIn.policySession = policySession.handle.hndl;
+    rc = TPM2_PolicySecret(&secIn, &secOut);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &policySession,
+        TPMA_SESSION_continueSession);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    readSz = 32;
+    rc = wolfTPM2_NVReadAuthPolicy(&dev, &policySession, TPM_ALG_NULL, NULL,
+        0, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, 32);
+    AssertIntEQ(XMEMCMP(readBuf, buf, 32), 0);
+    wolfTPM2_UnloadHandle(&dev, &policySession.handle);
+
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    rc = wolfTPM2_NVDeleteAuth(&dev, &owner, nvIndex);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* PPWRITE/PPREAD, best effort: platform auth is usually unavailable
+     * after boot on a hardware TPM */
+    platform.hndl = TPM_RH_PLATFORM;
+    XMEMSET(&nv, 0, sizeof(nv));
+    rc = wolfTPM2_NVCreateAuth(&dev, &platform, &nv, ppIndex,
+        (TPMA_NV_PPREAD | TPMA_NV_PPWRITE | TPMA_NV_PLATFORMCREATE |
+         TPMA_NV_NO_DA | TPM_NT_ORDINARY), 64, NULL, 0);
+    if (rc == TPM_RC_NV_DEFINED) {
+        wolfTPM2_NVDeleteAuth(&dev, &platform, ppIndex);
+        XMEMSET(&nv, 0, sizeof(nv));
+        rc = wolfTPM2_NVCreateAuth(&dev, &platform, &nv, ppIndex,
+            (TPMA_NV_PPREAD | TPMA_NV_PPWRITE | TPMA_NV_PLATFORMCREATE |
+             TPMA_NV_NO_DA | TPM_NT_ORDINARY), 64, NULL, 0);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, ppIndex, buf, 32, 0);
+        AssertIntNE(rc, TPM_RC_SUCCESS);
+
+        nv.handle.hndl = TPM_RH_PLATFORM;
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, ppIndex, buf, 32, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        XMEMSET(readBuf, 0, sizeof(readBuf));
+        readSz = 32;
+        rc = wolfTPM2_NVReadAuth(&dev, &nv, ppIndex, readBuf, &readSz, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(XMEMCMP(readBuf, buf, 32), 0);
+
+        rc = wolfTPM2_NVDeleteAuth(&dev, &platform, ppIndex);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+    }
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tNV owner auth:\t\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tNV owner auth:\t\tSkipped\n");
+#endif
+}
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 static void test_TPM2_command_process_buffer_cleanup(void)
 {
@@ -11641,6 +11861,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();
     test_wolfTPM2_NVWriteChunked();
+    test_wolfTPM2_NVOwnerAuth();
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();
 #endif
