@@ -3949,6 +3949,7 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
             word32 sSz = (word32)sizeof(sBuf);
             int wcRc;
             int eccInit = 0;
+            int i = 0;
 
             FWTPM_ALLOC_VAR(eccKey, ecc_key);
             FWTPM_ALLOC_BUF(derSig, FWTPM_MAX_DER_SIG_BUF);
@@ -3962,8 +3963,15 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
             if (rc == 0) {
                 wcRc = wc_ecc_sign_hash(digest, digestSz,
                     derSig, &derSigSz, &ctx->rng, eccKey);
-                if (wcRc != 0)
-                    rc = TPM_RC_FAILURE;
+                if (wcRc != 0) {
+                    /* wolfCrypt refuses an all-zero digest with
+                     * ECC_BAD_ARG_E unless WC_ALLOW_ECC_ZERO_HASH */
+                    while (wcRc == ECC_BAD_ARG_E && i < digestSz &&
+                            digest[i] == 0)
+                        i++;
+                    rc = (i > 0 && i == digestSz) ? TPM_RC_VALUE :
+                        TPM_RC_FAILURE;
+                }
             }
 
             if (eccInit)
@@ -3974,6 +3982,25 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
                     rBuf, &rSz, sBuf, &sSz);
                 if (wcRc != 0)
                     rc = TPM_RC_FAILURE;
+            }
+
+            /* Match the reference TPM's fixed-width ECDSA scalar encoding. */
+            if (rc == 0) {
+                int keySz = FwGetEccKeySize(
+                    obj->pub.parameters.eccDetail.curveID);
+                if (keySz <= 0 || keySz > (int)sizeof(rBuf) ||
+                        keySz > (int)sizeof(sBuf) ||
+                        rSz > (word32)keySz || sSz > (word32)keySz) {
+                    rc = TPM_RC_FAILURE;
+                }
+                else {
+                    XMEMMOVE(rBuf + keySz - rSz, rBuf, rSz);
+                    XMEMSET(rBuf, 0, keySz - rSz);
+                    rSz = (word32)keySz;
+                    XMEMMOVE(sBuf + keySz - sSz, sBuf, sSz);
+                    XMEMSET(sBuf, 0, keySz - sSz);
+                    sSz = (word32)keySz;
+                }
             }
 
             if (rc == 0) {

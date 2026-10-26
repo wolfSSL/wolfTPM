@@ -9596,6 +9596,9 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         rc = FwSignDigestAndAppend(ctx, obj, sigScheme, sigHashAlg,
             digest.buffer, digest.size, rsp);
+        if (rc == TPM_RC_VALUE) {
+            rc |= TPM_RC_P | TPM_RC_1;
+        }
     }
 
     if (rc == 0) {

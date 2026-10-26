@@ -13352,6 +13352,64 @@ static void test_fwtpm_sign_ecdaa_scheme(void)
     printf("Test fwTPM:\tSign(ECDAA scheme):\t\tPassed\n");
 }
 
+/* An all-zero ECDSA digest is signed when wolfCrypt allows it, as the
+ * reference TPM does, and is otherwise a digest parameter error. The TPM must
+ * not report TPM_RC_FAILURE and must keep serving commands. */
+static void test_fwtpm_sign_ecdsa_zero_digest(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+    byte digest[32];
+    ecc_key probe;
+    byte probeSig[ECC_MAX_SIG_SIZE];
+    word32 probeSigSz = (word32)sizeof(probeSig);
+    int zeroSigned;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    memset(digest, 0, sizeof(digest));
+    AssertIntEQ(wc_ecc_init(&probe), 0);
+    AssertIntEQ(wc_ecc_make_key(&ctx.rng, 32, &probe), 0);
+    zeroSigned = (wc_ecc_sign_hash(digest, sizeof(digest), probeSig,
+        &probeSigSz, &ctx.rng, &probe) == 0);
+    wc_ecc_free(&probe);
+
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Sign); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)sizeof(digest)); pos += 2;
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), zeroSigned ? TPM_RC_SUCCESS :
+        (TPM_RC_VALUE | TPM_RC_P | TPM_RC_1));
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_GetRandom);
+    PutU16BE(gCmd + pos, 16); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tSign(ECDSA zero digest):\tPassed\n");
+}
+
 /* ECDH key-agreement commands must reject a key without TPMA_OBJECT_decrypt
  * per Part 3 Sec.14.3.3/14.7/21.3. A sign-only AIK would otherwise act as a
  * CDH oracle over its private scalar. */
@@ -19262,6 +19320,56 @@ static void test_fwtpm_public_name_rsa_max(void)
 /* main                                                                */
 /* ================================================================== */
 
+#ifdef HAVE_ECC
+/* Fixed-width scalars must remain valid signatures, including a leading zero
+ * on P-521. The reference TPM emits the order's full byte width. */
+static void test_fwtpm_ecdsa_signature_padding(void)
+{
+    static const UINT16 curves[] = {
+        TPM_ECC_NIST_P256, TPM_ECC_NIST_P384, TPM_ECC_NIST_P521
+    };
+    FWTPM_CTX ctx;
+    FWTPM_Object obj;
+    TPM2_Packet packet;
+    TPMT_SIGNATURE sig;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    int i, j, keySz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    for (i = 0; i < (int)(sizeof(curves) / sizeof(curves[0])); i++) {
+        if (FwGetWcCurveId(curves[i]) < 0) {
+            continue;
+        }
+        keySz = FwGetEccKeySize(curves[i]);
+        XMEMSET(&obj, 0, sizeof(obj));
+        obj.pub.type = TPM_ALG_ECC;
+        obj.pub.parameters.eccDetail.curveID = curves[i];
+        AssertIntEQ(FwGenerateEccKey(&ctx.rng, curves[i], &obj.pub.unique.ecc,
+            obj.privKey, sizeof(obj.privKey), &obj.privKeySize), 0);
+        for (j = 0; j < 64; j++) {
+            XMEMSET(digest, j + 1, sizeof(digest));
+            XMEMSET(&packet, 0, sizeof(packet));
+            packet.buf = gRsp;
+            packet.size = sizeof(gRsp);
+            AssertIntEQ(FwSignDigestAndAppend(&ctx, &obj, TPM_ALG_ECDSA,
+                TPM_ALG_SHA256, digest, sizeof(digest), &packet), 0);
+            AssertFalse(packet.overflow);
+            packet.pos = 0;
+            XMEMSET(&sig, 0, sizeof(sig));
+            TPM2_Packet_ParseSignature(&packet, &sig);
+            AssertIntEQ(sig.signature.ecdsa.signatureR.size, keySz);
+            AssertIntEQ(sig.signature.ecdsa.signatureS.size, keySz);
+            AssertIntEQ(FwVerifySignatureCore(&obj, digest, sizeof(digest),
+                &sig), TPM_RC_SUCCESS);
+        }
+    }
+    wc_ForceZero(&obj, sizeof(obj));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ECDSA fixed-width verified signatures:", 0);
+}
+#endif /* HAVE_ECC */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -19272,6 +19380,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Remove stale NV state to ensure clean test runs */
     (void)remove(FWTPM_NV_FILE);
+
+#ifdef HAVE_ECC
+    if (argc == 1) {
+        test_fwtpm_ecdsa_signature_padding();
+    }
+#endif
 
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
     if (argc == 2 && XSTRCMP(argv[1], "custom-io-hal") == 0) {
@@ -19290,6 +19404,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
     if (argc == 2 && XSTRCMP(argv[1], "crypto-alloc-failure") == 0) {
         test_fwtpm_crypto_alloc_failure();
+        return 0;
+    }
+#endif
+
+#ifdef HAVE_ECC
+    if (argc == 2 && XSTRCMP(argv[1], "ecdsa-padding") == 0) {
+        test_fwtpm_ecdsa_signature_padding();
         return 0;
     }
 #endif
@@ -19770,6 +19891,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef HAVE_ECC
     test_fwtpm_quote_ecdaa_scheme();
     test_fwtpm_sign_ecdaa_scheme();
+    test_fwtpm_sign_ecdsa_zero_digest();
     test_fwtpm_certify_creation_ecdaa_scheme();
 #ifndef FWTPM_NO_ECDH
     test_fwtpm_ecdh_keygen_signkey_returns_attributes();
