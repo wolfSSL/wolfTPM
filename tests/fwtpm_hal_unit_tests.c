@@ -95,13 +95,16 @@ static sem_t* TestSemOpen(const char* name, int oflag, ...)
 
 void TestSetDefaultHAL(FWTPM_CTX* ctx);
 UINT32 TestByteArrayToU32(const BYTE* data);
+int TestClockUpdate(FWTPM_CTX* ctx);
 
 #define TPM2_ForceZero TestForceZero
 #define FWTPM_ProcessCommand TestProcessCommand
 #define FWTPM_IO_IsStopRequested TestStopRequested
 #define FWTPM_TIS_SetDefaultHAL TestSetDefaultHAL
 #define TPM2_Packet_ByteArrayToU32 TestByteArrayToU32
+#define FWTPM_Clock_Update TestClockUpdate
 #include "../src/fwtpm/fwtpm_tis.c"
+#undef FWTPM_Clock_Update
 #undef TPM2_Packet_ByteArrayToU32
 #undef FWTPM_TIS_SetDefaultHAL
 #undef FWTPM_IO_IsStopRequested
@@ -128,6 +131,12 @@ int TestStopRequested(void)
 void TestSetDefaultHAL(FWTPM_CTX* ctx)
 {
     (void)ctx;
+}
+
+int TestClockUpdate(FWTPM_CTX* ctx)
+{
+    (void)ctx;
+    return 0;
 }
 
 UINT32 TestByteArrayToU32(const BYTE* data)

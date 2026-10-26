@@ -36,6 +36,15 @@
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 #include <string.h>
 
+/* Clock resumes from its NV checkpoint and becomes safe one checkpoint
+ * interval later, unless the NV state kept it safe. */
+static void FwClockRestoreSafe(FWTPM_CTX* ctx)
+{
+    ctx->clockUnsafeUntil = ctx->clockNvValue >
+        ~(UINT64)0 - FWTPM_CLOCK_UPDATE_MS ? ~(UINT64)0 :
+        ctx->clockNvValue + FWTPM_CLOCK_UPDATE_MS;
+}
+
 int FWTPM_Init(FWTPM_CTX* ctx)
 {
     int rc;
@@ -134,6 +143,8 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     /* Initialize NV storage - loads existing state or creates fresh seeds */
 #ifndef FWTPM_NO_NV
     if (rc == 0) {
+        /* A compaction during the load cannot establish Clock safety. */
+        ctx->clockUnsafeUntil = ~(UINT64)0;
         rc = FWTPM_NV_Init(ctx);
     }
 #else
@@ -152,6 +163,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     if (rc == 0) {
         ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
         ctx->endorsementProofVersion = 1;
+        ctx->clockSafe = 1;
     }
 #ifndef FWTPM_NO_DA
     if (rc == 0) {
@@ -162,6 +174,13 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     }
 #endif
 #endif
+
+    /* The NV load keeps clockSafe only from a committed orderly marker.
+     * Fresh state has reported no Clock yet, so it is safe. */
+    if (rc == TPM_RC_SUCCESS) {
+        ctx->clockNvValue = ctx->clockOffset;
+        FwClockRestoreSafe(ctx);
+    }
 
     if (rc != 0) {
         if (rngInit) {
@@ -230,6 +249,46 @@ UINT64 FWTPM_Clock_GetMs(FWTPM_CTX* ctx)
         now = ctx->clockHal.get_ms(ctx->clockHal.ctx);
     }
     return now + ctx->clockOffset;
+}
+
+int FWTPM_Clock_PowerOn(FWTPM_CTX* ctx)
+{
+    UINT64 halNow = 0;
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (ctx->clockHal.get_ms != NULL) {
+        halNow = ctx->clockHal.get_ms(ctx->clockHal.ctx);
+    }
+    /* Powered-off time is not counted, whatever the HAL epoch. Unsigned
+     * wrap is intended, as in ClockSet. */
+    ctx->clockOffset = ctx->clockNvValue - halNow;
+    ctx->timeBaseMs = halNow;
+#ifndef FWTPM_NO_NV
+    ctx->clockSafe = ctx->nvOrderly && ctx->clockSafe;
+#else
+    /* Without NV, Clock restarts from its boot value and can roll back. */
+    ctx->clockSafe = 0;
+#endif
+    FwClockRestoreSafe(ctx);
+    return TPM_RC_SUCCESS;
+}
+
+int FWTPM_Clock_Update(FWTPM_CTX* ctx)
+{
+    if (ctx == NULL) return BAD_FUNC_ARG;
+#if !defined(FWTPM_NO_CLOCK) && !defined(FWTPM_NO_NV)
+    if (ctx->wasStarted && ctx->powerOn) {
+        UINT64 now = FWTPM_Clock_GetMs(ctx);
+        if (now >= ctx->clockNvValue &&
+                (now - ctx->clockNvValue >=
+                    FWTPM_CLOCK_UPDATE_MS - FWTPM_CLOCK_POLL_MS ||
+                 (!ctx->clockSafe && now >= ctx->clockUnsafeUntil))) {
+            return FWTPM_NV_SaveClock(ctx);
+        }
+    }
+#endif
+    return TPM_RC_SUCCESS;
 }
 
 #ifndef FWTPM_NO_PP

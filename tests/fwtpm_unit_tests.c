@@ -2213,6 +2213,7 @@ static void test_fwtpm_total_commands(void)
     UINT32 advertised[512];
     UINT32 count, props, i, total = 0;
     int rc, rspSize, cmdSz, found = 0;
+    UINT32 vendorCount = 0;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -2248,6 +2249,25 @@ static void test_fwtpm_total_commands(void)
     }
     AssertIntEQ(found, 1);
     AssertIntEQ(total, count);
+
+    for (i = 0; i < count; i++) {
+        if ((advertised[i] & (UINT32)CC_VEND) != 0) {
+            vendorCount++;
+        }
+    }
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 22,
+        TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_LIBRARY_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 2); cmdSz += 4;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 2);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9), TPM_PT_LIBRARY_COMMANDS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 13), total - vendorCount);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 17), TPM_PT_VENDOR_COMMANDS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 21), vendorCount);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("TPM_PT_TOTAL_COMMANDS matches CAP_COMMANDS:", 0);
@@ -15356,7 +15376,7 @@ static void test_fwtpm_state_change_nv_failure(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_UNAVAILABLE);
     AssertIntEQ((int)ctx.clockOffset, 0);
 #endif
 
@@ -20840,6 +20860,796 @@ static void test_fwtpm_rsa_hash_matrix(void)
 
 #endif
 
+#if defined(FWTPM_NO_NV) && !defined(FWTPM_NO_CLOCK)
+static UINT64 no_nv_clock_ms(void* userCtx)
+{
+    return *(UINT64*)userCtx;
+}
+
+static byte no_nv_clock_safe(FWTPM_CTX* ctx)
+{
+    int pos, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, TPM2_HEADER_SIZE,
+        TPM_CC_ReadClock);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return gRsp[TPM2_HEADER_SIZE + 24];
+}
+
+/* Without NV, a power cycle restarts Clock from its boot value, so Clock is
+ * no longer safe even after an orderly Shutdown. */
+static void test_fwtpm_clock_power_cycle_no_nv(void)
+{
+    FWTPM_CTX ctx;
+    UINT64 now = 0;
+    int pos, rspSize = 0;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, no_nv_clock_ms, &now), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    now = 1u << 22;
+    AssertIntEQ(no_nv_clock_safe(&ctx), YES);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + pos, TPM_SU_CLEAR); pos += 2;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctx.powerOn = 0;
+    ctx.wasStarted = 0;
+    now = 0;
+    AssertIntEQ(FWTPM_Clock_PowerOn(&ctx), TPM_RC_SUCCESS);
+    ctx.powerOn = 1;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + pos, TPM_SU_CLEAR); pos += 2;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(no_nv_clock_safe(&ctx), NO);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clock power cycle without NV:", 0);
+}
+#endif
+
+#ifndef FWTPM_NO_NV
+static int gPersistenceWriteError = TPM_RC_FAILURE;
+
+static int persistence_fail_write(void* userCtx, word32 off,
+    const byte* data, word32 size)
+{
+    (void)userCtx;
+    (void)off;
+    (void)data;
+    (void)size;
+    return gPersistenceWriteError;
+}
+
+/* Release volatile resources without FWTPM_Cleanup's NV snapshot. */
+static void test_fwtpm_power_cut(FWTPM_CTX* ctx)
+{
+    FWTPM_ResetCommandClient(ctx);
+    wc_FreeRng(&ctx->rng);
+    wolfCrypt_Cleanup();
+    wc_ForceZero(ctx, sizeof(*ctx));
+}
+
+#ifndef FWTPM_NO_CLOCK
+static UINT64 persistence_clock_ms(void* userCtx)
+{
+    return *(UINT64*)userCtx;
+}
+
+static UINT64 persistence_read_clock(FWTPM_CTX* ctx, byte* safe)
+{
+    int pos, rspSize = 0;
+    UINT64 value;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, TPM2_HEADER_SIZE,
+        TPM_CC_ReadClock);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    value = ((UINT64)GetU32BE(gRsp + TPM2_HEADER_SIZE + 8) << 32) |
+        GetU32BE(gRsp + TPM2_HEADER_SIZE + 12);
+    *safe = gRsp[TPM2_HEADER_SIZE + 24];
+    return value;
+}
+
+static void test_fwtpm_clock_checkpoint_recovery(void)
+{
+    FWTPM_CTX ctx;
+    UINT64 now = 0, saved;
+    byte safe;
+    int pos, rspSize = 0;
+    int (*savedWrite)(void*, word32, const byte*, word32);
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, persistence_clock_ms, &now), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.clockSafe, YES);
+    now = 1u << 22;
+    saved = persistence_read_clock(&ctx, &safe);
+    AssertTrue(saved >= now);
+    AssertIntEQ(safe, YES);
+    test_fwtpm_power_cut(&ctx);
+
+    now = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, persistence_clock_ms, &now), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertTrue(persistence_read_clock(&ctx, &safe) >= saved);
+    AssertIntEQ(safe, NO);
+    now = 1u << 22;
+    savedWrite = ctx.nvHal.write;
+    ctx.nvHal.write = persistence_fail_write;
+    AssertIntEQ(FWTPM_Clock_Update(&ctx), TPM_RC_NV_UNAVAILABLE);
+    gPersistenceWriteError = TPM_RC_NV_RATE;
+    AssertIntEQ(FWTPM_Clock_Update(&ctx), TPM_RC_NV_RATE);
+    gPersistenceWriteError = TPM_RC_FAILURE;
+    AssertIntEQ(ctx.clockNvValue, saved);
+    AssertIntEQ(ctx.clockSafe, NO);
+    ctx.nvHal.write = savedWrite;
+    saved = persistence_read_clock(&ctx, &safe);
+    AssertIntEQ(safe, YES);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + pos, TPM_SU_CLEAR); pos += 2;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    test_fwtpm_power_cut(&ctx);
+    now = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, persistence_clock_ms, &now), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertTrue(persistence_read_clock(&ctx, &safe) >= saved);
+    AssertIntEQ(safe, YES);
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Clock checkpoints and safe recovery:", 0);
+}
+
+static TPM_RC persistence_lifecycle(FWTPM_CTX* ctx, UINT32 command,
+    UINT16 type)
+{
+    int pos, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, command);
+    PutU16BE(gCmd + pos, type);
+    AssertIntEQ(FWTPM_ProcessCommand(ctx, gCmd, 12, gRsp, &rspSize, 0), 0);
+    return GetRspRC(gRsp);
+}
+
+/* Platform power cycles in the same context: the HAL keeps running, Clock
+ * resumes from NV without counting powered-off time, and Time restarts at
+ * zero. Only an orderly Shutdown keeps Clock safe. */
+static void test_fwtpm_clock_power_cycle(void)
+{
+    FWTPM_CTX ctx;
+    UINT64 now = 0, saved;
+    byte safe;
+    int orderly;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, persistence_clock_ms, &now), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (orderly = 0; orderly <= 1; orderly++) {
+        now += 1u << 22;
+        AssertIntEQ(FWTPM_Clock_Update(&ctx), TPM_RC_SUCCESS);
+        (void)persistence_read_clock(&ctx, &safe);
+        AssertIntEQ(safe, YES);
+        if (orderly) {
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Shutdown,
+                TPM_SU_CLEAR), TPM_RC_SUCCESS);
+        }
+        saved = ctx.clockNvValue;
+        ctx.powerOn = 0;
+        ctx.wasStarted = 0;
+
+        now += 5000;
+        AssertIntEQ(FWTPM_Clock_PowerOn(&ctx), TPM_RC_SUCCESS);
+        ctx.powerOn = 1;
+        AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup,
+            TPM_SU_CLEAR), TPM_RC_SUCCESS);
+        now += 7;
+        AssertTrue(persistence_read_clock(&ctx, &safe) >= saved);
+        AssertIntEQ(safe, orderly ? YES : NO);
+        AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE), 0);
+        AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 4), 7);
+    }
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Clock across platform power cycles:", 0);
+}
+
+static void persistence_clock_boot(FWTPM_CTX* ctx, UINT64* now, int flash)
+{
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    if (flash) {
+        FWTPM_NV_HAL hal;
+        AssertIntEQ(flash_boot(ctx, &hal, FNV_PROG, 1), 0);
+        AssertIntEQ(FWTPM_Clock_SetHAL(ctx, persistence_clock_ms, now), 0);
+        return;
+    }
+#else
+    (void)flash;
+#endif
+    XMEMSET(ctx, 0, sizeof(*ctx));
+    AssertIntEQ(FWTPM_Clock_SetHAL(ctx, persistence_clock_ms, now), 0);
+    AssertIntEQ(FWTPM_Init(ctx), 0);
+}
+
+/* A Clock checkpoint that compacts the journal keeps the Clock and safety the
+ * compaction committed, including a retained unsafe orderly Clock. */
+static void test_fwtpm_clock_compaction(void)
+{
+    FWTPM_CTX ctx;
+    UINT64 now = 0, checkpoint;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, persistence_clock_ms, &now), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    test_fwtpm_power_cut(&ctx);
+    persistence_clock_boot(&ctx, &now, 0);
+    AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup, TPM_SU_CLEAR),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.clockSafe, NO);
+
+    now = 1u << 24;
+    ctx.nvWritePos = ctx.nvHal.maxSize;
+    AssertIntEQ(FWTPM_NV_SaveClock(&ctx), TPM_RC_SUCCESS);
+    AssertTrue(ctx.clockNvValue == FWTPM_Clock_GetMs(&ctx));
+    AssertIntEQ(ctx.clockSafe, YES);
+
+    test_fwtpm_power_cut(&ctx);
+    now = 0;
+    persistence_clock_boot(&ctx, &now, 0);
+    AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup, TPM_SU_CLEAR),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Shutdown, TPM_SU_CLEAR),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.nvOrderly, YES);
+    AssertIntEQ(ctx.clockSafe, NO);
+    checkpoint = ctx.clockNvValue;
+    now = 1u << 25;
+    ctx.nvWritePos = ctx.nvHal.maxSize;
+    AssertIntEQ(FWTPM_NV_SaveClock(&ctx), TPM_RC_SUCCESS);
+    AssertTrue(ctx.clockNvValue == checkpoint);
+    AssertIntEQ(ctx.clockSafe, NO);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Clock checkpoint during compaction:", 0);
+}
+
+/* Part 1, 33.3.3: Shutdown must not turn an unsafe Clock into a safe one. */
+static void test_fwtpm_clock_unsafe_shutdown(void)
+{
+    FWTPM_CTX ctx;
+    UINT64 now, highWater, checkpoint;
+    byte safe;
+    UINT16 shutdownType;
+    int flash, flashCount = 1;
+    int (*savedWrite)(void*, word32, const byte*, word32);
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    byte torn[FNV_PROG];
+#endif
+
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    flashCount = 2;
+#endif
+    for (flash = 0; flash < flashCount; flash++) {
+        for (shutdownType = TPM_SU_CLEAR; shutdownType <= TPM_SU_STATE;
+                shutdownType++) {
+            (void)remove(FWTPM_NV_FILE);
+        #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+            XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+        #endif
+            now = 0;
+            persistence_clock_boot(&ctx, &now, flash);
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup,
+                TPM_SU_CLEAR), 0);
+            now = FWTPM_CLOCK_UPDATE_MS;
+            (void)persistence_read_clock(&ctx, &safe);
+            AssertIntEQ(safe, YES);
+            now += 1234;
+            highWater = persistence_read_clock(&ctx, &safe);
+            test_fwtpm_power_cut(&ctx);
+
+            now = 0;
+            persistence_clock_boot(&ctx, &now, flash);
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup,
+                TPM_SU_CLEAR), 0);
+            AssertTrue(persistence_read_clock(&ctx, &safe) < highWater);
+            AssertIntEQ(safe, NO);
+
+            /* Full saves and journal compaction before recovery remain unsafe. */
+            now = 100;
+            AssertIntEQ(FWTPM_NV_Save(&ctx), 0);
+            AssertIntEQ(ctx.clockSafe, NO);
+            now = 200;
+            ctx.nvWritePos = ctx.nvHal.maxSize;
+            AssertIntEQ(FWTPM_NV_SaveFlags(&ctx), 0);
+            AssertIntEQ(ctx.clockSafe, NO);
+            checkpoint = ctx.clockNvValue;
+            now = 300;
+
+            /* A failed shutdown cannot promote safety or commit its marker. */
+            savedWrite = ctx.nvHal.write;
+            ctx.nvHal.write = persistence_fail_write;
+            AssertIntNE(persistence_lifecycle(&ctx, TPM_CC_Shutdown,
+                shutdownType), 0);
+            AssertIntEQ(ctx.clockSafe, NO);
+            AssertIntEQ(ctx.nvOrderly, NO);
+            AssertIntEQ(ctx.shutdownStateSaved, NO);
+            AssertTrue(ctx.clockNvValue == checkpoint);
+            ctx.nvHal.write = savedWrite;
+
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Shutdown,
+                shutdownType), 0);
+            AssertIntEQ(ctx.clockSafe, NO);
+            AssertTrue(ctx.clockNvValue == checkpoint);
+        #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+            if (flash) {
+                /* A torn trailing header forces compaction during Init. */
+                XMEMSET(torn, 0xFF, sizeof(torn));
+                torn[0] = 0x5A;
+                AssertIntEQ(flash_write(NULL, ctx.nvWritePos, torn,
+                    sizeof(torn)), 0);
+            }
+        #endif
+            test_fwtpm_power_cut(&ctx);
+            now = 0;
+            persistence_clock_boot(&ctx, &now, flash);
+            /* Recovered compaction must survive another immediate reset. */
+            test_fwtpm_power_cut(&ctx);
+            persistence_clock_boot(&ctx, &now, flash);
+            AssertIntEQ(ctx.nvOrderly, YES);
+            AssertIntEQ(ctx.shutdownStateSaved, shutdownType == TPM_SU_STATE);
+            AssertIntEQ(ctx.clockSafe, NO);
+            AssertTrue(ctx.clockNvValue == checkpoint);
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup,
+                shutdownType), 0);
+            AssertTrue(persistence_read_clock(&ctx, &safe) < highWater);
+            AssertIntEQ(safe, NO);
+
+            /* Library cleanup also preserves an unsafe, non-orderly state. */
+            AssertIntEQ(FWTPM_Cleanup(&ctx), 0);
+            persistence_clock_boot(&ctx, &now, flash);
+            AssertIntEQ(ctx.nvOrderly, NO);
+            AssertIntEQ(ctx.clockSafe, NO);
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup,
+                TPM_SU_CLEAR), 0);
+            now = FWTPM_CLOCK_UPDATE_MS;
+            savedWrite = ctx.nvHal.write;
+            ctx.nvHal.write = persistence_fail_write;
+            AssertIntEQ(FWTPM_Clock_Update(&ctx), TPM_RC_NV_UNAVAILABLE);
+            AssertIntEQ(ctx.clockSafe, NO);
+            ctx.nvHal.write = savedWrite;
+            /* A failed write-once append requires restart before retrying. */
+            test_fwtpm_power_cut(&ctx);
+            now = 0;
+            persistence_clock_boot(&ctx, &now, flash);
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup,
+                TPM_SU_CLEAR), 0);
+            AssertIntEQ(ctx.clockSafe, NO);
+            now = FWTPM_CLOCK_UPDATE_MS;
+            AssertTrue(persistence_read_clock(&ctx, &safe) >= highWater);
+            AssertIntEQ(safe, YES);
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Shutdown,
+                shutdownType), 0);
+            test_fwtpm_power_cut(&ctx);
+            now = 0;
+            persistence_clock_boot(&ctx, &now, flash);
+            AssertIntEQ(ctx.clockSafe, YES);
+            AssertIntEQ(persistence_lifecycle(&ctx, TPM_CC_Startup,
+                shutdownType), 0);
+            (void)persistence_read_clock(&ctx, &safe);
+            AssertIntEQ(safe, YES);
+            AssertIntEQ(FWTPM_Cleanup(&ctx), 0);
+        }
+    }
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Unsafe Clock survives shutdown and cleanup:", 0);
+}
+
+static void test_fwtpm_clock_shutdown_marker(void)
+{
+    FWTPM_CTX ctx;
+    byte marker[3] = {1, 1, 0};
+    int state, safe;
+
+    /* Legacy markers say nothing about Clock safety. */
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_SHUTDOWN_STATE,
+        marker, 1), 0);
+    AssertIntEQ(ctx.nvOrderly, YES);
+    AssertIntEQ(ctx.shutdownStateSaved, YES);
+    AssertIntEQ(ctx.clockSafe, NO);
+    for (state = 0; state <= 1; state++) {
+        marker[0] = (byte)state;
+        AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_SHUTDOWN_STATE,
+            marker, 2), 0);
+        AssertIntEQ(ctx.nvOrderly, YES);
+        AssertIntEQ(ctx.shutdownStateSaved, state);
+        AssertIntEQ(ctx.clockSafe, NO);
+        for (safe = 0; safe <= 1; safe++) {
+            marker[2] = (byte)safe;
+            AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_SHUTDOWN_STATE,
+                marker, sizeof(marker)), 0);
+            AssertIntEQ(ctx.nvOrderly, YES);
+            AssertIntEQ(ctx.shutdownStateSaved, state);
+            AssertIntEQ(ctx.clockSafe, safe);
+        }
+    }
+    marker[2] = 2;
+    AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_SHUTDOWN_STATE,
+        marker, sizeof(marker)), TPM_RC_FAILURE);
+    fwtpm_pass("Clock safety in current and legacy NV markers:", 0);
+}
+#endif /* !FWTPM_NO_CLOCK */
+
+static TPM_RC persistence_increment(FWTPM_CTX* ctx, UINT32 index)
+{
+    int pos, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_Increment);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, index); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return (TPM_RC)GetRspRC(gRsp);
+}
+
+static UINT64 persistence_counter(FWTPM_CTX* ctx)
+{
+    return ((UINT64)GetU32BE(ctx->nvIndices[0].data) << 32) |
+        GetU32BE(ctx->nvIndices[0].data + 4);
+}
+
+static void test_fwtpm_orderly_counter_recovery(void)
+{
+    FWTPM_CTX ctx, probe;
+    UINT32 index = 0x01500003;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        TPMA_NV_ORDERLY | TPMA_NV_CLEAR_STCLEAR |
+        ((UINT32)TPM_NT_COUNTER << 4);
+    int pos, rspSize = 0;
+    int (*savedWrite)(void*, word32, const byte*, word32);
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    pos = BuildNvDefineCmd(gCmd, index, 8, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(persistence_increment(&ctx, index), TPM_RC_SUCCESS); /* first write persists */
+    AssertIntEQ(persistence_increment(&ctx, index), TPM_RC_SUCCESS); /* even value persists */
+    AssertIntEQ(persistence_increment(&ctx, index), TPM_RC_SUCCESS); /* odd value remains in RAM */
+    AssertIntEQ(persistence_counter(&ctx), 3);
+    XMEMSET(&probe, 0, sizeof(probe));
+    AssertIntEQ(FWTPM_Init(&probe), 0);
+    AssertIntEQ(persistence_counter(&probe), 2);
+    test_fwtpm_power_cut(&probe);
+    savedWrite = ctx.nvHal.write;
+    ctx.nvHal.write = persistence_fail_write;
+    AssertIntNE(persistence_increment(&ctx, index), TPM_RC_SUCCESS);
+    AssertIntEQ(persistence_counter(&ctx), 3);
+    ctx.nvHal.write = savedWrite;
+    test_fwtpm_power_cut(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(persistence_counter(&ctx), 3);
+    AssertIntEQ(persistence_increment(&ctx, index), TPM_RC_SUCCESS);
+    AssertIntEQ(persistence_counter(&ctx), 4);
+    test_fwtpm_power_cut(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(persistence_counter(&ctx), 5);
+    test_fwtpm_power_cut(&ctx); /* no use: another loss must not advance it */
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(persistence_counter(&ctx), 5);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + pos, TPM_SU_CLEAR); pos += 2;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    test_fwtpm_power_cut(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(persistence_counter(&ctx), 5);
+    AssertIntEQ(persistence_increment(&ctx, index), TPM_RC_SUCCESS);
+    AssertIntEQ(persistence_counter(&ctx), 6);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + pos, TPM_SU_CLEAR); pos += 2;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* Force dirty-marker persistence to compact the journal. The new
+     * snapshot must be dirty before the next odd increment is acknowledged. */
+    ctx.nvWritePos = ctx.nvHal.maxSize;
+    AssertIntEQ(persistence_increment(&ctx, index), TPM_RC_SUCCESS);
+    AssertIntEQ(persistence_counter(&ctx), 7);
+    test_fwtpm_power_cut(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(persistence_counter(&ctx), 7);
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Orderly counter modulo and recovery:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
+/* Resource managers need current counts as well as the fixed limits. */
+static UINT32 resource_property(FWTPM_CTX* ctx, UINT32 property)
+{
+    int pos, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 22, TPM_CC_GetCapability);
+    PutU32BE(gCmd + pos, TPM_CAP_TPM_PROPERTIES); pos += 4;
+    PutU32BE(gCmd + pos, property); pos += 4;
+    PutU32BE(gCmd + pos, 1); pos += 4;
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9), property);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE + 13);
+}
+
+static void test_fwtpm_resource_properties(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessions[FWTPM_MAX_SESSIONS];
+    UINT32 activeMax = FWTPM_MAX_SESSIONS;
+    int i;
+#if !defined(FWTPM_NO_CONTEXT) || !defined(FWTPM_NO_NV) || \
+    defined(HAVE_ECC) || (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN))
+    int pos, rspSize = 0;
+#endif
+#ifndef FWTPM_NO_CONTEXT
+    UINT32 saved;
+#endif
+#if defined(HAVE_ECC) || (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN))
+    UINT32 object;
+#endif
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifndef FWTPM_NO_CONTEXT
+    activeMax += sizeof(ctx.contextLive) / sizeof(ctx.contextLive[0]);
+#endif
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_LOADED), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_LOADED_AVAIL),
+        FWTPM_MAX_SESSIONS);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE_AVAIL), activeMax);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_TRANSIENT_AVAIL),
+        FWTPM_MAX_OBJECTS);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        sessions[i] = StartSessionHelper(&ctx, TPM_SE_HMAC);
+        AssertIntNE(sessions[i], 0);
+        AssertIntEQ(resource_property(&ctx, TPM_PT_HR_LOADED), i + 1);
+        AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE), i + 1);
+        AssertIntEQ(resource_property(&ctx, TPM_PT_HR_LOADED_AVAIL),
+            FWTPM_MAX_SESSIONS - i - 1);
+        AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE_AVAIL),
+            activeMax - i - 1);
+    }
+#ifndef FWTPM_NO_CONTEXT
+    saved = sessions[0];
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + pos, saved); pos += 4;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_LOADED),
+        FWTPM_MAX_SESSIONS - 1);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_LOADED_AVAIL), 1);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE), FWTPM_MAX_SESSIONS);
+    sessions[0] = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessions[0], 0);
+    AssertIntNE(sessions[0], saved);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE),
+        FWTPM_MAX_SESSIONS + 1);
+    FlushHandle(&ctx, saved);
+#endif
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        FlushHandle(&ctx, sessions[i]);
+    }
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_LOADED), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_ACTIVE_AVAIL), activeMax);
+
+#if defined(HAVE_ECC) || (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN))
+#ifdef HAVE_ECC
+    object = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    object = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(object, 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_TRANSIENT_AVAIL),
+        FWTPM_MAX_OBJECTS - 1);
+#ifndef FWTPM_NO_NV
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_EvictControl);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, object); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, PERSISTENT_FIRST); pos += 4;
+    PutU32BE(gCmd + 2, pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_PERSISTENT), 1);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_PERSISTENT_AVAIL),
+        FWTPM_MAX_PERSISTENT - 1);
+#endif
+    FlushHandle(&ctx, object);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_TRANSIENT_AVAIL),
+        FWTPM_MAX_OBJECTS);
+#endif
+
+#ifndef FWTPM_NO_NV
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_NV_INDEX), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_NV_COUNTERS), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_NV_COUNTERS_AVAIL),
+        FWTPM_MAX_NV_INDICES);
+    pos = BuildNvDefineCmd(gCmd, NV_INDEX_FIRST + 1, 8,
+        TPMA_NV_OWNERREAD | TPMA_NV_OWNERWRITE | TPMA_NV_NO_DA);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_NV_INDEX), 1);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_NV_COUNTERS), 0);
+    pos = BuildNvDefineCmd(gCmd, NV_INDEX_FIRST + 2, 8,
+        TPMA_NV_OWNERREAD | TPMA_NV_OWNERWRITE | TPMA_NV_NO_DA |
+        TPMA_NV_ORDERLY | ((UINT32)TPM_NT_COUNTER << 4));
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_NV_INDEX), 2);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_NV_COUNTERS), 1);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_NV_COUNTERS_AVAIL),
+        FWTPM_MAX_NV_INDICES - 2);
+#else
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_PERSISTENT), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_PERSISTENT_AVAIL), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_HR_NV_INDEX), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_NV_COUNTERS), 0);
+    AssertIntEQ(resource_property(&ctx, TPM_PT_NV_COUNTERS_AVAIL), 0);
+#endif
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Current resource capability counts:", 0);
+}
+
+#ifndef FWTPM_NO_CONTEXT
+/* The active-session limit includes saved sessions. Saving a session frees its
+ * RAM slot but must not make its handle available to StartAuthSession. */
+static void test_fwtpm_active_session_capacity(void)
+{
+    FWTPM_CTX ctx;
+    byte saved[MAX_CONTEXT_SIZE];
+    UINT32 handles[FWTPM_MAX_OBJECTS + 2 * FWTPM_MAX_SESSIONS];
+    UINT32 h;
+    int i, j, pos, rspSize = 0, savedSz = 0;
+    int savedCount = FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    for (i = 0; i < savedCount + FWTPM_MAX_SESSIONS; i++) {
+        h = StartSessionHelper(&ctx, TPM_SE_HMAC);
+        AssertIntNE(h, 0);
+        for (j = 0; j < i; j++) {
+            AssertIntNE(h, handles[j]);
+        }
+        handles[i] = h;
+        if (i < savedCount) {
+            pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14,
+                TPM_CC_ContextSave);
+            PutU32BE(gCmd + pos, h); pos += 4;
+            FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+            if (i == 0) {
+                savedSz = rspSize - TPM2_HEADER_SIZE;
+                AssertIntLE(savedSz, sizeof(saved));
+                XMEMCPY(saved, gRsp + TPM2_HEADER_SIZE, savedSz);
+            }
+        }
+    }
+    AssertIntEQ(StartSessionHelper(&ctx, TPM_SE_HMAC), 0);
+    FlushHandle(&ctx, handles[savedCount]);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    XMEMCPY(gCmd + pos, saved, savedSz); pos += savedSz;
+    PutU32BE(gCmd + 2, pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE), handles[0]);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Active and saved session capacity:", 0);
+}
+#endif
+
+/* Every defined fixed property must be queryable by its exact tag. The
+ * reserved PT_FIXED+21 slot is omitted; zero-valued properties are present. */
+static void test_fwtpm_fixed_properties_complete(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 prop, last, value, count;
+    int pos, rspSize, i;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef WOLFTPM_V185
+    last = TPM_PT_ML_PARAMETER_SETS;
+#else
+    last = TPM_PT_MAX_CAP_BUFFER;
+#endif
+    for (prop = TPM_PT_FAMILY_INDICATOR; prop <= last; prop++) {
+        if (prop == PT_FIXED + 21) continue;
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 22,
+            TPM_CC_GetCapability);
+        PutU32BE(gCmd + pos, TPM_CAP_TPM_PROPERTIES); pos += 4;
+        PutU32BE(gCmd + pos, prop); pos += 4;
+        PutU32BE(gCmd + pos, 1); pos += 4;
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1);
+        AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9), prop);
+        AssertIntEQ(gRsp[TPM2_HEADER_SIZE], prop < last);
+        value = GetU32BE(gRsp + TPM2_HEADER_SIZE + 13);
+        if (prop == TPM_PT_HR_TRANSIENT_MIN) {
+            AssertIntEQ(value, FWTPM_MAX_OBJECTS);
+        }
+        else if (prop == TPM_PT_HR_LOADED_MIN) {
+            AssertIntEQ(value, FWTPM_MAX_SESSIONS);
+        }
+        else if (prop == TPM_PT_HR_PERSISTENT_MIN) {
+        #ifndef FWTPM_NO_NV
+            AssertIntEQ(value, FWTPM_MAX_PERSISTENT);
+        #else
+            AssertIntEQ(value, 0);
+        #endif
+        }
+        else if (prop == TPM_PT_MAX_DIGEST) {
+        #if defined(WOLFSSL_SHA512) || (defined(WOLFSSL_SHA3) && \
+            !defined(WOLFSSL_NOSHA3_512))
+            AssertIntEQ(value, TPM_SHA512_DIGEST_SIZE);
+        #elif defined(WOLFSSL_SHA384) || (defined(WOLFSSL_SHA3) && \
+            !defined(WOLFSSL_NOSHA3_384))
+            AssertIntEQ(value, TPM_SHA384_DIGEST_SIZE);
+        #else
+            AssertIntEQ(value, TPM_SHA256_DIGEST_SIZE);
+        #endif
+        }
+        else if (prop == TPM_PT_CLOCK_UPDATE) {
+        #if !defined(FWTPM_NO_CLOCK) && !defined(FWTPM_NO_NV)
+            AssertIntEQ(value, FWTPM_CLOCK_UPDATE_MS);
+        #else
+            AssertIntEQ(value, 0);
+        #endif
+        }
+        else if (prop == TPM_PT_CONTEXT_SYM) {
+        #ifndef FWTPM_NO_CONTEXT
+            AssertIntEQ(value, TPM_ALG_AES);
+        #else
+            AssertIntEQ(value, TPM_ALG_NULL);
+        #endif
+        }
+        else if (prop == TPM_PT_CONTEXT_SYM_SIZE) {
+        #ifndef FWTPM_NO_CONTEXT
+            AssertIntEQ(value, sizeof(ctx.ctxProtectKey) * 8);
+        #else
+            AssertIntEQ(value, 0);
+        #endif
+        }
+    }
+    /* Bulk enumeration stays sorted, with only the reserved hole. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 22, TPM_CC_GetCapability);
+    PutU32BE(gCmd + pos, TPM_CAP_TPM_PROPERTIES); pos += 4;
+    PutU32BE(gCmd + pos, PT_FIXED); pos += 4;
+    PutU32BE(gCmd + pos, MAX_TPM_PROPERTIES); pos += 4;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    count = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    AssertIntEQ(count, last - PT_FIXED);
+    AssertIntEQ(rspSize, TPM2_HEADER_SIZE + 9 + count * 8);
+    for (i = 0; i < (int)count; i++) {
+        prop = PT_FIXED + (UINT32)i + (i >= 21 ? 1 : 0);
+        AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9 + i * 8), prop);
+    }
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Complete fixed property capabilities:", 0);
+}
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -20874,6 +21684,32 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_hash_capabilities();
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
         test_fwtpm_rsa_hash_matrix();
+#endif
+    }
+
+    if (argc == 2 && XSTRCMP(argv[1], "resource-properties") == 0) {
+        test_fwtpm_resource_properties();
+        return 0;
+    }
+
+    if (argc == 1) {
+        test_fwtpm_resource_properties();
+        test_fwtpm_fixed_properties_complete();
+#ifndef FWTPM_NO_CONTEXT
+        test_fwtpm_active_session_capacity();
+#endif
+#if defined(FWTPM_NO_NV) && !defined(FWTPM_NO_CLOCK)
+        test_fwtpm_clock_power_cycle_no_nv();
+#endif
+#ifndef FWTPM_NO_NV
+#ifndef FWTPM_NO_CLOCK
+        test_fwtpm_clock_checkpoint_recovery();
+        test_fwtpm_clock_power_cycle();
+        test_fwtpm_clock_compaction();
+        test_fwtpm_clock_unsafe_shutdown();
+        test_fwtpm_clock_shutdown_marker();
+#endif
+        test_fwtpm_orderly_counter_recovery();
 #endif
     }
 
@@ -20944,6 +21780,34 @@ int fwtpm_unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
+
+#ifndef FWTPM_NO_NV
+    if (argc == 2 && XSTRCMP(argv[1], "clock-persistence") == 0) {
+#ifndef FWTPM_NO_CLOCK
+        test_fwtpm_clock_checkpoint_recovery();
+        test_fwtpm_clock_power_cycle();
+        test_fwtpm_clock_compaction();
+        test_fwtpm_clock_unsafe_shutdown();
+        test_fwtpm_clock_shutdown_marker();
+#endif
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "counter-persistence") == 0) {
+        test_fwtpm_orderly_counter_recovery();
+        return 0;
+    }
+#endif
+#ifndef FWTPM_NO_CONTEXT
+    if (argc == 2 && XSTRCMP(argv[1], "session-capacity") == 0) {
+        test_fwtpm_active_session_capacity();
+        return 0;
+    }
+#endif
+    if (argc == 2 && XSTRCMP(argv[1], "fixed-properties") == 0) {
+        test_fwtpm_fixed_properties_complete();
+        test_fwtpm_total_commands();
+        return 0;
+    }
 
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();

@@ -1108,6 +1108,8 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     int oldNvDataAllocated = 0;
 #endif
 
+    int wasOrderly = ctx->nvOrderly;
+
     (void)cmdTag;
 
     if (cmdSize < TPM2_HEADER_SIZE + 2) {
@@ -1250,7 +1252,8 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 oldAttrs = nv->nvPublic.attributes;
                 oldWritten = nv->written;
                 attrs = oldAttrs;
-                clearData = (attrs & TPMA_NV_CLEAR_STCLEAR) != 0;
+                clearData = (attrs & TPMA_NV_CLEAR_STCLEAR) != 0 &&
+                    ((attrs & TPMA_NV_TPM_NT) >> 4) != TPM_NT_COUNTER;
 
                 if (clearData) {
                     if (!oldNvDataAllocated) {
@@ -1295,6 +1298,26 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
         #endif
         }
+
+    #ifndef FWTPM_NO_NV
+        if (rc == 0 && !wasOrderly) {
+            for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+                FWTPM_NvIndex* nv = &ctx->nvIndices[i];
+                if (nv->inUse && nv->written &&
+                        (nv->nvPublic.attributes & TPMA_NV_ORDERLY) != 0 &&
+                        ((nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4) ==
+                            TPM_NT_COUNTER) {
+                    UINT64 count = FwLoadU64BE(nv->data) | FWTPM_ORDERLY_COUNT;
+                    FwStoreU64BE(nv->data, count);
+                    if (count > ctx->nvCounterMax) {
+                        ctx->nvCounterMax = count;
+                    }
+                }
+            }
+        }
+    #else
+        (void)wasOrderly;
+    #endif
 
         if (rc == 0) {
             oldResetCount = ctx->resetCount;
@@ -1361,6 +1384,7 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 shutdownType = 0;
     int oldShutdownState;
+    int oldOrderly;
 
     (void)cmdTag;
 
@@ -1395,10 +1419,13 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         ctx->orderly = 1;
     #endif
         oldShutdownState = ctx->shutdownStateSaved;
+        oldOrderly = ctx->nvOrderly;
+        ctx->nvOrderly = 1;
         ctx->shutdownStateSaved = (shutdownType == TPM_SU_STATE);
         rc = FWTPM_NV_Save(ctx);
         if (rc != TPM_RC_SUCCESS) {
             ctx->shutdownStateSaved = oldShutdownState;
+            ctx->nvOrderly = oldOrderly;
             return rc;
         }
 
@@ -2074,20 +2101,93 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                   ((UINT32)'M' << 8)  | (UINT32)0 },
                 { TPM_PT_VENDOR_STRING_3,   0 },
                 { TPM_PT_VENDOR_STRING_4,   0 },
+                { TPM_PT_VENDOR_TPM_TYPE,   0 },
                 { TPM_PT_FIRMWARE_VERSION_1, FWTPM_VERSION_MAJOR },
                 { TPM_PT_FIRMWARE_VERSION_2, FWTPM_VERSION_MINOR },
                 { TPM_PT_INPUT_BUFFER,      FWTPM_MAX_COMMAND_SIZE },
+                { TPM_PT_HR_TRANSIENT_MIN,  FWTPM_MAX_OBJECTS },
+            #ifndef FWTPM_NO_NV
+                { TPM_PT_HR_PERSISTENT_MIN, FWTPM_MAX_PERSISTENT },
+            #else
+                { TPM_PT_HR_PERSISTENT_MIN, 0 },
+            #endif
+                { TPM_PT_HR_LOADED_MIN,     FWTPM_MAX_SESSIONS },
+                { TPM_PT_ACTIVE_SESSIONS_MAX,
+            #ifndef FWTPM_NO_CONTEXT
+                  FWTPM_MAX_SESSIONS +
+                    sizeof(ctx->contextLive) / sizeof(ctx->contextLive[0])
+            #else
+                  FWTPM_MAX_SESSIONS
+            #endif
+                },
                 { TPM_PT_PCR_COUNT,         IMPLEMENTATION_PCR },
+                { TPM_PT_PCR_SELECT_MIN,    PCR_SELECT_MIN },
+                { TPM_PT_CONTEXT_GAP_MAX,   0xFFFFFFFFu },
+            #ifndef FWTPM_NO_NV
+                { TPM_PT_NV_COUNTERS_MAX,   FWTPM_MAX_NV_INDICES },
+                { TPM_PT_NV_INDEX_MAX,      FWTPM_MAX_NV_DATA },
+            #else
+                { TPM_PT_NV_COUNTERS_MAX,   0 },
+                { TPM_PT_NV_INDEX_MAX,      0 },
+            #endif
+                /* Object, session, persistent and index slots are separate. */
+                { TPM_PT_MEMORY,            0 },
+            #if !defined(FWTPM_NO_CLOCK) && !defined(FWTPM_NO_NV)
+                { TPM_PT_CLOCK_UPDATE,      FWTPM_CLOCK_UPDATE_MS },
+            #else
+                { TPM_PT_CLOCK_UPDATE,      0 },
+            #endif
+            #ifndef FWTPM_NO_CONTEXT
+                /* FwWrapContextBlob uses SHA-256 HMAC and AES-256-CFB. */
+                { TPM_PT_CONTEXT_HASH,      TPM_ALG_SHA256 },
+                { TPM_PT_CONTEXT_SYM,       TPM_ALG_AES },
+                { TPM_PT_CONTEXT_SYM_SIZE,  AES_256_KEY_SIZE * 8 },
+            #else
+                { TPM_PT_CONTEXT_HASH,      TPM_ALG_NULL },
+                { TPM_PT_CONTEXT_SYM,       TPM_ALG_NULL },
+                { TPM_PT_CONTEXT_SYM_SIZE,  0 },
+            #endif
+                { TPM_PT_ORDERLY_COUNT,     FWTPM_ORDERLY_COUNT },
                 { TPM_PT_MAX_COMMAND_SIZE,  FWTPM_MAX_COMMAND_SIZE },
                 { TPM_PT_MAX_RESPONSE_SIZE, FWTPM_MAX_COMMAND_SIZE },
-            #if defined(WOLFSSL_SHA512)
+            #if defined(WOLFSSL_SHA512) || (defined(WOLFSSL_SHA3) && \
+                !defined(WOLFSSL_NOSHA3_512))
                 { TPM_PT_MAX_DIGEST,        TPM_SHA512_DIGEST_SIZE },
-            #elif defined(WOLFSSL_SHA384)
+            #elif defined(WOLFSSL_SHA384) || (defined(WOLFSSL_SHA3) && \
+                !defined(WOLFSSL_NOSHA3_384))
                 { TPM_PT_MAX_DIGEST,        TPM_SHA384_DIGEST_SIZE },
             #else
                 { TPM_PT_MAX_DIGEST,        TPM_SHA256_DIGEST_SIZE },
             #endif
+            #ifndef FWTPM_NO_CONTEXT
+                /* Include the TPMS_CONTEXT metadata and size field. The
+                 * response buffer also bounds any saved sequence context. */
+                { TPM_PT_MAX_OBJECT_CONTEXT,
+                    MAX_CONTEXT_SIZE + 18 < FWTPM_MAX_COMMAND_SIZE -
+                        TPM2_HEADER_SIZE ? MAX_CONTEXT_SIZE + 18 :
+                        FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE },
+                { TPM_PT_MAX_SESSION_CONTEXT,
+                    18 + 8 + AES_BLOCK_SIZE + sizeof(FWTPM_Session) +
+                        WC_SHA256_DIGEST_SIZE },
+            #else
+                { TPM_PT_MAX_OBJECT_CONTEXT, 0 },
+                { TPM_PT_MAX_SESSION_CONTEXT, 0 },
+            #endif
+                /* fwTPM does not claim a platform-specific profile. */
+                { TPM_PT_PS_FAMILY_INDICATOR, 0 },
+                { TPM_PT_PS_LEVEL,          0 },
+                { TPM_PT_PS_REVISION,       0 },
+                { TPM_PT_PS_DAY_OF_YEAR,    0 },
+                { TPM_PT_PS_YEAR,           0 },
+                { TPM_PT_SPLIT_MAX,         0 },
                 { TPM_PT_TOTAL_COMMANDS,    0 }, /* patched to FwGetCmdCount() at emission */
+                { TPM_PT_LIBRARY_COMMANDS, 0 }, /* patched at emission */
+                { TPM_PT_VENDOR_COMMANDS,  0 }, /* patched at emission */
+            #ifndef FWTPM_NO_NV
+                { TPM_PT_NV_BUFFER_MAX,     MAX_NV_BUFFER_SIZE },
+            #else
+                { TPM_PT_NV_BUFFER_MAX,     0 },
+            #endif
                 /* TPMA_MODES (TPM_PT_MODES): bit 0 = FIPS_140_2 (spec
                  * v1.38+), bit 1 = FIPS_140_3 (spec v1.83+). Mirror the
                  * underlying wolfCrypt module's FIPS status so callers
@@ -2105,6 +2205,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     0
             #endif
                 },
+                { TPM_PT_MAX_CAP_BUFFER,    MAX_CAP_BUFFER },
             #ifdef WOLFTPM_V185
                 /* v1.85 Part 2 Sec.8.13 TPMA_ML_PARAMETER_SET: bits 0-5 for
                  * MLKEM-512/768/1024 and MLDSA-44/65/87. Each bit is gated
@@ -2160,11 +2261,16 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             #endif
                 { TPM_PT_PERMANENT,         0 }, /* patched at emission */
                 { TPM_PT_STARTUP_CLEAR,     0 }, /* patched at emission */
+                { TPM_PT_HR_NV_INDEX,       0 },
                 { TPM_PT_HR_LOADED,         0 },
-                { TPM_PT_HR_LOADED_AVAIL,   FWTPM_MAX_OBJECTS },
+                { TPM_PT_HR_LOADED_AVAIL,   0 },
+                { TPM_PT_HR_ACTIVE,         0 },
+                { TPM_PT_HR_ACTIVE_AVAIL,   0 },
                 { TPM_PT_HR_TRANSIENT_AVAIL, 0 },
                 { TPM_PT_HR_PERSISTENT,     0 },
-                { TPM_PT_HR_PERSISTENT_AVAIL, FWTPM_MAX_PERSISTENT },
+                { TPM_PT_HR_PERSISTENT_AVAIL, 0 },
+                { TPM_PT_NV_COUNTERS,       0 },
+                { TPM_PT_NV_COUNTERS_AVAIL,  0 },
             #ifndef FWTPM_NO_DA
                 { TPM_PT_LOCKOUT_COUNTER,   0 }, /* patched: daFailedTries */
                 { TPM_PT_MAX_AUTH_FAIL,     0 }, /* patched: daMaxTries */
@@ -2177,6 +2283,52 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             int avail = 0;
             int numOut;
             UINT32 propertyGroup = property / (UINT32)PT_GROUP;
+            UINT32 vendorCmdCount = 0;
+            UINT32 loadedSessions = 0, activeSessions;
+            UINT32 activeMax = FWTPM_MAX_SESSIONS;
+            UINT32 transientCount = 0, persistentCount = 0;
+            UINT32 persistentMax = 0, nvIndexCount = 0;
+            UINT32 nvIndexMax = 0, nvCounterCount = 0;
+            int cmdIdx;
+
+            for (cmdIdx = 0; cmdIdx < FWTPM_MAX_SESSIONS; cmdIdx++) {
+                if (ctx->sessions[cmdIdx].used) {
+                    loadedSessions++;
+                }
+            }
+            activeSessions = loadedSessions;
+        #ifndef FWTPM_NO_CONTEXT
+            activeSessions += (UINT32)ctx->contextLiveCount;
+            activeMax += sizeof(ctx->contextLive) / sizeof(ctx->contextLive[0]);
+        #endif
+            for (cmdIdx = 0; cmdIdx < FWTPM_MAX_OBJECTS; cmdIdx++) {
+                if (ctx->objects[cmdIdx].used) {
+                    transientCount++;
+                }
+            }
+        #ifndef FWTPM_NO_NV
+            persistentMax = FWTPM_MAX_PERSISTENT;
+            nvIndexMax = FWTPM_MAX_NV_INDICES;
+            for (cmdIdx = 0; cmdIdx < FWTPM_MAX_PERSISTENT; cmdIdx++) {
+                if (ctx->persistent[cmdIdx].used) {
+                    persistentCount++;
+                }
+            }
+            for (cmdIdx = 0; cmdIdx < FWTPM_MAX_NV_INDICES; cmdIdx++) {
+                if (ctx->nvIndices[cmdIdx].inUse) {
+                    nvIndexCount++;
+                    if (((ctx->nvIndices[cmdIdx].nvPublic.attributes &
+                            TPMA_NV_TPM_NT) >> 4) == TPM_NT_COUNTER) {
+                        nvCounterCount++;
+                    }
+                }
+            }
+        #endif
+            for (cmdIdx = 0; cmdIdx < FwGetCmdCount(); cmdIdx++) {
+                if ((FwGetCmdCcAt(cmdIdx) & (UINT32)CC_VEND) != 0) {
+                    vendorCmdCount++;
+                }
+            }
 
             for (startIdx = 0; startIdx < totalProps; startIdx++) {
                 if (allProps[startIdx].prop >= property &&
@@ -2203,6 +2355,30 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 UINT32 val  = allProps[startIdx + i].val;
                 if (prop == TPM_PT_TOTAL_COMMANDS)
                     val = (UINT32)FwGetCmdCount();
+                else if (prop == TPM_PT_LIBRARY_COMMANDS)
+                    val = (UINT32)FwGetCmdCount() - vendorCmdCount;
+                else if (prop == TPM_PT_VENDOR_COMMANDS)
+                    val = vendorCmdCount;
+                else if (prop == TPM_PT_HR_NV_INDEX)
+                    val = nvIndexCount;
+                else if (prop == TPM_PT_HR_LOADED)
+                    val = loadedSessions;
+                else if (prop == TPM_PT_HR_LOADED_AVAIL)
+                    val = FWTPM_MAX_SESSIONS - loadedSessions;
+                else if (prop == TPM_PT_HR_ACTIVE)
+                    val = activeSessions;
+                else if (prop == TPM_PT_HR_ACTIVE_AVAIL)
+                    val = activeMax - activeSessions;
+                else if (prop == TPM_PT_HR_TRANSIENT_AVAIL)
+                    val = FWTPM_MAX_OBJECTS - transientCount;
+                else if (prop == TPM_PT_HR_PERSISTENT)
+                    val = persistentCount;
+                else if (prop == TPM_PT_HR_PERSISTENT_AVAIL)
+                    val = persistentMax - persistentCount;
+                else if (prop == TPM_PT_NV_COUNTERS)
+                    val = nvCounterCount;
+                else if (prop == TPM_PT_NV_COUNTERS_AVAIL)
+                    val = nvIndexMax - nvIndexCount;
                 else if (prop == TPM_PT_PERMANENT) {
                     val = 0;
                     if (ctx->ownerAuth.size > 0)
@@ -3818,6 +3994,18 @@ static TPM_RC FwCmd_PCR_SetAuthValue(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+#if !defined(FWTPM_NO_CLOCK) || !defined(FWTPM_NO_POLICY) || \
+    !defined(FWTPM_NO_ATTESTATION)
+/* Time restarts at each platform power-on (Part 2 Sec.10.10.6). */
+static UINT64 FwTimeMs(FWTPM_CTX* ctx)
+{
+    if (ctx->clockHal.get_ms != NULL) {
+        return ctx->clockHal.get_ms(ctx->clockHal.ctx) - ctx->timeBaseMs;
+    }
+    return 0;
+}
+#endif
+
 #ifndef FWTPM_NO_CLOCK
 /* --- TPM2_ReadClock (CC 0x0181) --- */
 static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
@@ -3838,11 +4026,11 @@ static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
      * Uses clock HAL (if set) + clockOffset. clockOffset is persisted to NV
      * and can be advanced via ClockSet. */
     clockMs = FWTPM_Clock_GetMs(ctx);
-    TPM2_Packet_AppendU64(rsp, clockMs); /* time */
+    TPM2_Packet_AppendU64(rsp, FwTimeMs(ctx)); /* time */
     TPM2_Packet_AppendU64(rsp, clockMs); /* clock */
     TPM2_Packet_AppendU32(rsp, ctx->resetCount);
     TPM2_Packet_AppendU32(rsp, ctx->restartCount);
-    TPM2_Packet_AppendU8(rsp, 1);  /* safe = YES */
+    TPM2_Packet_AppendU8(rsp, (UINT8)ctx->clockSafe);
 
     FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     return TPM_RC_SUCCESS; /* always succeeds */
@@ -4005,6 +4193,25 @@ static void FwFlushAllObjects(FWTPM_CTX* ctx)
 
 /* --- Session management helpers --- */
 
+/* Saved sessions retain their handles even after their RAM slots are free. */
+static int FwSessionHandleInUse(const FWTPM_CTX* ctx, TPM_HANDLE handle)
+{
+    int i;
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx->sessions[i].used && ctx->sessions[i].handle == handle) {
+            return 1;
+        }
+    }
+#ifndef FWTPM_NO_CONTEXT
+    for (i = 0; i < ctx->contextLiveCount; i++) {
+        if (ctx->contextLiveHandle[i] == handle) {
+            return 1;
+        }
+    }
+#endif
+    return 0;
+}
+
 /** \brief Allocate a free session slot for HMAC, policy, or trial session. */
 static FWTPM_Session* FwAllocSession(FWTPM_CTX* ctx, TPM_SE sessionType,
     TPM_HANDLE* outHandle)
@@ -4012,17 +4219,14 @@ static FWTPM_Session* FwAllocSession(FWTPM_CTX* ctx, TPM_SE sessionType,
     int i;
     for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
         if (!ctx->sessions[i].used) {
+            TPM_HANDLE handle = sessionType == TPM_SE_HMAC ?
+                HMAC_SESSION_FIRST : POLICY_SESSION_FIRST;
+            while (FwSessionHandleInUse(ctx, handle)) {
+                handle++;
+            }
             XMEMSET(&ctx->sessions[i], 0, sizeof(FWTPM_Session));
             ctx->sessions[i].used = 1;
-            if (sessionType == TPM_SE_HMAC) {
-                ctx->sessions[i].handle = HMAC_SESSION_FIRST +
-                    (TPM_HANDLE)i;
-            }
-            else {
-                /* Policy and Trial sessions both use policy handle space */
-                ctx->sessions[i].handle = POLICY_SESSION_FIRST +
-                    (TPM_HANDLE)i;
-            }
+            ctx->sessions[i].handle = handle;
             ctx->sessions[i].sessionType = sessionType;
             if (outHandle != NULL) {
                 *outHandle = ctx->sessions[i].handle;
@@ -6469,6 +6673,9 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             else {
                 ctx->clockOffset = 0;
             }
+            ctx->clockNvValue = 0;
+            ctx->clockUnsafeUntil = 0;
+            ctx->clockSafe = 1;
             ctx->resetCount = 0;
             ctx->restartCount = 0;
         #ifndef FWTPM_NO_POLICY
@@ -14554,13 +14761,13 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         int p = 0;
         UINT64 t = FWTPM_Clock_GetMs(ctx);
         /* time (8 bytes big-endian) */
-        FwStoreU64BE(timeInfo + p, t); p += 8;
+        FwStoreU64BE(timeInfo + p, FwTimeMs(ctx)); p += 8;
         /* clockInfo.clock (8 bytes) */
         FwStoreU64BE(timeInfo + p, t); p += 8;
         /* resetCount(4) + restartCount(4) + safe(1) */
         FwStoreU32BE(timeInfo + p, ctx->resetCount); p += 4;
         FwStoreU32BE(timeInfo + p, ctx->restartCount); p += 4;
-        timeInfo[p++] = 1; /* safe = YES */
+        timeInfo[p++] = (byte)ctx->clockSafe;
 
         if ((UINT32)offset + operandBSz > (UINT32)p) {
             rc = TPM_RC_RANGE;
@@ -15817,7 +16024,9 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
 
-        if (rc == 0) {
+        if (rc == 0 && (!oldWritten ||
+                (oldAttrs & TPMA_NV_ORDERLY) == 0 ||
+                (counter & FWTPM_ORDERLY_COUNT) == 0)) {
             rc = FWTPM_NV_SaveNvIndex(ctx, (int)(nv - ctx->nvIndices));
         }
 
@@ -16601,7 +16810,7 @@ static void FwAppendClockInfo(FWTPM_CTX* ctx, TPM2_Packet* pkt,
     TPM2_Packet_AppendU64(pkt, FWTPM_Clock_GetMs(ctx));
     TPM2_Packet_AppendU32(pkt, ctx->resetCount + resetObfuscation);
     TPM2_Packet_AppendU32(pkt, ctx->restartCount + restartObfuscation);
-    TPM2_Packet_AppendU8(pkt, YES); /* safe */
+    TPM2_Packet_AppendU8(pkt, (UINT8)ctx->clockSafe); /* safe */
 }
 
 static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
@@ -17236,7 +17445,7 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* attested.time: TPMS_TIME_INFO (time + clockInfo) +
          * firmwareVersion */
-        TPM2_Packet_AppendU64(&attestPkt, FWTPM_Clock_GetMs(ctx)); /* time */
+        TPM2_Packet_AppendU64(&attestPkt, FwTimeMs(ctx)); /* time */
         FwAppendClockInfo(ctx, &attestPkt, 0, 0);
         TPM2_Packet_AppendU64(&attestPkt,
             ((UINT64)FWTPM_VERSION_MAJOR << 32) |
@@ -21244,17 +21453,25 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* Any structurally valid command after Shutdown(STATE), except a
      * pre-startup capability query, invalidates the saved state before
      * session parsing or authorization can mutate TPM state. */
-    if (ctx->shutdownStateSaved && cmdCode != TPM_CC_Startup &&
+    if ((ctx->shutdownStateSaved || ctx->nvOrderly) &&
+            cmdCode != TPM_CC_Startup &&
             cmdCode != TPM_CC_GetCapability) {
+        int oldSavedState = ctx->shutdownStateSaved;
         ctx->shutdownStateSaved = 0;
         rc = FWTPM_NV_SaveFlags(ctx);
         if (rc != TPM_RC_SUCCESS) {
-            ctx->shutdownStateSaved = 1;
+            ctx->shutdownStateSaved = oldSavedState;
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, rc);
             TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         }
+    }
+
+    rc = FWTPM_Clock_Update(ctx);
+    if (rc != TPM_RC_SUCCESS) {
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS, rc);
+        return TPM_RC_SUCCESS;
     }
 
     /* For TPM_ST_SESSIONS commands, parse auth area to detect param encryption
