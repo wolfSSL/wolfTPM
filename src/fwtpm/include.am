@@ -16,8 +16,10 @@ src_fwtpm_fwtpm_server_SOURCES = \
     src/tpm2_packet.c \
     src/tpm2_crypto.c \
     src/tpm2_param_enc.c
-src_fwtpm_fwtpm_server_CFLAGS  = -DWOLFTPM_FWTPM $(AM_CFLAGS)
-src_fwtpm_fwtpm_server_CPPFLAGS = -DWOLFTPM_FWTPM $(AM_CPPFLAGS)
+src_fwtpm_fwtpm_server_CFLAGS  = -DWOLFTPM_FWTPM $(FWTPM_SERVER_CFLAGS) \
+    $(AM_CFLAGS)
+src_fwtpm_fwtpm_server_CPPFLAGS = -DWOLFTPM_FWTPM $(FWTPM_SERVER_CFLAGS) \
+    $(AM_CPPFLAGS)
 src_fwtpm_fwtpm_server_LDADD   = $(LIB_STATIC_ADD)
 if BUILD_FWTPM_TIS
 src_fwtpm_fwtpm_server_SOURCES += src/fwtpm/fwtpm_tis.c \

@@ -4844,6 +4844,13 @@ static int FwCopyHmacContext(Hmac* src, Hmac* dst)
 #ifndef FWTPM_NO_CONTEXT
 #define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
 #define FWTPM_CTX_VER    1u
+#define FWTPM_CTX_SAVED_STCLEAR (TRANSIENT_FIRST + 2u)
+#define FWTPM_OBJ_CTX_WRAPPED_MAX \
+    ((MAX_CONTEXT_SIZE - 8 < FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26) ? \
+        MAX_CONTEXT_SIZE - 8 : FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26)
+#define FWTPM_OBJ_CTX_PLAIN_MAX \
+    (FWTPM_OBJ_CTX_WRAPPED_MAX - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
+
 #define FWTPM_CTX_SAVED_SEQUENCE (TRANSIENT_FIRST + 1u)
 #define FWTPM_SEQ_CTX_PLAIN_MAX \
     (MAX_CONTEXT_SIZE - 8 - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
@@ -5636,6 +5643,167 @@ static TPM_RC FwRestoreSequence(FWTPM_CTX* ctx, byte* plain, int plainSz,
     return TPM_RC_INTEGRITY;
 }
 
+static int FwHandleHierarchyDisabled(FWTPM_CTX* ctx, TPM_HANDLE handle);
+
+/* A legacy-provenance object (hierarchy 0) has no single hierarchy seed. Its
+ * proof binds both the owner and endorsement seeds, so Clear or ChangeEPS
+ * invalidates the saved context. */
+static TPM_RC FwObjectContextProof(FWTPM_CTX* ctx, UINT32 hierarchy,
+    byte* proof, int proofSz)
+{
+    if (hierarchy != 0) {
+        return FwComputeProofValue(ctx, hierarchy, TPM_ALG_SHA256, proof,
+            proofSz);
+    }
+    if (TPM2_KDFa_ex(TPM_ALG_SHA256, ctx->ownerSeed, FWTPM_SEED_SIZE,
+            "LEGACY PROOF", ctx->endorsementSeed, FWTPM_SEED_SIZE,
+            NULL, 0, proof, proofSz) != proofSz) {
+        return TPM_RC_FAILURE;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* Save variable-length fields, never pointers or a reference to a live slot.
+ * The hierarchy proof inside the encrypted snapshot invalidates it when the
+ * hierarchy seed changes, independently of the per-boot context key. */
+static TPM_RC FwSerializeObjectContext(FWTPM_CTX* ctx, FWTPM_Object* obj,
+    byte* plain, int plainMax, int* plainSz)
+{
+    TPM2_Packet packet;
+    byte proof[WC_SHA256_DIGEST_SIZE];
+    int pubStart;
+    TPM_RC rc;
+
+    *plainSz = 0;
+    if (obj->authValue.size > sizeof(obj->authValue.buffer) ||
+            obj->privKeySize < 0 ||
+            obj->privKeySize > (int)sizeof(obj->privKey)) {
+        return TPM_RC_FAILURE;
+    }
+    rc = FwObjectContextProof(ctx, obj->hierarchy, proof, sizeof(proof));
+    if (rc != 0) {
+        wc_ForceZero(proof, sizeof(proof));
+        return rc;
+    }
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = plain;
+    packet.size = plainMax;
+    TPM2_Packet_AppendU32(&packet, obj->hierarchy);
+    TPM2_Packet_AppendBytes(&packet, proof, sizeof(proof));
+    pubStart = packet.pos;
+    TPM2_Packet_AppendU16(&packet, 0);
+    TPM2_Packet_AppendPublicArea(&packet, &obj->pub);
+    if (!packet.overflow) {
+        FwStoreU16BE(plain + pubStart, (UINT16)(packet.pos - pubStart - 2));
+    }
+    TPM2_Packet_AppendU16(&packet, obj->authValue.size);
+    TPM2_Packet_AppendBytes(&packet, obj->authValue.buffer, obj->authValue.size);
+    TPM2_Packet_AppendU16(&packet, (UINT16)obj->privKeySize);
+    TPM2_Packet_AppendBytes(&packet, obj->privKey, obj->privKeySize);
+    if (packet.overflow) {
+        rc = TPM_RC_SIZE;
+    }
+    else {
+        *plainSz = packet.pos;
+    }
+    wc_ForceZero(proof, sizeof(proof));
+    return rc;
+}
+
+static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
+    int plainSz, UINT32 hierarchy, UINT32 savedMarker, UINT32* loadedHandle)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPM2_Packet packet;
+    FWTPM_DECLARE_VAR(pub, TPM2B_PUBLIC);
+    FWTPM_Object* obj = NULL;
+    byte proof[WC_SHA256_DIGEST_SIZE];
+    UINT16 pubSz, authSz = 0, privateSz = 0;
+    int authPos = 0, privatePos = 0, publicEnd;
+    UINT32 expectedMarker;
+
+    /* hierarchy + proof + public/auth/private size fields */
+    if (plainSz < 4 + (int)sizeof(proof) + 6 ||
+            FwLoadU32BE(plain) != hierarchy) {
+        return TPM_RC_INTEGRITY;
+    }
+    rc = FwObjectContextProof(ctx, hierarchy, proof, sizeof(proof));
+    if (rc == 0 && TPM2_ConstantCompare(proof, plain + 4, sizeof(proof)) != 0) {
+        rc = TPM_RC_INTEGRITY;
+    }
+    wc_ForceZero(proof, sizeof(proof));
+    if (rc != 0) return TPM_RC_INTEGRITY;
+    if (FwHandleHierarchyDisabled(ctx, hierarchy) ||
+            (hierarchy == 0 && (ctx->shDisabled || ctx->ehDisabled))) {
+        return TPM_RC_HIERARCHY;
+    }
+
+    FWTPM_CALLOC_VAR(pub, TPM2B_PUBLIC);
+    if (rc == 0) {
+        XMEMSET(&packet, 0, sizeof(packet));
+        packet.buf = plain;
+        packet.pos = 4 + sizeof(proof);
+        pubSz = FwLoadU16BE(plain + packet.pos);
+        publicEnd = packet.pos + 2 + pubSz;
+        if (publicEnd > plainSz - 4) {
+            rc = TPM_RC_INTEGRITY;
+        }
+        else {
+            packet.size = publicEnd;
+            TPM2_Packet_ParsePublic(&packet, pub);
+            if (packet.overflow || packet.pos != publicEnd) {
+                rc = TPM_RC_INTEGRITY;
+            }
+        }
+    }
+    if (rc == 0) {
+        expectedMarker = (pub->publicArea.objectAttributes &
+            TPMA_OBJECT_stClear) != 0 ? FWTPM_CTX_SAVED_STCLEAR :
+            (UINT32)TRANSIENT_FIRST;
+        if (savedMarker != expectedMarker) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    if (rc == 0) {
+        packet.size = plainSz;
+        TPM2_Packet_ParseU16(&packet, &authSz);
+        authPos = packet.pos;
+        if (authSz > sizeof(((FWTPM_Object*)0)->authValue.buffer) ||
+                authPos + authSz > plainSz - 2) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    if (rc == 0) {
+        packet.pos += authSz;
+        TPM2_Packet_ParseU16(&packet, &privateSz);
+        privatePos = packet.pos;
+        if (privateSz > FWTPM_MAX_PRIVKEY_DER ||
+                privatePos + privateSz != plainSz) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    if (rc == 0) {
+        obj = FwAllocObject(ctx, loadedHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_OBJECT_MEMORY;
+        }
+    }
+    if (rc == 0) {
+        obj->hierarchy = hierarchy;
+        obj->pub = pub->publicArea;
+        obj->authValue.size = authSz;
+        XMEMCPY(obj->authValue.buffer, plain + authPos, authSz);
+        obj->privKeySize = privateSz;
+        XMEMCPY(obj->privKey, plain + privatePos, privateSz);
+        rc = FwComputePublicName(&obj->pub, &obj->name);
+        if (rc != 0) {
+            wc_ForceZero(obj, sizeof(*obj));
+        }
+    }
+    FWTPM_FREE_VAR(pub);
+    return rc;
+}
+
 static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -5649,6 +5817,7 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int isSession = 0;
     int isSequence = 0;
     FWTPM_Session* sess = NULL;
+    FWTPM_Object* saveObj = NULL;
 
     (void)cmdTag;
 
@@ -5665,7 +5834,7 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Validate handle */
         if ((saveHandle & 0xFF000000) == TRANSIENT_FIRST) {
-            FWTPM_Object* saveObj = FwFindObject(ctx, saveHandle);
+            saveObj = FwFindObject(ctx, saveHandle);
             if (saveObj == NULL) {
                 if (FwIsSequenceHandle(ctx, saveHandle)) {
                     hierarchy = TPM_RH_NULL;
@@ -5720,7 +5889,8 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * trusted handle lives only inside the integrity-protected blob. */
         savedMarker = isSession ? saveHandle :
             (isSequence ? FWTPM_CTX_SAVED_SEQUENCE :
-                (UINT32)TRANSIENT_FIRST);
+                ((saveObj->pub.objectAttributes & TPMA_OBJECT_stClear) != 0 ?
+                    FWTPM_CTX_SAVED_STCLEAR : (UINT32)TRANSIENT_FIRST));
         TPM2_Packet_AppendU32(rsp, seqHi);
         TPM2_Packet_AppendU32(rsp, seqLo);
         TPM2_Packet_AppendU32(rsp, savedMarker);
@@ -5797,28 +5967,45 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         else {
-            /* Object: HMAC + AES-CFB protected handle reference. The object
-             * remains in its live slot for this fwTPM context model. */
-            byte objPlain[sizeof(UINT32)];
-            byte wrappedBuf[AES_BLOCK_SIZE + sizeof(UINT32) +
-                WC_SHA256_DIGEST_SIZE];
-            int wrappedSz = 0;
-            XMEMCPY(objPlain, &saveHandle, sizeof(UINT32));
-            rc = FwWrapContextBlob(ctx, ctx->contextSeqCounter,
-                FWTPM_CTX_TYPE_OBJECT,
-                objPlain, (int)sizeof(objPlain),
-                wrappedBuf, (int)sizeof(wrappedBuf), &wrappedSz);
+            FWTPM_DECLARE_BUF(objPlain, FWTPM_OBJ_CTX_PLAIN_MAX);
+            FWTPM_DECLARE_BUF(wrappedBuf, FWTPM_OBJ_CTX_WRAPPED_MAX);
+            int plainSz = 0, wrappedSz = 0;
+
+            FWTPM_ALLOC_BUF(objPlain, FWTPM_OBJ_CTX_PLAIN_MAX);
+            FWTPM_ALLOC_BUF(wrappedBuf, FWTPM_OBJ_CTX_WRAPPED_MAX);
             if (rc == 0) {
-                blobSz = 4 + 4 + (UINT16)wrappedSz;
+                rc = FwSerializeObjectContext(ctx, saveObj, objPlain,
+                    FWTPM_OBJ_CTX_PLAIN_MAX, &plainSz);
+            }
+            if (rc == 0) {
+                rc = FwWrapContextBlob(ctx, ctx->contextSeqCounter,
+                    FWTPM_CTX_TYPE_OBJECT, objPlain, plainSz, wrappedBuf,
+                    FWTPM_OBJ_CTX_WRAPPED_MAX, &wrappedSz);
+            }
+            if (rc == 0 && rsp->pos + 10 + wrappedSz > rsp->size) {
+                rc = TPM_RC_SIZE;
+            }
+            if (rc == 0) {
+                blobSz = 8 + (UINT16)wrappedSz;
                 TPM2_Packet_AppendU16(rsp, blobSz);
-                tmp32 = TPM2_Packet_SwapU32(FWTPM_CTX_MAGIC);
-                TPM2_Packet_AppendBytes(rsp, (byte*)&tmp32, 4);
-                tmp32 = TPM2_Packet_SwapU32(FWTPM_CTX_VER);
-                TPM2_Packet_AppendBytes(rsp, (byte*)&tmp32, 4);
+                TPM2_Packet_AppendU32(rsp, FWTPM_CTX_MAGIC);
+                TPM2_Packet_AppendU32(rsp, FWTPM_CTX_VER);
                 TPM2_Packet_AppendBytes(rsp, wrappedBuf, wrappedSz);
             }
-            TPM2_ForceZero(objPlain, sizeof(objPlain));
-            TPM2_ForceZero(wrappedBuf, sizeof(wrappedBuf));
+        #ifdef WOLFTPM_SMALL_STACK
+            if (objPlain != NULL)
+        #endif
+            {
+                wc_ForceZero(objPlain, FWTPM_OBJ_CTX_PLAIN_MAX);
+                FWTPM_FREE_BUF(objPlain);
+            }
+        #ifdef WOLFTPM_SMALL_STACK
+            if (wrappedBuf != NULL)
+        #endif
+            {
+                wc_ForceZero(wrappedBuf, FWTPM_OBJ_CTX_WRAPPED_MAX);
+                FWTPM_FREE_BUF(wrappedBuf);
+            }
         }
 
         if (rc == 0) {
@@ -5881,7 +6068,8 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 break;
             }
         }
-        if (liveIdx < 0) {
+        if (liveIdx < 0 || hierarchy != TPM_RH_NULL ||
+                ctx->contextLiveHandle[liveIdx] != savedHandle) {
             rc = TPM_RC_INTEGRITY;
         }
     }
@@ -5935,6 +6123,11 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         rc = TPM_RC_INTEGRITY;
                 }
             }
+            /* The returned handle must identify the authenticated session,
+             * not caller-supplied outer metadata. */
+            if (rc == 0 && restored.handle != savedHandle) {
+                rc = TPM_RC_INTEGRITY;
+            }
             /* Validate deserialized session fields */
             if (rc == 0) {
                 if (restored.sessionType != TPM_SE_HMAC &&
@@ -5970,45 +6163,47 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
             TPM2_ForceZero(&restored, sizeof(restored));
         }
-        else if (savedHandle == (UINT32)TRANSIENT_FIRST) {
-            /* Object context: verify integrity + decrypt, then resolve the
-             * handle from the authenticated payload only. */
-            int expectedWrapSz = AES_BLOCK_SIZE + (int)sizeof(UINT32) +
-                WC_SHA256_DIGEST_SIZE;
-            byte objPlain[sizeof(UINT32)];
-            int objPlainSz = 0;
-            UINT32 origHandle = 0;
+        else if (savedHandle == (UINT32)TRANSIENT_FIRST ||
+                 savedHandle == FWTPM_CTX_SAVED_STCLEAR) {
+            FWTPM_DECLARE_BUF(objPlain, FWTPM_OBJ_CTX_PLAIN_MAX);
+            FWTPM_DECLARE_BUF(wrappedBuf, FWTPM_OBJ_CTX_WRAPPED_MAX);
+            int plainSz = 0;
 
-            /* Return the same error as an HMAC failure so the expected
-             * wrapped blob length is not disclosed to the caller */
-            if ((int)dataLen != expectedWrapSz) {
+            if (dataLen > FWTPM_OBJ_CTX_WRAPPED_MAX ||
+                    dataLen < AES_BLOCK_SIZE + WC_SHA256_DIGEST_SIZE + 1) {
                 rc = TPM_RC_INTEGRITY;
             }
             if (rc == 0) {
-                byte wrappedBuf[AES_BLOCK_SIZE + sizeof(UINT32) +
-                    WC_SHA256_DIGEST_SIZE];
-                TPM2_Packet_ParseBytes(cmd, wrappedBuf, (int)dataLen);
+                FWTPM_ALLOC_BUF(objPlain, FWTPM_OBJ_CTX_PLAIN_MAX);
+                FWTPM_ALLOC_BUF(wrappedBuf, FWTPM_OBJ_CTX_WRAPPED_MAX);
+            }
+            if (rc == 0) {
+                TPM2_Packet_ParseBytes(cmd, wrappedBuf, dataLen);
                 rc = FwUnwrapContextBlob(ctx, loadSeq, FWTPM_CTX_TYPE_OBJECT,
-                    wrappedBuf, (int)dataLen, objPlain, (int)sizeof(objPlain),
-                    &objPlainSz);
-                TPM2_ForceZero(wrappedBuf, sizeof(wrappedBuf));
+                    wrappedBuf, dataLen, objPlain, FWTPM_OBJ_CTX_PLAIN_MAX,
+                    &plainSz);
                 if (rc != 0 && rc != TPM_RC_INTEGRITY) {
                     rc = TPM_RC_INTEGRITY;
                 }
             }
-            if (rc == 0 && objPlainSz != (int)sizeof(objPlain)) {
-                rc = TPM_RC_INTEGRITY;
-            }
             if (rc == 0) {
-                XMEMCPY(&origHandle, objPlain, sizeof(UINT32));
-                if (FwFindObject(ctx, origHandle) == NULL) {
-                    rc = TPM_RC_HANDLE;
-                }
+                rc = FwRestoreObjectContext(ctx, objPlain, plainSz, hierarchy,
+                    savedHandle, &savedHandle);
             }
-            if (rc == 0) {
-                savedHandle = origHandle;
+        #ifdef WOLFTPM_SMALL_STACK
+            if (objPlain != NULL)
+        #endif
+            {
+                wc_ForceZero(objPlain, FWTPM_OBJ_CTX_PLAIN_MAX);
+                FWTPM_FREE_BUF(objPlain);
             }
-            TPM2_ForceZero(objPlain, sizeof(objPlain));
+        #ifdef WOLFTPM_SMALL_STACK
+            if (wrappedBuf != NULL)
+        #endif
+            {
+                wc_ForceZero(wrappedBuf, FWTPM_OBJ_CTX_WRAPPED_MAX);
+                FWTPM_FREE_BUF(wrappedBuf);
+            }
         }
         else if (savedHandle == FWTPM_CTX_SAVED_SEQUENCE) {
             FWTPM_DECLARE_BUF(wrappedBuf, FWTPM_SEQ_CTX_WRAPPED_MAX);

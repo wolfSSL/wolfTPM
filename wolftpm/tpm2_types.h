@@ -865,7 +865,15 @@ typedef int64_t  INT64;
 #define PCR_SELECT_MAX ((IMPLEMENTATION_PCR+7)/8)
 #endif
 #ifndef MAX_CONTEXT_SIZE
-#define MAX_CONTEXT_SIZE 2048
+    /* Object contexts include the public and private key, not a live handle.
+     * Leave room for the largest classical key and for PQC public areas. */
+    #ifdef WOLFTPM_PQC
+        #define MAX_CONTEXT_SIZE 8192
+    #elif MAX_RSA_KEY_BITS > 2048
+        #define MAX_CONTEXT_SIZE 4096
+    #else
+        #define MAX_CONTEXT_SIZE 2048
+    #endif
 #endif
 #ifndef MAX_DIGEST_BUFFER
 #define MAX_DIGEST_BUFFER 1024

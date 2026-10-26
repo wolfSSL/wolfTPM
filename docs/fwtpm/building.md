@@ -94,7 +94,7 @@ All macros are compile-time overridable (for example `-DFWTPM_MAX_OBJECTS=8`).
 |-------|---------|-------------|
 | `FWTPM_MAX_COMMAND_SIZE` | 4096 | Maximum command and response buffer size (bytes) |
 | `FWTPM_MAX_RANDOM_BYTES` | 48 | Maximum bytes per `GetRandom` call |
-| `FWTPM_MAX_OBJECTS` | 3 | Maximum concurrently loaded transient objects |
+| `FWTPM_MAX_OBJECTS` | 3 (autoconf `fwtpm_server`: 7) | Maximum concurrently loaded transient objects |
 | `FWTPM_MAX_PERSISTENT` | 8 | Maximum persistent objects (via `EvictControl`) |
 | `FWTPM_MAX_PRIVKEY_DER` | 1280 (256 with `NO_RSA`) | Maximum DER-encoded private key size (bytes) |
 | `FWTPM_MAX_HASH_SEQ` | 4 | Maximum concurrent hash and HMAC sequences |
