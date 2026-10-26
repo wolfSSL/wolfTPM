@@ -1796,6 +1796,122 @@ static void test_fwtpm_getcap_handles_ordered(void)
     (void)remove(FWTPM_NV_FILE);
     fwtpm_pass("GetCapability(HANDLES) ordered paging:", 0);
 }
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
+/* All transient pools participate in one ordered capability page. Hash/HMAC/
+ * event sequences share hashSeq; sign and verify sequences share signSeq. */
+static void test_fwtpm_getcap_sequence_handles(void)
+{
+    FWTPM_CTX ctx;
+    static const UINT32 expected[] = {
+    #ifndef FWTPM_NO_HASH_CMDS
+        TRANSIENT_FIRST + 5u,
+    #endif
+    #ifdef WOLFTPM_MLDSA
+        TRANSIENT_FIRST + 10u,
+    #endif
+        TRANSIENT_FIRST + 16u,
+    #if defined(WOLFTPM_MLDSA) && FWTPM_MAX_SIGN_SEQ >= 2
+        TRANSIENT_FIRST + 24u,
+    #endif
+    #if !defined(FWTPM_NO_HASH_CMDS) && FWTPM_MAX_HASH_SEQ >= 2
+        TRANSIENT_FIRST + 32u,
+    #endif
+    #if !defined(FWTPM_NO_HASH_CMDS) && FWTPM_MAX_HASH_SEQ >= 3
+        TRANSIENT_FIRST + 48u,
+    #endif
+    };
+    UINT32 count = sizeof(expected) / sizeof(expected[0]);
+    UINT32 i, cursor, handle;
+    byte moreData;
+    int pos, rspSize = 0;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifndef FWTPM_NO_HASH_CMDS
+    /* First verify a real sequence allocation and flush through commands. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14,
+        TPM_CC_HashSequenceStart);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(getcap_handle_page(&ctx, TRANSIENT_FIRST, &moreData), handle);
+    AssertIntEQ(moreData, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    check_empty_handle_class(&ctx, TRANSIENT_FIRST);
+#endif
+
+    /* Metadata-only fixtures interleave pools independently of array order. */
+    ctx.objects[0].used = 1;
+    ctx.objects[0].handle = TRANSIENT_FIRST + 16u;
+#ifndef FWTPM_NO_HASH_CMDS
+    ctx.hashSeq[0].used = 1;
+    ctx.hashSeq[0].handle = TRANSIENT_FIRST + 5u;
+#if FWTPM_MAX_HASH_SEQ >= 2
+    ctx.hashSeq[1].used = 1;
+    ctx.hashSeq[1].isHmac = 1;
+    ctx.hashSeq[1].handle = TRANSIENT_FIRST + 32u;
+#endif
+#if FWTPM_MAX_HASH_SEQ >= 3
+    ctx.hashSeq[2].used = 1;
+    ctx.hashSeq[2].hashAlg = TPM_ALG_NULL;
+    ctx.hashSeq[2].handle = TRANSIENT_FIRST + 48u;
+#endif
+#endif
+#ifdef WOLFTPM_MLDSA
+    ctx.signSeq[0].used = 1;
+    ctx.signSeq[0].handle = TRANSIENT_FIRST + 10u;
+#if FWTPM_MAX_SIGN_SEQ >= 2
+    ctx.signSeq[1].used = 1;
+    ctx.signSeq[1].isVerifySeq = 1;
+    ctx.signSeq[1].handle = TRANSIENT_FIRST + 24u;
+#endif
+#endif
+    check_handle_zero_count(&ctx, TRANSIENT_FIRST);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 22, TPM_CC_GetCapability);
+    PutU32BE(gCmd + pos, TPM_CAP_HANDLES); pos += 4;
+    PutU32BE(gCmd + pos, TRANSIENT_FIRST); pos += 4;
+    PutU32BE(gCmd + pos, count); pos += 4;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), count);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 0);
+    for (i = 0; i < count; i++) {
+        AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9 + 4 * i), expected[i]);
+    }
+    cursor = TRANSIENT_FIRST;
+    for (i = 0; i < count; i++) {
+        handle = getcap_handle_page(&ctx, cursor, &moreData);
+        AssertIntEQ(handle, expected[i]);
+        AssertIntEQ(moreData, i + 1 < count);
+        cursor = handle + 1;
+    }
+    check_empty_handle_class(&ctx, cursor);
+#ifndef FWTPM_NO_HASH_CMDS
+    ctx.hashSeq[0].used = 0;
+#else
+    ctx.signSeq[0].used = 0;
+#endif
+    AssertIntEQ(getcap_handle_page(&ctx, TRANSIENT_FIRST, &moreData),
+        expected[1]);
+    /* No crypto contexts were initialized for the metadata-only fixtures. */
+    XMEMSET(ctx.objects, 0, sizeof(ctx.objects));
+#ifndef FWTPM_NO_HASH_CMDS
+    XMEMSET(ctx.hashSeq, 0, sizeof(ctx.hashSeq));
+#endif
+#ifdef WOLFTPM_MLDSA
+    XMEMSET(ctx.signSeq, 0, sizeof(ctx.signSeq));
+#endif
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("GetCapability transient sequence handles:", 0);
+}
+#endif /* !FWTPM_NO_HASH_CMDS || WOLFTPM_MLDSA */
 #endif /* handle capability test has at least two slots */
 
 /* ================================================================== */
@@ -20153,6 +20269,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     FWTPM_MAX_SESSIONS >= 2 || \
     (!defined(FWTPM_NO_NV) && FWTPM_MAX_NV_INDICES >= 2)
     test_fwtpm_getcap_handles_ordered();
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
+    test_fwtpm_getcap_sequence_handles();
+#endif
 #endif /* handle capability test has at least two slots */
     test_fwtpm_total_commands();
 

@@ -1727,6 +1727,12 @@ static int FwSelectCapabilityHandle(const FWTPM_CTX* ctx, UINT32 handleClass,
 
     if (handleClass == HR_TRANSIENT) {
         slotCount = FWTPM_MAX_OBJECTS;
+    #ifndef FWTPM_NO_HASH_CMDS
+        slotCount += FWTPM_MAX_HASH_SEQ;
+    #endif
+    #ifdef WOLFTPM_MLDSA
+        slotCount += FWTPM_MAX_SIGN_SEQ;
+    #endif
     }
     else if (handleClass == HR_PERSISTENT) {
         slotCount = FWTPM_MAX_PERSISTENT;
@@ -1745,8 +1751,26 @@ static int FwSelectCapabilityHandle(const FWTPM_CTX* ctx, UINT32 handleClass,
         used = 0;
         candidate = 0;
         if (handleClass == HR_TRANSIENT) {
-            used = ctx->objects[idx].used;
-            candidate = ctx->objects[idx].handle;
+            if (idx < FWTPM_MAX_OBJECTS) {
+                used = ctx->objects[idx].used;
+                candidate = ctx->objects[idx].handle;
+            }
+        #ifndef FWTPM_NO_HASH_CMDS
+            else if (idx < FWTPM_MAX_OBJECTS + FWTPM_MAX_HASH_SEQ) {
+                used = ctx->hashSeq[idx - FWTPM_MAX_OBJECTS].used;
+                candidate = ctx->hashSeq[idx - FWTPM_MAX_OBJECTS].handle;
+            }
+        #endif
+        #ifdef WOLFTPM_MLDSA
+            else {
+                int seqIdx = idx - FWTPM_MAX_OBJECTS;
+            #ifndef FWTPM_NO_HASH_CMDS
+                seqIdx -= FWTPM_MAX_HASH_SEQ;
+            #endif
+                used = ctx->signSeq[seqIdx].used;
+                candidate = ctx->signSeq[seqIdx].handle;
+            }
+        #endif
         }
         else if (handleClass == HR_PERSISTENT) {
             used = ctx->persistent[idx].used;
