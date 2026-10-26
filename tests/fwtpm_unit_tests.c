@@ -16688,6 +16688,273 @@ static void ComputeAuthHmac(const byte* key, UINT16 keySz,
     wc_HmacFree(&hmac);
 }
 
+/* An authorizing session always includes the current entity authValue in
+ * parameter encryption, irrespective of its bind target (Part 1 Sec.19.1).
+ * Use non-empty, distinct auth/session/bind keys and check both directions. */
+static void test_fwtpm_param_enc_entity_auth(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj;
+    FWTPM_Session* sess;
+    byte nonceCaller[16];
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    byte cipher[16];
+    byte expected[TPM_SHA256_DIGEST_SIZE];
+    byte data[TPM_SHA256_DIGEST_SIZE];
+    byte pHash[TPM_SHA256_DIGEST_SIZE];
+    byte authHmac[TPM_SHA256_DIGEST_SIZE];
+    byte encKey[TPM_MAX_DIGEST_SIZE * 2];
+    byte input[4 + sizeof(TPM2B_NAME) + 2 + sizeof(cipher) + 2];
+    UINT16 nonceSz, encKeySz, hmacKeySz;
+    UINT32 sessionH;
+    UINT8 attrs = TPMA_SESSION_continueSession | TPMA_SESSION_decrypt |
+        TPMA_SESSION_encrypt;
+    int mode, binding, pos, off, authStart, paramStart, rspSize;
+    Hmac hmac;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    obj = &ctx.objects[0];
+    obj->used = 1;
+    obj->handle = TRANSIENT_FIRST;
+    obj->hierarchy = TPM_RH_OWNER;
+    obj->pub.type = TPM_ALG_KEYEDHASH;
+    obj->pub.nameAlg = TPM_ALG_SHA256;
+    obj->pub.objectAttributes = TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA;
+    obj->pub.parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
+    obj->pub.parameters.keyedHashDetail.scheme.details.hmac.hashAlg =
+        TPM_ALG_SHA256;
+    obj->authValue.size = 4;
+    XMEMCPY(obj->authValue.buffer, "pass", 4);
+    obj->privKeySize = 3;
+    XMEMCPY(obj->privKey, "key", 3);
+    AssertIntEQ(FwComputePublicName(&obj->pub, &obj->name), 0);
+    XMEMSET(nonceCaller, 0x5C, sizeof(nonceCaller));
+    XMEMSET(cipher, 0x31, sizeof(cipher));
+    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, obj->privKey,
+        obj->privKeySize), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, cipher, sizeof(cipher)), 0);
+    AssertIntEQ(wc_HmacFinal(&hmac, expected), 0);
+    wc_HmacFree(&hmac);
+
+    for (mode = 0; mode < 2; mode++) {
+    #ifdef NO_AES
+        if (mode == 1) continue;
+    #endif
+        for (binding = 0; binding < 4; binding++) {
+            sessionH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC,
+                TPM_ALG_XOR, nonceTPM, &nonceSz);
+            AssertIntNE(sessionH, 0);
+            sess = &ctx.sessions[0];
+            AssertIntEQ(sess->handle, sessionH);
+            if (mode == 1) {
+                sess->symmetric.algorithm = TPM_ALG_AES;
+                sess->symmetric.keyBits.aes = 128;
+                sess->symmetric.mode.aes = TPM_ALG_CFB;
+            }
+            /* unbound/unsalted, salted, bound here, bound elsewhere */
+            if (binding > 0) {
+                sess->sessionKey.size = TPM_SHA256_DIGEST_SIZE;
+                XMEMSET(sess->sessionKey.buffer, 0xA3, sess->sessionKey.size);
+            }
+            if (binding >= 2) {
+                sess->isBound = 1;
+                sess->bindName = obj->name;
+                sess->bindAuth = obj->authValue;
+                if (binding == 3) {
+                    sess->bindName.name[2] ^= 1;
+                    sess->bindAuth.buffer[0] ^= 1;
+                }
+            }
+            encKeySz = sess->sessionKey.size;
+            XMEMCPY(encKey, sess->sessionKey.buffer, encKeySz);
+            XMEMCPY(encKey + encKeySz, obj->authValue.buffer,
+                obj->authValue.size);
+            encKeySz += obj->authValue.size;
+            hmacKeySz = binding == 2 ? sess->sessionKey.size : encKeySz;
+            XMEMSET(cipher, 0x31, sizeof(cipher));
+            if (mode == 0) {
+                AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, encKey,
+                    encKeySz, nonceCaller, sizeof(nonceCaller), nonceTPM,
+                    nonceSz, cipher, sizeof(cipher)), 0);
+            }
+        #ifndef NO_AES
+            else {
+                AssertIntEQ(TPM2_ParamEnc_AESCFB(TPM_ALG_SHA256, 128, encKey,
+                    encKeySz, nonceCaller, sizeof(nonceCaller), nonceTPM,
+                    nonceSz, cipher, sizeof(cipher), 1), 0);
+            }
+        #endif
+            off = 0;
+            PutU32BE(input + off, TPM_CC_HMAC); off += 4;
+            XMEMCPY(input + off, obj->name.name, obj->name.size);
+            off += obj->name.size;
+            PutU16BE(input + off, sizeof(cipher)); off += 2;
+            XMEMCPY(input + off, cipher, sizeof(cipher)); off += sizeof(cipher);
+            PutU16BE(input + off, TPM_ALG_SHA256); off += 2;
+            AssertIntEQ(wc_Sha256Hash(input, off, pHash), 0);
+            ComputeAuthHmac(encKey, hmacKeySz, pHash, nonceCaller,
+                sizeof(nonceCaller), nonceTPM, nonceSz, NULL, 0, attrs,
+                authHmac);
+            pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_HMAC);
+            PutU32BE(gCmd + pos, obj->handle); pos += 4;
+            authStart = pos; pos += 4;
+            PutU32BE(gCmd + pos, sessionH); pos += 4;
+            PutU16BE(gCmd + pos, sizeof(nonceCaller)); pos += 2;
+            XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+            pos += sizeof(nonceCaller);
+            gCmd[pos++] = attrs;
+            PutU16BE(gCmd + pos, sizeof(authHmac)); pos += 2;
+            XMEMCPY(gCmd + pos, authHmac, sizeof(authHmac));
+            pos += sizeof(authHmac);
+            PutU32BE(gCmd + authStart, pos - authStart - 4);
+            paramStart = 4 + obj->name.size;
+            XMEMCPY(gCmd + pos, input + paramStart, off - paramStart);
+            pos += off - paramStart;
+            PutU32BE(gCmd + 2, pos);
+            rspSize = 0;
+            FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+            AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), sizeof(data));
+            XMEMCPY(data, gRsp + TPM2_HEADER_SIZE + 6, sizeof(data));
+            off = RspSessOffset(gRsp, 0);
+            nonceSz = GetU16BE(gRsp + off);
+            XMEMCPY(nonceTPM, gRsp + off + 2, nonceSz);
+            if (mode == 0) {
+                AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, encKey,
+                    encKeySz, nonceTPM, nonceSz, nonceCaller,
+                    sizeof(nonceCaller), data, sizeof(data)), 0);
+            }
+        #ifndef NO_AES
+            else {
+                AssertIntEQ(TPM2_ParamEnc_AESCFB(TPM_ALG_SHA256, 128, encKey,
+                    encKeySz, nonceTPM, nonceSz, nonceCaller,
+                    sizeof(nonceCaller), data, sizeof(data), 0), 0);
+            }
+        #endif
+            AssertIntEQ(XMEMCMP(data, expected, sizeof(data)), 0);
+            FlushHandle(&ctx, sessionH);
+        }
+    }
+    wc_ForceZero(encKey, sizeof(encKey));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Parameter encryption includes entity auth:", 0);
+}
+
+/* PCR_FIRST is zero, which must not be confused with an encryption-only
+ * session having no authorized entity. Verify encrypted PCR0 event data. */
+static void test_fwtpm_param_enc_pcr_zero(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess;
+    byte nonceCaller[16], nonceTPM[TPM_MAX_DIGEST_SIZE];
+    byte plain[16], cipher[16], expected[TPM_SHA256_DIGEST_SIZE];
+    byte key[2 * TPM_MAX_DIGEST_SIZE], input[4 + 4 + 2 + sizeof(cipher)];
+    byte cpHash[TPM_SHA256_DIGEST_SIZE], mac[TPM_SHA256_DIGEST_SIZE];
+    UINT16 nonceSz, keySz, hmacKeySz, alg;
+    UINT32 sessionH, count, i;
+    UINT8 attrs = TPMA_SESSION_continueSession | TPMA_SESSION_decrypt;
+    int mode, bound, off, pos, authStart, rspSize, digestSz, found;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    ctx.pcrAuth[0].size = 4;
+    XMEMCPY(ctx.pcrAuth[0].buffer, "pass", 4);
+    XMEMSET(nonceCaller, 0x5C, sizeof(nonceCaller));
+    XMEMSET(plain, 0x31, sizeof(plain));
+    AssertIntEQ(wc_Sha256Hash(plain, sizeof(plain), expected), 0);
+    for (mode = 0; mode < 2; mode++) {
+    #ifdef NO_AES
+        if (mode == 1) continue;
+    #endif
+        for (bound = 0; bound < 2; bound++) {
+            sessionH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC,
+                TPM_ALG_XOR, nonceTPM, &nonceSz);
+            AssertIntNE(sessionH, 0);
+            sess = &ctx.sessions[0];
+            AssertIntEQ(sess->handle, sessionH);
+            sess->sessionKey.size = TPM_SHA256_DIGEST_SIZE;
+            XMEMSET(sess->sessionKey.buffer, 0xA3, sess->sessionKey.size);
+            if (mode == 1) {
+                sess->symmetric.algorithm = TPM_ALG_AES;
+                sess->symmetric.keyBits.aes = 128;
+                sess->symmetric.mode.aes = TPM_ALG_CFB;
+            }
+            if (bound) {
+                sess->isBound = 1;
+                sess->bindHandle = PCR_FIRST;
+                sess->bindName.size = 4;
+                PutU32BE(sess->bindName.name, PCR_FIRST);
+                sess->bindAuth = ctx.pcrAuth[0];
+            }
+            keySz = sess->sessionKey.size;
+            XMEMCPY(key, sess->sessionKey.buffer, keySz);
+            XMEMCPY(key + keySz, ctx.pcrAuth[0].buffer, ctx.pcrAuth[0].size);
+            keySz += ctx.pcrAuth[0].size;
+            hmacKeySz = bound ? sess->sessionKey.size : keySz;
+            XMEMCPY(cipher, plain, sizeof(cipher));
+            if (mode == 0) {
+                AssertIntEQ(TPM2_ParamEnc_XOR(TPM_ALG_SHA256, key, keySz,
+                    nonceCaller, sizeof(nonceCaller), nonceTPM, nonceSz,
+                    cipher, sizeof(cipher)), 0);
+            }
+        #ifndef NO_AES
+            else {
+                AssertIntEQ(TPM2_ParamEnc_AESCFB(TPM_ALG_SHA256, 128,
+                    key, keySz, nonceCaller, sizeof(nonceCaller), nonceTPM,
+                    nonceSz, cipher, sizeof(cipher), 1), 0);
+            }
+        #endif
+            PutU32BE(input, TPM_CC_PCR_Event);
+            PutU32BE(input + 4, PCR_FIRST); /* PCR name is its four-byte handle */
+            PutU16BE(input + 8, sizeof(cipher));
+            XMEMCPY(input + 10, cipher, sizeof(cipher));
+            AssertIntEQ(wc_Sha256Hash(input, sizeof(input), cpHash), 0);
+            ComputeAuthHmac(key, hmacKeySz, cpHash, nonceCaller,
+                sizeof(nonceCaller), nonceTPM, nonceSz, NULL, 0, attrs, mac);
+            pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PCR_Event);
+            PutU32BE(gCmd + pos, PCR_FIRST); pos += 4;
+            authStart = pos; pos += 4;
+            PutU32BE(gCmd + pos, sessionH); pos += 4;
+            PutU16BE(gCmd + pos, sizeof(nonceCaller)); pos += 2;
+            XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+            pos += sizeof(nonceCaller);
+            gCmd[pos++] = attrs;
+            PutU16BE(gCmd + pos, sizeof(mac)); pos += 2;
+            XMEMCPY(gCmd + pos, mac, sizeof(mac)); pos += sizeof(mac);
+            PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+            XMEMCPY(gCmd + pos, input + 8, sizeof(input) - 8);
+            pos += sizeof(input) - 8;
+            PutU32BE(gCmd + 2, (UINT32)pos);
+            rspSize = 0;
+            FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+            off = TPM2_HEADER_SIZE + 4;
+            count = GetU32BE(gRsp + off); off += 4;
+            found = 0;
+            for (i = 0; i < count; i++) {
+                alg = GetU16BE(gRsp + off); off += 2;
+                digestSz = TPM2_GetHashDigestSize(alg);
+                AssertIntGT(digestSz, 0);
+                if (alg == TPM_ALG_SHA256) {
+                    AssertIntEQ(XMEMCMP(gRsp + off, expected, sizeof(expected)), 0);
+                    found++;
+                }
+                off += digestSz;
+            }
+            AssertIntEQ(found, 1);
+            FlushHandle(&ctx, sessionH);
+        }
+    }
+    wc_ForceZero(key, sizeof(key));
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("PCR0 parameter encryption includes auth:", 0);
+}
+
 /* A command that changes the bound entity's authValue must use the same
  * request-time bound-session key decision for its response HMAC. */
 static void test_fwtpm_bound_auth_change_response_hmac(void)
@@ -20155,6 +20422,19 @@ int fwtpm_unit_tests(int argc, char *argv[])
     }
 #endif
 
+#if !defined(FWTPM_NO_HASH_CMDS) && !defined(FWTPM_NO_PARAM_ENC) && \
+    FWTPM_MAX_SESSIONS >= 2
+    if (argc == 2 && XSTRCMP(argv[1], "pcr-zero-param-auth") == 0) {
+        test_fwtpm_param_enc_pcr_zero();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "param-auth") == 0) {
+        test_fwtpm_param_enc_entity_auth();
+        test_fwtpm_param_enc_pcr_zero();
+        return 0;
+    }
+#endif
+
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();
         return 0;
@@ -20514,6 +20794,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_hashcheck_ticket_generated_prefix();
 #if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
     test_fwtpm_param_enc_session_selection();
+    test_fwtpm_param_enc_entity_auth();
+    test_fwtpm_param_enc_pcr_zero();
     test_fwtpm_param_enc_session_bound_to_auth();
     test_fwtpm_bound_auth_change_response_hmac();
     test_fwtpm_sequence_complete_response_hmac();
