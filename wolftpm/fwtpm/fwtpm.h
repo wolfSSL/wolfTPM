@@ -364,6 +364,12 @@
 #endif
 #endif
 
+/* Maximum NV Clock lag. The host polls at least once per second; checkpoint
+ * one poll early so scheduler wakeups stay within the advertised bound. */
+#define FWTPM_CLOCK_UPDATE_MS (1u << 22)
+#define FWTPM_CLOCK_POLL_MS   1000u
+#define FWTPM_ORDERLY_COUNT   1u
+
 /* Compile-time build date parsed from __DATE__ ("Mmm DD YYYY") */
 #define FWTPM_BUILD_YEAR \
     (((__DATE__[7] - '0') * 1000) + ((__DATE__[8] - '0') * 100) + \
@@ -985,6 +991,12 @@ typedef struct FWTPM_CTX {
     /* Transient authorization methods for the command being dispatched. */
     byte activeCmdAuthIsPolicy[FWTPM_MAX_CMD_AUTHS];
 #endif
+
+    UINT64 clockNvValue;        /* Last durable Clock checkpoint */
+    UINT64 clockUnsafeUntil;    /* Prior boot's potentially reported range */
+    UINT64 timeBaseMs;          /* Clock HAL value at the last power-on */
+    int clockSafe;              /* Clock cannot repeat a reported value */
+    int nvOrderly;              /* Final clean snapshot marker was committed */
 } FWTPM_CTX;
 
 /* fwTPM SPDM mode bits - used with FWTPM_CTX.spdmMode. */
@@ -1076,6 +1088,43 @@ WOLFTPM_API int FWTPM_Clock_SetHAL(FWTPM_CTX* ctx,
     \sa FWTPM_Clock_SetHAL
 */
 WOLFTPM_API UINT64 FWTPM_Clock_GetMs(FWTPM_CTX* ctx);
+
+/*!
+    \ingroup wolfTPM_fwTPM
+    \brief Resume Clock after a platform power cycle that keeps the same
+    FWTPM_CTX. Clock resumes from its last NV checkpoint and powered-off
+    time is not counted. After an unclean shutdown, Clock may roll back
+    and reports unsafe until the recovery interval has passed. Time
+    restarts at zero. Call it on power-on, before Startup.
+
+    \return TPM_RC_SUCCESS on success
+    \return BAD_FUNC_ARG if ctx is NULL
+
+    \param ctx pointer to an initialized FWTPM_CTX
+
+    \sa FWTPM_Clock_GetMs
+    \sa FWTPM_Clock_Update
+*/
+WOLFTPM_API int FWTPM_Clock_PowerOn(FWTPM_CTX* ctx);
+
+/*!
+    \ingroup wolfTPM_fwTPM
+    \brief Checkpoint Clock to NV when due. Command dispatch and socket loops
+    call this automatically. Embedded hosts must also call it at least every
+    FWTPM_CLOCK_POLL_MS milliseconds while idle, using a milliseconds-since-
+    power-on clock HAL. HAL wait, receive and send callbacks must return
+    within that interval.
+
+    \return TPM_RC_SUCCESS on success or when no update is due
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return TPM_RC_NV_UNAVAILABLE when storage cannot be written
+    \return TPM_RC_NV_RATE when storage temporarily limits writes
+    \return other NV error if the checkpoint cannot be committed
+    \param ctx pointer to an initialized FWTPM_CTX
+    \sa FWTPM_Clock_SetHAL
+    \sa FWTPM_Clock_GetMs
+*/
+WOLFTPM_API int FWTPM_Clock_Update(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM

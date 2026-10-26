@@ -511,6 +511,15 @@ int FWTPM_TIS_ServerLoop(FWTPM_CTX* ctx)
     printf("fwTPM TIS: Server ready, waiting for register accesses...\n");
 
     while (ctx->running) {
+        rc = FWTPM_Clock_Update(ctx);
+        if (rc == TPM_RC_NV_RATE) {
+            rc = TPM_RC_SUCCESS; /* retried on the next pass */
+        }
+        if (rc != TPM_RC_SUCCESS) {
+            retRc = rc;
+            break;
+        }
+
         /* Propagate async stop request (from signal handler) into
          * ctx state, matching FWTPM_IO_ServerLoop behavior */
         if (FWTPM_IO_IsStopRequested()) {
