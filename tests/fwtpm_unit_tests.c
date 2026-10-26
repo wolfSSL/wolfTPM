@@ -19370,6 +19370,263 @@ static void test_fwtpm_ecdsa_signature_padding(void)
 }
 #endif /* HAVE_ECC */
 
+/* Hash capabilities must match the available SHA-1 and SHA-3 algorithms,
+ * including builds that disable the whole family or individual SHA-3 sizes. */
+static void test_fwtpm_hash_capabilities(void)
+{
+    static const struct {
+        UINT16 hashAlg;
+        int enabled;
+    } hashes[] = {
+        { TPM_ALG_SHA1,
+        #ifndef NO_SHA
+            1
+        #else
+            0
+        #endif
+        },
+        { TPM_ALG_SHA3_256,
+        #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256)
+            1
+        #else
+            0
+        #endif
+        },
+        { TPM_ALG_SHA3_384,
+        #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384)
+            1
+        #else
+            0
+        #endif
+        },
+        { TPM_ALG_SM3_256,
+        #ifdef WOLFSSL_SM3
+            1
+        #else
+            0
+        #endif
+        },
+        { TPM_ALG_SHA3_512,
+        #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+            1
+        #else
+            0
+        #endif
+        }
+    };
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0, i;
+    UINT32 count;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    for (i = 0; i < (int)(sizeof(hashes) / sizeof(hashes[0])); i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 22,
+            TPM_CC_GetCapability);
+        PutU32BE(gCmd + pos, TPM_CAP_ALGS); pos += 4;
+        PutU32BE(gCmd + pos, hashes[i].hashAlg); pos += 4;
+        PutU32BE(gCmd + pos, 1); pos += 4;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        count = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+        if (hashes[i].enabled) {
+            AssertIntEQ(count, 1);
+            AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 9),
+                hashes[i].hashAlg);
+            AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 11),
+                TPMA_ALGORITHM_hash);
+        }
+        else if (count != 0) {
+            AssertIntNE(GetU16BE(gRsp + TPM2_HEADER_SIZE + 9),
+                hashes[i].hashAlg);
+        }
+    }
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SHA1 and SHA3 algorithm capabilities:", 0);
+}
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+/* Compare OAEP and PSS in both directions with independently selected
+ * wolfCrypt hash/MGF pairs, so a shared fwTPM mapping bug cannot cancel out. */
+static void test_fwtpm_rsa_hash_interop(UINT16 hashAlg,
+    enum wc_HashType hashType, int mgf)
+{
+    static const byte message[] = "RSA hash interoperability";
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj;
+    RsaKey key;
+    byte ciphertext[MAX_RSA_KEY_BYTES];
+    byte plaintext[MAX_RSA_KEY_BYTES];
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    byte signatureBuf[MAX_RSA_KEY_BYTES + 6];
+    TPMT_SIGNATURE sig;
+    TPM2_Packet packet;
+    int pos, rspSize = 0, cipherSz, plainSz, digestSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&key, 0, sizeof(key));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    obj = &ctx.objects[0];
+    obj->used = 1;
+    obj->handle = TRANSIENT_FIRST;
+    obj->hierarchy = TPM_RH_OWNER;
+    obj->pub.type = TPM_ALG_RSA;
+    obj->pub.nameAlg = TPM_ALG_SHA256;
+    obj->pub.objectAttributes = TPMA_OBJECT_decrypt | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA | TPMA_OBJECT_sign;
+    obj->pub.parameters.rsaDetail.keyBits = 2048;
+    obj->pub.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+    obj->pub.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    AssertIntEQ(FwGenerateRsaKey(&ctx.rng, 2048, WC_RSA_EXPONENT,
+        &obj->pub.unique.rsa, obj->privKey, sizeof(obj->privKey),
+        &obj->privKeySize), TPM_RC_SUCCESS);
+    AssertIntEQ(FwComputePublicName(&obj->pub, &obj->name), TPM_RC_SUCCESS);
+    AssertIntEQ(FwImportRsaKey(obj, &key), TPM_RC_SUCCESS);
+    AssertIntEQ(wc_RsaSetRNG(&key, &ctx.rng), 0);
+    cipherSz = wc_RsaPublicEncrypt_ex(message, sizeof(message) - 1,
+        ciphertext, sizeof(ciphertext), &key, &ctx.rng, WC_RSA_OAEP_PAD,
+        hashType, mgf, NULL, 0);
+    AssertIntEQ(cipherSz, 256);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_RSA_Decrypt);
+    PutU32BE(gCmd + pos, obj->handle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)cipherSz); pos += 2;
+    XMEMCPY(gCmd + pos, ciphertext, cipherSz); pos += cipherSz;
+    PutU16BE(gCmd + pos, TPM_ALG_OAEP); pos += 2;
+    PutU16BE(gCmd + pos, hashAlg); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), sizeof(message) - 1);
+    AssertIntEQ(XMEMCMP(gRsp + TPM2_HEADER_SIZE + 6, message,
+        sizeof(message) - 1), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_RSA_Encrypt);
+    PutU32BE(gCmd + pos, obj->handle); pos += 4;
+    PutU16BE(gCmd + pos, sizeof(message) - 1); pos += 2;
+    XMEMCPY(gCmd + pos, message, sizeof(message) - 1);
+    pos += sizeof(message) - 1;
+    PutU16BE(gCmd + pos, TPM_ALG_OAEP); pos += 2;
+    PutU16BE(gCmd + pos, hashAlg); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cipherSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(cipherSz, 256);
+    XMEMCPY(ciphertext, gRsp + TPM2_HEADER_SIZE + 2, cipherSz);
+    plainSz = wc_RsaPrivateDecrypt_ex(ciphertext, cipherSz, plaintext,
+        sizeof(plaintext), &key, WC_RSA_OAEP_PAD, hashType,
+        mgf, NULL, 0);
+    AssertIntEQ(plainSz, sizeof(message) - 1);
+    AssertIntEQ(XMEMCMP(plaintext, message, plainSz), 0);
+    digestSz = wc_HashGetDigestSize(hashType);
+    AssertIntGT(digestSz, 0);
+    AssertIntEQ(wc_Hash(hashType, message, sizeof(message) - 1,
+        digest, digestSz), 0);
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = signatureBuf;
+    packet.size = sizeof(signatureBuf);
+    AssertIntEQ(FwSignDigestAndAppend(&ctx, obj, TPM_ALG_RSAPSS, hashAlg,
+        digest, digestSz, &packet), TPM_RC_SUCCESS);
+    AssertIntEQ(packet.overflow, 0);
+    AssertIntEQ(packet.pos, 6 + 256);
+    cipherSz = GetU16BE(signatureBuf + 4);
+    AssertIntEQ(cipherSz, 256);
+    XMEMCPY(ciphertext, signatureBuf + 6, cipherSz);
+    AssertIntGT(wc_RsaPSS_VerifyCheck(ciphertext, cipherSz, plaintext,
+        sizeof(plaintext), digest, digestSz, hashType, mgf, &key), 0);
+
+    XMEMSET(&sig, 0, sizeof(sig));
+    sig.sigAlg = TPM_ALG_RSAPSS;
+    sig.signature.rsapss.hash = hashAlg;
+    cipherSz = wc_RsaPSS_Sign_ex(digest, digestSz,
+        sig.signature.rsapss.sig.buffer,
+        sizeof(sig.signature.rsapss.sig.buffer), hashType, mgf,
+        RSA_PSS_SALT_LEN_DEFAULT, &key, &ctx.rng);
+    AssertIntEQ(cipherSz, 256);
+    sig.signature.rsapss.sig.size = (UINT16)cipherSz;
+    AssertIntEQ(FwVerifySignatureCore(obj, digest, digestSz, &sig),
+        TPM_RC_SUCCESS);
+    wc_FreeRsaKey(&key);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("RSA OAEP and PSS hash interoperability:", 0);
+}
+
+#if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256) && \
+    !defined(WC_MGF1SHA3_256)
+/* SHA3-256 without a wolfCrypt MGF1 selector: PSS is refused rather than
+ * masked with another hash. */
+static void test_fwtpm_rsa_sha3_no_mgf(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj;
+    byte digest[WC_SHA3_256_DIGEST_SIZE];
+    byte signatureBuf[64];
+    TPMT_SIGNATURE sig;
+    TPM2_Packet packet;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    obj = &ctx.objects[0];
+    obj->pub.type = TPM_ALG_RSA;
+    XMEMSET(digest, 0x5A, sizeof(digest));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = signatureBuf;
+    packet.size = sizeof(signatureBuf);
+    AssertIntEQ(FwGetMgfType(TPM_ALG_SHA3_256), WC_MGF1NONE);
+    AssertIntEQ(FwSignDigestAndAppend(&ctx, obj, TPM_ALG_RSAPSS,
+        TPM_ALG_SHA3_256, digest, sizeof(digest), &packet), TPM_RC_SCHEME);
+    XMEMSET(&sig, 0, sizeof(sig));
+    sig.sigAlg = TPM_ALG_RSAPSS;
+    sig.signature.rsapss.hash = TPM_ALG_SHA3_256;
+    AssertIntEQ(FwVerifySignatureCore(obj, digest, sizeof(digest), &sig),
+        TPM_RC_SCHEME);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("RSA SHA3-256 without MGF1 selector refused:", 0);
+}
+#endif
+
+static void test_fwtpm_rsa_hash_matrix(void)
+{
+#ifndef NO_SHA
+    test_fwtpm_rsa_hash_interop(TPM_ALG_SHA1,
+        WC_HASH_TYPE_SHA, WC_MGF1SHA1);
+#endif
+    test_fwtpm_rsa_hash_interop(TPM_ALG_SHA256,
+        WC_HASH_TYPE_SHA256, WC_MGF1SHA256);
+#ifdef WOLFSSL_SHA384
+    test_fwtpm_rsa_hash_interop(TPM_ALG_SHA384,
+        WC_HASH_TYPE_SHA384, WC_MGF1SHA384);
+#endif
+#ifdef WOLFSSL_SHA512
+    test_fwtpm_rsa_hash_interop(TPM_ALG_SHA512,
+        WC_HASH_TYPE_SHA512, WC_MGF1SHA512);
+#endif
+#if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256) && \
+    defined(WC_MGF1SHA3_256)
+    test_fwtpm_rsa_hash_interop(TPM_ALG_SHA3_256,
+        WC_HASH_TYPE_SHA3_256, WC_MGF1SHA3_256);
+#elif defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256)
+    test_fwtpm_rsa_sha3_no_mgf();
+#endif
+#if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384) && \
+    defined(WC_MGF1SHA3_384)
+    test_fwtpm_rsa_hash_interop(TPM_ALG_SHA3_384,
+        WC_HASH_TYPE_SHA3_384, WC_MGF1SHA3_384);
+#endif
+#if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512) && \
+    defined(WC_MGF1SHA3_512)
+    test_fwtpm_rsa_hash_interop(TPM_ALG_SHA3_512,
+        WC_HASH_TYPE_SHA3_512, WC_MGF1SHA3_512);
+#endif
+}
+
+#endif
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -19386,6 +19643,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_ecdsa_signature_padding();
     }
 #endif
+
+    if (argc == 1) {
+        test_fwtpm_hash_capabilities();
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+        test_fwtpm_rsa_hash_matrix();
+#endif
+    }
 
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
     if (argc == 2 && XSTRCMP(argv[1], "custom-io-hal") == 0) {
@@ -19411,6 +19675,17 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef HAVE_ECC
     if (argc == 2 && XSTRCMP(argv[1], "ecdsa-padding") == 0) {
         test_fwtpm_ecdsa_signature_padding();
+        return 0;
+    }
+#endif
+
+    if (argc == 2 && XSTRCMP(argv[1], "sha1-cap") == 0) {
+        test_fwtpm_hash_capabilities();
+        return 0;
+    }
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    if (argc == 2 && XSTRCMP(argv[1], "sha1-oaep") == 0) {
+        test_fwtpm_rsa_hash_matrix();
         return 0;
     }
 #endif

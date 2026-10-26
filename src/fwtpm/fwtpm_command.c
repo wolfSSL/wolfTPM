@@ -1836,12 +1836,27 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_ALG_RSA, TPMA_ALGORITHM_asymmetric |
                     TPMA_ALGORITHM_object },
             #endif
+    #ifndef NO_SHA
+                { TPM_ALG_SHA1, TPMA_ALGORITHM_hash },
+    #endif
                 { TPM_ALG_SHA256, TPMA_ALGORITHM_hash },
             #ifdef WOLFSSL_SHA384
                 { TPM_ALG_SHA384, TPMA_ALGORITHM_hash },
             #endif
             #ifdef WOLFSSL_SHA512
                 { TPM_ALG_SHA512, TPMA_ALGORITHM_hash },
+            #endif
+            #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256)
+                { TPM_ALG_SHA3_256, TPMA_ALGORITHM_hash },
+            #endif
+            #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384)
+                { TPM_ALG_SHA3_384, TPMA_ALGORITHM_hash },
+            #endif
+            #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+                { TPM_ALG_SHA3_512, TPMA_ALGORITHM_hash },
+            #endif
+            #ifdef WOLFSSL_SM3
+                { TPM_ALG_SM3_256, TPMA_ALGORITHM_hash },
             #endif
                 { TPM_ALG_HMAC, TPMA_ALGORITHM_hash |
                     TPMA_ALGORITHM_signing },
@@ -9831,11 +9846,16 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPMI_ALG_HASH oaepHash = (encHashAlg != TPM_ALG_NULL) ?
                 encHashAlg : (TPMI_ALG_HASH)TPM_ALG_SHA256;
             int wcHashType = FwGetRsaHashOid(oaepHash);
-            outSz = wc_RsaPublicEncrypt_ex(message->buffer, message->size,
-                outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey, &ctx->rng,
-                WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType,
-                FwGetMgfType(oaepHash),
-                label, oaepLabelSz);
+            int mgf = FwGetMgfType(oaepHash);
+            if (mgf == WC_MGF1NONE) {
+                rc = TPM_RC_SCHEME;
+            }
+            else {
+                outSz = wc_RsaPublicEncrypt_ex(message->buffer, message->size,
+                    outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey, &ctx->rng,
+                    WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType, mgf,
+                    label, oaepLabelSz);
+            }
         }
         else if (encScheme == TPM_ALG_NULL) {
             /* Raw RSA (no padding) */
@@ -10014,11 +10034,16 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPMI_ALG_HASH oaepHash = (decHashAlg != TPM_ALG_NULL) ?
                 decHashAlg : (TPMI_ALG_HASH)TPM_ALG_SHA256;
             int wcHashType = FwGetRsaHashOid(oaepHash);
-            outSz = wc_RsaPrivateDecrypt_ex(cipherText->buffer, cipherText->size,
-                outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey,
-                WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType,
-                FwGetMgfType(oaepHash),
-                label, oaepLabelSz);
+            int mgf = FwGetMgfType(oaepHash);
+            if (mgf == WC_MGF1NONE) {
+                rc = TPM_RC_SCHEME;
+            }
+            else {
+                outSz = wc_RsaPrivateDecrypt_ex(cipherText->buffer,
+                    cipherText->size, outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey,
+                    WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType, mgf,
+                    label, oaepLabelSz);
+            }
         }
         else if (decScheme == TPM_ALG_NULL) {
             /* Raw RSA (no padding) */
