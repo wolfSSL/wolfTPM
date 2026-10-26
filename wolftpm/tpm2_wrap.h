@@ -3274,6 +3274,7 @@ WOLFTPM_API int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev,
     \ingroup wolfTPM2_Wrappers
     \brief Stores user data to a NV Index, at a given offset
     \note User data size should be less or equal to the NV Index maxSize specified using wolfTPM2_CreateAuth
+    \note For an index with TPMA_NV_OWNERWRITE or TPMA_NV_PPWRITE set nv->handle.hndl to TPM_RH_OWNER or TPM_RH_PLATFORM and nv->handle.auth to that hierarchy auth (after wolfTPM2_NVOpen)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -3298,10 +3299,13 @@ WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     \ingroup wolfTPM2_Wrappers
     \brief Stores user data to a NV Index, at a given offset. Allows using a policy session and PCR's for authentication.
     \note User data size should be less or equal to the NV Index maxSize specified using wolfTPM2_CreateAuth
+    \note For an index with TPMA_NV_OWNERWRITE or TPMA_NV_PPWRITE set nv->handle.hndl to TPM_RH_OWNER or TPM_RH_PLATFORM and nv->handle.auth to that hierarchy auth (after wolfTPM2_NVOpen)
+    \note pcrArray may be NULL with pcrArraySz 0 when the policy session was already satisfied by the caller (e.g. PolicySecret or PolicyCommandCode). The data must then fit in one MAX_NV_BUFFER_SIZE chunk, otherwise BUFFER_E is returned
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: data too large for a policy without PCR's
 
     \param dev pointer to a TPM2_DEV struct
     \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
@@ -3327,6 +3331,7 @@ WOLFTPM_API int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* 
     \ingroup wolfTPM2_Wrappers
     \brief Extend data to an NV index
     \note When NV index is read it will return the digest
+    \note For an index with TPMA_NV_OWNERWRITE or TPMA_NV_PPWRITE set nv->handle.hndl to TPM_RH_OWNER or TPM_RH_PLATFORM and nv->handle.auth to that hierarchy auth (after wolfTPM2_NVOpen)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -3350,6 +3355,7 @@ WOLFTPM_API int wolfTPM2_NVExtend(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     \ingroup wolfTPM2_Wrappers
     \brief Reads user data from a NV Index, starting at the given offset
     \note User data size should be less or equal to the NV Index maxSize specified using wolfTPM2_CreateAuth
+    \note For an index with TPMA_NV_OWNERREAD or TPMA_NV_PPREAD set nv->handle.hndl to TPM_RH_OWNER or TPM_RH_PLATFORM and nv->handle.auth to that hierarchy auth (after wolfTPM2_NVOpen)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -3374,10 +3380,13 @@ WOLFTPM_API int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     \ingroup wolfTPM2_Wrappers
     \brief Reads user data from a NV Index, starting at the given offset. Allows using a policy session and PCR's for authentication.
     \note User data size should be less or equal to the NV Index maxSize specified using wolfTPM2_CreateAuth
+    \note For an index with TPMA_NV_OWNERREAD or TPMA_NV_PPREAD set nv->handle.hndl to TPM_RH_OWNER or TPM_RH_PLATFORM and nv->handle.auth to that hierarchy auth (after wolfTPM2_NVOpen)
+    \note pcrArray may be NULL with pcrArraySz 0 when the policy session was already satisfied by the caller (e.g. PolicySecret or PolicyCommandCode). The data must then fit in one MAX_NV_BUFFER_SIZE chunk, otherwise BUFFER_E is returned
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: data too large for a policy without PCR's
 
     \param dev pointer to a TPM2_DEV struct
     \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
