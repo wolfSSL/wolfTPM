@@ -78,6 +78,8 @@ tests/fwtpm_hal_unit.log
 tests/fwtpm_check.sh.log
 tests/packet_auth.test
 tests/packet_auth.log
+tests/signature_padding.test
+tests/signature_padding.log
 tests/spdm_config.test
 tests/spdm_config.log
 tests/spdm_ctrl.test

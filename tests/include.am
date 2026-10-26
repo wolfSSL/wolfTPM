@@ -103,3 +103,20 @@ tests_spdm_config_test_LDADD = $(spdm_config_support_objects) \
 tests_spdm_config_test_DEPENDENCIES = src/libwolftpm.la
 endif
 endif
+
+if BUILD_EXAMPLES
+if BUILD_WRAPPER
+# Run the real signature wrappers and response decoder against wire fixtures.
+check_PROGRAMS += tests/signature_padding.test
+noinst_PROGRAMS += tests/signature_padding.test
+tests_signature_padding_test_SOURCES = tests/signature_padding_tests.c
+tests_signature_padding_test_CFLAGS = $(AM_CFLAGS)
+signature_padding_tpm2_object = \
+    $(filter %/tpm2.lo %-tpm2.lo,$(src_libwolftpm_la_OBJECTS))
+signature_padding_support_objects = \
+    $(filter-out $(signature_padding_tpm2_object),$(src_libwolftpm_la_OBJECTS))
+tests_signature_padding_test_LDADD = $(signature_padding_support_objects) \
+    $(src_libwolftpm_la_LIBADD) $(LIB_STATIC_ADD)
+tests_signature_padding_test_DEPENDENCIES = src/libwolftpm.la
+endif
+endif

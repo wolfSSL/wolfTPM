@@ -2341,6 +2341,8 @@ WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Advanced helper function to sign arbitrary data using a TPM key, and specify the signature scheme and hashing algorithm
+    \note ECC signatures contain fixed-width R followed by S, each padded
+    to the signing key curve size.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -2516,6 +2518,8 @@ WOLFTPM_API int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Complete a signing sequence
+    \note ECC signatures contain fixed-width R followed by S, each padded
+    to the signing key curve size.
     \return 0 on success, negative on error
     \param dev Device structure
     \param sequenceHandle Sequence handle from SignSequenceStart
@@ -2616,6 +2620,8 @@ WOLFTPM_API int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Sign a digest with context support
+    \note ECC signatures contain fixed-width R followed by S, each padded
+    to the signing key curve size.
     \return 0 on success, negative on error
     \param dev Device structure
     \param key Signing key
