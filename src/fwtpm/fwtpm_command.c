@@ -513,25 +513,33 @@ static void FwResetPolicyData(FWTPM_Session* sess);
 #endif
 
 #ifndef FWTPM_NO_PARAM_ENC
-/* Build the parameter-encryption key = sessionKey || authValue, where authValue
- * is the bind authValue when the encrypt session authorizes its own bind entity
- * (TPM 2.0 Part 1 "Symmetric Encrypt" - the encrypt key keeps the authorized
- * entity's authValue even when bound). authHandle is the handle the session
- * authorizes (0 for a secondary encrypt-only session). */
+/* Parameter encryption uses sessionKey || the authorized entity's authValue
+ * regardless of session binding (TPM 2.0 Part 1 Sec.19.1). A secondary
+ * encrypt-only session has no authorized entity and uses sessionKey alone.
+ * TPM_RH_NULL denotes that case; zero is the valid PCR 0 handle. */
 static int FwBuildParamEncKey(FWTPM_CTX* ctx, FWTPM_Session* sess,
     TPM_HANDLE authHandle, byte* keyBuf, int keyBufMax, int* keyBufSz)
 {
+    const byte* authValue = NULL;
+    int authValueSz = 0;
     int sz = sess->sessionKey.size;
-    if (sz < 0 || sz > keyBufMax)
+
+    if (sz > (int)sizeof(sess->sessionKey.buffer) || sz > keyBufMax)
         return TPM_RC_FAILURE;
+    if (authHandle != TPM_RH_NULL) {
+        FwLookupEntityAuth(ctx, authHandle, &authValue, &authValueSz);
+    }
+    if (authValueSz < 0 || authValueSz > keyBufMax - sz ||
+            (authValueSz > 0 && authValue == NULL)) {
+        return TPM_RC_FAILURE;
+    }
     XMEMCPY(keyBuf, sess->sessionKey.buffer, sz);
-    if (FwSessionIsBoundToEntity(ctx, sess, authHandle) &&
-            sess->bindAuth.size > 0 && sz + sess->bindAuth.size <= keyBufMax) {
-        XMEMCPY(keyBuf + sz, sess->bindAuth.buffer, sess->bindAuth.size);
-        sz += sess->bindAuth.size;
+    if (authValueSz > 0) {
+        XMEMCPY(keyBuf + sz, authValue, authValueSz);
+        sz += authValueSz;
     }
     *keyBufSz = sz;
-    return 0;
+    return TPM_RC_SUCCESS;
 }
 
 /* Decrypt first TPM2B parameter of incoming command (param encryption) */
@@ -21063,9 +21071,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     TPM_RC rc = TPM_RC_SUCCESS;
 #ifndef FWTPM_NO_PARAM_ENC
     FWTPM_Session* decSess = NULL;  /* Session with the decrypt attribute */
-    TPM_HANDLE decAuthHandle = 0;   /* Handle the decrypt session authorizes */
+    TPM_HANDLE decAuthHandle = TPM_RH_NULL; /* Entity decrypt session authorizes */
     FWTPM_Session* encSess = NULL;  /* Session with the encrypt attribute */
-    TPM_HANDLE encAuthHandle = 0;   /* Handle the encrypt session authorizes */
+    TPM_HANDLE encAuthHandle = TPM_RH_NULL; /* Entity encrypt session authorizes */
     int doEncCmd = 0;               /* Decrypt incoming encrypted param */
     int doEncRsp = 0;               /* Encrypt outgoing response param */
 #endif
