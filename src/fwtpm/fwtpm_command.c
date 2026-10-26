@@ -1591,19 +1591,20 @@ static TPM_RC FwCmd_StirRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 inDataSize = 0;
 
-    (void)cmdTag;
-
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
-        rc = TPM_RC_COMMAND_SIZE;
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
+        rc = TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1;
     }
 
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &inDataSize);
         if (inDataSize > MAX_SYM_DATA) {
-            rc = TPM_RC_SIZE;
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
         else if (cmd->pos + inDataSize > cmdSize) {
-            rc = TPM_RC_COMMAND_SIZE;
+            rc = TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -1627,7 +1628,7 @@ static TPM_RC FwCmd_StirRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     }
 
     if (rc == 0) {
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
@@ -10403,47 +10404,46 @@ static TPM_RC FwCmd_Hash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
 
-    (void)ctx;
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
-        rc = TPM_RC_COMMAND_SIZE;
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
+        rc = TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1;
     }
 
-    /* No handles, no auth area for Hash */
-
-    /* Parse data (TPM2B_MAX_BUFFER) */
+    /* Unmarshal data, hashAlg and hierarchy in parameter order so each
+     * failure identifies its own field, matching reference TPM diagnostics. */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &dataSize);
         if (dataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
-            rc = TPM_RC_SIZE;
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
-    }
-    if (rc == 0 && cmd->pos + dataSize > cmdSize) {
-        rc = TPM_RC_COMMAND_SIZE;
+        else if (cmdSize - cmd->pos < dataSize) {
+            rc = TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1;
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
-
-        /* Parse hashAlg */
-        TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
-
-        /* Parse hierarchy used for the validation ticket. */
-        TPM2_Packet_ParseU32(cmd, &hierarchy);
-        if (hierarchy != TPM_RH_OWNER &&
-                hierarchy != TPM_RH_ENDORSEMENT &&
-                hierarchy != TPM_RH_PLATFORM && hierarchy != TPM_RH_NULL) {
-            rc = TPM_RC_VALUE;
-        }
-
-        wcHash = FwGetWcHashType(hashAlg);
-        if (wcHash == WC_HASH_TYPE_NONE) {
-            rc = TPM_RC_HASH;
+        if (cmdSize - cmd->pos < 2) {
+            rc = TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_2;
         }
     }
-
     if (rc == 0) {
-        digestSz = TPM2_GetHashDigestSize(hashAlg);
+        TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
+        wcHash = FwGetWcHashType(hashAlg);
+        digestSz = wc_HashGetDigestSize(wcHash);
         if (digestSz <= 0) {
-            rc = TPM_RC_HASH;
+            rc = TPM_RC_HASH | TPM_RC_P | TPM_RC_2;
+        }
+        else if (cmdSize - cmd->pos < 4) {
+            rc = TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_3;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &hierarchy);
+        if (hierarchy != TPM_RH_OWNER && hierarchy != TPM_RH_ENDORSEMENT &&
+                hierarchy != TPM_RH_PLATFORM && hierarchy != TPM_RH_NULL) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_3;
         }
     }
 

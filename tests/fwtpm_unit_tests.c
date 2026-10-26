@@ -813,6 +813,89 @@ static void test_fwtpm_stirrandom(void)
     fwtpm_pass("StirRandom:", 0);
 }
 
+/* Compare wire errors with reference TPM parameter locations. These are
+ * parameter-unmarshalling diagnostics, distinct from command-header errors. */
+static TPM_RC parameter_error_reply(FWTPM_CTX* ctx, int commandSize)
+{
+    int rspSize = 0;
+    PutU32BE(gCmd + 2, (UINT32)commandSize);
+    AssertIntEQ(FWTPM_ProcessCommand(ctx, gCmd, commandSize, gRsp,
+        &rspSize, 0), TPM_RC_SUCCESS);
+    return (TPM_RC)GetRspRC(gRsp);
+}
+
+static void test_fwtpm_parameter_error_locations(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+#ifndef FWTPM_NO_HASH_CMDS
+    static const UINT16 invalidHashes[] = { TPM_ALG_NULL, 0x7FFF,
+    #ifdef NO_SHA
+        TPM_ALG_SHA1,
+    #endif
+    #ifndef WOLFSSL_SM3
+        TPM_ALG_SM3_256,
+    #endif
+    };
+    UINT32 i;
+#endif
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_StirRandom);
+    PutU16BE(gCmd + pos, MAX_SYM_DATA + 1); pos += 2;
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_StirRandom);
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1);
+    PutU16BE(gCmd + pos, 1); pos += 2;
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1);
+
+#ifndef FWTPM_NO_HASH_CMDS
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_Hash);
+    PutU16BE(gCmd + pos, FWTPM_MAX_DATA_BUF + 1); pos += 2;
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_Hash);
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1);
+    PutU16BE(gCmd + pos, 1); pos += 2;
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1);
+    PutU16BE(gCmd + pos - 2, 0);
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_2);
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_3);
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_3);
+
+    for (i = 0; i < sizeof(invalidHashes) / sizeof(invalidHashes[0]); i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_Hash);
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU16BE(gCmd + pos, invalidHashes[i]); pos += 2;
+        PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+        AssertIntEQ(parameter_error_reply(&ctx, pos),
+            TPM_RC_HASH | TPM_RC_P | TPM_RC_2);
+    }
+#endif
+
+    /* Header commandSize mismatch remains a format-zero command error. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_StirRandom);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos + 1);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Hash and StirRandom parameter errors:", 0);
+}
+
 /* ================================================================== */
 /* 5. GetCapability                                                    */
 /* ================================================================== */
@@ -10911,6 +10994,177 @@ static UINT32 StartSessionHelper(FWTPM_CTX* ctx, UINT8 sessType)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+/* HMAC-SHA256 over a parameter hash, nonces and session attributes. */
+static void ComputeAuthHmac(const byte* key, UINT16 keySz,
+    const byte* pHash, const byte* nonceFirst, UINT16 nonceFirstSz,
+    const byte* nonceSecond, UINT16 nonceSecondSz, const byte* nonceExtra,
+    UINT16 nonceExtraSz, UINT8 attribs, byte* out)
+{
+    Hmac hmac;
+    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, key, keySz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, pHash, WC_SHA256_DIGEST_SIZE), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceFirst, nonceFirstSz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, nonceSecond, nonceSecondSz), 0);
+    if (nonceExtraSz > 0) {
+        AssertIntEQ(wc_HmacUpdate(&hmac, nonceExtra, nonceExtraSz), 0);
+    }
+    AssertIntEQ(wc_HmacUpdate(&hmac, &attribs, 1), 0);
+    AssertIntEQ(wc_HmacFinal(&hmac, out), 0);
+    wc_HmacFree(&hmac);
+}
+
+/* A Hash/StirRandom audit session authorizes no entity: its HMAC key is
+ * the unbound, unsalted session key, which is empty in this fixture. */
+static int BuildNoHandleAuditCmd(FWTPM_CTX* ctx, TPM_CC code, UINT32 sessH,
+    const byte* params, int paramsSz, const byte* nonce)
+{
+    FWTPM_Session* sess = NULL;
+    byte cc[4], cpHash[WC_SHA256_DIGEST_SIZE], mac[WC_SHA256_DIGEST_SIZE];
+    wc_Sha256 sha;
+    UINT8 attrs = TPMA_SESSION_audit | TPMA_SESSION_continueSession;
+    int i, pos, authStart;
+
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx->sessions[i].used && ctx->sessions[i].handle == sessH) {
+            sess = &ctx->sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+    AssertIntEQ(sess->sessionKey.size, 0);
+    PutU32BE(cc, code);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, cc, sizeof(cc)), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, params, paramsSz), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, cpHash), 0);
+    wc_Sha256Free(&sha);
+    ComputeAuthHmac(NULL, 0, cpHash, nonce, WC_SHA256_DIGEST_SIZE,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, NULL, 0, attrs, mac);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, code);
+    authStart = pos; pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+    XMEMCPY(gCmd + pos, nonce, WC_SHA256_DIGEST_SIZE);
+    pos += WC_SHA256_DIGEST_SIZE;
+    gCmd[pos++] = attrs;
+    PutU16BE(gCmd + pos, sizeof(mac)); pos += 2;
+    XMEMCPY(gCmd + pos, mac, sizeof(mac)); pos += sizeof(mac);
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    XMEMCPY(gCmd + pos, params, paramsSz); pos += paramsSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    return pos;
+}
+
+static void CheckNoHandleAuditReply(TPM_CC code, int rspSize,
+    const byte* nonceCaller, const byte* expectedParams, int expectedSz)
+{
+    byte prefix[8], rpHash[WC_SHA256_DIGEST_SIZE];
+    byte expectedMac[WC_SHA256_DIGEST_SIZE];
+    wc_Sha256 sha;
+    UINT16 nonceSz, macSz;
+    UINT8 attrs;
+    int authPos;
+
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    AssertIntEQ(GetU32BE(gRsp + 2), rspSize);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE), expectedSz);
+    AssertIntEQ(XMEMCMP(gRsp + TPM2_HEADER_SIZE + 4,
+        expectedParams, expectedSz), 0);
+    authPos = TPM2_HEADER_SIZE + 4 + expectedSz;
+    nonceSz = GetU16BE(gRsp + authPos);
+    AssertIntEQ(nonceSz, WC_SHA256_DIGEST_SIZE);
+    attrs = gRsp[authPos + 2 + nonceSz];
+    macSz = GetU16BE(gRsp + authPos + 3 + nonceSz);
+    AssertIntEQ(macSz, sizeof(expectedMac));
+    AssertIntEQ(rspSize, authPos + 5 + nonceSz + macSz);
+    PutU32BE(prefix, TPM_RC_SUCCESS);
+    PutU32BE(prefix + 4, code);
+    AssertIntEQ(wc_InitSha256(&sha), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, prefix, sizeof(prefix)), 0);
+    AssertIntEQ(wc_Sha256Update(&sha, gRsp + TPM2_HEADER_SIZE + 4,
+        expectedSz), 0);
+    AssertIntEQ(wc_Sha256Final(&sha, rpHash), 0);
+    wc_Sha256Free(&sha);
+    ComputeAuthHmac(NULL, 0, rpHash, gRsp + authPos + 2, nonceSz,
+        nonceCaller, WC_SHA256_DIGEST_SIZE, NULL, 0, attrs, expectedMac);
+    AssertIntEQ(XMEMCMP(gRsp + authPos + 5 + nonceSz,
+        expectedMac, sizeof(expectedMac)), 0);
+}
+
+static void test_fwtpm_session_parameter_area(TPM_CC code)
+{
+    FWTPM_CTX ctx;
+    byte params[16], nonce[WC_SHA256_DIGEST_SIZE];
+    byte expectedParams[2 + TPM_MAX_DIGEST_SIZE + 8];
+    UINT32 sessH;
+    int pos, paramsSz, expectedSz, rspSize = 0;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(params, 0, sizeof(params));
+    XMEMSET(nonce, 0x42, sizeof(nonce));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    PutU16BE(params, 8);
+    XMEMSET(params + 2, 0xAB, 8);
+    paramsSz = 10;
+#ifndef FWTPM_NO_HASH_CMDS
+    if (code == TPM_CC_Hash) {
+        PutU16BE(params + paramsSz, TPM_ALG_SHA256); paramsSz += 2;
+        PutU32BE(params + paramsSz, TPM_RH_NULL); paramsSz += 4;
+    }
+#endif
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, code);
+    XMEMCPY(gCmd + pos, params, paramsSz); pos += paramsSz;
+    AssertIntEQ(parameter_error_reply(&ctx, pos), TPM_RC_SUCCESS);
+    expectedSz = (int)GetU32BE(gRsp + 2) - TPM2_HEADER_SIZE;
+    AssertIntLE(expectedSz, sizeof(expectedParams));
+    XMEMCPY(expectedParams, gRsp + TPM2_HEADER_SIZE, expectedSz);
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    pos = BuildNoHandleAuditCmd(&ctx, code, sessH, params, paramsSz, nonce);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    CheckNoHandleAuditReply(code, rspSize, nonce, expectedParams, expectedSz);
+
+    /* The same locations apply after the authorization area: missing and
+     * oversized data are parameter1, then Hash's hash and hierarchy are2/3. */
+    paramsSz = 0;
+    pos = BuildNoHandleAuditCmd(&ctx, code, sessH, params, paramsSz, nonce);
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_1);
+    PutU16BE(params, code == TPM_CC_StirRandom ?
+        MAX_SYM_DATA + 1 : FWTPM_MAX_DATA_BUF + 1);
+    pos = BuildNoHandleAuditCmd(&ctx, code, sessH, params, 2, nonce);
+    AssertIntEQ(parameter_error_reply(&ctx, pos),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+#ifndef FWTPM_NO_HASH_CMDS
+    if (code == TPM_CC_Hash) {
+        PutU16BE(params, 0);
+        pos = BuildNoHandleAuditCmd(&ctx, code, sessH, params, 2, nonce);
+        AssertIntEQ(parameter_error_reply(&ctx, pos),
+            TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_2);
+        PutU16BE(params + 2, TPM_ALG_NULL);
+        PutU32BE(params + 4, TPM_RH_NULL);
+        pos = BuildNoHandleAuditCmd(&ctx, code, sessH, params, 8, nonce);
+        AssertIntEQ(parameter_error_reply(&ctx, pos),
+            TPM_RC_HASH | TPM_RC_P | TPM_RC_2);
+        PutU16BE(params + 2, TPM_ALG_SHA256);
+        pos = BuildNoHandleAuditCmd(&ctx, code, sessH, params, 4, nonce);
+        AssertIntEQ(parameter_error_reply(&ctx, pos),
+            TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_3);
+        PutU32BE(params + 4, TPM_RH_LOCKOUT);
+        pos = BuildNoHandleAuditCmd(&ctx, code, sessH, params, 8, nonce);
+        AssertIntEQ(parameter_error_reply(&ctx, pos),
+            TPM_RC_VALUE | TPM_RC_P | TPM_RC_3);
+    }
+#endif
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass(code == TPM_CC_StirRandom ? "StirRandom session parameters:" :
+        "Hash session parameters:", 0);
+}
+
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
 int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
     const FWTPM_Session* sess, TPM_HANDLE handle);
@@ -16668,26 +16922,6 @@ static void test_fwtpm_param_enc_session_selection(void)
     fwtpm_pass("Param-enc follows decrypt/encrypt session:", 0);
 }
 
-/* HMAC-SHA256 over a parameter hash, nonces and session attributes. */
-static void ComputeAuthHmac(const byte* key, UINT16 keySz,
-    const byte* pHash, const byte* nonceFirst, UINT16 nonceFirstSz,
-    const byte* nonceSecond, UINT16 nonceSecondSz, const byte* nonceExtra,
-    UINT16 nonceExtraSz, UINT8 attribs, byte* out)
-{
-    Hmac hmac;
-    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
-    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, key, keySz), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, pHash, WC_SHA256_DIGEST_SIZE), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, nonceFirst, nonceFirstSz), 0);
-    AssertIntEQ(wc_HmacUpdate(&hmac, nonceSecond, nonceSecondSz), 0);
-    if (nonceExtraSz > 0) {
-        AssertIntEQ(wc_HmacUpdate(&hmac, nonceExtra, nonceExtraSz), 0);
-    }
-    AssertIntEQ(wc_HmacUpdate(&hmac, &attribs, 1), 0);
-    AssertIntEQ(wc_HmacFinal(&hmac, out), 0);
-    wc_HmacFree(&hmac);
-}
-
 /* An authorizing session always includes the current entity authValue in
  * parameter encryption, irrespective of its bind target (Part 1 Sec.19.1).
  * Use non-empty, distinct auth/session/bind keys and check both directions. */
@@ -20613,6 +20847,19 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 {
     printf("fwTPM Unit Tests\n");
+    if (argc == 2 && XSTRCMP(argv[1], "session-parameter-errors") == 0) {
+        test_fwtpm_session_parameter_area(TPM_CC_StirRandom);
+    #ifndef FWTPM_NO_HASH_CMDS
+        test_fwtpm_session_parameter_area(TPM_CC_Hash);
+    #endif
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "parameter-errors") == 0) {
+        (void)remove(FWTPM_NV_FILE);
+        test_fwtpm_parameter_error_locations();
+        return 0;
+    }
+
 
     /* Remove stale NV state to ensure clean test runs */
     (void)remove(FWTPM_NV_FILE);
@@ -20787,6 +21034,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getrandom();
     test_fwtpm_getrandom_zero();
     test_fwtpm_stirrandom();
+    test_fwtpm_parameter_error_locations();
+    test_fwtpm_session_parameter_area(TPM_CC_StirRandom);
+#ifndef FWTPM_NO_HASH_CMDS
+    test_fwtpm_session_parameter_area(TPM_CC_Hash);
+#endif
 
     /* GetCapability */
     test_fwtpm_getcap_algorithms();
