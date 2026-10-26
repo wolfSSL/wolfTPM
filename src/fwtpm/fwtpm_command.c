@@ -2421,7 +2421,7 @@ static TPM_RC FwTestHashAlg(UINT16 hashAlg)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
 
-    if (TPM2_GetHashDigestSize(hashAlg) <= 0) {
+    if (wc_HashGetDigestSize(FwGetWcHashType(hashAlg)) <= 0) {
         rc = TPM_RC_HASH;
     }
     return rc;
@@ -2468,6 +2468,10 @@ static TPM_RC FwTestRsaScheme(const TPMT_RSA_SCHEME* scheme)
     else if (alg == TPM_ALG_RSASSA || alg == TPM_ALG_RSAPSS ||
             alg == TPM_ALG_OAEP) {
         rc = FwTestHashAlg(scheme->details.anySig.hashAlg);
+        if (rc == 0 && alg != TPM_ALG_RSASSA &&
+                FwGetMgfType(scheme->details.anySig.hashAlg) == WC_MGF1NONE) {
+            rc = TPM_RC_SCHEME;
+        }
     }
     else {
         rc = TPM_RC_SCHEME;
@@ -2517,6 +2521,51 @@ static TPM_RC FwTestKdfScheme(const TPMT_KDF_SCHEME* kdf)
 }
 #endif /* HAVE_ECC */
 
+/* Reject an RSA key size or ECC curve this build cannot generate.
+ * TPMI_RSA_KEY_BITS has no default encoding and must describe a size the
+ * public and private buffers can hold. */
+static TPM_RC FwTestKeyParms(UINT16 type, const TPMU_PUBLIC_PARMS* params)
+{
+#ifndef NO_RSA
+    if (type == TPM_ALG_RSA) {
+        UINT16 keyBits = params->rsaDetail.keyBits;
+        if (keyBits > MAX_RSA_KEY_BITS ||
+                (keyBits != 1024 && keyBits != 2048 &&
+                 keyBits != 3072 && keyBits != 4096)) {
+            return TPM_RC_VALUE;
+        }
+    }
+#endif
+#ifdef HAVE_ECC
+    if (type == TPM_ALG_ECC &&
+            FwGetWcCurveId(params->eccDetail.curveID) < 0) {
+        return TPM_RC_CURVE;
+    }
+#endif
+    (void)type;
+    (void)params;
+    return TPM_RC_SUCCESS;
+}
+
+/* Check an object creation template (inPublic, parameter 2). A decrypt-capable
+ * RSA key also needs an MGF1 for its nameAlg, which encrypts seeds for its
+ * children, imports and salted sessions with RSA-OAEP. */
+static TPM_RC FwTestCreateParms(const TPMT_PUBLIC* pub)
+{
+    TPM_RC rc = FwTestKeyParms(pub->type, &pub->parameters);
+#ifndef NO_RSA
+    if (rc == 0 && pub->type == TPM_ALG_RSA &&
+            (pub->objectAttributes & TPMA_OBJECT_decrypt) != 0 &&
+            FwGetMgfType(pub->nameAlg) == WC_MGF1NONE) {
+        rc = TPM_RC_HASH;
+    }
+#endif
+    if (rc != 0) {
+        rc |= TPM_RC_P | TPM_RC_2;
+    }
+    return rc;
+}
+
 /* Validate the TPMU_PUBLIC_PARMS body of a TPMT_PUBLIC_PARMS. The type
  * selector has already been consumed from the command packet. */
 static TPM_RC FwTestPublicParms(TPM2_Packet* cmd, UINT16 algType)
@@ -2553,15 +2602,12 @@ static TPM_RC FwTestPublicParms(TPM2_Packet* cmd, UINT16 algType)
     }
 #ifndef NO_RSA
     else if (algType == TPM_ALG_RSA) {
-        UINT16 keyBits = params.rsaDetail.keyBits;
         rc = FwTestSymDef(&params.rsaDetail.symmetric);
         if (rc == 0) {
             rc = FwTestRsaScheme(&params.rsaDetail.scheme);
         }
-        /* keyBits 0 selects the 2048-bit default in FwDeriveRsaPrimaryKey. */
-        if (rc == 0 && keyBits != 0 && keyBits != 1024 && keyBits != 2048 &&
-                keyBits != 3072 && keyBits != 4096) {
-            rc = TPM_RC_KEY_SIZE;
+        if (rc == 0) {
+            rc = FwTestKeyParms(algType, &params);
         }
         /* exponent 0 selects the default; anything else must be odd > 2. */
         if (rc == 0 && params.rsaDetail.exponent != 0 &&
@@ -2577,8 +2623,8 @@ static TPM_RC FwTestPublicParms(TPM2_Packet* cmd, UINT16 algType)
         if (rc == 0) {
             rc = FwTestEccScheme(&params.eccDetail.scheme);
         }
-        if (rc == 0 && FwGetWcCurveId(params.eccDetail.curveID) < 0) {
-            rc = TPM_RC_CURVE;
+        if (rc == 0) {
+            rc = FwTestKeyParms(algType, &params);
         }
         if (rc == 0) {
             rc = FwTestKdfScheme(&params.eccDetail.kdf);
@@ -2588,7 +2634,7 @@ static TPM_RC FwTestPublicParms(TPM2_Packet* cmd, UINT16 algType)
     else {
         rc = TPM_RC_TYPE;
     }
-    return rc;
+    return rc == TPM_RC_KEY_SIZE ? TPM_RC_VALUE : rc;
 }
 
 #ifdef WOLFTPM_MLDSA
@@ -2976,6 +3022,12 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+    }
+
+    /* TestParms has one compound parameter. Format-one validation errors
+     * identify it; format-zero command errors have no parameter index. */
+    if ((rc & RC_FMT1) != 0) {
+        rc |= TPM_RC_P | TPM_RC_1;
     }
 
     return rc;
@@ -4102,6 +4154,9 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
+    }
+    if (rc == 0) {
+        rc = FwTestCreateParms(&inPublic->publicArea);
     }
     if (rc == 0) {
         rc = FwValidateCreateAttributes(&inPublic->publicArea, NULL,
@@ -7030,6 +7085,9 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
     }
     if (rc == 0) {
+        rc = FwTestCreateParms(&inPublic->publicArea);
+    }
+    if (rc == 0) {
         rc = FwValidateCreateAttributes(&inPublic->publicArea, parent,
             sensDataSize);
     }
@@ -9181,6 +9239,9 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * key generation, so no size check applies here. */
     if (rc == 0) {
         rc = FwValidatePublicTemplate(&inPublic->publicArea, 0);
+    }
+    if (rc == 0) {
+        rc = FwTestCreateParms(&inPublic->publicArea);
     }
 
     /* Generate key -- same logic as Create */

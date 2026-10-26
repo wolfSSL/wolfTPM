@@ -7538,7 +7538,7 @@ static void test_fwtpm_testparms_mldsa_extmu_returns_ext_mu(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_EXT_MU);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_EXT_MU | TPM_RC_P | TPM_RC_1);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("TestParms MLDSA extMu=YES (EXT_MU):", 1);
@@ -9935,7 +9935,8 @@ static void test_fwtpm_hash_mldsa_weak_prehash(void)
         PutU32BE(gCmd + 2, (UINT32)pos);
         rspSize = 0;
         FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-        AssertIntEQ(GetRspRC(gRsp), gPreHashCases[i].rc);
+        AssertIntEQ(GetRspRC(gRsp), gPreHashCases[i].rc == TPM_RC_SUCCESS ?
+            TPM_RC_SUCCESS : gPreHashCases[i].rc | TPM_RC_P | TPM_RC_1);
     }
 
     /* An unknown parameter set stays TPM_RC_PARMS, not TPM_RC_HASH. */
@@ -13906,12 +13907,60 @@ static void test_fwtpm_mldsa_nv_certify_sign_and_verify(void)
 /* Group H: Hierarchy & Misc                                           */
 /* ================================================================== */
 
+/* Send a CreatePrimary template with one 16-bit field replaced through
+ * CreatePrimary, Create and CreateLoaded, where inPublic is parameter 2. */
+static void AssertCreateTemplateRc(FWTPM_CTX* ctx, TPM_ALG_ID algType,
+    UINT32 parentH, int fieldOff, UINT16 value, TPM_RC expected)
+{
+    static const TPM_CC codes[] = { TPM_CC_CreatePrimary, TPM_CC_Create,
+        TPM_CC_CreateLoaded };
+    int i, pos, rspSize;
+    TPM_RC rc;
+
+    for (i = 0; i < (int)(sizeof(codes) / sizeof(codes[0])); i++) {
+        pos = BuildCreatePrimaryCmd(gCmd, algType);
+        PutU16BE(gCmd + fieldOff, value);
+        if (codes[i] != TPM_CC_CreatePrimary) {
+            PutU32BE(gCmd + 6, codes[i]);
+            PutU32BE(gCmd + 10, parentH);
+        }
+        if (codes[i] == TPM_CC_CreateLoaded) {
+            /* No outsideInfo or creationPCR */
+            pos -= 6;
+            PutU32BE(gCmd + 2, (UINT32)pos);
+        }
+        rspSize = 0;
+        FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+        rc = GetRspRC(gRsp);
+        if (rc != expected) {
+            printf("CC 0x%x: 0x%x, expected 0x%x\n", (unsigned)codes[i],
+                (unsigned)rc, (unsigned)expected);
+        }
+        AssertIntEQ(rc, expected);
+    }
+}
+
 static void test_fwtpm_test_parms(void)
 {
     FWTPM_CTX ctx;
     int pos, rspSize;
+    static const UINT16 hashes[] = { TPM_ALG_SHA1, TPM_ALG_SHA256,
+        TPM_ALG_SHA384, TPM_ALG_SHA512, TPM_ALG_SHA3_256,
+        TPM_ALG_SHA3_384, TPM_ALG_SHA3_512, TPM_ALG_SM3_256 };
+    UINT32 hashIndex;
+    UINT32 parentH;
+#ifndef NO_RSA
+    static const UINT16 keyBits[] = { 0, 1024, 2048, 3072, 4096 };
+    UINT32 i;
+#endif
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifndef NO_RSA
+    parentH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#else
+    parentH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#endif
+    AssertIntNE(parentH, 0);
 
 #ifndef NO_RSA
     /* TestParms: RSA-2048. TPMS_RSA_PARMS is symmetric, scheme, keyBits,
@@ -13927,6 +13976,32 @@ static void test_fwtpm_test_parms(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
+    /* TPMI_RSA_KEY_BITS has no zero/default encoding, and TestParms must
+     * reject standard sizes that exceed this build's object buffers. */
+    for (i = 0; i < sizeof(keyBits) / sizeof(keyBits[0]); i++) {
+        TPM_RC expected = keyBits[i] != 0 &&
+            keyBits[i] <= MAX_RSA_KEY_BITS ? TPM_RC_SUCCESS :
+            TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_TestParms);
+        PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+        PutU16BE(gCmd + pos, keyBits[i]); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), expected);
+        /* Object creation applies the same check to inPublic. */
+        if (expected != TPM_RC_SUCCESS) {
+            AssertIntGT(BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA), 55);
+            AssertIntEQ(GetU16BE(gCmd + 53), 2048);
+            AssertCreateTemplateRc(&ctx, TPM_ALG_RSA, parentH, 53,
+                keyBits[i], TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+        }
+    }
+
     /* An unsupported RSA key size must be rejected, not accepted. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
     PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
@@ -13937,7 +14012,7 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
 
     /* A bogus RSA signing scheme must be rejected. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
@@ -13947,7 +14022,7 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_1);
 #else
     /* An ECC-only build drops TPM_ALG_RSA from the TPMI_ALG_PUBLIC selectors
      * TestParms accepts, so it must report the type as unsupported rather than
@@ -13961,7 +14036,7 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE | TPM_RC_P | TPM_RC_1);
 #endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
@@ -13975,7 +14050,13 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_CURVE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_CURVE | TPM_RC_P | TPM_RC_1);
+
+    /* Object creation reports the same curve error on inPublic. */
+    AssertIntGT(BuildCreatePrimaryCmd(gCmd, TPM_ALG_ECC), 55);
+    AssertIntEQ(GetU16BE(gCmd + 53), TPM_ECC_NIST_P256);
+    AssertCreateTemplateRc(&ctx, TPM_ALG_ECC, parentH, 53, 0x7F7F,
+        TPM_RC_CURVE | TPM_RC_P | TPM_RC_2);
 
     /* The DHKEM shape used by Encapsulate/Decapsulate must be accepted. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
@@ -14001,8 +14082,49 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HASH);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HASH | TPM_RC_P | TPM_RC_1);
 #endif
+
+    /* A recognized hash identifier does not mean the build implements it. */
+    for (hashIndex = 0; hashIndex < sizeof(hashes) / sizeof(hashes[0]);
+            hashIndex++) {
+        TPM_RC expected = wc_HashGetDigestSize(FwGetWcHashType(
+            hashes[hashIndex])) > 0 ? TPM_RC_SUCCESS :
+            TPM_RC_HASH | TPM_RC_P | TPM_RC_1;
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+        PutU16BE(gCmd + pos, TPM_ALG_KEYEDHASH); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_HMAC); pos += 2;
+        PutU16BE(gCmd + pos, hashes[hashIndex]); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), expected);
+    #ifndef NO_RSA
+        /* PSS also needs an MGF1 selector for the same hash. */
+        if (expected == TPM_RC_SUCCESS &&
+                FwGetMgfType(hashes[hashIndex]) == WC_MGF1NONE) {
+            expected = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_1;
+        }
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+        PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_RSAPSS); pos += 2;
+        PutU16BE(gCmd + pos, hashes[hashIndex]); pos += 2;
+        PutU16BE(gCmd + pos, 2048); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), expected);
+        /* So does a decrypt key's nameAlg, which seeds RSA-OAEP. */
+        if (expected == (TPM_RC_SCHEME | TPM_RC_P | TPM_RC_1)) {
+            AssertIntGT(BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA), 39);
+            AssertIntEQ(GetU16BE(gCmd + 37), TPM_ALG_SHA256);
+            AssertCreateTemplateRc(&ctx, TPM_ALG_RSA, parentH, 37,
+                hashes[hashIndex], TPM_RC_HASH | TPM_RC_P | TPM_RC_2);
+        }
+    #endif
+    }
 
     /* A hash algorithm is not a TPMI_ALG_PUBLIC selector. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
@@ -14010,7 +14132,7 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE | TPM_RC_P | TPM_RC_1);
 
     /* Neither is a bare symmetric algorithm or TPM_ALG_NULL. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
@@ -14018,14 +14140,14 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE | TPM_RC_P | TPM_RC_1);
 
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE | TPM_RC_P | TPM_RC_1);
 
 #ifndef NO_AES
     /* SYMCIPHER: AES-128-CFB is supported, a bad key size is not. */
@@ -14047,7 +14169,7 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
 #else
     /* Without AES the only symmetric algorithm is unsupported. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
@@ -14058,8 +14180,15 @@ static void test_fwtpm_test_parms(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SYMMETRIC);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_1);
 #endif /* !NO_AES */
+
+    /* Format-zero framing errors must not acquire parameter bits. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, TPM2_HEADER_SIZE,
+        TPM_CC_TestParms);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
 
     FWTPM_Cleanup(&ctx);
 #ifndef NO_RSA
@@ -19590,8 +19719,49 @@ static void test_fwtpm_rsa_sha3_no_mgf(void)
 }
 #endif
 
+/* RSA-OAEP seed encryption works for every nameAlg an RSA decrypt key can be
+ * created with. */
+static void test_fwtpm_rsa_seed_hashes(void)
+{
+    static const UINT16 hashes[] = { TPM_ALG_SHA1, TPM_ALG_SHA256,
+        TPM_ALG_SHA384, TPM_ALG_SHA512, TPM_ALG_SHA3_256,
+        TPM_ALG_SHA3_384, TPM_ALG_SHA3_512 };
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj;
+    UINT32 keyH;
+    UINT32 i;
+    byte seed1[TPM_MAX_DIGEST_SIZE], seed2[TPM_MAX_DIGEST_SIZE];
+    byte encSeed[MAX_RSA_KEY_BYTES];
+    int seed1Sz, seed2Sz, encSeedSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(keyH, 0);
+    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    for (i = 0; i < sizeof(hashes) / sizeof(hashes[0]); i++) {
+        if (wc_HashGetDigestSize(FwGetWcHashType(hashes[i])) <= 0 ||
+                FwGetMgfType(hashes[i]) == WC_MGF1NONE) {
+            continue;
+        }
+        obj->pub.nameAlg = hashes[i];
+        seed1Sz = seed2Sz = encSeedSz = 0;
+        AssertIntEQ(FwEncryptSeed(&ctx, obj, NULL, 0, "SECRET",
+            seed1, (int)sizeof(seed1), &seed1Sz,
+            encSeed, (int)sizeof(encSeed), &encSeedSz), TPM_RC_SUCCESS);
+        AssertIntEQ(FwDecryptSeed(&ctx, obj, encSeed, (UINT16)encSeedSz,
+            NULL, 0, "SECRET", seed2, (int)sizeof(seed2), &seed2Sz),
+            TPM_RC_SUCCESS);
+        AssertIntEQ(seed1Sz, seed2Sz);
+        AssertIntEQ(XMEMCMP(seed1, seed2, seed1Sz), 0);
+    }
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("RSA seed encryption for each nameAlg:", 0);
+}
+
 static void test_fwtpm_rsa_hash_matrix(void)
 {
+    test_fwtpm_rsa_seed_hashes();
 #ifndef NO_SHA
     test_fwtpm_rsa_hash_interop(TPM_ALG_SHA1,
         WC_HASH_TYPE_SHA, WC_MGF1SHA1);
@@ -19689,6 +19859,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
         return 0;
     }
 #endif
+
+    if (argc == 2 && XSTRCMP(argv[1], "test-parms") == 0) {
+        test_fwtpm_test_parms();
+        return 0;
+    }
 
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();
