@@ -17343,7 +17343,7 @@ static void test_fwtpm_context_save(void)
 static void test_fwtpm_context_load_replay_rejected(void)
 {
     FWTPM_CTX ctx;
-    int rspSize = 0, ctxSz, pos;
+    int rspSize = 0, ctxSz, pos, i;
     UINT32 keyH, sessH;
     byte savedObj[MAX_CONTEXT_SIZE];
     byte savedSess[MAX_CONTEXT_SIZE];
@@ -17393,6 +17393,27 @@ static void test_fwtpm_context_load_replay_rejected(void)
     ctxSz = rspSize - TPM2_HEADER_SIZE;
     AssertIntGT(ctxSz, 0);
     memcpy(savedSess, gRsp + TPM2_HEADER_SIZE, ctxSz);
+
+    /* Outer metadata must match the protected session and replay record.
+     * Rejection must preserve the original context for a valid load. */
+    for (i = 0; i < 3; i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+        XMEMCPY(gCmd + pos, savedSess, ctxSz); pos += ctxSz;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        if (i == 0) {
+            PutU32BE(gCmd + TPM2_HEADER_SIZE + 8, sessH + 42);
+        }
+        else if (i == 1) {
+            PutU32BE(gCmd + TPM2_HEADER_SIZE + 8, POLICY_SESSION_FIRST);
+        }
+        else {
+            PutU32BE(gCmd + TPM2_HEADER_SIZE + 12, TPM_RH_OWNER);
+        }
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_INTEGRITY);
+        AssertIntEQ(ctx.contextLiveCount, 1);
+    }
 
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
     memcpy(gCmd + pos, savedSess, ctxSz); pos += ctxSz;
@@ -17509,6 +17530,8 @@ static void test_fwtpm_context_object_roundtrip(void)
     int rspSize = 0, ctxSz, pos;
     UINT32 keyH, loadedH;
     byte savedObj[MAX_CONTEXT_SIZE];
+    FWTPM_Object original;
+    int slot;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -17527,6 +17550,14 @@ static void test_fwtpm_context_object_roundtrip(void)
     AssertIntGT(ctxSz, 0);
     memcpy(savedObj, gRsp + TPM2_HEADER_SIZE, ctxSz);
 
+    original = ctx.objects[keyH - TRANSIENT_FIRST];
+    FlushHandle(&ctx, keyH);
+    /* Occupy the original slot: loading must restore the saved object into
+     * another slot, rather than alias this replacement object. */
+    ctx.objects[0].used = 1;
+    ctx.objects[0].handle = keyH;
+    ctx.objects[0].pub.type = TPM_ALG_KEYEDHASH;
+
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
     memcpy(gCmd + pos, savedObj, ctxSz); pos += ctxSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -17534,7 +17565,16 @@ static void test_fwtpm_context_object_roundtrip(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
-    AssertIntEQ(loadedH, keyH);
+    AssertIntNE(loadedH, keyH);
+    slot = (int)(loadedH - TRANSIENT_FIRST);
+    AssertIntLE(slot, FWTPM_MAX_OBJECTS - 1);
+    AssertIntEQ(ctx.objects[slot].privKeySize, original.privKeySize);
+    AssertIntEQ(XMEMCMP(ctx.objects[slot].privKey, original.privKey,
+        original.privKeySize), 0);
+    AssertIntEQ(ctx.objects[slot].name.size, original.name.size);
+    AssertIntEQ(XMEMCMP(ctx.objects[slot].name.name, original.name.name,
+        original.name.size), 0);
+    AssertIntEQ(ctx.objects[0].pub.type, TPM_ALG_KEYEDHASH);
 
     /* Object is still usable: a ContextSave of the returned handle succeeds. */
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
@@ -17543,11 +17583,168 @@ static void test_fwtpm_context_object_roundtrip(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    FlushHandle(&ctx, keyH);
+    /* Fill the remaining slots. A failed load must not displace an object. */
+    for (slot = 0; slot < FWTPM_MAX_OBJECTS; slot++) {
+        ctx.objects[slot].used = 1;
+        ctx.objects[slot].handle = TRANSIENT_FIRST + (UINT32)slot;
+    }
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    XMEMCPY(gCmd + pos, savedObj, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_OBJECT_MEMORY);
+
+    /* Authentication and hierarchy checks apply even when slots are full. */
+    ctx.shDisabled = 1;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HIERARCHY);
+    ctx.shDisabled = 0;
+    ctx.ownerSeed[0] ^= 1;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_INTEGRITY);
+    ctx.ownerSeed[0] ^= 1;
+    gCmd[TPM2_HEADER_SIZE + 15] ^= 1; /* outer hierarchy */
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_INTEGRITY);
+    gCmd[TPM2_HEADER_SIZE + 15] ^= 1;
+    gCmd[pos - 1] ^= 1; /* ciphertext MAC */
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_INTEGRITY);
+
+    wc_ForceZero(&original, sizeof(original));
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tContextLoad object roundtrip:\tPassed\n");
 }
 #endif /* !FWTPM_NO_CONTEXT */
+
+#ifndef FWTPM_NO_CONTEXT
+/* A legacy-provenance object (hierarchy 0) saves and loads, and its context
+ * depends on both the storage and endorsement hierarchies. */
+static void test_fwtpm_context_legacy_hierarchy(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, ctxSz, pos;
+    UINT32 keyH, loadedH;
+    byte savedObj[MAX_CONTEXT_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+    ctx.objects[keyH - TRANSIENT_FIRST].hierarchy = 0;
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSz, 0);
+    memcpy(savedObj, gRsp + TPM2_HEADER_SIZE, ctxSz);
+    FlushHandle(&ctx, keyH);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    XMEMCPY(gCmd + pos, savedObj, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    ctx.ehDisabled = 1;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HIERARCHY);
+    ctx.ehDisabled = 0;
+    ctx.endorsementSeed[0] ^= 1;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_INTEGRITY);
+    ctx.endorsementSeed[0] ^= 1;
+    ctx.ownerSeed[0] ^= 1;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_INTEGRITY);
+    ctx.ownerSeed[0] ^= 1;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(ctx.objects[loadedH - TRANSIENT_FIRST].hierarchy, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ContextLoad legacy hierarchy object:", 0);
+}
+#endif /* !FWTPM_NO_CONTEXT */
+
+#if !defined(FWTPM_NO_CONTEXT) && !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+/* The largest RSA key must fit, retain non-empty authorization, and perform a
+ * private operation after every live copy has been flushed. */
+static void test_fwtpm_context_rsa_max(void)
+{
+    static const byte message[] = "restored RSA context";
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj;
+    RsaKey key;
+    byte saved[MAX_CONTEXT_SIZE];
+    byte encrypted[MAX_RSA_KEY_BYTES];
+    int pos, ctxSz, rspSize = 0, cipherSz;
+    UINT32 handle;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&key, 0, sizeof(key));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    obj = &ctx.objects[0];
+    obj->used = 1;
+    obj->handle = TRANSIENT_FIRST;
+    obj->hierarchy = TPM_RH_OWNER;
+    obj->pub.type = TPM_ALG_RSA;
+    obj->pub.nameAlg = TPM_ALG_SHA256;
+    obj->pub.objectAttributes = TPMA_OBJECT_decrypt | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA;
+    obj->pub.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    obj->pub.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+    obj->pub.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    obj->authValue.size = 4;
+    XMEMCPY(obj->authValue.buffer, "pass", 4);
+    AssertIntEQ(FwGenerateRsaKey(&ctx.rng, MAX_RSA_KEY_BITS, WC_RSA_EXPONENT,
+        &obj->pub.unique.rsa, obj->privKey, sizeof(obj->privKey),
+        &obj->privKeySize), 0);
+    AssertIntEQ(FwComputePublicName(&obj->pub, &obj->name), 0);
+    AssertIntEQ(FwImportRsaKey(obj, &key), 0);
+    cipherSz = wc_RsaPublicEncrypt_ex(message, sizeof(message) - 1, encrypted,
+        sizeof(encrypted), &key, &ctx.rng, WC_RSA_OAEP_PAD,
+        WC_HASH_TYPE_SHA256, WC_MGF1SHA256, NULL, 0);
+    AssertIntEQ(cipherSz, MAX_RSA_KEY_BITS / 8);
+    wc_FreeRsaKey(&key);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + pos, obj->handle); pos += 4;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntLE(ctxSz, sizeof(saved));
+    XMEMCPY(saved, gRsp + TPM2_HEADER_SIZE, ctxSz);
+    FlushHandle(&ctx, obj->handle);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    XMEMCPY(gCmd + pos, saved, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_RSA_Decrypt);
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, (const byte*)"pass", 4);
+    PutU16BE(gCmd + pos, (UINT16)cipherSz); pos += 2;
+    XMEMCPY(gCmd + pos, encrypted, cipherSz); pos += cipherSz;
+    PutU16BE(gCmd + pos, TPM_ALG_OAEP); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), sizeof(message) - 1);
+    AssertIntEQ(XMEMCMP(gRsp + TPM2_HEADER_SIZE + 6, message,
+        sizeof(message) - 1), 0);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ContextLoad restores maximum RSA key and auth:", 0);
+}
+#endif
 
 /* The context type is bound into the blob MAC, so a blob wrapped for one
  * domain must not verify when unwrapped as the other. */
@@ -19831,6 +20028,17 @@ int fwtpm_unit_tests(int argc, char *argv[])
         return 0;
     }
 
+#ifndef FWTPM_NO_CONTEXT
+    if (argc == 2 && XSTRCMP(argv[1], "object-context") == 0) {
+        test_fwtpm_context_object_roundtrip();
+        test_fwtpm_context_legacy_hierarchy();
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+        test_fwtpm_context_rsa_max();
+#endif
+        return 0;
+    }
+#endif
+
     if (argc == 2 && XSTRCMP(argv[1], "clear-seed") == 0) {
         test_fwtpm_clear();
         return 0;
@@ -20172,6 +20380,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_contextload_forged_object_blob_rejected();
     test_fwtpm_contextload_short_blob_rejected();
     test_fwtpm_context_object_roundtrip();
+    test_fwtpm_context_legacy_hierarchy();
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    test_fwtpm_context_rsa_max();
+#endif
     test_fwtpm_context_blob_domain_separation();
     test_fwtpm_reset_command_client_flushes_transient();
 #endif /* !FWTPM_NO_CONTEXT */
