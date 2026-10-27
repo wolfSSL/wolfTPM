@@ -3904,11 +3904,8 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
                         RSA_PSS_SALT_LEN_DEFAULT, rsaKey, &ctx->rng);
                 }
                 else {
-                    /* RSASSA PKCS#1 v1.5: wrap in ASN.1 DigestInfo.
-                     * Size for the full DigestInfo (SEQUENCE +
-                     * AlgorithmIdentifier + OCTET STRING); SHA-512 needs
-                     * 83 bytes. */
-                    byte encHash[MAX_DER_DIGEST_SZ];
+                    /* RSASSA PKCS#1 v1.5: wrap in ASN.1 DigestInfo */
+                    byte encHash[WOLFTPM_MAX_DER_DIGEST_SZ];
                     int encSz;
                     int oid = wc_HashGetOID(
                         (enum wc_HashType)wcHashType);
@@ -4066,7 +4063,7 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                 }
                 else {
                     FWTPM_DECLARE_BUF(decSig, FWTPM_MAX_PUB_BUF);
-                    byte expDI[MAX_DER_DIGEST_SZ]; /* full DigestInfo */
+                    byte expDI[WOLFTPM_MAX_DER_DIGEST_SZ];
                     int wcHash = FwGetRsaHashOid(
                         sig->signature.rsassa.hash);
                     int oid = wc_HashGetOID(

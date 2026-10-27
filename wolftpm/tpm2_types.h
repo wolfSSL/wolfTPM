@@ -602,6 +602,19 @@ typedef int64_t  INT64;
 #define TPM_MAX_DIGEST_SIZE    TPM_SHA512_DIGEST_SIZE
 #endif
 
+/* Max DER-encoded PKCS#1 v1.5 DigestInfo (RFC 8017 Sec.9.2):
+ *   DigestInfo ::= SEQUENCE { AlgorithmIdentifier, OCTET STRING digest }
+ * Header sizes are worst case and match wolfSSL MAX_SEQ_SZ, MAX_ALGO_SZ and
+ * MAX_ENCODED_DIG_ASN_SZ, so with a 64-byte max digest this equals wolfSSL
+ * MAX_DER_DIGEST_SZ (100). wolfSSL only exports that constant since v5.8.2. */
+#define WOLFTPM_DER_SEQ_HDR_SZ      6  /* tag + up to 5-byte length */
+#define WOLFTPM_DER_ALGO_ID_SZ      20 /* AlgorithmIdentifier: OID + NULL */
+#define WOLFTPM_DER_OCTET_HDR_SZ    10 /* OCTET STRING tag + length */
+#ifndef WOLFTPM_MAX_DER_DIGEST_SZ
+#define WOLFTPM_MAX_DER_DIGEST_SZ   (WOLFTPM_DER_SEQ_HDR_SZ + \
+    WOLFTPM_DER_ALGO_ID_SZ + WOLFTPM_DER_OCTET_HDR_SZ + TPM_MAX_DIGEST_SIZE)
+#endif
+
 
 /* ---------------------------------------------------------------------------*/
 /* CONFIGURABLE LIMITS */

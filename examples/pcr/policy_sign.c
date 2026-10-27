@@ -67,13 +67,6 @@ static void usage(void)
     printf("./examples/pcr/policy_sign -pcr=16 -pcr=15 -pcrdigest=ba8ac02be16d9d33080d98611d70bb869aa8ac3fc684ab732b91f75f164b36bc\n");
 }
 
-/* Max DER DigestInfo size: SEQUENCE + AlgorithmIdentifier + OCTET STRING
- * header + digest. Mirrors wolfSSL's MAX_DER_DIGEST_SZ, which is not public
- * in older wolfSSL releases. SHA-512 DigestInfo is 83 bytes. */
-#ifndef WOLFTPM_MAX_DER_DIGEST_SZ
-#define WOLFTPM_MAX_DER_DIGEST_SZ (WC_MAX_DIGEST_SIZE + 36)
-#endif
-
 /* Function to sign policy with external key */
 static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     TPM_ALG_ID hashAlg, byte* hash, word32 hashSz, byte* sig, word32* sigSz,
