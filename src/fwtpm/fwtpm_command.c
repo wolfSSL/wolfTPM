@@ -9518,6 +9518,12 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Use key's scheme if command scheme is NULL */
         FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
     }
+    /* Part 3 Sec.20.2.1: digest size MUST match the scheme hashAlg digest
+     * size (matches FwCmd_SignDigest). */
+    if (rc == 0 && sigHashAlg != TPM_ALG_NULL &&
+            digest.size != (UINT16)TPM2_GetHashDigestSize(sigHashAlg)) {
+        rc = TPM_RC_SIZE;
+    }
 
     /* Parse validation ticket (TPMT_TK_HASHCHECK) */
     if (rc == 0) {
