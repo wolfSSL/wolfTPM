@@ -16955,6 +16955,204 @@ static void test_fwtpm_param_enc_pcr_zero(void)
     fwtpm_pass("PCR0 parameter encryption includes auth:", 0);
 }
 
+/* Command with nHandles copies of handle, an optional password
+ * authorization, an HMAC session and a 2-byte parameter. Returns the command
+ * size. */
+static int BuildHmacSessionCmd(UINT32 cc, int nHandles, UINT32 handle,
+    int withPw, UINT32 sessionH, const byte* nonceCaller, int nonceCallerSz,
+    UINT8 attrs, const byte* hmac, int hmacSz)
+{
+    int pos, authStart, h;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, cc);
+    for (h = 0; h < nHandles; h++) {
+        PutU32BE(gCmd + pos, handle); pos += 4;
+    }
+    authStart = pos; pos += 4;
+    if (withPw) {
+        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        gCmd[pos++] = attrs;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+    }
+    PutU32BE(gCmd + pos, sessionH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)nonceCallerSz); pos += 2;
+    XMEMCPY(gCmd + pos, nonceCaller, nonceCallerSz); pos += nonceCallerSz;
+    gCmd[pos++] = attrs;
+    PutU16BE(gCmd + pos, (UINT16)hmacSz); pos += 2;
+    XMEMCPY(gCmd + pos, hmac, hmacSz); pos += hmacSz;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, 16); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    return pos;
+}
+
+/* Send cc with a corrupted HMAC from sess, which must fail with expectRc and
+ * leave the session nonce unchanged. */
+static void SweepSessionHmac(FWTPM_CTX* ctx, FWTPM_Session* sess, UINT32 cc,
+    int nHandles, UINT32 handle, const byte* name, int nameSz, int withPw,
+    TPM_RC expectRc)
+{
+    byte nonceCaller[16];
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    byte cpBuf[4 + 7 * sizeof(TPMU_NAME) + 2];
+    byte pHash[TPM_SHA256_DIGEST_SIZE];
+    byte authHmac[TPM_SHA256_DIGEST_SIZE];
+    UINT16 nonceSz = sess->nonceTPM.size;
+    UINT8 attrs = TPMA_SESSION_continueSession;
+    int pos, rspSize, h, cpSz = 0;
+    TPM_RC rc;
+
+    XMEMSET(nonceCaller, 0x5C, sizeof(nonceCaller));
+    XMEMCPY(nonceTPM, sess->nonceTPM.buffer, nonceSz);
+    PutU32BE(cpBuf + cpSz, cc); cpSz += 4;
+    for (h = 0; h < nHandles; h++) {
+        XMEMCPY(cpBuf + cpSz, name, nameSz); cpSz += nameSz;
+    }
+    PutU16BE(cpBuf + cpSz, 16); cpSz += 2;
+    AssertIntEQ(wc_Sha256Hash(cpBuf, cpSz, pHash), 0);
+    ComputeAuthHmac(sess->sessionKey.buffer, sess->sessionKey.size, pHash,
+        nonceCaller, sizeof(nonceCaller), nonceTPM, nonceSz, NULL, 0, attrs,
+        authHmac);
+    authHmac[0] ^= 0x01;
+    pos = BuildHmacSessionCmd(cc, nHandles, handle, withPw, sess->handle,
+        nonceCaller, sizeof(nonceCaller), attrs, authHmac, sizeof(authHmac));
+    rspSize = 0;
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    rc = GetRspRC(gRsp);
+    if (rc != expectRc) {
+        printf("CC 0x%x (password %d): 0x%x, expected 0x%x\n",
+            (unsigned)cc, withPw, (unsigned)rc, (unsigned)expectRc);
+    }
+    AssertIntEQ(rc, expectRc);
+    AssertIntEQ(sess->nonceTPM.size, nonceSz);
+    AssertIntEQ(XMEMCMP(sess->nonceTPM.buffer, nonceTPM, nonceSz), 0);
+}
+
+/* Every advertised command must verify the command HMAC of each HMAC session
+ * in its authorization area (Part 1 Sec.19.6), whether the session is the
+ * only one or follows a password authorization. A wrong HMAC fails with
+ * TPM_RC_BAD_AUTH and leaves the session nonce unchanged. The listed
+ * commands reject the owner-handle authorization area before any HMAC is
+ * checked: the context commands take no sessions, two authorized handles
+ * need two sessions, and a hierarchy in the ADMIN or DUP role needs a policy
+ * session. The ADMIN-role commands are swept again with a key that accepts
+ * an HMAC session or password in that role. */
+static void test_fwtpm_session_hmac_sweep(void)
+{
+    static const struct {
+        UINT32 cc;
+        TPM_RC rc;      /* HMAC session only */
+        TPM_RC rcPw;    /* password authorization, then HMAC session */
+    } early[] = {
+        { TPM_CC_Startup,      TPM_RC_AUTH_CONTEXT, TPM_RC_AUTH_CONTEXT },
+        { TPM_CC_ContextLoad,  TPM_RC_AUTH_CONTEXT, TPM_RC_AUTH_CONTEXT },
+        { TPM_CC_ContextSave,  TPM_RC_AUTH_CONTEXT, TPM_RC_AUTH_CONTEXT },
+        { TPM_CC_FlushContext, TPM_RC_AUTH_CONTEXT, TPM_RC_AUTH_CONTEXT },
+        { TPM_CC_GetTime,      TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
+        { TPM_CC_NV_Certify,   TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
+        { TPM_CC_EventSequenceComplete, TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
+    #ifdef WOLFTPM_PQC
+        { TPM_CC_SignSequenceComplete, TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
+    #endif
+        { TPM_CC_NV_UndefineSpaceSpecial, TPM_RC_AUTH_MISSING,
+          TPM_RC_AUTH_TYPE },
+        { TPM_CC_ActivateCredential, TPM_RC_AUTH_MISSING, TPM_RC_AUTH_TYPE },
+        { TPM_CC_Certify,      TPM_RC_AUTH_MISSING, TPM_RC_AUTH_TYPE },
+        { TPM_CC_NV_ChangeAuth, TPM_RC_AUTH_TYPE,   TPM_RC_AUTH_TYPE },
+        { TPM_CC_ObjectChangeAuth, TPM_RC_AUTH_TYPE, TPM_RC_AUTH_TYPE },
+        { TPM_CC_Duplicate,    TPM_RC_AUTH_TYPE,    TPM_RC_AUTH_TYPE },
+    };
+    static const struct {
+        UINT32 cc;
+        TPM_RC rc;      /* HMAC session only */
+    } adminCmds[] = {
+        { TPM_CC_ObjectChangeAuth,   TPM_RC_BAD_AUTH },
+        { TPM_CC_Certify,            TPM_RC_AUTH_MISSING },
+        { TPM_CC_ActivateCredential, TPM_RC_AUTH_MISSING },
+    };
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess;
+    FWTPM_Object* key = NULL;
+    UINT32 tpmaList[512];
+    UINT32 count, i, j, cc, sessionH, keyH;
+    byte ownerName[4];
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    UINT16 nonceSz;
+    TPM_RC expectRc;
+    int pos, rspSize, nHandles, withPw;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + pos, TPM_CAP_COMMANDS); pos += 4;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, 512); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    count = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    AssertTrue(count <= (UINT32)(sizeof(tpmaList) / sizeof(tpmaList[0])));
+    for (i = 0; i < count; i++) {
+        tpmaList[i] = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9 + (int)(i * 4));
+    }
+
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx.objects[i].used && ctx.objects[i].handle == keyH) {
+            key = &ctx.objects[i];
+        }
+    }
+    AssertNotNull(key);
+
+    sessionH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_XOR,
+        nonceTPM, &nonceSz);
+    AssertIntNE(sessionH, 0);
+    sess = &ctx.sessions[0];
+    AssertIntEQ(sess->handle, sessionH);
+    sess->sessionKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sess->sessionKey.buffer, 0xA3, sess->sessionKey.size);
+    /* Permanent handles are their own names */
+    PutU32BE(ownerName, TPM_RH_OWNER);
+
+    for (i = 0; i < count; i++) {
+        cc = TpmaCcToCmdCode(tpmaList[i]);
+        nHandles = (int)TpmaCcHandles(tpmaList[i]);
+        for (withPw = 0; withPw <= 1; withPw++) {
+            expectRc = TPM_RC_BAD_AUTH;
+            for (j = 0; j < sizeof(early) / sizeof(early[0]); j++) {
+                if (early[j].cc == cc) {
+                    expectRc = withPw ? early[j].rcPw : early[j].rc;
+                }
+            }
+            SweepSessionHmac(&ctx, sess, cc, nHandles, TPM_RH_OWNER,
+                ownerName, sizeof(ownerName), withPw, expectRc);
+            AssertIntEQ(sess->handle, sessionH);
+        }
+    }
+
+    for (i = 0; i < sizeof(adminCmds) / sizeof(adminCmds[0]); i++) {
+        for (withPw = 0; withPw <= 1; withPw++) {
+            SweepSessionHmac(&ctx, sess, adminCmds[i].cc, 2, keyH,
+                key->name.name, key->name.size, withPw,
+                withPw ? TPM_RC_BAD_AUTH : adminCmds[i].rc);
+            AssertIntEQ(sess->handle, sessionH);
+        }
+    }
+
+    FlushHandle(&ctx, sessionH);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Session HMAC verified for every command:", 0);
+}
+
 /* A command that changes the bound entity's authValue must use the same
  * request-time bound-session key decision for its response HMAC. */
 static void test_fwtpm_bound_auth_change_response_hmac(void)
@@ -17219,6 +17417,71 @@ static void test_fwtpm_sequence_complete_response_hmac(void)
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SequenceComplete response HMAC uses sequence auth:", 0);
+}
+
+/* A command with no handles: the first session's HMAC also covers the
+ * nonceTPM of a separate encrypt session (Part 1 Sec.19.6.5). */
+static void test_fwtpm_param_enc_session_no_handle(void)
+{
+    FWTPM_CTX ctx;
+    int pos, authStart, rspSize, withNonce;
+    UINT32 hmacSess, encSess;
+    UINT8 attrs = TPMA_SESSION_continueSession;
+    byte nonceH[TPM_MAX_DIGEST_SIZE];
+    byte nonceE[TPM_MAX_DIGEST_SIZE];
+    UINT16 nonceHSz = 0, nonceESz = 0;
+    byte nonceCaller[16];
+    byte noKey[1] = {0};
+    byte cpBuf[6];
+    byte pHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    hmacSess = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_NULL,
+        nonceH, &nonceHSz);
+    AssertIntNE(hmacSess, 0);
+    encSess = StartParamEncSessionHelper(&ctx, TPM_SE_POLICY, TPM_ALG_XOR,
+        nonceE, &nonceESz);
+    AssertIntNE(encSess, 0);
+
+    memset(nonceCaller, 0x5C, sizeof(nonceCaller));
+    PutU32BE(cpBuf, TPM_CC_GetRandom);
+    PutU16BE(cpBuf + 4, 16);
+    AssertIntEQ(wc_Sha256Hash(cpBuf, sizeof(cpBuf), pHash), 0);
+    for (withNonce = 0; withNonce <= 1; withNonce++) {
+        ComputeAuthHmac(noKey, 0, pHash, nonceCaller,
+            (UINT16)sizeof(nonceCaller), nonceH, nonceHSz, nonceE,
+            withNonce ? nonceESz : 0, attrs, authHmac);
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_GetRandom);
+        authStart = pos; pos += 4;
+        PutU32BE(gCmd + pos, hmacSess); pos += 4;
+        PutU16BE(gCmd + pos, (UINT16)sizeof(nonceCaller)); pos += 2;
+        XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+        pos += sizeof(nonceCaller);
+        gCmd[pos++] = attrs;
+        PutU16BE(gCmd + pos, (UINT16)sizeof(authHmac)); pos += 2;
+        XMEMCPY(gCmd + pos, authHmac, sizeof(authHmac));
+        pos += sizeof(authHmac);
+        PutU32BE(gCmd + pos, encSess); pos += 4;
+        PutU16BE(gCmd + pos, (UINT16)sizeof(nonceCaller)); pos += 2;
+        XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+        pos += sizeof(nonceCaller);
+        gCmd[pos++] = attrs | TPMA_SESSION_encrypt;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+        PutU16BE(gCmd + pos, 16); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp),
+            withNonce ? TPM_RC_SUCCESS : TPM_RC_BAD_AUTH);
+    }
+
+    FlushHandle(&ctx, hmacSess);
+    FlushHandle(&ctx, encSess);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("No-handle HMAC covers encrypt session nonce:", 0);
 }
 
 /* With an HMAC authorization first, its HMAC must also cover the nonceTPM
@@ -20796,7 +21059,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_param_enc_session_selection();
     test_fwtpm_param_enc_entity_auth();
     test_fwtpm_param_enc_pcr_zero();
+    test_fwtpm_session_hmac_sweep();
     test_fwtpm_param_enc_session_bound_to_auth();
+    test_fwtpm_param_enc_session_no_handle();
     test_fwtpm_bound_auth_change_response_hmac();
     test_fwtpm_sequence_complete_response_hmac();
 #endif
