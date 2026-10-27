@@ -21939,9 +21939,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     }
 
     /* HMAC session command verification per TPM 2.0 Part 1 Section 19.6.
-     * Compute cpHash and verify the command HMAC for each HMAC session. */
-    for (hj = 0; hj < cmdAuthCnt && hj < (int)entry->authHandleCnt; hj++) {
+     * Compute cpHash and verify the command HMAC for each HMAC session,
+     * including audit/encrypt/decrypt sessions that authorize no handle. */
+    for (hj = 0; hj < cmdAuthCnt; hj++) {
+        int isAuthSess = (hj < (int)entry->authHandleCnt);
         if (cmdAuths[hj].sess != NULL && (cmdAuths[hj].cmdHmacSize > 0 ||
+                (!isAuthSess && cmdAuths[hj].sess->sessionKey.size > 0) ||
                 (cmdAuths[hj].sess->sessionType == TPM_SE_POLICY &&
                  (cmdAuths[hj].sess->isPasswordPolicy ||
                   cmdAuths[hj].sess->isAuthValuePolicy)))) {
@@ -21983,15 +21986,19 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 return TPM_RC_SUCCESS;
             }
 
-            /* Look up entity authValue for HMAC key */
-            entityH = cmdHandles[hj];
-            FwLookupEntityAuth(ctx, entityH, &authVal, &authValSz);
+            /* Look up entity authValue for HMAC key. A session that
+             * authorizes no handle uses only its session key. */
+            entityH = TPM_RH_NULL;
+            if (isAuthSess) {
+                entityH = cmdHandles[hj];
+                FwLookupEntityAuth(ctx, entityH, &authVal, &authValSz);
+            }
 
             /* PolicyPassword with no sessionKey (unsalted/unbound):
              * HMAC field contains plaintext authValue per spec Section 19.6.13.
              * Use fixed-length FwCtAuthCompare so the compare trip count can't
              * leak the auth value length (matches the TPM_RS_PW path). */
-            if (hSess->sessionType == TPM_SE_POLICY &&
+            if (isAuthSess && hSess->sessionType == TPM_SE_POLICY &&
                 hSess->isPasswordPolicy &&
                 hSess->sessionKey.size == 0) {
                 if (FwCtAuthCompare(cmdAuths[hj].cmdHmac,
@@ -22032,7 +22039,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 authVal = NULL;
                 authValSz = 0;
             }
-            cmdAuths[hj].omitAuthValue =
+            cmdAuths[hj].omitAuthValue = isAuthSess &&
                 hSess->sessionType == TPM_SE_HMAC &&
                 FwSessionIsBoundToEntity(ctx, hSess, entityH);
             if (cmdAuths[hj].omitAuthValue) {
@@ -22043,7 +22050,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             /* An empty HMAC is valid only for an empty HMAC key, or an empty
              * authValue under PolicyPassword (a password, not an HMAC) */
             if (cmdAuths[hj].cmdHmacSize == 0 && authValSz == 0 &&
-                    (hSess->sessionKey.size == 0 || hSess->isPasswordPolicy)) {
+                    (hSess->sessionKey.size == 0 ||
+                     (isAuthSess && hSess->isPasswordPolicy))) {
                 TPM2_ForceZero(cpHash, sizeof(cpHash));
                 continue;
             }
@@ -22079,7 +22087,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                if (FwAuthSlotDAUse(ctx, entityH, 0, hSess,
+                if (isAuthSess && FwAuthSlotDAUse(ctx, entityH, 0, hSess,
                         cmdAuths[hj].cmdHmacSize, &daHandle) != 0) {
                     authRc = TPM_RC_AUTH_FAIL;
                     if (FwDaRegisterFailure(ctx, daHandle)) {
