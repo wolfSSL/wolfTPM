@@ -1,6 +1,6 @@
 name: Publish wolfTPM CI image
 
-# Publish v1.1 before merging workflows that consume it. Consumers use the
+# Publish v1.2 before merging workflows that consume it. Consumers use the
 # canonical ghcr.io/wolfssl/wolftpm-ci package, including on forks. A fork of
 # this publisher writes to its own namespace for image testing only.
 # The canonical package must be public so fork PRs can pull it anonymously.
@@ -61,20 +61,21 @@ jobs:
           load: true
           push: false
           # ghcr image paths must be lowercase (the wolfSSL org has a capital S).
-          tags: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.1
-          cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.1
+          tags: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.2
+          cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.2
           cache-to: type=inline
 
       - name: Check baked tools
         env:
-          CI_IMAGE: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.1
+          CI_IMAGE: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.2
         run: |
           docker run --rm "$CI_IMAGE" bash -euo pipefail -c '
             for tool in autoconf automake libtoolize cmake ninja pkg-config \
                 gcc-11 gcc-12 gcc-13 g++-11 g++-12 g++-13 \
                 clang-14 clang-15 clang-17 arm-none-eabi-gcc \
                 rustc cargo mcs nunit-console tpm2_activatecredential \
-                xxd semgrep pyspdxtools codespell m33mu; do
+                xxd semgrep pyspdxtools codespell m33mu tpm2_ptool tpm2-abrmd \
+                pkcs11-tool dbus-daemon; do
               command -v "$tool"
             done
             cargo clippy --version
@@ -86,13 +87,13 @@ jobs:
 
       - name: Push verified image
         env:
-          CI_IMAGE: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.1
+          CI_IMAGE: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.2
         run: docker push "$CI_IMAGE"
 
       - name: Verify anonymous access for fork PRs
         if: github.repository_owner == 'wolfssl'
         env:
-          CI_IMAGE: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.1
+          CI_IMAGE: ghcr.io/${{ steps.owner.outputs.lc }}/wolftpm-ci:v1.2
         run: |
           registry_config=$(mktemp -d)
           trap 'rm -rf "$registry_config"' EXIT
