@@ -3905,8 +3905,7 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
                 }
                 else {
                     /* RSASSA PKCS#1 v1.5: wrap in ASN.1 DigestInfo */
-                    byte encHash[WC_MAX_DIGEST_SIZE +
-                        MAX_ENCODED_DIG_ASN_SZ];
+                    byte encHash[WOLFTPM_MAX_DER_DIGEST_SZ];
                     int encSz;
                     int oid = wc_HashGetOID(
                         (enum wc_HashType)wcHashType);
@@ -4064,8 +4063,7 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                 }
                 else {
                     FWTPM_DECLARE_BUF(decSig, FWTPM_MAX_PUB_BUF);
-                    byte expDI[WC_MAX_DIGEST_SIZE +
-                        MAX_ENCODED_DIG_ASN_SZ];
+                    byte expDI[WOLFTPM_MAX_DER_DIGEST_SZ];
                     int wcHash = FwGetRsaHashOid(
                         sig->signature.rsassa.hash);
                     int oid = wc_HashGetOID(

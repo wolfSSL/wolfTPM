@@ -67,10 +67,6 @@ static void usage(void)
     printf("./examples/pcr/policy_sign -pcr=16 -pcr=15 -pcrdigest=ba8ac02be16d9d33080d98611d70bb869aa8ac3fc684ab732b91f75f164b36bc\n");
 }
 
-#ifndef WC_MAX_ENCODED_DIG_ASN_SZ
-#define WC_MAX_ENCODED_DIG_ASN_SZ 9 /* enum(bit or octet) + length(4) */
-#endif
-
 /* Function to sign policy with external key */
 static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     TPM_ALG_ID hashAlg, byte* hash, word32 hashSz, byte* sig, word32* sigSz,
@@ -142,7 +138,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     #if !defined(NO_RSA) && !defined(NO_ASN)
         rc = wc_InitRsaKey(&key.rsa, NULL);
         if (rc == 0) {
-            byte encHash[WC_MAX_DIGEST_SIZE + WC_MAX_ENCODED_DIG_ASN_SZ];
+            byte encHash[WOLFTPM_MAX_DER_DIGEST_SZ];
             word32 idx = 0;
         #ifdef HAVE_PKCS8
             /* skip PKCS8 header */
