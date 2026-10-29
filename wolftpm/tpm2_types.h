@@ -301,8 +301,18 @@ typedef int64_t  INT64;
 
 #ifndef WOLFTPM_CUSTOM_TYPES
     #ifndef WOLFTPM2_NO_HEAP
+    #ifdef WOLFSSL_OPTEE
+    /* An OP-TEE trusted application links libutee rather than a C library and
+     * has no malloc. wolfCrypt maps these itself, but this is the branch where
+     * it is not compiled in. WOLFTPM2_NO_HEAP still wins: it leaves both
+     * undefined, so an allocation that slipped in fails to compile. */
+    #include <tee_internal_api.h>
+    #define XMALLOC(s, h, t)  TEE_Malloc((size_t)(s), TEE_MALLOC_FILL_ZERO)
+    #define XFREE(p, h, t)    TEE_Free(p)
+    #else
     #define XMALLOC(s, h, t)  malloc((size_t)(s))
     #define XFREE(p, h, t)    free(p)
+    #endif
     #endif
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
     #define XMEMMOVE(d,s,l)   memmove((d),(s),(l))
@@ -544,6 +554,7 @@ typedef int64_t  INT64;
 /* On Linux with autodetect, also try /dev/tpm0 kernel driver at runtime */
 #if defined(WOLFTPM_AUTODETECT) && defined(__linux__) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+    !defined(WOLFTPM_OPTEE) && \
     !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_FWTPM_HAL)
     #define WOLFTPM_LINUX_DEV_AUTODETECT
 #endif
@@ -635,7 +646,8 @@ typedef int64_t  INT64;
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
+    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+        defined(WOLFTPM_OPTEE) || defined(WOLFTPM_WINAPI)
     #define TPM_TIMEOUT_TRIES 0
     #else
     #define TPM_TIMEOUT_TRIES 1000000
@@ -781,6 +793,21 @@ typedef int64_t  INT64;
     #elif defined(_WIN32)
         #include <windows.h>
         #define XTPM_GET_TIMEMS() ((word32)GetTickCount64())
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #elif defined(WOLFSSL_OPTEE)
+        /* An OP-TEE trusted application has no CLOCK_MONOTONIC, so the POSIX
+         * branch below silently leaves this unset and timeouts fall back to a
+         * counter. TEE_GetSystemTime is monotonic for the life of the trusted
+         * application. Deliberately not TEE_GetREETime: the normal world owns
+         * that clock and can move it backwards, which would make a command
+         * timeout hang or fire early. Works with or without wolfCrypt. */
+        #include <tee_internal_api.h>
+        static inline word32 XTPM_GET_TIMEMS(void)
+        {
+            TEE_Time now;
+            TEE_GetSystemTime(&now);
+            return (word32)((word32)now.seconds * 1000u + (word32)now.millis);
+        }
         #define WOLFTPM_HAVE_MONOTONIC_MS
     #else
         /* Include first, then feature-test: strict C99 may not expose

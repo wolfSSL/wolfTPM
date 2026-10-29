@@ -55,6 +55,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#ifndef NO_FILESYSTEM
+    #include <errno.h>
+#endif
 
 /* TLV header size: tag(2) + length(2) */
 #define TLV_HDR_SIZE  4
@@ -85,9 +88,16 @@ static int FwNvFileRead(void* ctx, word32 offset, byte* buf, word32 size)
     FILE* f;
     int ret;
 
+    /* A missing file and the region past its end read as erased NV, which is
+     * how the journal recognizes first use. Anything else is a read error,
+     * and FWTPM_NV_Init fails on it rather than regenerating. */
     f = fopen(path, "rb");
     if (f == NULL) {
-        return TPM_RC_FAILURE;
+        if (errno != ENOENT) {
+            return TPM_RC_FAILURE;
+        }
+        XMEMSET(buf, 0xFF, size);
+        return TPM_RC_SUCCESS;
     }
 
     if (fseek(f, (long)offset, SEEK_SET) != 0) {
@@ -96,10 +106,14 @@ static int FwNvFileRead(void* ctx, word32 offset, byte* buf, word32 size)
     }
 
     ret = (int)fread(buf, 1, size, f);
+    if (ret != (int)size && ferror(f)) {
+        fclose(f);
+        return TPM_RC_FAILURE;
+    }
     fclose(f);
 
-    if (ret != (int)size) {
-        return TPM_RC_FAILURE;
+    if (ret < (int)size) {
+        XMEMSET(buf + ret, 0xFF, size - (word32)ret);
     }
 
     return TPM_RC_SUCCESS;
@@ -2058,6 +2072,7 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
     while (scanPos + TLV_HDR_SIZE <= hal->maxSize) {
         if (hal->read(hal->ctx, scanPos, tlvHdr, TLV_HDR_SIZE)
                 != TPM_RC_SUCCESS) {
+            rc = TPM_RC_FAILURE;
             break;
         }
         tag = FwLoadU16LE(tlvHdr);
@@ -2080,10 +2095,13 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
                     /* MAC covers [header, scanPos). */
                     ctx->nvWritePos = scanPos;
                     if (hal->read(hal->ctx, scanPos + TLV_HDR_SIZE, storedMac,
-                            FWTPM_NV_MAC_SIZE) == TPM_RC_SUCCESS &&
+                            FWTPM_NV_MAC_SIZE) != TPM_RC_SUCCESS ||
                         FwNvComputeJournalMac(ctx, vKey, vKeySz, calcMac)
-                            == TPM_RC_SUCCESS &&
-                        TPM2_ConstantCompare(storedMac, calcMac,
+                            != TPM_RC_SUCCESS) {
+                        rc = TPM_RC_FAILURE;
+                        break;
+                    }
+                    if (TPM2_ConstantCompare(storedMac, calcMac,
                             FWTPM_NV_MAC_SIZE) == 0) {
                         ok = 1;
                     }
@@ -2105,6 +2123,9 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
     }
     if (haveKey) {
         TPM2_ForceZero(vKey, sizeof(vKey));
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     if (tamper || lastMacEnd == 0) {
@@ -2236,7 +2257,14 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
 
     /* Try to read existing NV header */
     XMEMSET(hdrBuf, 0, sizeof(hdrBuf));
-    rc = hal->read(hal->ctx, 0, hdrBuf, sizeof(hdrBuf));
+    /* A read error is not an empty journal: fail rather than regenerate, so
+     * a transient storage fault cannot replace the seeds. */
+    if (hal->read(hal->ctx, 0, hdrBuf, sizeof(hdrBuf)) != TPM_RC_SUCCESS) {
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        rc = TPM_RC_SUCCESS;
+    }
     if (rc == TPM_RC_SUCCESS) {
         hdr.magic    = FwLoadU32LE(hdrBuf + 0);
         hdr.version  = FwLoadU32LE(hdrBuf + 4);
@@ -2265,12 +2293,16 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         if (FwNvGetIntegrityKey(ctx, vKey, &vKeySz)) {
             byte storedMac[FWTPM_NV_MAC_SIZE];
             byte calcMac[FWTPM_NV_MAC_SIZE];
-            if (ctx->nvWritePos + FWTPM_NV_MAC_SIZE > hal->maxSize ||
-                hal->read(hal->ctx, ctx->nvWritePos, storedMac,
+            if (ctx->nvWritePos + FWTPM_NV_MAC_SIZE > hal->maxSize) {
+                rc = TPM_RC_NV_UNINITIALIZED;
+            }
+            else if (hal->read(hal->ctx, ctx->nvWritePos, storedMac,
                     FWTPM_NV_MAC_SIZE) != TPM_RC_SUCCESS ||
                 FwNvComputeJournalMac(ctx, vKey, vKeySz, calcMac)
-                    != TPM_RC_SUCCESS ||
-                TPM2_ConstantCompare(storedMac, calcMac,
+                    != TPM_RC_SUCCESS) {
+                rc = TPM_RC_FAILURE;
+            }
+            else if (TPM2_ConstantCompare(storedMac, calcMac,
                     FWTPM_NV_MAC_SIZE) != 0) {
                 rc = TPM_RC_NV_UNINITIALIZED;
             }
@@ -2362,13 +2394,24 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
          * end-of-journal stop, or a genuine read/alloc error to propagate
          * rather than masking as success. */
     }
-    else {
+    else if (rc == TPM_RC_SUCCESS || rc == TPM_RC_NV_UNINITIALIZED) {
         /* No valid NV image — generate fresh hierarchy seeds */
         if (rc == TPM_RC_SUCCESS && hdr.magic == FWTPM_NV_MAGIC &&
             hdr.version != FWTPM_NV_VERSION) {
-            fprintf(stderr, "WARNING: fwTPM NV version mismatch "
-                "(found %d, expected %d) — regenerating seeds\n",
+            /* Unguarded on purpose: it reports that all NV state was just
+             * discarded. libutee has no stdio streams, so a trusted
+             * application cannot link fprintf; every other build keeps
+             * stderr, so nothing starts writing diagnostics to a stdout that
+             * the caller may be using as a data channel. */
+        #ifdef WOLFSSL_OPTEE
+            printf("WARNING: fwTPM NV version mismatch "
+                "(found %d, expected %d), regenerating seeds\n",
                 (int)hdr.version, (int)FWTPM_NV_VERSION);
+        #else
+            fprintf(stderr, "WARNING: fwTPM NV version mismatch "
+                "(found %d, expected %d), regenerating seeds\n",
+                (int)hdr.version, (int)FWTPM_NV_VERSION);
+        #endif
         }
         rc = FwNvGenFreshState(ctx);
     }

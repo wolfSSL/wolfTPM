@@ -66,6 +66,23 @@ WOLFTPM_API int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 */
 WOLFTPM_API void FWTPM_ResetCommandClient(FWTPM_CTX* ctx);
 
+/*!
+    \brief Set the client that the commands processed from now on belong to.
+
+    For a transport with overlapping clients. Transient objects, sessions,
+    sequences and saved session contexts record the client that created them,
+    so FWTPM_FlushCommandClient can release one client's state. Recording
+    ownership does not restrict access: all clients share one TPM and can use
+    each other's handles.
+*/
+WOLFTPM_API void FWTPM_SetCommandClient(FWTPM_CTX* ctx, UINT32 clientId);
+
+/*!
+    \brief Flush the transient objects, sessions, sequences and saved session
+    contexts of one client, leaving those of other clients in place.
+*/
+WOLFTPM_API void FWTPM_FlushCommandClient(FWTPM_CTX* ctx, UINT32 clientId);
+
 /* Internal helpers exposed only to the fwTPM unit-test build. */
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
     #define WOLFTPM_TEST_VIS

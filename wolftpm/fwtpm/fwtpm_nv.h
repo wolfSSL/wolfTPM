@@ -188,8 +188,9 @@ WOLFTPM_API int FWTPM_NV_Save(FWTPM_CTX* ctx);
     \return BAD_FUNC_ARG if ctx or hal is NULL
 
     \param ctx pointer to an initialized FWTPM_CTX
-    \param hal pointer to a caller-populated FWTPM_NV_HAL (the struct
-        must remain valid for the lifetime of the context). The caller MUST
+    \param hal pointer to a caller-populated FWTPM_NV_HAL. The struct is
+        copied, so it need not outlive this call, but anything hal.ctx points
+        at must remain valid for the lifetime of the context. The caller MUST
         zero-initialize the struct (e.g. XMEMSET(&hal, 0, sizeof(hal)))
         before populating fields: the appendOnly bit-field and reserved bits
         must be 0 unless append-only mode is intentionally enabled, otherwise

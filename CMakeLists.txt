@@ -84,6 +84,7 @@ set(TPM_SOURCES
     src/tpm2_packet.c
     src/tpm2_param_enc.c
     src/tpm2_swtpm.c
+    src/tpm2_optee.c
     src/tpm2_tis.c
     src/tpm2_winapi.c
     src/tpm2_wrap.c
@@ -196,7 +197,7 @@ endif()
 set(WOLFTPM_INTERFACE "auto" CACHE STRING
     "Select interface to TPM")
 set_property(CACHE WOLFTPM_INTERFACE
-    PROPERTY STRINGS "auto;SWTPM;WINAPI;DEVTPM;SPI;I2C;MMIO")
+    PROPERTY STRINGS "auto;SWTPM;WINAPI;DEVTPM;OPTEE;SPI;I2C;MMIO")
 
 # automatically set
 message("INTERFACE ${WOLFTPM_INTERFACE}")
@@ -235,6 +236,20 @@ if("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
 
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "DEVTPM")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_LINUX_DEV")
+
+elseif("${WOLFTPM_INTERFACE}" STREQUAL "OPTEE")
+    # fwTPM OP-TEE trusted application, reached over the OP-TEE client
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_OPTEE")
+    find_path(TEEC_INCLUDE_DIR tee_client_api.h)
+    find_library(TEEC_LIBRARY teec)
+    if(NOT TEEC_INCLUDE_DIR OR NOT TEEC_LIBRARY)
+        message(FATAL_ERROR "WOLFTPM_INTERFACE=OPTEE requires tee_client_api.h"
+            " and libteec from the OP-TEE client")
+    endif()
+    if(BUILD_WOLFTPM_LIB)
+        target_include_directories(wolftpm PRIVATE ${TEEC_INCLUDE_DIR})
+        target_link_libraries(wolftpm PRIVATE ${TEEC_LIBRARY})
+    endif()
 
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "WINAPI")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_WINAPI")

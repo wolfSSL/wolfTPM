@@ -2327,6 +2327,9 @@ typedef struct TPM2_CTX {
 #ifdef WOLFTPM_WINAPI
     struct wolfTPM_winContext winCtx;
 #endif
+#ifdef WOLFTPM_OPTEE
+    void* opteeCtx; /* TEE session, see src/tpm2_optee.c */
+#endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifdef WOLFTPM2_USE_WOLF_RNG
     WC_RNG rng;

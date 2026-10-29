@@ -550,6 +550,7 @@
 /* Transient object slot */
 typedef struct FWTPM_Object {
     int used;
+    UINT32 clientId;                /* See FWTPM_SetCommandClient */
     TPM_HANDLE handle;              /* 0x80xxxxxx transient handle */
     UINT32 hierarchy;               /* TPM_RH_OWNER/ENDORSEMENT/PLATFORM/NULL —
                                      * required for ticket HMAC proofValue
@@ -563,6 +564,7 @@ typedef struct FWTPM_Object {
 
 /* Hash sequence slot (for HashSequenceStart/SequenceUpdate/SequenceComplete) */
 typedef struct FWTPM_HashSeq {
+    UINT32 clientId;                /* See FWTPM_SetCommandClient */
     int used;
     TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
     TPMI_ALG_HASH hashAlg;         /* Hash algorithm for this sequence */
@@ -589,6 +591,7 @@ typedef struct FWTPM_HashSeq {
 /* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6).
  * Pure ML-DSA streams its SHAKE256 mu calculation through hashCtx. */
 typedef struct FWTPM_SignSeq {
+    UINT32 clientId;                /* See FWTPM_SetCommandClient */
     int used;
     TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
     int isVerifySeq;                /* 0 = sign, 1 = verify */
@@ -636,6 +639,7 @@ typedef struct FWTPM_SignSeq {
 
 /* Auth session slot */
 typedef struct FWTPM_Session {
+    UINT32 clientId;                /* See FWTPM_SetCommandClient */
     int used;
     TPM_HANDLE handle;              /* 0x02xxxxxx HMAC, 0x03xxxxxx Policy */
     TPM_SE sessionType;             /* TPM_SE_HMAC, TPM_SE_POLICY, TPM_SE_TRIAL */
@@ -755,8 +759,10 @@ struct FWTPM_NV_HAL_S {
     word32 maxSize;     /* Total NV region size */
     /* Override the NV-journal integrity key with a platform device secret
      * (e.g. hardware-fused or host-TPM backed). Return 0 and set *keySz on
-     * success. When NULL the default file backend uses an auto-created key
-     * file; integrity verification is always performed when a key exists. */
+     * success. keySz is output only: it is zeroed before the call and carries
+     * no capacity, so do not test it. The buffer is 32 bytes. When NULL the
+     * default file backend uses an auto-created key file; integrity
+     * verification is always performed when a key exists. */
     int (*get_integrity_key)(void* ctx, byte* key, word32* keySz);
     /* Program granule in bytes for append-only flash (0/1 = byte-writable). */
     word32 writeAlign;
@@ -864,6 +870,8 @@ typedef struct FWTPM_CTX {
     UINT8 pcrAllocPending; /* 1 when a change is staged */
 
     /* Transient object slots */
+    /* Owner recorded in the transient slots the current command allocates */
+    UINT32 clientId;
     FWTPM_Object objects[FWTPM_MAX_OBJECTS];
 
     /* Primary key cache: ensures CreatePrimary is deterministic per seed */
@@ -962,6 +970,7 @@ typedef struct FWTPM_CTX {
      * most once and saved contexts may load in any order. */
     UINT64 contextLive[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
     TPM_HANDLE contextLiveHandle[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
+    UINT32 contextLiveClient[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
     int contextLiveCount;
 #endif
 

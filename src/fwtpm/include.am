@@ -74,3 +74,6 @@ endif
 
 # Ship the ports guide even when not built
 EXTRA_DIST += src/fwtpm/ports/README.md
+EXTRA_DIST += src/fwtpm/ports/optee/README.md
+EXTRA_DIST += src/fwtpm/ports/optee/fwtpm_optee_nv.c
+EXTRA_DIST += src/fwtpm/ports/optee/fwtpm_optee_ta.c
