@@ -2331,9 +2331,20 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         /* No valid NV image — generate fresh hierarchy seeds */
         if (rc == TPM_RC_SUCCESS && hdr.magic == FWTPM_NV_MAGIC &&
             hdr.version != FWTPM_NV_VERSION) {
-            fprintf(stderr, "WARNING: fwTPM NV version mismatch "
-                "(found %d, expected %d) — regenerating seeds\n",
+            /* Unguarded on purpose: it reports that all NV state was just
+             * discarded. libutee has no stdio streams, so a trusted
+             * application cannot link fprintf; every other build keeps
+             * stderr, so nothing starts writing diagnostics to a stdout that
+             * the caller may be using as a data channel. */
+        #ifdef WOLFSSL_OPTEE
+            printf("WARNING: fwTPM NV version mismatch "
+                "(found %d, expected %d), regenerating seeds\n",
                 (int)hdr.version, (int)FWTPM_NV_VERSION);
+        #else
+            fprintf(stderr, "WARNING: fwTPM NV version mismatch "
+                "(found %d, expected %d), regenerating seeds\n",
+                (int)hdr.version, (int)FWTPM_NV_VERSION);
+        #endif
         }
         rc = FwNvGenFreshState(ctx);
     }

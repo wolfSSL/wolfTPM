@@ -165,7 +165,7 @@ compile-time macros (feature groups, algorithm flags, size limits, stack/heap
 control), spec version targeting, and HAL abstraction details.
 
 Key options: `--enable-fwtpm`, `--enable-fwtpm-only`, `--enable-swtpm`,
-`--enable-fwtpm-small-ctx`, `--enable-fuzz`. Feature disable macros:
+`--enable-fwtpm-nv-appendonly`, `--enable-fuzz`. Feature disable macros:
 `FWTPM_NO_ATTESTATION`, `FWTPM_NO_NV`, `FWTPM_NO_POLICY`, `FWTPM_NO_CREDENTIAL`,
 `FWTPM_NO_DA`, `FWTPM_NO_PARAM_ENC`, `FWTPM_NO_KEY_MIGRATION`, `FWTPM_NO_ECDH`,
 `FWTPM_NO_HASH_CMDS`, `FWTPM_NO_CONTEXT`, `FWTPM_NO_SYM_ENCRYPT`,

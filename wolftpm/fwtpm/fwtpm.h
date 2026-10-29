@@ -742,8 +742,10 @@ struct FWTPM_NV_HAL_S {
     word32 maxSize;     /* Total NV region size */
     /* Override the NV-journal integrity key with a platform device secret
      * (e.g. hardware-fused or host-TPM backed). Return 0 and set *keySz on
-     * success. When NULL the default file backend uses an auto-created key
-     * file; integrity verification is always performed when a key exists. */
+     * success. keySz is output only: it is zeroed before the call and carries
+     * no capacity, so do not test it. The buffer is 32 bytes. When NULL the
+     * default file backend uses an auto-created key file; integrity
+     * verification is always performed when a key exists. */
     int (*get_integrity_key)(void* ctx, byte* key, word32* keySz);
     /* Program granule in bytes for append-only flash (0/1 = byte-writable). */
     word32 writeAlign;

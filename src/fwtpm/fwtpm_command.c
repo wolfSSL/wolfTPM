@@ -20782,8 +20782,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         sizeof(ctx->activeCmdAuthIsPolicy));
 #endif
 
-    /* rspSize is in/out: capacity in, bytes written out. Callers that leave
-     * it unset get the historic FWTPM_MAX_COMMAND_SIZE assumption. */
     /* Handlers commit state before marshalling and some write outside the
      * packet API, so they are only ever run with a full-size buffer. A
      * caller with a smaller transport buffer must stage through one.
