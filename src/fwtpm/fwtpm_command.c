@@ -10033,7 +10033,7 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * size (matches FwCmd_SignDigest). */
     if (rc == 0 && sigHashAlg != TPM_ALG_NULL &&
             digest.size != (UINT16)TPM2_GetHashDigestSize(sigHashAlg)) {
-        rc = TPM_RC_SIZE;
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
     }
 
     /* Parse validation ticket (TPMT_TK_HASHCHECK) */

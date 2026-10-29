@@ -3240,7 +3240,7 @@ static void test_fwtpm_sign_digest_size_mismatch(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
 
     cmdSz = BuildSignCmd(gCmd, keyHandle, digest, TPM_SHA256_DIGEST_SIZE,
         TPM_ALG_RSASSA, TPM_ALG_SHA256);
@@ -3265,7 +3265,7 @@ static void test_fwtpm_sign_digest_size_mismatch(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Sign digest-size mismatch rejected:", 0);
