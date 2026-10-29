@@ -1047,9 +1047,10 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/wolftpm/
 # SBOM generation target
 ####################################################
 #
-# The generator is the wolfGlass snapshot in tools/sbom/. WOLFSSL_DIR is
-# optional: when set to a wolfSSL source tree, the dependency version is read
-# from wolfssl/version.h. Otherwise the driver uses pkg-config.
+# The generator is the wolfssl-compliance-tooling snapshot in tools/sbom/.
+# WOLFSSL_DIR is optional: when set to a wolfSSL source tree, the dependency
+# version is read from wolfssl/version.h. Otherwise the driver uses
+# pkg-config.
 #
 # Usage:
 #   cmake -B build .
@@ -1154,7 +1155,7 @@ if(BUILD_WOLFTPM_LIB)
         if(NOT _sbom_wolfssl_version STREQUAL "")
             list(APPEND _sbom_args DEP_VERSION "wolfssl=${_sbom_wolfssl_version}")
         endif()
-        wolfglass_add_sbom(${_sbom_args})
+        wolfssl_compliance_tooling_add_sbom(${_sbom_args})
 
         # Stage the installed library before the driver hashes it, matching
         # the autotools `make install` into _sbom_staging. The public `sbom`

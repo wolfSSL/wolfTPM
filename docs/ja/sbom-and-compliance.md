@@ -4,7 +4,7 @@ wolfTPM は、EU サイバーレジリエンス法 (CRA) への準拠を支援�
 
 ## SBOM と EU CRA コンプライアンス
 
-wolfTPM は CycloneDX 1.6 および SPDX 2.3 形式で SBOM を生成します。ジェネレータは `tools/sbom/` にベンダリングされた wolfGlass のスナップショットで、`tools/sbom/.wolfglass-rev` で固定されています。SBOM には、設定されたビルドオプション (`wolftpm/options.h` から取得)、ビルドされた `libwolftpm` ライブラリ成果物 (共有または静的、ELF、Mach-O、PE) のハッシュ、および依存関係としての wolfSSL が記録されるため、脆弱性スキャナーは wolfSSL のアドバイザリを wolfTPM のデプロイメントに関連付けることができます。
+wolfTPM は CycloneDX 1.6 および SPDX 2.3 形式で SBOM を生成します。ジェネレータは `tools/sbom/` にベンダリングされた wolfssl-compliance-tooling のスナップショットで、`tools/sbom/.wolfssl-compliance-tooling-rev` で固定されています。SBOM には、設定されたビルドオプション (`wolftpm/options.h` から取得)、ビルドされた `libwolftpm` ライブラリ成果物 (共有または静的、ELF、Mach-O、PE) のハッシュ、および依存関係としての wolfSSL が記録されるため、脆弱性スキャナーは wolfSSL のアドバイザリを wolfTPM のデプロイメントに関連付けることができます。
 
 出力は再現可能です。`SOURCE_DATE_EPOCH` を設定する (または最後のコミット時刻が使用される git チェックアウトからビルドする) と、繰り返し実行しても出力はバイト単位で同一になります。
 
@@ -48,7 +48,7 @@ CRA に関するさらなるガイダンスは [wolfssl/doc/CRA.md](https://gith
 
 ## ジェネレータの内部構成
 
-wolfGlass のうち、ベンダリング可能なのは `share/` セットのみです。`tools/wolfglass-sync` スクリプトは、これらのファイルを、固定用ファイル (`VERSION` と `.wolfglass-rev`) とともに、製品内の `tools/sbom/` にコピーします。コピーするのはファイルであり、`share/` フォルダ名ではありません。
+wolfssl-compliance-tooling のうち、ベンダリング可能なのは `share/` セットのみです。`tools/wolfssl-compliance-tooling-sync` スクリプトは、これらのファイルを、固定用ファイル (`VERSION` と `.wolfssl-compliance-tooling-rev`) とともに、製品内の `tools/sbom/` にコピーします。コピーするのはファイルであり、`share/` フォルダ名ではありません。
 
 ### 内容
 
@@ -60,8 +60,8 @@ wolfGlass のうち、ベンダリング可能なのは `share/` セットのみ
 | `frontends/compdb_sbom.py` | 任意の `compile_commands.json` に対するエクストラクタ。 |
 | `frontends/iar_sbom.py` | IAR Embedded Workbench の `.ewp` に対するエクストラクタ。 |
 | `frontends/zephyr_sbom.py` | Zephyr モジュールの `CMakeLists.txt` に対するエクストラクタ。 |
-| `build/sbom.mk` | 共有のプレーン Make フラグメントと `wolfglass_sbom_rule` マクロ。 |
-| `build/sbom.cmake` | 共有の CMake ヘルパー: `wolfglass_add_sbom()`。 |
+| `build/sbom.mk` | 共有のプレーン Make フラグメントと `wolfssl_compliance_tooling_sbom_rule` マクロ。 |
+| `build/sbom.cmake` | 共有の CMake ヘルパー: `wolfssl_compliance_tooling_add_sbom()`。 |
 | `gen-sbom` | ベンダリングされた SBOM ジェネレータ。 |
 | `sbom.am` | 共有の autotools フラグメント。 |
 
@@ -92,8 +92,8 @@ wolfGlass のうち、ベンダリング可能なのは `share/` セットのみ
 
 製品はロジックをコピーしません。自身を記述します。
 
-- **Make:** `SBOM_NAME`、`SBOM_SRCS`、`SBOM_CFLAGS`、およびバージョン (`SBOM_VERSION`、または `SBOM_VERSION_FILE` と `SBOM_VERSION_MACRO`) を設定し、`include tools/sbom/build/sbom.mk` します。2 つ目のターゲットには `$(eval $(call wolfglass_sbom_rule,<target>,<prefix>))` をインスタンス化します。製品の構成が `user_settings.h` にある場合は、`SBOM_SETTINGS_H` も設定します (そのヘッダーが CFLAGS にまだ含まれていないパスを必要とする場合は `SBOM_INCLUDE_DIRS` も設定)。`SBOM_CFLAGS` だけでは、文字どおりの `-D` の集合のみが記録され、そこから派生するものは記録されません。ゲートされたヘッダーでは、SBOM が誰もビルドしていない構成を記述してしまうことになります。
-- **CMake:** `include(tools/sbom/build/sbom.cmake)` し、`NAME`、`VERSION_FILE`、`VERSION_MACRO`、`TARGETS`、`DEFS`、`LICENSE` を指定して `wolfglass_add_sbom()` を呼び出します。`SBOM_GEN` が正式なジェネレータ上書き用の変数です。`GEN_SBOM` は互換性のため、従来のエイリアスとして残されています。
+- **Make:** `SBOM_NAME`、`SBOM_SRCS`、`SBOM_CFLAGS`、およびバージョン (`SBOM_VERSION`、または `SBOM_VERSION_FILE` と `SBOM_VERSION_MACRO`) を設定し、`include tools/sbom/build/sbom.mk` します。2 つ目のターゲットには `$(eval $(call wolfssl_compliance_tooling_sbom_rule,<target>,<prefix>))` をインスタンス化します。製品の構成が `user_settings.h` にある場合は、`SBOM_SETTINGS_H` も設定します (そのヘッダーが CFLAGS にまだ含まれていないパスを必要とする場合は `SBOM_INCLUDE_DIRS` も設定)。`SBOM_CFLAGS` だけでは、文字どおりの `-D` の集合のみが記録され、そこから派生するものは記録されません。ゲートされたヘッダーでは、SBOM が誰もビルドしていない構成を記述してしまうことになります。
+- **CMake:** `include(tools/sbom/build/sbom.cmake)` し、`NAME`、`VERSION_FILE`、`VERSION_MACRO`、`TARGETS`、`DEFS`、`LICENSE` を指定して `wolfssl_compliance_tooling_add_sbom()` を呼び出します。`SBOM_GEN` が正式なジェネレータ上書き用の変数です。`GEN_SBOM` は互換性のため、従来のエイリアスとして残されています。
 - **Autotools:** `SBOM_*` 変数を設定し、`include tools/sbom/sbom.am` します。
 
 製品に残すのは、真に製品固有の知識のみです。具体的には、ルーティング用スクリプト、モジュールエクストラクタ、HAL ソースセレクタです。

@@ -144,10 +144,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-  # tools/sbom/ is a vendored copy of the wolfGlass share/ set, pinned by
-  # tools/sbom/.wolfglass-rev. wolfglass-sync --check fails when the copy
-  # differs from that revision.
-  wolfglass_drift:
+  # tools/sbom/ is a vendored copy of the wolfssl-compliance-tooling share/
+  # set, pinned by tools/sbom/.wolfssl-compliance-tooling-rev.
+  # wolfssl-compliance-tooling-sync --check fails when the copy differs from
+  # that revision.
+  compliance_tooling_drift:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/wolfssl/wolftpm-ci:v1.1
@@ -161,36 +162,36 @@ jobs:
         with:
           submodules: true
 
-      - name: Read the pinned wolfGlass revision
+      - name: Read the pinned wolfssl-compliance-tooling revision
         id: pin
         run: |
-          rev="$(tr -d '[:space:]' < tools/sbom/.wolfglass-rev)"
+          rev="$(tr -d '[:space:]' < tools/sbom/.wolfssl-compliance-tooling-rev)"
           if [ -z "$rev" ]; then
-            echo "ERROR: tools/sbom/.wolfglass-rev is empty." >&2
+            echo "ERROR: tools/sbom/.wolfssl-compliance-tooling-rev is empty." >&2
             exit 1
           fi
           echo "rev=$rev" >> "$GITHUB_OUTPUT"
-          echo "Pinned wolfGlass revision: $rev"
+          echo "Pinned wolfssl-compliance-tooling revision: $rev"
 
-      - name: Check out wolfGlass at the pinned revision
+      - name: Check out wolfssl-compliance-tooling at the pinned revision
         id: fetch
         continue-on-error: true
         uses: actions/checkout@v4
         with:
-          repository: wolfSSL/wolfGlass
+          repository: wolfSSL/wolfssl-compliance-tooling
           ref: ${{ steps.pin.outputs.rev }}
-          path: .wolfglass-src
+          path: .wolfssl-compliance-tooling-src
 
-      - name: Drift check against wolfGlass
+      - name: Drift check against wolfssl-compliance-tooling
         env:
           PINNED_REV: ${{ steps.pin.outputs.rev }}
         run: |
-          if [ ! -d .wolfglass-src/share ]; then
-            echo "ERROR: wolfGlass revision $PINNED_REV does not resolve." >&2
-            echo "tools/sbom/.wolfglass-rev must name a commit that exists in" >&2
-            echo "wolfSSL/wolfGlass. Re-run tools/wolfglass-sync to re-pin." >&2
+          if [ ! -d .wolfssl-compliance-tooling-src/share ]; then
+            echo "ERROR: wolfssl-compliance-tooling revision $PINNED_REV does not resolve." >&2
+            echo "tools/sbom/.wolfssl-compliance-tooling-rev must name a commit that exists in" >&2
+            echo "wolfSSL/wolfssl-compliance-tooling. Re-run tools/wolfssl-compliance-tooling-sync to re-pin." >&2
             exit 1
           fi
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/.wolfglass-src"
-          python3 .wolfglass-src/tools/wolfglass-sync \
-            --check --src .wolfglass-src --dest .
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/.wolfssl-compliance-tooling-src"
+          python3 .wolfssl-compliance-tooling-src/tools/wolfssl-compliance-tooling-sync \
+            --check --src .wolfssl-compliance-tooling-src --dest .

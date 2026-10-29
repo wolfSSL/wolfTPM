@@ -134,9 +134,10 @@ cppcheck:
 		--error-exitcode=89 --std=c89 \
 		-I wolftpm src/ hal/ examples
 
-# SBOM generation. The recipe and generator are the vendored wolfGlass
-# snapshot in tools/sbom/ (pinned by tools/sbom/.wolfglass-rev). wolfTPM
-# declares itself here: a libwolftpm library that links wolfSSL.
+# SBOM generation. The recipe and generator are the vendored
+# wolfssl-compliance-tooling snapshot in tools/sbom/ (pinned by
+# tools/sbom/.wolfssl-compliance-tooling-rev). wolfTPM declares itself here:
+# a libwolftpm library that links wolfSSL.
 # WOLFSSL_DIR is optional. When it points at a wolfSSL source tree, the
 # recipe reads wolfssl/version.h for the dependency version. Otherwise
 # gen-sbom uses pkg-config.
@@ -162,11 +163,16 @@ EXTRA_DIST += tools/sbom/sbom.am
 EXTRA_DIST += tools/sbom/validate_sbom.py
 EXTRA_DIST += tools/sbom/README.md
 EXTRA_DIST += tools/sbom/VERSION
-EXTRA_DIST += tools/sbom/.wolfglass-rev
+EXTRA_DIST += tools/sbom/.wolfssl-compliance-tooling-rev
+EXTRA_DIST += tools/sbom/build/install-sbom.cmake
+EXTRA_DIST += tools/sbom/build/sbom-paths.cmake
+EXTRA_DIST += tools/sbom/build/sbom-with-sde.cmake
 EXTRA_DIST += tools/sbom/build/sbom.cmake
 EXTRA_DIST += tools/sbom/build/sbom.mk
+EXTRA_DIST += tools/sbom/build/uninstall-sbom.cmake
 EXTRA_DIST += tools/sbom/frontends/compdb_sbom.py
 EXTRA_DIST += tools/sbom/frontends/iar_sbom.py
+EXTRA_DIST += tools/sbom/frontends/included_sources.py
 EXTRA_DIST += tools/sbom/frontends/zephyr_sbom.py
 
 include tools/sbom/sbom.am
