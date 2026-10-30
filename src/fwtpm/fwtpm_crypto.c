@@ -1201,7 +1201,7 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
     return rc;
 }
 
-#ifdef HAVE_ECC
+#ifdef FWTPM_HAVE_DHKEM
 /* RFC 9180 Sec.7 kem_id mapping for the curve+hash pairings the TPM accepts.
  * Returns 0 on a supported pairing; -1 otherwise (caller maps to TPM_RC_KDF). */
 static int FwDhkemParamsLookup(int wcCurve, TPMI_ALG_HASH kdfHash,
@@ -1519,7 +1519,7 @@ TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
     FWTPM_FREE_VAR(ephKey);
     return rc;
 }
-#endif /* HAVE_ECC */
+#endif /* FWTPM_HAVE_DHKEM */
 
 #endif /* WOLFTPM_MLKEM */
 

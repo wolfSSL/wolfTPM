@@ -18138,7 +18138,7 @@ static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = FwEncapsulateMlkem(&ctx->rng, ps, &obj->pub.unique.mlkem,
                 &sharedSecret, ciphertext);
         }
-#ifdef HAVE_ECC
+#ifdef FWTPM_HAVE_DHKEM
         else if (obj->pub.type == TPM_ALG_ECC &&
                 obj->pub.parameters.eccDetail.kdf.scheme == TPM_ALG_HKDF) {
             rc = FwEncapsulateEcdhDhkem(&ctx->rng, &obj->pub,
@@ -18258,11 +18258,15 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = FwDecapsulateMlkem(ps, obj->privKey,
                 ciphertext->buffer, ciphertext->size, &sharedSecret);
         }
-#ifdef HAVE_ECC
+#ifdef FWTPM_HAVE_DHKEM
         else {
             rc = FwDecapsulateEcdhDhkem(&ctx->rng, obj,
                 obj->pub.parameters.eccDetail.kdf.details.any.hashAlg,
                 ciphertext->buffer, ciphertext->size, &sharedSecret);
+        }
+#else
+        else {
+            rc = TPM_RC_KEY;
         }
 #endif
     }

@@ -68,6 +68,16 @@ jobs:
             build_only: true
             extra_cflags: -DDEBUG_WOLFTPM
 
+          # v1.85 PQC without HKDF, so ECC DHKEM is unavailable and
+          # Encapsulate/Decapsulate must reject an ECC key while the ML-KEM
+          # path still works. TLS 1.3 turns HKDF on regardless of
+          # --disable-hkdf, so it is disabled too.
+          - name: fwtpm-v185-no-hkdf
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-v185
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden --disable-tls13 --disable-hkdf
+            build_only: false
+
           # Build-only: fwTPM with RSA disabled
           - name: fwtpm-no-rsa
             os: ubuntu-latest
