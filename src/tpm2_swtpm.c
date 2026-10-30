@@ -74,10 +74,12 @@
 #ifndef O_NOFOLLOW
 #define O_NOFOLLOW 0
 #endif
-/* Cumulative wall-clock timeout for SwTpmReceive. Defends against trickle
- * senders that repeatedly reset the per-read VMIN/VTIME timer. */
+/* Cumulative wall-clock timeout for SwTpmReceive. Bounds the total wait for
+ * a response, which can exceed one VTIME period (e.g. RSA key generation on
+ * an MCU), and defends against trickle senders that repeatedly reset the
+ * per-read VMIN/VTIME timer. */
 #ifndef WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS
-#define WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS 30
+#define WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS 60
 #endif
 #endif
 
@@ -217,6 +219,16 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
             rc = TPM_RC_FAILURE;
             break;
         }
+#if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
+        /* A zero-byte TTY read means VTIME expired, not EOF: keep waiting
+         * until the cumulative timeout */
+        if (wrc == 0 && haveStart &&
+                clock_gettime(CLOCK_MONOTONIC, &now) == 0 &&
+                (now.tv_sec - start.tv_sec) <=
+                    WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS) {
+            continue;
+        }
+#endif
         if (wrc == 0) {
             #ifdef DEBUG_WOLFTPM
             printf("Failed to read from TPM socket: EOF\n");
@@ -359,10 +371,10 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     tty.c_oflag &= ~OPOST;
     tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
 
-    /* Read with overall timeout.
-     * RSA key generation on embedded targets can take 10+ seconds,
-     * so use a generous timeout. With VMIN=0 and VTIME>0, read()
-     * returns after the timeout even if no byte is received. */
+    /* Read with per-read timeout. With VMIN=0 and VTIME>0, read() returns
+     * after the timeout even if no byte is received; SwTpmReceive keeps
+     * waiting up to WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS, since RSA key
+     * generation on embedded targets can take longer than one period. */
     tty.c_cc[VMIN] = 0;    /* allow timeout without requiring first byte */
     tty.c_cc[VTIME] = 200; /* 20 second timeout (tenths of seconds) */
 
