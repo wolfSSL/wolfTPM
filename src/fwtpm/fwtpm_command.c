@@ -1386,9 +1386,10 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     int oldShutdownState;
     int oldOrderly;
 
-    (void)cmdTag;
-
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -1405,13 +1406,9 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             shutdownType == TPM_SU_CLEAR ? "CLEAR" : "STATE");
     #endif
 
-        /* Flush sessions on Shutdown(CLEAR). Per TPM 2.0 spec, sessions
-         * do not survive Shutdown(CLEAR). Transient objects remain in
-         * volatile memory until the actual power cycle — Startup(CLEAR)
-         * handles flushing them (see FwCmd_Startup). */
-        if (shutdownType == TPM_SU_CLEAR) {
-            FwFlushAllSessions(ctx);
-        }
+        /* Sessions and transient objects stay loaded until the next
+         * Startup flushes them (see FwCmd_Startup), so a session that
+         * authorized this command can still authorize its response. */
 
     #ifndef FWTPM_NO_DA
         /* Mark a clean orderly checkpoint so the next startup applies no
@@ -1429,7 +1426,7 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             return rc;
         }
 
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
@@ -1442,9 +1439,10 @@ static TPM_RC FwCmd_SelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT8 fullTest = 0;
 
-    (void)cmdTag;
-
-    if (cmdSize < TPM2_HEADER_SIZE + 1) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 1) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -1494,7 +1492,7 @@ static TPM_RC FwCmd_SelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         ctx->selfTestRun = 1;
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
@@ -1508,19 +1506,22 @@ static TPM_RC FwCmd_IncrementalSelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 toTestCount = 0;
     UINT32 i;
     UINT16 alg;
+    int paramSzPos, paramStart;
 
     (void)ctx;
-    (void)cmdTag;
 
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
     /* Require the TPML_ALG toTest parameter (count + count*TPM_ALG_ID) */
-    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+    if (rc == 0 && cmdSize - cmd->pos < 4) {
         rc = TPM_RC_COMMAND_SIZE;
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &toTestCount);
         /* Bound by division to avoid the count*size multiply overflowing and
          * wrapping the size check (which would allow an unbounded loop). */
-        if (toTestCount > (UINT32)((cmdSize - (TPM2_HEADER_SIZE + 4)) /
+        if (toTestCount > (UINT32)((cmdSize - cmd->pos) /
                 (int)sizeof(alg))) {
             rc = TPM_RC_COMMAND_SIZE;
         }
@@ -1538,8 +1539,9 @@ static TPM_RC FwCmd_IncrementalSelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* No-op stub: report nothing left to test via an empty toDoList.
      * Acceptable for non-FIPS; must be revisited for FIPS builds. */
     if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         TPM2_Packet_AppendU32(rsp, 0); /* toDoList count = 0 */
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
     return rc;
 }
@@ -1549,17 +1551,18 @@ static TPM_RC FwCmd_GetTestResult(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
     UINT32 testResult;
+    int paramSzPos, paramStart;
 
-    (void)cmd; (void)cmdSize; (void)cmdTag;
+    (void)cmd; (void)cmdSize;
 
     /* Report NEEDS_TEST until TPM2_SelfTest has completed successfully */
     testResult = ctx->selfTestRun ? TPM_RC_SUCCESS : TPM_RC_NEEDS_TEST;
 
+    paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
     /* outData (TPM2B_MAX_BUFFER) - empty */
     TPM2_Packet_AppendU16(rsp, 0);
     TPM2_Packet_AppendU32(rsp, testResult);
-
-    FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+    FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     return TPM_RC_SUCCESS;
 }
 
@@ -1569,10 +1572,12 @@ static TPM_RC FwCmd_GetRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 bytesRequested = 0;
+    int paramSzPos = -1, paramStart = 0;
 
-    (void)cmdTag;
-
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -1586,6 +1591,7 @@ static TPM_RC FwCmd_GetRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         printf("fwTPM: GetRandom(%d)\n", bytesRequested);
     #endif
 
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         /* TPM2B_DIGEST: size + data */
         TPM2_Packet_AppendU16(rsp, bytesRequested);
 
@@ -1605,7 +1611,7 @@ static TPM_RC FwCmd_GetRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         rsp->pos += bytesRequested;
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
     return rc;
@@ -3098,9 +3104,11 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     UINT16 algType = 0;
 
     (void)ctx;
-    (void)cmdTag;
 
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -3230,7 +3238,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     }
 
     if (rc == 0) {
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspNoParams(rsp, cmdTag);
     }
 
     /* TestParms has one compound parameter. Format-one validation errors
@@ -3253,15 +3261,17 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     int totalDigests = 0;
     int digestCountPos = 0;
     int savedPos = 0;
+    int paramSzPos, paramStart;
     struct {
         UINT16 hashAlg;
         UINT8 sizeOfSelect;
         byte pcrSelect[PCR_SELECT_MAX];
     } selections[HASH_COUNT];
 
-    (void)cmdTag;
-
-    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 4) {
         rc = TPM_RC_COMMAND_SIZE;
     }
     if (rc == 0) {
@@ -3334,6 +3344,7 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
         }
 
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         TPM2_Packet_AppendU32(rsp, ctx->pcrUpdateCounter);
         TPM2_Packet_AppendU32(rsp, pcrSelCount);
         for (s = 0; s < numSel; s++) {
@@ -3380,7 +3391,7 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_AppendU32(rsp, (UINT32)totalDigests);
         rsp->pos = savedPos;
 
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
     return rc;
@@ -4012,10 +4023,10 @@ static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
     UINT64 clockMs;
+    int paramSzPos, paramStart;
 
     (void)cmd;
     (void)cmdSize;
-    (void)cmdTag;
 
 #ifdef DEBUG_WOLFTPM
     printf("fwTPM: ReadClock\n");
@@ -4026,13 +4037,14 @@ static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
      * Uses clock HAL (if set) + clockOffset. clockOffset is persisted to NV
      * and can be advanced via ClockSet. */
     clockMs = FWTPM_Clock_GetMs(ctx);
+    paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
     TPM2_Packet_AppendU64(rsp, FwTimeMs(ctx)); /* time */
     TPM2_Packet_AppendU64(rsp, clockMs); /* clock */
     TPM2_Packet_AppendU32(rsp, ctx->resetCount);
     TPM2_Packet_AppendU32(rsp, ctx->restartCount);
     TPM2_Packet_AppendU8(rsp, (UINT8)ctx->clockSafe);
 
-    FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+    FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     return TPM_RC_SUCCESS; /* always succeeds */
 }
 
@@ -6508,8 +6520,7 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 objectHandle = 0;
     FWTPM_Object* obj = NULL;
     TPM2B_PUBLIC outPub;
-
-    (void)cmdTag;
+    int paramSzPos, paramStart;
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -6527,9 +6538,13 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HANDLE;
         }
     }
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
 
     if (rc == 0) {
         /* outPublic */
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         outPub.size = 0;
         XMEMCPY(&outPub.publicArea, &obj->pub, sizeof(TPMT_PUBLIC));
         TPM2_Packet_AppendPublic(rsp, &outPub);
@@ -6542,7 +6557,7 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_AppendU16(rsp, obj->name.size);
         TPM2_Packet_AppendBytes(rsp, obj->name.name, obj->name.size);
 
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
     return rc;
@@ -12386,7 +12401,6 @@ static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
 
     (void)cmdSize;
-    (void)cmdTag;
 
     /* Parse handle */
     TPM2_Packet_ParseU32(cmd, &sessHandle);
@@ -12409,7 +12423,7 @@ static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         FwResetPolicyData(sess);
 
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
@@ -18153,7 +18167,7 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
-    UINT16 curveID;
+    UINT16 curveID = 0;
     UINT16 keyBits;
     int f;
     const FWTPM_ECC_CURVE_INFO* curveInfo = NULL;
@@ -18162,15 +18176,21 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramSz;
     int padSz;
     const char* fields[6];
+    int paramSzPos = -1, paramStart = 0;
 
-    (void)ctx; (void)cmdSize; (void)cmdTag;
+    (void)ctx;
 
-    TPM2_Packet_ParseU16(cmd, &curveID);
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &curveID);
 
-    curveInfo = FwGetEccCurveInfo(curveID);
-    params = FwGetEccCurveParams(curveID);
-    if (curveInfo == NULL || params == NULL) {
-        rc = TPM_RC_CURVE;
+        curveInfo = FwGetEccCurveInfo(curveID);
+        params = FwGetEccCurveParams(curveID);
+        if (curveInfo == NULL || params == NULL) {
+            rc = TPM_RC_CURVE;
+        }
     }
     keyBits = (curveInfo != NULL) ? curveInfo->keyBits : 0;
 
@@ -18182,6 +18202,7 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 #endif
 
     if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         TPM2_Packet_AppendU16(rsp, curveID);
         TPM2_Packet_AppendU16(rsp, keyBits);
         TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL); /* kdf */
@@ -18223,7 +18244,7 @@ static TPM_RC FwCmd_ECC_Parameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
     return rc;
