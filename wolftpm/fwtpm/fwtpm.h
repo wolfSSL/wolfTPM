@@ -53,6 +53,11 @@
     #endif
 #endif
 
+/* v1.85 ECC DHKEM (RFC 9180) derives its shared secret with HKDF. */
+#if defined(HAVE_ECC) && defined(HAVE_HKDF)
+    #define FWTPM_HAVE_DHKEM
+#endif
+
 /* Endian byte-array helpers - use shared TPM2_Packet helpers.
  * Note: argument order differs (Fw: buf,val; TPM2_Packet: val,buf) */
 #define FwStoreU16BE(buf, val) TPM2_Packet_U16ToByteArray((val), (buf))
