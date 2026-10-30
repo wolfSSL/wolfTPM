@@ -84,6 +84,7 @@ set(TPM_SOURCES
     src/tpm2_packet.c
     src/tpm2_param_enc.c
     src/tpm2_swtpm.c
+    src/tpm2_optee.c
     src/tpm2_tis.c
     src/tpm2_winapi.c
     src/tpm2_wrap.c

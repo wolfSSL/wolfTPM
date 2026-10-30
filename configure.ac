@@ -343,6 +343,33 @@ fi
 AC_SUBST([SWTPM_PORT])
 AC_SUBST([DISTCHECK_SWTPM_PORT_FLAG])
 
+# fwTPM as an OP-TEE trusted application, reached over libteec
+AC_ARG_ENABLE([optee],
+    [AS_HELP_STRING([--enable-optee],[Enable use of the wolfTPM fwTPM running as an OP-TEE trusted application, reached over libteec (default: disabled)])],
+    [ ENABLED_OPTEE=$enableval ],
+    [ ENABLED_OPTEE=no ]
+    )
+
+if test "x$ENABLED_OPTEE" = "xyes"
+then
+    if test "x$ENABLED_DEVTPM" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both optee and devtpm])
+    fi
+    # swtpm is the default on Linux x86_64/aarch64, which is where an OP-TEE
+    # client runs, so say which flag to pass rather than just refusing.
+    if test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"
+    then
+        AC_MSG_ERROR([Cannot enable both optee and swtpm; add --disable-swtpm])
+    fi
+    AC_CHECK_HEADER([tee_client_api.h], [],
+        [AC_MSG_ERROR([--enable-optee requires tee_client_api.h from the OP-TEE client])])
+    AC_CHECK_LIB([teec], [TEEC_InitializeContext], [],
+        [AC_MSG_ERROR([--enable-optee requires libteec from the OP-TEE client])])
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_OPTEE"
+fi
+AM_CONDITIONAL([BUILD_OPTEE], [test "x$ENABLED_OPTEE" = "xyes"])
+
 # Firmware TPM (fwTPM) - software TPM 2.0 simulator
 AC_ARG_ENABLE([fwtpm],
     [AS_HELP_STRING([--enable-fwtpm],[Enable firmware TPM (fwTPM) server (default: enabled on Linux x86_64/aarch64, disabled elsewhere or when any --enable-<vendor>/--enable-spi/--enable-i2c/--enable-mmio/--enable-devtpm/--enable-autodetect is explicitly set)])],
@@ -1261,6 +1288,7 @@ echo "   * SPI:                       $SPI_ACTUAL"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
+echo "   * OP-TEE fwTPM TA:           $ENABLED_OPTEE"
 if test "x$ENABLED_SWTPM" = "xyes"; then
     echo "   * SWTPM Port:                 $SWTPM_PORT"
 fi

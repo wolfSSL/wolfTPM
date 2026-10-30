@@ -35,6 +35,9 @@
 #ifdef WOLFTPM_SWTPM
     #include <wolftpm/tpm2_swtpm.h>
 #endif
+#ifdef WOLFTPM_OPTEE
+    #include <wolftpm/tpm2_optee.h>
+#endif
 #ifdef WOLFTPM_WINAPI
     #include <wolftpm/tpm2_winapi.h>
 #endif
@@ -77,6 +80,9 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #elif defined(WOLFTPM_SWTPM)
 #define INTERNAL_SEND_COMMAND      TPM2_SWTPM_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
+#elif defined(WOLFTPM_OPTEE)
+#define INTERNAL_SEND_COMMAND      TPM2_OPTEE_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #elif defined(WOLFTPM_WINAPI)
 #define INTERNAL_SEND_COMMAND      TPM2_WinApi_SendCommand
@@ -1072,7 +1078,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #endif
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-    defined(WOLFTPM_WINAPI)
+    defined(WOLFTPM_WINAPI) || defined(WOLFTPM_OPTEE)
     if (ioCb != NULL || userCtx != NULL) {
         rc = BAD_FUNC_ARG;
         goto exit;
@@ -1238,6 +1244,10 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 
 #ifdef WOLFTPM_SWTPM
     TPM2_SwtpmClose(ctx);
+#endif
+
+#ifdef WOLFTPM_OPTEE
+    TPM2_OpteeClose(ctx);
 #endif
 
     ctx->locality = TPM2_LOCALITY_UNINITIALIZED;
