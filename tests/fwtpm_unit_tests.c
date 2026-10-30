@@ -3553,6 +3553,8 @@ static void test_fwtpm_mlkem_roundtrip(void)
     fwtpm_pass("MLKEM Encap/Decap Roundtrip:", 1);
 }
 
+#if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
+    defined(WOLFTPM_MLKEM_DECAP)
 /* ECC DHKEM Encap/Decap roundtrip per Part 2 Sec.12.2.3.5 + RFC 9180 Sec.4.1.
  * An unrestricted-decryption ECC key with the matching HKDF kdf qualifies for
  * Encap/Decap. Encap and Decap MUST produce identical sharedSecrets. */
@@ -3680,6 +3682,7 @@ static void test_fwtpm_ecc_dhkem_p521_roundtrip(void)
         "Encap/Decap ECC DHKEM (P-521/HKDF-SHA512) Roundtrip:");
 }
 #endif
+#endif /* FWTPM_HAVE_DHKEM && WOLFTPM_MLKEM_ENCAP && WOLFTPM_MLKEM_DECAP */
 
 /* ML-KEM Labeled KEM seed roundtrip per Part 1 Sec.47.4 Eq.66:
  *   seed = KDFa(nameAlg, K, label, ciphertext, publicKey, bits).
@@ -19477,7 +19480,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_create_loaded_mldsa();
     test_fwtpm_create_loaded_mlkem();
     test_fwtpm_mlkem_roundtrip();
+#if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
+    defined(WOLFTPM_MLKEM_DECAP)
     test_fwtpm_ecc_dhkem_roundtrip();
+#endif
     test_fwtpm_encseed_decseed_mlkem_roundtrip();
 #if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP) && \
     !defined(FWTPM_NO_CREDENTIAL)
@@ -19521,9 +19527,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signsequence_hmac_roundtrip();
     test_fwtpm_signsequence_handle_auth_required();
     test_fwtpm_verifysequence_long_message();
+#if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
+    defined(WOLFTPM_MLKEM_DECAP)
     test_fwtpm_ecc_dhkem_p384_roundtrip();
 #ifdef FWTPM_HAVE_ECC521
     test_fwtpm_ecc_dhkem_p521_roundtrip();
+#endif
 #endif
 #ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_mldsa_digest_roundtrip();
