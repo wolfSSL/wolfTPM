@@ -82,14 +82,29 @@ enum wc_HashType FwGetWcHashType(UINT16 hashAlg)
 int FwGetMgfType(UINT16 hashAlg)
 {
     switch (hashAlg) {
+    #ifndef NO_SHA
+        case TPM_ALG_SHA1:   return WC_MGF1SHA1;
+    #endif
     #ifdef WOLFSSL_SHA512
         case TPM_ALG_SHA512: return WC_MGF1SHA512;
     #endif
     #ifdef WOLFSSL_SHA384
         case TPM_ALG_SHA384: return WC_MGF1SHA384;
     #endif
-        case TPM_ALG_SHA256: /* fallthrough */
-        default:             return WC_MGF1SHA256;
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256) && \
+        defined(WC_MGF1SHA3_256)
+        case TPM_ALG_SHA3_256: return WC_MGF1SHA3_256;
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384) && \
+        defined(WC_MGF1SHA3_384)
+        case TPM_ALG_SHA3_384: return WC_MGF1SHA3_384;
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512) && \
+        defined(WC_MGF1SHA3_512)
+        case TPM_ALG_SHA3_512: return WC_MGF1SHA3_512;
+    #endif
+        case TPM_ALG_SHA256: return WC_MGF1SHA256;
+        default:             return WC_MGF1NONE;
     }
 }
 #endif /* !NO_RSA */
@@ -3854,6 +3869,15 @@ int FwGetRsaHashOid(UINT16 hashAlg)
     #ifndef NO_SHA
         case TPM_ALG_SHA1:   return WC_HASH_TYPE_SHA;
     #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_256)
+        case TPM_ALG_SHA3_256: return WC_HASH_TYPE_SHA3_256;
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_384)
+        case TPM_ALG_SHA3_384: return WC_HASH_TYPE_SHA3_384;
+    #endif
+    #if defined(WOLFSSL_SHA3) && !defined(WOLFSSL_NOSHA3_512)
+        case TPM_ALG_SHA3_512: return WC_HASH_TYPE_SHA3_512;
+    #endif
         default:             return WC_HASH_TYPE_NONE;
     }
 }
@@ -3885,7 +3909,8 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
             FWTPM_ALLOC_VAR(rsaKey, RsaKey);
             FWTPM_ALLOC_BUF(sigBuf, FWTPM_MAX_PUB_BUF);
 
-            if (pad < 0)
+            if (pad < 0 || (pad == WC_RSA_PSS_PAD &&
+                    FwGetMgfType(sigHashAlg) == WC_MGF1NONE))
                 rc = TPM_RC_SCHEME;
 
             if (rc == 0) {
@@ -3949,6 +3974,7 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
             word32 sSz = (word32)sizeof(sBuf);
             int wcRc;
             int eccInit = 0;
+            int i = 0;
 
             FWTPM_ALLOC_VAR(eccKey, ecc_key);
             FWTPM_ALLOC_BUF(derSig, FWTPM_MAX_DER_SIG_BUF);
@@ -3962,8 +3988,15 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
             if (rc == 0) {
                 wcRc = wc_ecc_sign_hash(digest, digestSz,
                     derSig, &derSigSz, &ctx->rng, eccKey);
-                if (wcRc != 0)
-                    rc = TPM_RC_FAILURE;
+                if (wcRc != 0) {
+                    /* wolfCrypt refuses an all-zero digest with
+                     * ECC_BAD_ARG_E unless WC_ALLOW_ECC_ZERO_HASH */
+                    while (wcRc == ECC_BAD_ARG_E && i < digestSz &&
+                            digest[i] == 0)
+                        i++;
+                    rc = (i > 0 && i == digestSz) ? TPM_RC_VALUE :
+                        TPM_RC_FAILURE;
+                }
             }
 
             if (eccInit)
@@ -3974,6 +4007,25 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
                     rBuf, &rSz, sBuf, &sSz);
                 if (wcRc != 0)
                     rc = TPM_RC_FAILURE;
+            }
+
+            /* Match the reference TPM's fixed-width ECDSA scalar encoding. */
+            if (rc == 0) {
+                int keySz = FwGetEccKeySize(
+                    obj->pub.parameters.eccDetail.curveID);
+                if (keySz <= 0 || keySz > (int)sizeof(rBuf) ||
+                        keySz > (int)sizeof(sBuf) ||
+                        rSz > (word32)keySz || sSz > (word32)keySz) {
+                    rc = TPM_RC_FAILURE;
+                }
+                else {
+                    XMEMMOVE(rBuf + keySz - rSz, rBuf, rSz);
+                    XMEMSET(rBuf, 0, keySz - rSz);
+                    rSz = (word32)keySz;
+                    XMEMMOVE(sBuf + keySz - sSz, sBuf, sSz);
+                    XMEMSET(sBuf, 0, keySz - sSz);
+                    sSz = (word32)keySz;
+                }
             }
 
             if (rc == 0) {
@@ -4011,7 +4063,8 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
 
             FWTPM_ALLOC_VAR(rsaKey, RsaKey);
 
-            if (pad < 0)
+            if (pad < 0 || (pad == WC_RSA_PSS_PAD &&
+                    FwGetMgfType(sig->signature.rsapss.hash) == WC_MGF1NONE))
                 rc = TPM_RC_SCHEME;
 
             if (rc == 0) {

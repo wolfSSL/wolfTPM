@@ -87,15 +87,40 @@ int FWTPM_IO_IsStopRequested(void)
 #define FWTPM_MAX_COMMAND_CLIENTS 8
 #define FWTPM_IO_CONNECTION_CLOSED (-1)
 
-static int SocketSend(SOCKET_T fd, const void* buf, int sz)
+/* Wait up to FWTPM_CLOCK_POLL_MS for fd, so a client that pauses mid-packet
+ * does not hold off Clock updates. Returns 1 when ready, 0 on timeout and
+ * negative on error. */
+static int SocketWait(SOCKET_T fd, int forWrite)
+{
+    fd_set fds;
+    struct timeval tv;
+
+    FD_ZERO(&fds);
+    FD_SET(fd, &fds);
+    tv.tv_sec = FWTPM_CLOCK_POLL_MS / 1000;
+    tv.tv_usec = (FWTPM_CLOCK_POLL_MS % 1000) * 1000;
+    /* Windows ignores the first argument; see FWTPM_IO_ServerLoop */
+    return select((int)(fd + 1), forWrite ? NULL : &fds,
+        forWrite ? &fds : NULL, NULL, &tv);
+}
+
+static int SocketSend(FWTPM_CTX* ctx, SOCKET_T fd, const void* buf, int sz)
 {
     const char* ptr = (const char*)buf;
     int remaining = sz;
     while (remaining > 0) {
+        int sent;
+        int rc = FWTPM_Clock_Update(ctx);
+        if (rc != TPM_RC_SUCCESS && rc != TPM_RC_NV_RATE) return rc;
+        rc = SocketWait(fd, 1);
+        if (rc == 0) {
+            if (g_stopRequested) return TPM_RC_FAILURE;
+            continue;
+        }
     #ifdef _WIN32
-        int sent = send(fd, ptr, remaining, 0);
+        sent = (rc < 0) ? -1 : send(fd, ptr, remaining, 0);
     #else
-        int sent = (int)write(fd, ptr, remaining);
+        sent = (rc < 0) ? -1 : (int)write(fd, ptr, remaining);
     #endif
         if (sent <= 0) {
         #ifdef _WIN32
@@ -120,15 +145,23 @@ static int SocketSend(SOCKET_T fd, const void* buf, int sz)
     return TPM_RC_SUCCESS;
 }
 
-static int SocketRecv(SOCKET_T fd, void* buf, int sz)
+static int SocketRecv(FWTPM_CTX* ctx, SOCKET_T fd, void* buf, int sz)
 {
     char* ptr = (char*)buf;
     int remaining = sz;
     while (remaining > 0) {
+        int got;
+        int rc = FWTPM_Clock_Update(ctx);
+        if (rc != TPM_RC_SUCCESS && rc != TPM_RC_NV_RATE) return rc;
+        rc = SocketWait(fd, 0);
+        if (rc == 0) {
+            if (g_stopRequested) return TPM_RC_FAILURE;
+            continue;
+        }
     #ifdef _WIN32
-        int got = recv(fd, ptr, remaining, 0);
+        got = (rc < 0) ? -1 : recv(fd, ptr, remaining, 0);
     #else
-        int got = (int)read(fd, ptr, remaining);
+        got = (rc < 0) ? -1 : (int)read(fd, ptr, remaining);
     #endif
         if (got <= 0) {
         #ifdef _WIN32
@@ -167,7 +200,7 @@ static int TransportSend(FWTPM_CTX* ctx, int type, SOCKET_T fd,
     if (fd == FWTPM_INVALID_FD) {
         return TPM_RC_FAILURE;
     }
-    return SocketSend(fd, buf, sz);
+    return SocketSend(ctx, fd, buf, sz);
 }
 
 static int TransportRecv(FWTPM_CTX* ctx, int type, SOCKET_T fd,
@@ -179,7 +212,7 @@ static int TransportRecv(FWTPM_CTX* ctx, int type, SOCKET_T fd,
     if (fd == FWTPM_INVALID_FD) {
         return TPM_RC_FAILURE;
     }
-    return SocketRecv(fd, buf, sz);
+    return SocketRecv(ctx, fd, buf, sz);
 }
 
 static SOCKET_T CreateListenSocket(int port)
@@ -259,6 +292,9 @@ static int HandlePlatformCommand(FWTPM_CTX* ctx, SOCKET_T clientFd)
 
     switch (cmd) {
         case FWTPM_TCP_SIGNAL_POWER_ON:
+            if (!ctx->powerOn) {
+                FWTPM_Clock_PowerOn(ctx);
+            }
             ctx->powerOn = 1;
         #ifdef DEBUG_WOLFTPM
             printf("fwTPM: Platform POWER_ON\n");
@@ -372,8 +408,12 @@ static int HandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd, UINT32 tssCmd)
 
     /* State-mutating signals (POWER_OFF/RESET) are rejected before reaching
      * here on the command port; only POWER_ON is handled. */
-    if (tssCmd == FWTPM_TCP_SIGNAL_POWER_ON)
+    if (tssCmd == FWTPM_TCP_SIGNAL_POWER_ON) {
+        if (!ctx->powerOn) {
+            FWTPM_Clock_PowerOn(ctx);
+        }
         ctx->powerOn = 1;
+    }
 #ifdef DEBUG_WOLFTPM
     printf("fwTPM: Cmd-port signal %u (ack)\n", tssCmd);
 #endif
@@ -640,13 +680,21 @@ static int CustomServerLoop(FWTPM_CTX* ctx)
 
     ctx->running = 1;
     while (ctx->running) {
+        rc = FWTPM_Clock_Update(ctx);
+        if (rc == TPM_RC_NV_RATE) {
+            rc = TPM_RC_SUCCESS; /* retried on the next pass */
+        }
+        if (rc != TPM_RC_SUCCESS) {
+            break;
+        }
         if (g_stopRequested) {
             ctx->running = 0;
             break;
         }
 
         events = ctx->ioHal.wait(ctx->ioHal.ctx,
-            FWTPM_IO_WAIT_TIMEOUT_MS);
+            FWTPM_IO_WAIT_TIMEOUT_MS < (int)FWTPM_CLOCK_POLL_MS ?
+                FWTPM_IO_WAIT_TIMEOUT_MS : (int)FWTPM_CLOCK_POLL_MS);
         if (g_stopRequested) {
             ctx->running = 0;
             break;
@@ -867,6 +915,13 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
      * the command connection open while sending POWER_ON on the platform port.
      * A sequential accept/handle loop would deadlock here. */
     while (ctx->running) {
+        rc = FWTPM_Clock_Update(ctx);
+        if (rc == TPM_RC_NV_RATE) {
+            rc = TPM_RC_SUCCESS; /* retried on the next pass */
+        }
+        if (rc != TPM_RC_SUCCESS) {
+            break;
+        }
         /* Propagate async stop request into ctx state from normal
          * control flow (signal handler only sets the volatile flag). */
         if (g_stopRequested) {
@@ -894,7 +949,7 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
             if (platFd > maxFd) maxFd = platFd;
         }
 
-        tv.tv_sec = 30;
+        tv.tv_sec = FWTPM_CLOCK_POLL_MS / 1000;
         tv.tv_usec = 0;
         /* Windows ignores the first argument and its SOCKET does not fit an
          * int; everywhere else it is the descriptor bound and does. */

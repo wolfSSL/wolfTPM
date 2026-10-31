@@ -46,6 +46,27 @@
 #include <signal.h>
 #include <errno.h>
 
+#ifndef FWTPM_NO_CLOCK
+    #ifdef _WIN32
+        #include <windows.h>
+    #else
+        #include <time.h>
+    #endif
+
+static UINT64 FwtpmHostClockMs(void* userCtx)
+{
+    UINT64 now;
+#ifdef _WIN32
+    now = (UINT64)GetTickCount64();
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    now = (UINT64)ts.tv_sec * 1000u + (UINT64)ts.tv_nsec / 1000000u;
+#endif
+    return userCtx == NULL ? now : now - *(const UINT64*)userCtx;
+}
+#endif /* !FWTPM_NO_CLOCK */
+
 /* Signal handler does only async-signal-safe work: it calls
  * FWTPM_IO_RequestStop(), which sets a volatile sig_atomic_t. The server
  * loop polls that flag and clears ctx->running from normal control flow. */
@@ -243,6 +264,9 @@ int main(int argc, char* argv[])
 {
     int rc, rcCleanup;
     static FWTPM_CTX ctx;
+#ifndef FWTPM_NO_CLOCK
+    UINT64 bootMs;
+#endif
     int i;
     int clearNv = 0;
 #ifdef WOLFTPM_SPDM_RESPONDER
@@ -312,6 +336,11 @@ int main(int argc, char* argv[])
     }
 
     /* Initialize fwTPM */
+#ifndef FWTPM_NO_CLOCK
+    bootMs = FwtpmHostClockMs(NULL);
+    rc = FWTPM_Clock_SetHAL(&ctx, FwtpmHostClockMs, &bootMs);
+    if (rc != TPM_RC_SUCCESS) return rc;
+#endif
     rc = FWTPM_Init(&ctx);
     if (rc != 0) {
         fprintf(stderr, "FWTPM_Init failed: %d\n", rc);

@@ -28,6 +28,10 @@
  * Server: This file provides FWTPM_TIS_HAL callbacks for fwtpm_tis.c
  */
 
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+    #define _GNU_SOURCE /* sem_clockwait */
+#endif
+
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
@@ -51,6 +55,7 @@
 
 #include <sys/mman.h>
 #include <semaphore.h>
+#include <time.h>
 
 /* Internal context for POSIX shm transport */
 typedef struct {
@@ -179,18 +184,33 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
 static int TisShmWaitRequest(void* ctx)
 {
     FWTPM_TIS_SHM_CTX* shm = (FWTPM_TIS_SHM_CTX*)ctx;
-
-    if (sem_wait(shm->semCmd) != 0) {
-        if (errno == EINTR) {
-            return -1; /* caller should continue loop */
-        }
-    #ifdef DEBUG_WOLFTPM
-        printf("fwTPM TIS: sem_wait error %d (%s)\n",
-            errno, strerror(errno));
-    #endif
-        return -2; /* fatal error */
+    /* The poll bound must hold when the realtime clock moves, which a
+     * sem_timedwait deadline does not guarantee. */
+#if defined(__GLIBC__) && \
+    (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 30))
+    struct timespec deadline;
+    if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0) return -2;
+    deadline.tv_sec += FWTPM_CLOCK_POLL_MS / 1000;
+    deadline.tv_nsec += (FWTPM_CLOCK_POLL_MS % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec++;
+        deadline.tv_nsec -= 1000000000L;
     }
-    return 0;
+    if (sem_clockwait(shm->semCmd, CLOCK_MONOTONIC, &deadline) == 0) return 0;
+    return errno == EINTR || errno == ETIMEDOUT ? -1 : -2;
+#else
+    struct timespec delay;
+    unsigned int waited;
+    delay.tv_sec = 0;
+    delay.tv_nsec = 1000000L;
+    for (waited = 0; waited < FWTPM_CLOCK_POLL_MS; waited++) {
+        if (sem_trywait(shm->semCmd) == 0) return 0;
+        if (errno == EINTR) return -1;
+        if (errno != EAGAIN) return -2;
+        if (nanosleep(&delay, NULL) != 0) return -1;
+    }
+    return -1;
+#endif
 }
 
 static int TisShmSignalResponse(void* ctx)

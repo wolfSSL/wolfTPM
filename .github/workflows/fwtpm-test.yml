@@ -561,6 +561,81 @@ jobs:
           [ "${rc:-0}" -eq 0 ] || [ "${rc:-0}" -eq 77 ]
 
   # ----------------------------------------------------------------
+  # tpm2-pkcs11 against fwtpm_server, directly and through tpm2-abrmd.
+  # wolfSSL allows a zero ECDSA hash so an all-zero digest is signed, as on
+  # the reference TPM.
+  # ----------------------------------------------------------------
+  fwtpm-tpm2-pkcs11:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: classic
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+          - name: v185
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-v185
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install tpm2-pkcs11, tpm2-abrmd and OpenSC
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            libtpm2-pkcs11-1 libtpm2-pkcs11-tools tpm2-abrmd \
+            libtss2-tcti-tabrmd0 opensc dbus
+
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: ${{ matrix.wolfssl_config }}
+          cflags: -DWC_RSA_NO_PADDING -DWC_ALLOW_ECC_ZERO_HASH
+
+      - name: Build wolfTPM
+        run: |
+          ./autogen.sh
+          ./configure ${{ matrix.wolftpm_config }}
+          make -j"$(nproc)"
+
+      - name: Run tpm2-pkcs11 tests
+        run: |
+          ./src/fwtpm/fwtpm_server --clear > /tmp/fwtpm_pkcs11.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid $abrmd_pid 2>/dev/null || true' EXIT
+          sleep 1
+          kill -0 "$server_pid"
+          tpm2_startup -c -T mssim:host=localhost,port=2321
+
+          echo "=== direct (mssim) ==="
+          scripts/tpm2_pkcs11_test.sh
+
+          echo "=== through tpm2-abrmd ==="
+          export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork \
+            --print-address)
+          tpm2-abrmd --session --allow-root \
+            --tcti=mssim:host=localhost,port=2321 > /tmp/abrmd.log 2>&1 &
+          abrmd_pid=$!
+          sleep 2
+          kill -0 "$abrmd_pid"
+          TPM2_PKCS11_TCTI=tabrmd:bus_type=session scripts/tpm2_pkcs11_test.sh
+
+      - name: Print logs on failure
+        if: failure()
+        run: |
+          cat /tmp/fwtpm_pkcs11.log /tmp/abrmd.log 2>/dev/null || true
+
+  # ----------------------------------------------------------------
   # tpm2-tools compatibility test against IBM SW TPM
   # Validates that tpm2_tools_test.sh works on a reference TPM.
   #

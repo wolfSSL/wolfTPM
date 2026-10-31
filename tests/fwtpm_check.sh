@@ -159,6 +159,40 @@ PY
 
 # --- wolfSSL dependency resolution ---
 
+# Send one command split by a pause longer than the server's 1 s Clock poll
+# interval. The server must keep the connection and answer the command.
+run_socket_pause_test() {
+    command -v python3 >/dev/null 2>&1 || return 77
+    python3 - "$1" <<'PY'
+import socket
+import struct
+import sys
+import time
+
+def recv_exact(conn, size):
+    data = b""
+    while len(data) < size:
+        chunk = conn.recv(size - len(data))
+        if not chunk:
+            raise RuntimeError("unexpected EOF")
+        data += chunk
+    return data
+
+get_random = struct.pack(">HIIH", 0x8001, 12, 0x17B, 8)
+frame = struct.pack(">IBI", 8, 0, len(get_random)) + get_random
+with socket.create_connection(("127.0.0.1", int(sys.argv[1])), 10) as conn:
+    conn.sendall(frame[:6])
+    time.sleep(1.5)
+    conn.sendall(frame[6:])
+    size = struct.unpack(">I", recv_exact(conn, 4))[0]
+    response = recv_exact(conn, size)
+    recv_exact(conn, 4)
+    if struct.unpack(">HI", response[:6])[1] != size:
+        raise RuntimeError("malformed response")
+    conn.sendall(struct.pack(">I", 20))  # TPM_SESSION_END
+PY
+}
+
 find_wolfssl_options() {
     local base="$1"
     # Check both installed prefix (include/wolfssl/) and source tree (wolfssl/)
@@ -507,6 +541,24 @@ if [ "${STARTED_SERVER:-0}" -eq 1 ] && [ -x "$FWTPM_RESET" ]; then
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: fwTPM PCR reset locality"
+    fi
+fi
+
+# --- Socket client pausing mid-command ---
+if [ "${STARTED_SERVER:-0}" -eq 1 ] && [ $IS_SWTPM_MODE -eq 1 ]; then
+    echo ""
+    echo "=== fwTPM socket client pause ==="
+    run_socket_pause_test "$FWTPM_PORT"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        PASS=$((PASS + 1))
+        echo "PASS: fwTPM socket client pause"
+    elif [ $rc -eq 77 ]; then
+        SKIP=$((SKIP + 1))
+        echo "SKIP: fwTPM socket client pause (python3 unavailable)"
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: fwTPM socket client pause"
     fi
 fi
 
