@@ -376,11 +376,17 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     cipher.size = sizeof(cipher.buffer); /* signature */
     rc = wolfTPM2_SignHashScheme(&dev, &rsaKey, message.buffer, message.size,
         cipher.buffer, &cipher.size, TPM_ALG_RSAPSS, TPM_ALG_SHA256);
-    if (rc != 0) goto exit;
-    rc = wolfTPM2_VerifyHashScheme(&dev, &rsaKey, cipher.buffer, cipher.size,
-        message.buffer, message.size, TPM_ALG_RSAPSS, TPM_ALG_SHA256);
-    if (rc != 0) goto exit;
-    printf("RSA Sign/Verify using RSA PSS padding\n");
+    if ((rc & RC_MAX_FMT1) == TPM_RC_SCHEME) {
+        printf("RSA PSS padding not supported by this TPM\n");
+    }
+    else {
+        if (rc != 0) goto exit;
+        rc = wolfTPM2_VerifyHashScheme(&dev, &rsaKey, cipher.buffer,
+            cipher.size, message.buffer, message.size, TPM_ALG_RSAPSS,
+            TPM_ALG_SHA256);
+        if (rc != 0) goto exit;
+        printf("RSA Sign/Verify using RSA PSS padding\n");
+    }
 
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     if (rc != 0) goto exit;

@@ -1855,8 +1855,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             #ifndef NO_RSA
                 { TPM_ALG_RSASSA, TPMA_ALGORITHM_asymmetric |
                     TPMA_ALGORITHM_signing },
+            #ifdef WC_RSA_PSS
                 { TPM_ALG_RSAPSS, TPMA_ALGORITHM_asymmetric |
                     TPMA_ALGORITHM_signing },
+            #endif
             #endif
             #ifdef HAVE_ECC
                 { TPM_ALG_ECDSA, TPMA_ALGORITHM_asymmetric |
@@ -2450,7 +2452,10 @@ static TPM_RC FwTestRsaScheme(const TPMT_RSA_SCHEME* scheme)
     if (alg == TPM_ALG_NULL || alg == TPM_ALG_RSAES) {
         rc = TPM_RC_SUCCESS;
     }
-    else if (alg == TPM_ALG_RSASSA || alg == TPM_ALG_RSAPSS ||
+    else if (alg == TPM_ALG_RSASSA ||
+        #ifdef WC_RSA_PSS
+            alg == TPM_ALG_RSAPSS ||
+        #endif
             alg == TPM_ALG_OAEP) {
         rc = FwTestHashAlg(scheme->details.anySig.hashAlg);
     }
