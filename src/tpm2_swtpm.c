@@ -68,16 +68,23 @@
 #include <termios.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <poll.h>
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
 #endif
 #ifndef O_NOFOLLOW
 #define O_NOFOLLOW 0
 #endif
-/* Cumulative wall-clock timeout for SwTpmReceive. Defends against trickle
- * senders that repeatedly reset the per-read VMIN/VTIME timer. */
+/* Cumulative wall-clock timeout for SwTpmReceive. Bounds the total wait for
+ * a response, which can exceed one VTIME period (e.g. RSA key generation on
+ * an MCU), and defends against trickle senders that repeatedly reset the
+ * per-read VMIN/VTIME timer. */
 #ifndef WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS
-#define WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS 30
+#define WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS 60
+#endif
+/* Per-read timeout in tenths of a second, used with VMIN=0 */
+#ifndef WOLFTPM_SWTPM_UART_VTIME
+#define WOLFTPM_SWTPM_UART_VTIME 200
 #endif
 #endif
 
@@ -186,6 +193,78 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     return rc;
 }
 
+#if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
+/* Monotonic milliseconds. Returns 0 on success. */
+static int SwTpmUartNowMs(uint64_t* nowMs)
+{
+    int rc = -1;
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        *nowMs = ((uint64_t)ts.tv_sec * 1000) +
+                 ((uint64_t)ts.tv_nsec / 1000000);
+        rc = 0;
+    }
+    return rc;
+}
+
+/* Wait for the UART to become readable, bounded by the time left on the
+ * cumulative receive deadline. A hung-up TTY returns a zero-byte read with
+ * no delay, so a hangup is reported rather than retried. */
+static TPM_RC SwTpmUartWait(int fd, uint64_t deadlineMs)
+{
+    TPM_RC rc = TPM_RC_FAILURE;
+    struct pollfd pfd;
+    uint64_t nowMs = 0;
+    int prc;
+
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+
+    for (;;) {
+        if (SwTpmUartNowMs(&nowMs) != 0) {
+            break;
+        }
+        if (nowMs >= deadlineMs) {
+        #ifdef DEBUG_WOLFTPM
+            printf("SwTpmReceive: cumulative UART timeout after %ds\n",
+                   WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS);
+        #endif
+            break;
+        }
+        pfd.revents = 0;
+        prc = poll(&pfd, 1, (int)(deadlineMs - nowMs));
+        if (prc < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+        #ifdef DEBUG_WOLFTPM
+            printf("Failed to poll TPM UART %d, got errno %d = %s\n",
+                   fd, errno, strerror(errno));
+        #endif
+            break;
+        }
+        if (prc == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("SwTpmReceive: cumulative UART timeout after %ds\n",
+                   WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS);
+        #endif
+            break;
+        }
+        if ((pfd.revents & POLLIN) != 0) {
+            rc = TPM_RC_SUCCESS;
+            break;
+        }
+        #ifdef DEBUG_WOLFTPM
+        printf("TPM UART hangup, poll events 0x%x\n", pfd.revents);
+        #endif
+        break;
+    }
+
+    return rc;
+}
+#endif /* WOLFTPM_SWTPM_UART && CLOCK_MONOTONIC */
+
 static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -193,18 +272,34 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
     size_t bytes_remaining = rxSz;
     char* ptr = (char*)buffer;
 #if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
-    struct timespec start, now;
-    int haveStart = 0;
-    if (clock_gettime(CLOCK_MONOTONIC, &start) == 0) {
-        haveStart = 1;
-    }
+    uint64_t nowMs = 0;
+    uint64_t deadlineMs = 0;
+    int haveDeadline = 0;
 #endif
 
     if (ctx == NULL || !SWTPM_FD_IS_VALID(ctx->tcpCtx.fd) || buffer == NULL) {
         return BAD_FUNC_ARG;
     }
 
+#if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
+    if (SwTpmUartNowMs(&nowMs) == 0) {
+        deadlineMs = nowMs +
+            ((uint64_t)WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS * 1000);
+        haveDeadline = 1;
+    }
+#endif
+
     while (bytes_remaining > 0) {
+#if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
+        /* Wait within the cumulative deadline, so a response that takes
+         * longer than one VTIME period is not treated as EOF */
+        if (haveDeadline) {
+            rc = SwTpmUartWait(ctx->tcpCtx.fd, deadlineMs);
+            if (rc != TPM_RC_SUCCESS) {
+                break;
+            }
+        }
+#endif
         wrc = SWTPM_READ(ctx->tcpCtx.fd, ptr, bytes_remaining);
         if (wrc < 0) {
             if (SWTPM_SHOULD_RETRY()) {
@@ -233,22 +328,6 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
                wrc, bytes_remaining);
         #endif
 
-#if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
-        /* Enforce cumulative timeout so a trickle sender cannot reset
-         * VMIN/VTIME indefinitely. */
-        if (haveStart && bytes_remaining > 0 &&
-                clock_gettime(CLOCK_MONOTONIC, &now) == 0 &&
-                (now.tv_sec - start.tv_sec) >
-                    WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("SwTpmReceive: cumulative UART timeout after %lds "
-                   "(%zu bytes remaining)\n",
-                   (long)(now.tv_sec - start.tv_sec), bytes_remaining);
-        #endif
-            rc = TPM_RC_FAILURE;
-            break;
-        }
-#endif
     }
 
     return rc;
@@ -359,12 +438,12 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     tty.c_oflag &= ~OPOST;
     tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
 
-    /* Read with overall timeout.
-     * RSA key generation on embedded targets can take 10+ seconds,
-     * so use a generous timeout. With VMIN=0 and VTIME>0, read()
-     * returns after the timeout even if no byte is received. */
+    /* Per-read timeout. With VMIN=0 and VTIME>0, read() returns after the
+     * timeout even if no byte is received; SwTpmReceive polls up to
+     * WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS, since RSA key generation on
+     * embedded targets can take longer than one period. */
     tty.c_cc[VMIN] = 0;    /* allow timeout without requiring first byte */
-    tty.c_cc[VTIME] = 200; /* 20 second timeout (tenths of seconds) */
+    tty.c_cc[VTIME] = WOLFTPM_SWTPM_UART_VTIME;
 
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
         close(fd);

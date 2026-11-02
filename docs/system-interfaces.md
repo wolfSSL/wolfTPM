@@ -54,8 +54,10 @@ Build options:
 * `WOLFTPM_SWTPM_UART`: use the UART serial transport (set automatically by `--enable-swtpm=uart`)
 * `TPM2_SWTPM_HOST`: the serial device path (default is `/dev/ttyACM0` on Linux and `/dev/cu.usbmodem` on macOS). It can be overridden at runtime with the `TPM2_SWTPM_HOST` environment variable.
 * `TPM2_SWTPM_PORT`: the baud rate (default is 115200)
+* `WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS`: cumulative wall-clock timeout for a single receive (default is 60)
+* `WOLFTPM_SWTPM_UART_VTIME`: per-read termios `VTIME`, in tenths of a second (default is 200, so 20 seconds)
 
-The UART transport uses the same mssim protocol as the socket transport. The serial port is configured as 8N1 raw mode with no flow control. Like the socket transport, the serial port file descriptor is kept open across commands (no reconnect per command). Both transports close the connection during `wolfTPM2_Cleanup`. On the socket transport, any transmit or receive failure also closes the connection so the next command reconnects. The UART transport closes only when the per-command `TPM_SESSION_END` write fails.
+The UART transport uses the same mssim protocol as the socket transport. The serial port is configured as 8N1 raw mode with no flow control. A receive waits for the device with `poll()` until `WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS` elapses, so a command taking longer than one `VTIME` period, such as RSA key generation on an MCU, still completes, while a device hangup fails immediately instead of waiting out the timeout. Like the socket transport, the serial port file descriptor is kept open across commands (no reconnect per command). Both transports close the connection during `wolfTPM2_Cleanup`. On the socket transport, any transmit or receive failure also closes the connection so the next command reconnects. The UART transport closes only when the per-command `TPM_SESSION_END` write fails.
 
 #### Security note: environment variable override
 
