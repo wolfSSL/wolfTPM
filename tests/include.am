@@ -38,6 +38,24 @@ tests_fwtpm_unit_test_CPPFLAGS = \
 tests_fwtpm_unit_test_LDADD    = $(LIB_STATIC_ADD)
 endif
 
+# SWTPM UART receive tests. Driven over a pseudo-terminal, so no hardware or
+# simulator is needed, but make check cannot run in a UART configuration
+# (unit.test needs a TPM), so the swtpm-uart CI job runs this directly.
+# tpm2_swtpm.c is compiled in because TPM2_SWTPM_SendCommand is WOLFTPM_LOCAL.
+if BUILD_SWTPM_UART
+noinst_PROGRAMS += tests/swtpm_uart_unit.test
+tests_swtpm_uart_unit_test_SOURCES = \
+    tests/swtpm_uart_unit_tests.c \
+    src/tpm2_swtpm.c \
+    src/tpm2_packet.c \
+    src/tpm2_util.c
+# Shorten the deadline and the per-read period so the timeout case is quick
+tests_swtpm_uart_unit_test_CFLAGS = \
+    -DWOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS=3 \
+    -DWOLFTPM_SWTPM_UART_VTIME=1 $(AM_CFLAGS)
+tests_swtpm_uart_unit_test_LDADD = $(LIB_STATIC_ADD)
+endif
+
 if BUILD_FWTPM_TIS
 check_PROGRAMS += tests/fwtpm_hal_unit.test
 noinst_PROGRAMS += tests/fwtpm_hal_unit.test

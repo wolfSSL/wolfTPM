@@ -310,10 +310,13 @@ jobs:
             wolftpm_config: --disable-provisioning --disable-fwtpm
             needs_swtpm: false
 
-          # SWTPM UART transport (compile-only; no UART peer in CI)
+          # SWTPM UART transport. No UART peer in CI, so the receive tests
+          # use a pseudo-terminal. make check is not usable here because
+          # unit.test needs a TPM.
           - name: swtpm-uart
             wolftpm_config: --enable-swtpm=uart --disable-fwtpm
             needs_swtpm: false
+            test_command: "./tests/swtpm_uart_unit.test"
 
           # Symmetric encryption
           - name: symmetric
