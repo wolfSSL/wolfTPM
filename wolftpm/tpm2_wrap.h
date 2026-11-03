@@ -3647,13 +3647,17 @@ WOLFTPM_API int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len);
     \param dev pointer to a TPM2_DEV struct
     \param handle pointer to a structure of WOLFTPM2_HANDLE type, with a valid TPM 2.0 handle value
 
-    \sa wolfTPM2_Clear
+    \sa wolfTPM2_UnloadHandles
 */
 WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle);
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Deinitializes wolfTPM and wolfcrypt(if enabled)
+    \brief Clears the TPM with TPM2_Clear, authorized by the lockout
+    hierarchy. This removes the owner and endorsement hierarchy objects and
+    the NV indices created by the owner, and resets their authorizations.
+    NV indices created by the platform (TPMA_NV_PLATFORMCREATE) are preserved.
+    It does not deinitialize wolfTPM; use wolfTPM2_Cleanup for that.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -3661,7 +3665,7 @@ WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle
 
     \param dev pointer to a TPM2_DEV struct
 
-    \sa wolfTPM2_Clear
+    \sa wolfTPM2_Cleanup
 */
 WOLFTPM_API int wolfTPM2_Clear(WOLFTPM2_DEV* dev);
 
