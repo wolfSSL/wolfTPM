@@ -83,6 +83,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
     byte digest[WC_MAX_DIGEST_SIZE];
     int digestSz = 0;
+    int i;
     byte authBuf[WC_SHA256_DIGEST_SIZE];
     int authBufSz = 0;
 
@@ -230,7 +231,18 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
                 nvAttributes, digestSz, authBuf, authBufSz);
             if (rc == TPM_RC_NV_DEFINED) {
                 printf("Warning: NV Index 0x%x already exists!\n", nvIndex);
-                rc = 0;
+                /* Only reuse an index this tool would have created, so a
+                 * planted index cannot hold the root of trust */
+                rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
+                if (rc == 0 && ((nvPublic.attributes & ~(TPMA_NV_WRITTEN |
+                        TPMA_NV_WRITELOCKED | TPMA_NV_READLOCKED)) !=
+                        nvAttributes || nvPublic.dataSize != digestSz ||
+                        nvPublic.nameAlg != WOLFTPM2_WRAP_DIGEST ||
+                        nvPublic.authPolicy.size != 0)) {
+                    printf("NV Index 0x%x attributes, size, name algorithm "
+                        "or policy do not match\n", nvIndex);
+                    rc = TPM_RC_NV_DEFINED;
+                }
             }
             wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
         }
@@ -262,7 +274,10 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, digest, (word32*)&digestSz, 0);
     if (rc == 0) {
         printf("Read Public Key Hash (%d)\n", digestSz);
-        TPM2_PrintBin(digest, digestSz);
+        for (i = 0; i < digestSz; i++) {
+            printf("%02x", digest[i]);
+        }
+        printf("\n");
     }
     else if ((rc & RC_MAX_FMT1) == TPM_RC_HANDLE) {
         printf("NV index does not exist\n");

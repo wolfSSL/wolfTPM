@@ -1074,6 +1074,39 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
     ./examples/boot/secure_rot -nvindex=0x1400201 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -eq 0 ] && echo -e "secure rot write ecc384 read no auth! $RESULT" && exit 1
+
+    # A pre-existing index that differs is rejected and left unchanged. The hash
+    # is shorter than the index, so without the check the write would succeed.
+    ./examples/boot/secure_rot -nvindex=0x1400203 -authstr=test -hash=e77dd3112a27948a3f2d87f32dc69ebeed0b3344c5d7726f5742f4f0c0f451aa >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "secure rot create 0x1400203 failed! $RESULT" && exit 1
+    ROT_OUT=$(./examples/boot/secure_rot -nvindex=0x1400203 -authstr=test -hash=be4213f8b3b986639e69ed0ea8b49d94aabbccdd 2>&1)
+    RESULT=$?
+    echo "$ROT_OUT" >> $TPMPWD/run.out
+    [ $RESULT -eq 0 ] && echo -e "secure rot accepted an index of another size!" && exit 1
+    case "$ROT_OUT" in
+        *"do not match"*) ;;
+        *) echo -e "secure rot did not report the index mismatch!" && exit 1 ;;
+    esac
+    ROT_OUT=$(./examples/boot/secure_rot -nvindex=0x1400203 -authstr=test 2>&1)
+    echo "$ROT_OUT" >> $TPMPWD/run.out
+    case "$ROT_OUT" in
+        *e77dd3112a27948a3f2d87f32dc69ebeed0b3344c5d7726f5742f4f0c0f451aa*) ;;
+        *) echo -e "secure rot changed a rejected index!" && exit 1 ;;
+    esac
+
+    # Same size, but other attributes and a policy
+    ./examples/nvram/extend -nvindex=0x1400204 -aes >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "nv extend create 0x1400204 failed! $RESULT" && exit 1
+    ROT_OUT=$(./examples/boot/secure_rot -nvindex=0x1400204 -authstr=test -hash=e77dd3112a27948a3f2d87f32dc69ebeed0b3344c5d7726f5742f4f0c0f451aa 2>&1)
+    RESULT=$?
+    echo "$ROT_OUT" >> $TPMPWD/run.out
+    [ $RESULT -eq 0 ] && echo -e "secure rot accepted an index with other attributes!" && exit 1
+    case "$ROT_OUT" in
+        *"do not match"*) ;;
+        *) echo -e "secure rot did not report the attribute mismatch!" && exit 1 ;;
+    esac
 fi
 
 # Seal/Unseal (PCR Policy)
