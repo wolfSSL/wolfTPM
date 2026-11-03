@@ -14595,6 +14595,7 @@ static void test_fwtpm_test_parms(void)
                 FwGetMgfType(hashes[hashIndex]) == WC_MGF1NONE) {
             expected = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_1;
         }
+    #ifdef WC_RSA_PSS
         pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
         PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
         PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
@@ -14606,6 +14607,7 @@ static void test_fwtpm_test_parms(void)
         rspSize = 0;
         FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
         AssertIntEQ(GetRspRC(gRsp), expected);
+    #endif
         /* So does a decrypt key's nameAlg, which seeds RSA-OAEP. */
         if (expected == (TPM_RC_SCHEME | TPM_RC_P | TPM_RC_1)) {
             AssertIntGT(BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA), 39);
@@ -20877,11 +20879,14 @@ static void test_fwtpm_rsa_hash_interop(UINT16 hashAlg,
     RsaKey key;
     byte ciphertext[MAX_RSA_KEY_BYTES];
     byte plaintext[MAX_RSA_KEY_BYTES];
+#ifdef WC_RSA_PSS
     byte digest[TPM_MAX_DIGEST_SIZE];
     byte signatureBuf[MAX_RSA_KEY_BYTES + 6];
     TPMT_SIGNATURE sig;
     TPM2_Packet packet;
-    int pos, rspSize = 0, cipherSz, plainSz, digestSz;
+    int digestSz;
+#endif
+    int pos, rspSize = 0, cipherSz, plainSz;
 
     XMEMSET(&ctx, 0, sizeof(ctx));
     XMEMSET(&key, 0, sizeof(key));
@@ -20943,6 +20948,7 @@ static void test_fwtpm_rsa_hash_interop(UINT16 hashAlg,
         mgf, NULL, 0);
     AssertIntEQ(plainSz, sizeof(message) - 1);
     AssertIntEQ(XMEMCMP(plaintext, message, plainSz), 0);
+#ifdef WC_RSA_PSS
     digestSz = wc_HashGetDigestSize(hashType);
     AssertIntGT(digestSz, 0);
     AssertIntEQ(wc_Hash(hashType, message, sizeof(message) - 1,
@@ -20971,6 +20977,7 @@ static void test_fwtpm_rsa_hash_interop(UINT16 hashAlg,
     sig.signature.rsapss.sig.size = (UINT16)cipherSz;
     AssertIntEQ(FwVerifySignatureCore(obj, digest, digestSz, &sig),
         TPM_RC_SUCCESS);
+#endif
     wc_FreeRsaKey(&key);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("RSA OAEP and PSS hash interoperability:", 0);
