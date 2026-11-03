@@ -1151,6 +1151,8 @@ if(BUILD_WOLFTPM_LIB)
             DEP_WOLFSSL yes
             CDX_OUT ${SBOM_CDX}
             SPDX_OUT ${SBOM_SPDX}
+            TV_OUT ${SBOM_SPDX_TV}
+            INSTALL_DEPENDS sbom
             TARGET_NAME wolftpm-sbom-gen)
         if(NOT _sbom_wolfssl_version STREQUAL "")
             list(APPEND _sbom_args DEP_VERSION "wolfssl=${_sbom_wolfssl_version}")
@@ -1162,9 +1164,12 @@ if(BUILD_WOLFTPM_LIB)
         # target then validates the SPDX and removes the staging tree.
         # POST_BUILD on a custom target runs before the target command, so
         # validation is its own target instead.
+        # DESTDIR is for install-sbom only. The staging install must not
+        # see it, or the library lands outside ${SBOM_STAGING}.
         add_custom_target(wolftpm-sbom-stage
             COMMAND ${CMAKE_COMMAND} -E remove_directory ${SBOM_STAGING}
-            COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}
+            COMMAND ${CMAKE_COMMAND} -E env --unset=DESTDIR
+                    ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}
                     --prefix ${SBOM_STAGING} --config $<CONFIG>
             DEPENDS wolftpm
             VERBATIM
