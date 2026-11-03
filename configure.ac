@@ -1087,6 +1087,16 @@ if test "x$ENABLED_FWTPM" = "xyes"; then
     OPTION_FLAGS="$OPTION_FLAGS -DWOLFTPM_FWTPM_BUILD"
 fi
 
+# The fwtpm_server simulator serves tools without a resource manager, which
+# keep every ContextLoad copy loaded; give it more transient object slots
+# unless the build sets its own.
+FWTPM_SERVER_CFLAGS=""
+case "$CFLAGS $CPPFLAGS" in
+    *FWTPM_MAX_OBJECTS*) ;;
+    *) FWTPM_SERVER_CFLAGS="-DFWTPM_MAX_OBJECTS=7" ;;
+esac
+AC_SUBST([FWTPM_SERVER_CFLAGS])
+
 
 
 # The following AM_CONDITIONAL statements set flags for use in the Makefiles.

@@ -5528,6 +5528,40 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     return rc;
 }
 
+/* Wrapper signatures use fixed-width R || S even when the TPM encodes a
+ * scalar without leading zero octets. Validate all lengths before writing. */
+static int wolfTPM2_ExtractEccSignature(const WOLFTPM2_KEY* key,
+    const TPMS_SIGNATURE_ECDSA* ecc, byte* sig, int* sigSz)
+{
+    int curveSize;
+
+    if (key == NULL || ecc == NULL || sig == NULL || sigSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (key->pub.publicArea.type != TPM_ALG_ECC) {
+        return BAD_FUNC_ARG;
+    }
+    curveSize = wolfTPM2_GetCurveSize(
+        key->pub.publicArea.parameters.eccDetail.curveID);
+    if (curveSize <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    if (2 * curveSize > *sigSz ||
+            ecc->signatureR.size > curveSize ||
+            ecc->signatureS.size > curveSize ||
+            ecc->signatureR.size > sizeof(ecc->signatureR.buffer) ||
+            ecc->signatureS.size > sizeof(ecc->signatureS.buffer)) {
+        return BUFFER_E;
+    }
+    XMEMSET(sig, 0, 2 * curveSize);
+    XMEMCPY(sig + curveSize - ecc->signatureR.size,
+        ecc->signatureR.buffer, ecc->signatureR.size);
+    XMEMCPY(sig + 2 * curveSize - ecc->signatureS.size,
+        ecc->signatureS.buffer, ecc->signatureS.size);
+    *sigSz = 2 * curveSize;
+    return TPM_RC_SUCCESS;
+}
+
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
 /* hashAlg: TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384 or TPM_ALG_SHA512 */
 int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
@@ -5607,27 +5641,12 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
-        TPMS_SIGNATURE_ECDSA* ecdsa = &signOut.signature.signature.ecdsa;
-
-        /* Assemble R and S into signature (R then S) */
-        sigOutSz = curveSize * 2;
-        if (sigOutSz > *sigSz ||
-            ecdsa->signatureR.size > curveSize ||
-            ecdsa->signatureS.size > curveSize) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Sign: ECC result buffer too small %d -> %d\n",
-                sigOutSz, *sigSz);
-        #endif
-            return BUFFER_E;
+        rc = wolfTPM2_ExtractEccSignature(key,
+            &signOut.signature.signature.ecdsa, sig, sigSz);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
         }
-        /* Left-pad R */
-        XMEMSET(sig, 0, curveSize - ecdsa->signatureR.size);
-        XMEMCPY(sig + curveSize - ecdsa->signatureR.size,
-            ecdsa->signatureR.buffer, ecdsa->signatureR.size);
-        /* Left-pad S */
-        XMEMSET(sig + curveSize, 0, curveSize - ecdsa->signatureS.size);
-        XMEMCPY(sig + curveSize + (curveSize - ecdsa->signatureS.size),
-            ecdsa->signatureS.buffer, ecdsa->signatureS.size);
+        sigOutSz = *sigSz;
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         /* RSA signature size and buffer (with padding depending on scheme) */
@@ -6138,16 +6157,8 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
         /* Extract signature based on algorithm */
         if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDSA ||
             signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDAA) {
-            int rSz = signSeqCompleteOut.signature.signature.ecdsa.signatureR.size;
-            int sSz = signSeqCompleteOut.signature.signature.ecdsa.signatureS.size;
-            if (*sigSz >= (rSz + sSz)) {
-                XMEMCPY(sig, signSeqCompleteOut.signature.signature.ecdsa.signatureR.buffer, rSz);
-                XMEMCPY(sig + rSz, signSeqCompleteOut.signature.signature.ecdsa.signatureS.buffer, sSz);
-                *sigSz = rSz + sSz;
-            }
-            else {
-                rc = BUFFER_E;
-            }
+            rc = wolfTPM2_ExtractEccSignature(key,
+                &signSeqCompleteOut.signature.signature.ecdsa, sig, sigSz);
         }
         else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_RSASSA ||
                  signSeqCompleteOut.signature.sigAlg == TPM_ALG_RSAPSS) {
@@ -6517,16 +6528,8 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         /* Extract signature based on algorithm */
         if (signDigestOut.signature.sigAlg == TPM_ALG_ECDSA ||
             signDigestOut.signature.sigAlg == TPM_ALG_ECDAA) {
-            int rSz = signDigestOut.signature.signature.ecdsa.signatureR.size;
-            int sSz = signDigestOut.signature.signature.ecdsa.signatureS.size;
-            if (*sigSz >= (rSz + sSz)) {
-                XMEMCPY(sig, signDigestOut.signature.signature.ecdsa.signatureR.buffer, rSz);
-                XMEMCPY(sig + rSz, signDigestOut.signature.signature.ecdsa.signatureS.buffer, sSz);
-                *sigSz = rSz + sSz;
-            }
-            else {
-                rc = BUFFER_E;
-            }
+            rc = wolfTPM2_ExtractEccSignature(key,
+                &signDigestOut.signature.signature.ecdsa, sig, sigSz);
         }
         else if (signDigestOut.signature.sigAlg == TPM_ALG_RSASSA ||
                  signDigestOut.signature.sigAlg == TPM_ALG_RSAPSS) {

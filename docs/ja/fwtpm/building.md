@@ -94,7 +94,7 @@ make
 |-------|---------|-------------|
 | `FWTPM_MAX_COMMAND_SIZE` | 4096 | コマンドおよびレスポンスバッファの最大サイズ (バイト) |
 | `FWTPM_MAX_RANDOM_BYTES` | 48 | `GetRandom` 1 回あたりの最大バイト数 |
-| `FWTPM_MAX_OBJECTS` | 3 | 同時にロードできるトランジェントオブジェクトの最大数 |
+| `FWTPM_MAX_OBJECTS` | 3 (autoconf `fwtpm_server`: 7) | 同時にロードできるトランジェントオブジェクトの最大数 |
 | `FWTPM_MAX_PERSISTENT` | 8 | 永続オブジェクトの最大数 (`EvictControl` 経由) |
 | `FWTPM_MAX_PRIVKEY_DER` | 1280 (`NO_RSA` の場合は 256) | DER エンコードされた秘密鍵の最大サイズ (バイト) |
 | `FWTPM_MAX_HASH_SEQ` | 4 | 同時に実行できるハッシュおよび HMAC シーケンスの最大数 |

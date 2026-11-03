@@ -4,7 +4,7 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    WOLFTPM_CI_IMAGE=v1.1 \
+    WOLFTPM_CI_IMAGE=v1.2 \
     CARGO_HOME=/opt/cargo \
     RUSTUP_HOME=/opt/rustup
 
@@ -15,16 +15,17 @@ RUN sed -i "s|http://archive.ubuntu.com/ubuntu/|${UBUNTU_ARCHIVE_MIRROR}|g" \
     && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o APT::Update::Error-Mode=any update \
     && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install --no-install-recommends -y \
     autoconf automake bison build-essential ca-certificates ccache \
-    clang clang-14 clang-15 clang-17 clang-tools cmake curl \
+    clang clang-14 clang-15 clang-17 clang-tools cmake curl dbus \
     device-tree-compiler dfu-util file flex g++-11 g++-12 g++-13 \
     g++-multilib gcc-11 gcc-12 gcc-13 gcc-arm-none-eabi gcc-multilib \
     git gperf iproute2 jq libcapstone-dev libclang-18-dev \
     libclang-rt-18-dev libdw-dev libmagic1 libnewlib-arm-none-eabi \
-    libsdl2-dev libssl-dev libtool libtss2-tcti-mssim0 \
-    mono-mcs mono-tools-devel ninja-build nunit nunit-console openssl \
+    libsdl2-dev libssl-dev libtool libtpm2-pkcs11-1 libtpm2-pkcs11-tools \
+    libtss2-tcti-mssim0 libtss2-tcti-tabrmd0 \
+    mono-mcs mono-tools-devel ninja-build nunit nunit-console opensc openssl \
     patch pkg-config procps psmisc python3 python3-dev python3-pip \
-    python3-venv rsync sudo tpm2-tools unzip util-linux valgrind wget \
-    xxd xz-utils zip \
+    python3-venv rsync sudo tpm2-abrmd tpm2-tools unzip util-linux valgrind \
+    wget xxd xz-utils zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Keep the Python tools away from Ubuntu's externally managed interpreter.

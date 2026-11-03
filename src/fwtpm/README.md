@@ -367,3 +367,19 @@ the v1.85 spec defines them generically:
   only. Classical digest signing (RSASSA, RSAPSS, ECDSA) over these new
   commands is not supported; use the existing `TPM2_Sign` /
   `TPM2_VerifySignature` commands for those schemes.
+
+Clock persistence requires a clock HAL returning milliseconds since the current
+power-on. The standalone server registers a monotonic host clock. Server loops
+checkpoint Clock while idle. Embedded integrations must call `FWTPM_Clock_Update()` at least every `FWTPM_CLOCK_POLL_MS` milliseconds;
+custom transport waits, reads and writes must return within that interval.
+`TPM_PT_CLOCK_UPDATE` reports the maximum NV checkpoint interval. Clock's `safe` flag stays clear after
+an unclean shutdown until the prior boot's potentially reported range has passed
+and the new value is committed. Orderly NV counters checkpoint on modulo-2
+rollover and at shutdown, and round forward on an unclean startup.
+An orderly shutdown preserves Clock's safety flag separately; shutdown and
+library cleanup cannot make an unsafe Clock safe before recovery.
+
+Existing NV journals remain readable. Legacy shutdown markers lack a Clock
+safety flag and restore Clock conservatively as unsafe. Older firmware rejects
+journals containing the extended orderly-shutdown marker; downgrades need a
+compatible journal conversion.
