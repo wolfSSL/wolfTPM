@@ -111,16 +111,36 @@ int TestClockUpdate(FWTPM_CTX* ctx);
 #undef FWTPM_ProcessCommand
 #undef TPM2_ForceZero
 
+/* Behavior of TestProcessCommand for the GO tests. The response pattern is
+ * written to the handler's buffer even on failure, like a partial response. */
+static FWTPM_TIS_REGS* gGoRegs;
+static int gGoRc = TPM_RC_FAILURE;
+static int gGoRspSize;
+static int gGoPrivateBufs;
+
+static byte TestRspByte(int i)
+{
+    return (byte)(0x40 + (i & 0x3F));
+}
+
 int TestProcessCommand(FWTPM_CTX* ctx, const byte* cmdBuf, int cmdSize,
     byte* rspBuf, int* rspSize, int locality)
 {
+    int i;
+
     (void)ctx;
-    (void)cmdBuf;
     (void)cmdSize;
-    (void)rspBuf;
-    (void)rspSize;
     (void)locality;
-    return TPM_RC_FAILURE;
+    if (gGoRegs == NULL) {
+        return TPM_RC_FAILURE;
+    }
+    gGoPrivateBufs = (cmdBuf != gGoRegs->cmd_buf &&
+        rspBuf != gGoRegs->rsp_buf && *rspSize == FWTPM_TIS_FIFO_SIZE);
+    for (i = 0; i < gGoRspSize && i < *rspSize; i++) {
+        rspBuf[i] = TestRspByte(i);
+    }
+    *rspSize = gGoRspSize;
+    return gGoRc;
 }
 
 int TestStopRequested(void)
@@ -517,6 +537,115 @@ static int TestBurstCountWriteIgnored(void)
     return failed;
 }
 
+static void TisGoSetup(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
+{
+    XMEMSET(ctx, 0, sizeof(*ctx));
+    XMEMSET(regs, 0, sizeof(*regs));
+    XMEMSET(regs->rsp_buf, 0xEE, sizeof(regs->rsp_buf));
+    ctx->tisLocality = 0;
+    regs->cmd_len = 10;
+    regs->reg_addr = FWTPM_TIS_STS;
+    regs->reg_len = 1;
+    regs->reg_is_write = 1;
+    regs->reg_data[0] = FWTPM_STS_GO;
+    gGoRegs = regs;
+    gGoPrivateBufs = 0;
+}
+
+static UINT32 TisDrainFifo(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs, byte* out,
+    UINT32 outSz)
+{
+    UINT32 got = 0;
+    UINT32 chunk;
+
+    regs->reg_addr = FWTPM_TIS_DATA_FIFO;
+    regs->reg_is_write = 0;
+    while (got < regs->rsp_len && got < outSz) {
+        chunk = regs->rsp_len - got;
+        if (chunk > (UINT32)sizeof(regs->reg_data)) {
+            chunk = (UINT32)sizeof(regs->reg_data);
+        }
+        regs->reg_len = chunk;
+        TisHandleRegAccess(ctx, regs);
+        XMEMCPY(out + got, regs->reg_data, chunk);
+        got += chunk;
+    }
+    return got;
+}
+
+/* The response is staged privately and reaches the FIFO only when complete */
+static int TestTisGoSuccess(void)
+{
+    static const int rspSize = 100; /* more than one reg_data transfer */
+    FWTPM_CTX ctx;
+    FWTPM_TIS_REGS regs;
+    byte out[100];
+    int failed = 0;
+    int i;
+
+    TisGoSetup(&ctx, &regs);
+    gGoRc = TPM_RC_SUCCESS;
+    gGoRspSize = rspSize;
+    TisHandleRegAccess(&ctx, &regs);
+
+    if (!gGoPrivateBufs || regs.rsp_len != (UINT32)rspSize ||
+            regs.fifo_read_pos != 0 ||
+            (regs.sts & FWTPM_STS_DATA_AVAIL) == 0 ||
+            regs.rsp_buf[rspSize] != 0xEE) {
+        failed = 1;
+    }
+    if (TisDrainFifo(&ctx, &regs, out, sizeof(out)) != (UINT32)rspSize) {
+        failed = 1;
+    }
+    for (i = 0; i < rspSize; i++) {
+        if (out[i] != TestRspByte(i)) {
+            failed = 1;
+        }
+    }
+    gGoRegs = NULL;
+    printf("%s: TIS GO reads a staged response through the FIFO\n",
+        failed ? "FAIL" : "PASS");
+    return failed;
+}
+
+/* A failed or oversized command yields only the minimal error response, with
+ * none of what the handler wrote reaching the shared registers. */
+static int TestTisGoFailure(int rc, int rspSize, const char* name)
+{
+    static const byte expected[10] = {
+        0x80, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x01, 0x01
+    };
+    FWTPM_CTX ctx;
+    FWTPM_TIS_REGS regs;
+    byte out[sizeof(expected)];
+    int failed = 0;
+    int i;
+
+    TisGoSetup(&ctx, &regs);
+    gGoRc = rc;
+    gGoRspSize = rspSize;
+    TisHandleRegAccess(&ctx, &regs);
+
+    if (regs.rsp_len != (UINT32)sizeof(expected) ||
+            (regs.sts & FWTPM_STS_DATA_AVAIL) == 0) {
+        failed = 1;
+    }
+    for (i = (int)sizeof(expected); i < (int)sizeof(regs.rsp_buf); i++) {
+        if (regs.rsp_buf[i] != 0xEE) {
+            failed = 1;
+            break;
+        }
+    }
+    if (TisDrainFifo(&ctx, &regs, out, sizeof(out)) != (UINT32)sizeof(out) ||
+            XMEMCMP(out, expected, sizeof(expected)) != 0) {
+        failed = 1;
+    }
+    gGoRegs = NULL;
+    printf("%s: TIS GO returns the error response for %s\n",
+        failed ? "FAIL" : "PASS", name);
+    return failed;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -552,6 +681,11 @@ int main(void)
     failures += ExpectDisconnectZeroized();
     failures += TestMetadataValidation();
     failures += TestBurstCountWriteIgnored();
+    failures += TestTisGoSuccess();
+    failures += TestTisGoFailure(TPM_RC_FAILURE, 100, "a failed command");
+    failures += TestTisGoFailure(TPM_RC_SUCCESS, 0, "an empty response");
+    failures += TestTisGoFailure(TPM_RC_SUCCESS, FWTPM_TIS_FIFO_SIZE + 1,
+        "an oversized response");
 
     CleanupEndpoint();
     printf("fwTPM HAL endpoint tests: %s\n",

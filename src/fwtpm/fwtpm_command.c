@@ -22462,6 +22462,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 rspBuf[rspHandleEnd + 3]);
         }
         rspParamStart = rspHandleEnd + 4;
+        /* Never trust paramSize past what the handler wrote */
+        if (rspParamStart > rspPkt.pos) {
+            rspParamSzVal = 0;
+        }
+        else if (rspParamSzVal > (UINT32)(rspPkt.pos - rspParamStart)) {
+            rspParamSzVal = (UINT32)(rspPkt.pos - rspParamStart);
+        }
 #ifndef FWTPM_NO_PARAM_ENC
         rspParamEnd = rspParamStart + (int)rspParamSzVal;
 #endif
