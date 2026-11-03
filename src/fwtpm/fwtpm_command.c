@@ -21239,12 +21239,13 @@ static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
             }
         }
     }
-    /* PolicyTemplate binds only the creation template (Part 3 Sec.23.19);
-     * it does not restrict the command, that is PolicyCommandCode's role. */
-    if (rc == 0 && sess->templateHash.size > 0 &&
-        (cmdCode == TPM_CC_Create || cmdCode == TPM_CC_CreatePrimary ||
-         cmdCode == TPM_CC_CreateLoaded)) {
-        if (FwComputeTemplateHash(sess->authHash, cmdBuf, cmdSize, cpStart,
+    /* A template hash can only match Create, CreatePrimary or CreateLoaded,
+     * so any other command fails the policy, as in the reference
+     * CompareTemplateHash. */
+    if (rc == 0 && sess->templateHash.size > 0) {
+        if ((cmdCode != TPM_CC_Create && cmdCode != TPM_CC_CreatePrimary &&
+                cmdCode != TPM_CC_CreateLoaded) ||
+            FwComputeTemplateHash(sess->authHash, cmdBuf, cmdSize, cpStart,
                 digest, &digestSz) != 0) {
             rc = TPM_RC_POLICY_FAIL;
         }
