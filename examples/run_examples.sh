@@ -121,6 +121,9 @@ RESULT=$?
 ./examples/keygen/create_primary -rsa -oh -auth=ThisIsMyStorageKeyAuth -store=0x81000200 >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "create primary owner rsa key stored failed! $RESULT" && exit 1
+./examples/keygen/create_primary -rsa -eh -store=0x81000203 >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary endorsement rsa key stored failed! $RESULT" && exit 1
 
 # Dictionary Attack (DA / noDA) check. Signs with a DA-protected key (rides
 # through any TPM_RC_RETRY) and shows a noDA key never trips lockout. The
