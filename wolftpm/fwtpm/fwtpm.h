@@ -53,6 +53,13 @@
     #endif
 #endif
 
+/* v1.85 ECC DHKEM (RFC 9180) derives its shared secret with HKDF. Reachable
+ * only through TPM2_Encapsulate/Decapsulate, which are gated on ML-KEM, so
+ * the capability has to match that gate as well. */
+#if defined(WOLFTPM_MLKEM) && defined(HAVE_ECC) && defined(HAVE_HKDF)
+    #define FWTPM_HAVE_DHKEM
+#endif
+
 /* Endian byte-array helpers - use shared TPM2_Packet helpers.
  * Note: argument order differs (Fw: buf,val; TPM2_Packet: val,buf) */
 #define FwStoreU16BE(buf, val) TPM2_Packet_U16ToByteArray((val), (buf))

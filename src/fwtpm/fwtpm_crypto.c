@@ -1201,7 +1201,7 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
     return rc;
 }
 
-#ifdef HAVE_ECC
+#ifdef FWTPM_HAVE_DHKEM
 /* RFC 9180 Sec.7 kem_id mapping for the curve+hash pairings the TPM accepts.
  * Returns 0 on a supported pairing; -1 otherwise (caller maps to TPM_RC_KDF). */
 static int FwDhkemParamsLookup(int wcCurve, TPMI_ALG_HASH kdfHash,
@@ -1519,7 +1519,7 @@ TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
     FWTPM_FREE_VAR(ephKey);
     return rc;
 }
-#endif /* HAVE_ECC */
+#endif /* FWTPM_HAVE_DHKEM */
 
 #endif /* WOLFTPM_MLKEM */
 
@@ -3770,7 +3770,9 @@ int FwGetRsaPadding(UINT16 scheme)
 {
     switch (scheme) {
         case TPM_ALG_RSASSA: return WC_RSA_PKCSV15_PAD;
+    #ifdef WC_RSA_PSS
         case TPM_ALG_RSAPSS: return WC_RSA_PSS_PAD;
+    #endif
         default:             return -1;
     }
 }
@@ -3897,13 +3899,16 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
             }
 
             if (rc == 0) {
+            #ifdef WC_RSA_PSS
                 if (pad == WC_RSA_PSS_PAD) {
                     int mgf = FwGetMgfType(sigHashAlg);
                     wcRc = wc_RsaPSS_Sign_ex(digest, digestSz,
                         sigBuf, sigSz, (enum wc_HashType)wcHashType, mgf,
                         RSA_PSS_SALT_LEN_DEFAULT, rsaKey, &ctx->rng);
                 }
-                else {
+                else
+            #endif
+                {
                     /* RSASSA PKCS#1 v1.5: wrap in ASN.1 DigestInfo */
                     byte encHash[WOLFTPM_MAX_DER_DIGEST_SZ];
                     int encSz;
@@ -4043,6 +4048,7 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
             }
 
             if (rc == 0) {
+            #ifdef WC_RSA_PSS
                 if (pad == WC_RSA_PSS_PAD) {
                     FWTPM_DECLARE_BUF(decSig, FWTPM_MAX_PUB_BUF);
                     int wcHashType = FwGetRsaHashOid(
@@ -4061,7 +4067,9 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                         rsaKey);
                     FWTPM_FREE_BUF(decSig);
                 }
-                else {
+                else
+            #endif
+                {
                     FWTPM_DECLARE_BUF(decSig, FWTPM_MAX_PUB_BUF);
                     byte expDI[WOLFTPM_MAX_DER_DIGEST_SZ];
                     int wcHash = FwGetRsaHashOid(

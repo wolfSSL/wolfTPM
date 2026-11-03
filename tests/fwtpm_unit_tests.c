@@ -3553,6 +3553,8 @@ static void test_fwtpm_mlkem_roundtrip(void)
     fwtpm_pass("MLKEM Encap/Decap Roundtrip:", 1);
 }
 
+#if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
+    defined(WOLFTPM_MLKEM_DECAP)
 /* ECC DHKEM Encap/Decap roundtrip per Part 2 Sec.12.2.3.5 + RFC 9180 Sec.4.1.
  * An unrestricted-decryption ECC key with the matching HKDF kdf qualifies for
  * Encap/Decap. Encap and Decap MUST produce identical sharedSecrets. */
@@ -3680,6 +3682,104 @@ static void test_fwtpm_ecc_dhkem_p521_roundtrip(void)
         "Encap/Decap ECC DHKEM (P-521/HKDF-SHA512) Roundtrip:");
 }
 #endif
+#endif /* FWTPM_HAVE_DHKEM && WOLFTPM_MLKEM_ENCAP && WOLFTPM_MLKEM_DECAP */
+
+#if !defined(FWTPM_HAVE_DHKEM) && defined(HAVE_ECC) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
+/* Without HKDF there is no ECC DHKEM, so an ECC key is not a usable KEM key
+ * even though it still passes the Part 2 Sec.10.3.13 template checks that
+ * admit it. Encap and Decap MUST report TPM_RC_KEY rather than dispatch into
+ * the absent DHKEM path. ML-KEM remains the one supported KEM type here and
+ * is covered by test_fwtpm_mlkem_roundtrip. */
+static void test_fwtpm_ecc_dhkem_unsupported(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize;
+    int pos, pubAreaStart, pubAreaLen;
+    UINT32 keyHandle;
+    byte ct[32];
+
+    memset(&ctx, 0, sizeof(ctx));
+    XMEMSET(ct, 0, sizeof(ct));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Same key the DHKEM roundtrip uses: ECC unrestricted decrypt with an
+     * HKDF kdf. FwTestKdfScheme accepts HKDF whether or not wolfCrypt has
+     * it, so creation still succeeds in this build. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 4); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    pubAreaStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|decrypt */
+    PutU32BE(gCmd + pos, 0x00020072); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* sym */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* scheme */
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_HKDF); pos += 2;   /* kdf scheme */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* kdf hash */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique.x */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique.y */
+    pubAreaLen = pos - pubAreaStart - 2;
+    PutU16BE(gCmd + pubAreaStart, (UINT16)pubAreaLen);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(keyHandle, 0);
+
+    /* Encapsulate falls through to the unsupported-type branch */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Encapsulate); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
+    /* Decapsulate passes every template check and is rejected at dispatch */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Decapsulate); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(ct)); pos += 2;
+    memcpy(gCmd + pos, ct, sizeof(ct)); pos += (int)sizeof(ct);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Encap/Decap ECC DHKEM Unsupported (no HKDF):", 1);
+}
+#endif /* !FWTPM_HAVE_DHKEM && HAVE_ECC && MLKEM_ENCAP && MLKEM_DECAP */
 
 /* ML-KEM Labeled KEM seed roundtrip per Part 1 Sec.47.4 Eq.66:
  *   seed = KDFa(nameAlg, K, label, ciphertext, publicKey, bits).
@@ -19477,7 +19577,14 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_create_loaded_mldsa();
     test_fwtpm_create_loaded_mlkem();
     test_fwtpm_mlkem_roundtrip();
+#if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
+    defined(WOLFTPM_MLKEM_DECAP)
     test_fwtpm_ecc_dhkem_roundtrip();
+#endif
+#if !defined(FWTPM_HAVE_DHKEM) && defined(HAVE_ECC) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
+    test_fwtpm_ecc_dhkem_unsupported();
+#endif
     test_fwtpm_encseed_decseed_mlkem_roundtrip();
 #if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP) && \
     !defined(FWTPM_NO_CREDENTIAL)
@@ -19521,9 +19628,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signsequence_hmac_roundtrip();
     test_fwtpm_signsequence_handle_auth_required();
     test_fwtpm_verifysequence_long_message();
+#if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
+    defined(WOLFTPM_MLKEM_DECAP)
     test_fwtpm_ecc_dhkem_p384_roundtrip();
 #ifdef FWTPM_HAVE_ECC521
     test_fwtpm_ecc_dhkem_p521_roundtrip();
+#endif
 #endif
 #ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_mldsa_digest_roundtrip();

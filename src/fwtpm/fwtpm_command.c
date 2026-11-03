@@ -1855,8 +1855,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             #ifndef NO_RSA
                 { TPM_ALG_RSASSA, TPMA_ALGORITHM_asymmetric |
                     TPMA_ALGORITHM_signing },
+            #ifdef WC_RSA_PSS
                 { TPM_ALG_RSAPSS, TPMA_ALGORITHM_asymmetric |
                     TPMA_ALGORITHM_signing },
+            #endif
             #endif
             #ifdef HAVE_ECC
                 { TPM_ALG_ECDSA, TPMA_ALGORITHM_asymmetric |
@@ -2450,7 +2452,10 @@ static TPM_RC FwTestRsaScheme(const TPMT_RSA_SCHEME* scheme)
     if (alg == TPM_ALG_NULL || alg == TPM_ALG_RSAES) {
         rc = TPM_RC_SUCCESS;
     }
-    else if (alg == TPM_ALG_RSASSA || alg == TPM_ALG_RSAPSS ||
+    else if (alg == TPM_ALG_RSASSA ||
+        #ifdef WC_RSA_PSS
+            alg == TPM_ALG_RSAPSS ||
+        #endif
             alg == TPM_ALG_OAEP) {
         rc = FwTestHashAlg(scheme->details.anySig.hashAlg);
     }
@@ -18138,7 +18143,7 @@ static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = FwEncapsulateMlkem(&ctx->rng, ps, &obj->pub.unique.mlkem,
                 &sharedSecret, ciphertext);
         }
-#ifdef HAVE_ECC
+#ifdef FWTPM_HAVE_DHKEM
         else if (obj->pub.type == TPM_ALG_ECC &&
                 obj->pub.parameters.eccDetail.kdf.scheme == TPM_ALG_HKDF) {
             rc = FwEncapsulateEcdhDhkem(&ctx->rng, &obj->pub,
@@ -18258,11 +18263,15 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = FwDecapsulateMlkem(ps, obj->privKey,
                 ciphertext->buffer, ciphertext->size, &sharedSecret);
         }
-#ifdef HAVE_ECC
+#ifdef FWTPM_HAVE_DHKEM
         else {
             rc = FwDecapsulateEcdhDhkem(&ctx->rng, obj,
                 obj->pub.parameters.eccDetail.kdf.details.any.hashAlg,
                 ciphertext->buffer, ciphertext->size, &sharedSecret);
+        }
+#else
+        else {
+            rc = TPM_RC_KEY;
         }
 #endif
     }
