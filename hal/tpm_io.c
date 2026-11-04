@@ -46,7 +46,8 @@
 /* Native Windows, native Linux and TPM Simulator do not need an IO callback */
 #if ! (defined(WOLFTPM_LINUX_DEV) || \
        defined(WOLFTPM_SWTPM) ||     \
-       defined(WOLFTPM_WINAPI) ) && \
+       defined(WOLFTPM_WINAPI) ||    \
+       defined(WOLFTPM_PIKEOS) ) && \
     (defined(WOLFTPM_EXAMPLE_HAL) || defined(WOLFTPM_MMIO) || \
      defined(WOLFTPM_FWTPM_HAL))
 

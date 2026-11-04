@@ -56,6 +56,20 @@ tests_swtpm_uart_unit_test_CFLAGS = \
 tests_swtpm_uart_unit_test_LDADD = $(LIB_STATIC_ADD)
 endif
 
+# Host test of the PikeOS transport against the stubs in tests/pikeos_stub.
+# Not built by make, as a PikeOS target has the real vm_* calls. On a host the
+# library needs the stub headers too: CFLAGS=-Itests/pikeos_stub.
+if BUILD_PIKEOS
+check_PROGRAMS += tests/pikeos_unit.test
+tests_pikeos_unit_test_SOURCES = tests/pikeos_unit_tests.c
+tests_pikeos_unit_test_CFLAGS = $(AM_CFLAGS)
+tests_pikeos_unit_test_CPPFLAGS = -I$(srcdir)/tests/pikeos_stub $(AM_CPPFLAGS)
+tests_pikeos_unit_test_LDADD = $(src_libwolftpm_la_OBJECTS) \
+    $(src_libwolftpm_la_LIBADD) $(LIB_STATIC_ADD)
+tests_pikeos_unit_test_DEPENDENCIES = src/libwolftpm.la
+endif
+EXTRA_DIST += tests/pikeos_stub/p4.h tests/pikeos_stub/vm.h
+
 if BUILD_FWTPM_TIS
 check_PROGRAMS += tests/fwtpm_hal_unit.test
 noinst_PROGRAMS += tests/fwtpm_hal_unit.test

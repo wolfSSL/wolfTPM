@@ -44,7 +44,7 @@
 /* TIS functions for SPI/I2C TPM transport */
 #if defined(WOLFTPM_SPDM_TCG) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-    !defined(WOLFTPM_WINAPI)
+    !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_PIKEOS)
     #include <wolftpm/tpm2_tis.h>
     #include <wolftpm/tpm2_packet.h>
     #define WOLFTPM_SPDM_TIS_IO
