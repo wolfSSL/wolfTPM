@@ -1047,9 +1047,10 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/wolftpm/
 # SBOM generation target
 ####################################################
 #
-# The generator is the wolfGlass snapshot in tools/sbom/. WOLFSSL_DIR is
-# optional: when set to a wolfSSL source tree, the dependency version is read
-# from wolfssl/version.h. Otherwise the driver uses pkg-config.
+# The generator is the wolfssl-compliance-tooling snapshot in tools/sbom/.
+# WOLFSSL_DIR is optional: when set to a wolfSSL source tree, the dependency
+# version is read from wolfssl/version.h. Otherwise the driver uses
+# pkg-config.
 #
 # Usage:
 #   cmake -B build .
@@ -1150,20 +1151,25 @@ if(BUILD_WOLFTPM_LIB)
             DEP_WOLFSSL yes
             CDX_OUT ${SBOM_CDX}
             SPDX_OUT ${SBOM_SPDX}
+            TV_OUT ${SBOM_SPDX_TV}
+            INSTALL_DEPENDS sbom
             TARGET_NAME wolftpm-sbom-gen)
         if(NOT _sbom_wolfssl_version STREQUAL "")
             list(APPEND _sbom_args DEP_VERSION "wolfssl=${_sbom_wolfssl_version}")
         endif()
-        wolfglass_add_sbom(${_sbom_args})
+        wolfssl_compliance_tooling_add_sbom(${_sbom_args})
 
         # Stage the installed library before the driver hashes it, matching
         # the autotools `make install` into _sbom_staging. The public `sbom`
         # target then validates the SPDX and removes the staging tree.
         # POST_BUILD on a custom target runs before the target command, so
         # validation is its own target instead.
+        # DESTDIR is for install-sbom only. The staging install must not
+        # see it, or the library lands outside ${SBOM_STAGING}.
         add_custom_target(wolftpm-sbom-stage
             COMMAND ${CMAKE_COMMAND} -E remove_directory ${SBOM_STAGING}
-            COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}
+            COMMAND ${CMAKE_COMMAND} -E env --unset=DESTDIR
+                    ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}
                     --prefix ${SBOM_STAGING} --config $<CONFIG>
             DEPENDS wolftpm
             VERBATIM
