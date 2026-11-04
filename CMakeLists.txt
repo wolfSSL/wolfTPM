@@ -82,6 +82,7 @@ set(TPM_SOURCES
     src/tpm2.c
     src/tpm2_linux.c
     src/tpm2_packet.c
+    src/tpm2_pikeos.c
     src/tpm2_param_enc.c
     src/tpm2_swtpm.c
     src/tpm2_optee.c
@@ -197,7 +198,7 @@ endif()
 set(WOLFTPM_INTERFACE "auto" CACHE STRING
     "Select interface to TPM")
 set_property(CACHE WOLFTPM_INTERFACE
-    PROPERTY STRINGS "auto;SWTPM;WINAPI;DEVTPM;OPTEE;SPI;I2C;MMIO")
+    PROPERTY STRINGS "auto;SWTPM;WINAPI;DEVTPM;OPTEE;PIKEOS;SPI;I2C;MMIO")
 
 # automatically set
 message("INTERFACE ${WOLFTPM_INTERFACE}")
@@ -250,6 +251,9 @@ elseif("${WOLFTPM_INTERFACE}" STREQUAL "OPTEE")
         target_include_directories(wolftpm PRIVATE ${TEEC_INCLUDE_DIR})
         target_link_libraries(wolftpm PRIVATE ${TEEC_LIBRARY})
     endif()
+
+elseif("${WOLFTPM_INTERFACE}" STREQUAL "PIKEOS")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_PIKEOS")
 
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "WINAPI")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_WINAPI")

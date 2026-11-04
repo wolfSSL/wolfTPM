@@ -43,11 +43,12 @@
 /* --- BEGIN IO Callback Logic -- */
 /******************************************************************************/
 
-/* Native Windows, native Linux, TPM Simulator and the OP-TEE trusted
- * application do not need an IO callback */
+/* Native Windows, native Linux, TPM Simulator, the OP-TEE trusted application
+ * and the PikeOS driver do not need an IO callback */
 #if ! (defined(WOLFTPM_LINUX_DEV) || \
        defined(WOLFTPM_SWTPM) ||     \
        defined(WOLFTPM_OPTEE) ||     \
+       defined(WOLFTPM_PIKEOS) ||    \
        defined(WOLFTPM_WINAPI) ) && \
     (defined(WOLFTPM_EXAMPLE_HAL) || defined(WOLFTPM_MMIO) || \
      defined(WOLFTPM_FWTPM_HAL))
