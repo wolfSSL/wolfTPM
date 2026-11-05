@@ -8366,7 +8366,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         if (rc == 0) {
-            rc = FwRsaComputeCRT(rsaKey);
+            rc = FwRsaComputeCRT(rsaKey, &ctx->rng);
         }
 
         if (rc == 0) {
@@ -8832,7 +8832,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && primeSz > 0) {
         rc = FwImportReconstructKey(objectPublic, sensType,
             primeBuf, primeSz,
-            privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz);
+            privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz, &ctx->rng);
     }
 
 

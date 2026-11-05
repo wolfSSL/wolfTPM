@@ -51,6 +51,7 @@
 #include <wolfssl/wolfcrypt/memory.h>
 #endif
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -22131,6 +22132,129 @@ static void test_fwtpm_fixed_properties_complete(void)
     fwtpm_pass("Complete fixed property capabilities:", 0);
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(NO_RSA) && \
+    defined(WOLFSSL_KEY_GEN)
+/* Check d, dP, dQ and u computed by FwRsaComputeCRT() for key's p, q and e. */
+static void test_fwtpm_rsa_check_crt(RsaKey* key)
+{
+    mp_int pm1, qm1, phi, t;
+
+    AssertIntEQ(mp_init_multi(&pm1, &qm1, &phi, &t, NULL, NULL), 0);
+    AssertIntEQ(mp_sub_d(&key->p, 1, &pm1), 0);
+    AssertIntEQ(mp_sub_d(&key->q, 1, &qm1), 0);
+    AssertIntEQ(mp_mul(&pm1, &qm1, &phi), 0);
+    AssertIntEQ(mp_invmod(&key->e, &phi, &t), 0);
+    AssertIntEQ(mp_cmp(&key->d, &t), MP_EQ);
+    AssertIntEQ(mp_mod(&t, &pm1, &phi), 0);
+    AssertIntEQ(mp_cmp(&key->dP, &phi), MP_EQ);
+    AssertIntEQ(mp_mod(&t, &qm1, &phi), 0);
+    AssertIntEQ(mp_cmp(&key->dQ, &phi), MP_EQ);
+    AssertIntEQ(mp_invmod(&key->q, &key->p, &t), 0);
+    AssertIntEQ(mp_cmp(&key->u, &t), MP_EQ);
+    mp_clear(&t);
+    mp_clear(&phi);
+    mp_clear(&qm1);
+    mp_clear(&pm1);
+}
+
+/* FwRsaComputeCRT() must agree with wolfCrypt's own key generation. */
+static void test_fwtpm_rsa_compute_crt(void)
+{
+    WC_RNG rng;
+    RsaKey gen;
+    RsaKey key;
+    int i;
+    int bits = (MAX_RSA_KEY_BITS < 2048) ? MAX_RSA_KEY_BITS : 2048;
+
+    AssertIntEQ(wc_InitRng(&rng), 0);
+    AssertIntEQ(wc_InitRsaKey(&gen, NULL), 0);
+    AssertIntEQ(wc_InitRsaKey(&key, NULL), 0);
+    AssertIntEQ(wc_MakeRsaKey(&gen, bits, WC_RSA_EXPONENT, &rng), 0);
+
+    AssertIntEQ(mp_copy(&gen.p, &key.p), 0);
+    AssertIntEQ(mp_copy(&gen.q, &key.q), 0);
+    AssertIntEQ(mp_copy(&gen.e, &key.e), 0);
+
+    /* Each run blinds differently; the result must not change. */
+    for (i = 0; i < 4; i++) {
+        AssertIntEQ(FwRsaComputeCRT(&key, &rng), 0);
+        AssertIntEQ(mp_cmp(&key.dP, &gen.dP), MP_EQ);
+        AssertIntEQ(mp_cmp(&key.dQ, &gen.dQ), MP_EQ);
+        AssertIntEQ(mp_cmp(&key.u, &gen.u), MP_EQ);
+        test_fwtpm_rsa_check_crt(&key);
+    }
+
+    /* The other order of the primes, so q is the larger one half the time. */
+    AssertIntEQ(mp_copy(&gen.q, &key.p), 0);
+    AssertIntEQ(mp_copy(&gen.p, &key.q), 0);
+    AssertIntEQ(FwRsaComputeCRT(&key, &rng), 0);
+    test_fwtpm_rsa_check_crt(&key);
+
+    /* A composite e. */
+    wc_FreeRsaKey(&gen);
+    AssertIntEQ(wc_InitRsaKey(&gen, NULL), 0);
+    AssertIntEQ(wc_MakeRsaKey(&gen, bits, 3 * 5 * 17 * 257, &rng), 0);
+    AssertIntEQ(mp_copy(&gen.p, &key.p), 0);
+    AssertIntEQ(mp_copy(&gen.q, &key.q), 0);
+    AssertIntEQ(mp_copy(&gen.e, &key.e), 0);
+    AssertIntEQ(FwRsaComputeCRT(&key, &rng), 0);
+    test_fwtpm_rsa_check_crt(&key);
+
+    /* An e close to 2^32, so residues modulo e are too. wc_MakeRsaKey takes
+     * e as a long, which is 32 bits on Windows; use 2^31-1 there. */
+    wc_FreeRsaKey(&gen);
+    AssertIntEQ(wc_InitRsaKey(&gen, NULL), 0);
+#if LONG_MAX > 2147483647L
+    AssertIntEQ(wc_MakeRsaKey(&gen, bits, 4294967291L, &rng), 0);
+#else
+    AssertIntEQ(wc_MakeRsaKey(&gen, bits, 2147483647L, &rng), 0);
+#endif
+    AssertIntEQ(mp_copy(&gen.p, &key.p), 0);
+    AssertIntEQ(mp_copy(&gen.q, &key.q), 0);
+    AssertIntEQ(mp_copy(&gen.e, &key.e), 0);
+    for (i = 0; i < 4; i++) {
+        AssertIntEQ(FwRsaComputeCRT(&key, &rng), 0);
+        test_fwtpm_rsa_check_crt(&key);
+    }
+
+    /* An even e has no inverse modulo phi. */
+    AssertIntEQ(mp_set(&key.e, 2), 0);
+    AssertIntNE(FwRsaComputeCRT(&key, &rng), 0);
+    /* e = 1 gives d = 1. */
+    AssertIntEQ(mp_set(&key.e, 1), 0);
+    AssertIntEQ(FwRsaComputeCRT(&key, &rng), 0);
+    test_fwtpm_rsa_check_crt(&key);
+    AssertIntEQ(mp_copy(&gen.e, &key.e), 0);
+
+    /* Blinding has no fallback to an unblinded path without an RNG. */
+    AssertIntNE(FwRsaComputeCRT(&key, NULL), 0);
+
+    /* q has no inverse modulo p when they are equal. */
+    AssertIntEQ(mp_copy(&gen.p, &key.q), 0);
+    AssertIntNE(FwRsaComputeCRT(&key, &rng), 0);
+
+    /* e shares a factor with p-1. */
+    AssertIntEQ(mp_set(&key.p, 7), 0);
+    AssertIntEQ(mp_set(&key.q, 5), 0);
+    AssertIntEQ(mp_set(&key.e, 3), 0);
+    AssertIntNE(FwRsaComputeCRT(&key, &rng), 0);
+    AssertIntEQ(mp_set(&key.e, 65537), 0);
+
+    /* A composite p from the caller: q shares a factor with it. */
+    AssertIntEQ(mp_set(&key.p, 15), 0);
+    AssertIntEQ(mp_set(&key.q, 3), 0);
+    AssertIntNE(FwRsaComputeCRT(&key, &rng), 0);
+    /* A composite p from the caller: q^(p-2) is not the inverse of q. */
+    AssertIntEQ(mp_set(&key.p, 4), 0);
+    AssertIntNE(FwRsaComputeCRT(&key, &rng), 0);
+
+    wc_FreeRsaKey(&key);
+    wc_FreeRsaKey(&gen);
+    wc_FreeRng(&rng);
+    fwtpm_pass("RSA CRT computation:", 0);
+}
+#endif
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -22859,6 +22983,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
     test_fwtpm_custom_io_hal();
+#endif
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(NO_RSA) && \
+    defined(WOLFSSL_KEY_GEN)
+    test_fwtpm_rsa_compute_crt();
 #endif
 
     printf("\nAll fwTPM unit tests passed!\n");
