@@ -4042,6 +4042,7 @@ WOLFTPM_API int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief One-shot API to unload all transient TPM handles
+    \note Flushes the transient handles the TPM reports as loaded, following TPM_CAP_HANDLES continuation pages, or the first MAX_HANDLE_NUM if the first TPM_CAP_HANDLES query fails. A failed query or flush is returned; a failed flush does not stop the remaining handles from being flushed
     \note If there are Primary Keys as transient objects, they need to be recreated before TPM keys can be used
 
     \return TPM_RC_SUCCESS: successful

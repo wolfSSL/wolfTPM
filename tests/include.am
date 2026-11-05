@@ -136,5 +136,13 @@ signature_padding_support_objects = \
 tests_signature_padding_test_LDADD = $(signature_padding_support_objects) \
     $(src_libwolftpm_la_LIBADD) $(LIB_STATIC_ADD)
 tests_signature_padding_test_DEPENDENCIES = src/libwolftpm.la
+# Scripted TPM_CAP_HANDLES pages, which a simulator cannot produce on demand.
+check_PROGRAMS += tests/transient_unload.test
+noinst_PROGRAMS += tests/transient_unload.test
+tests_transient_unload_test_SOURCES = tests/transient_unload_tests.c
+tests_transient_unload_test_CFLAGS = $(AM_CFLAGS)
+tests_transient_unload_test_LDADD = $(signature_padding_support_objects) \
+    $(src_libwolftpm_la_LIBADD) $(LIB_STATIC_ADD)
+tests_transient_unload_test_DEPENDENCIES = src/libwolftpm.la
 endif
 endif

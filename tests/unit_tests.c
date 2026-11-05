@@ -1866,6 +1866,36 @@ static void test_wolfTPM2_GetRandom(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+static void test_wolfTPM2_UnloadHandles_AllTransient(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    int eccSupported = 0;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_UnloadHandles_AllTransient(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    AssertIntEQ(wolfTPM2_IsAlgSupported(&dev, TPM_ALG_ECC, &eccSupported), 0);
+    XMEMSET(&srk, 0, sizeof(srk));
+    rc = wolfTPM2_CreateSRK(&dev, &srk,
+        eccSupported ? TPM_ALG_ECC : TPM_ALG_RSA, NULL, 0);
+    AssertIntEQ(rc, 0);
+    AssertIntGE(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), 1);
+
+    rc = wolfTPM2_UnloadHandles_AllTransient(&dev);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL), 0);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper: %-40s %s\n", "Unload All Transient:",
+        rc == 0 ? "Passed" : "Failed");
+}
+
 static void test_wolfTPM2_HashFinish_BufferTooSmall(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -11847,6 +11877,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
     test_wolfTPM2_GetRandom();
+    test_wolfTPM2_UnloadHandles_AllTransient();
     test_wolfTPM2_DictionaryAttack();
     test_wolfTPM2_HashFinish_BufferTooSmall();
     test_TPM2_PCRSel();
