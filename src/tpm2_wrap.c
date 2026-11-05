@@ -9450,7 +9450,62 @@ int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart,
 
 int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev)
 {
-    return wolfTPM2_UnloadHandles(dev, TRANSIENT_FIRST, MAX_HANDLE_NUM);
+    int rc;
+    int flushRc;
+    int firstFlushRc = TPM_RC_SUCCESS;
+    word32 i;
+    TPM_HANDLE next = TRANSIENT_FIRST;
+    GetCapability_In  in;
+    GetCapability_Out out;
+    TPML_HANDLE* handles = &out.capabilityData.data.handles;
+    WOLFTPM2_HANDLE handle;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* flush only the handles the TPM reports as loaded */
+    XMEMSET(&handle, 0, sizeof(handle));
+    wolfTPM2_CopyAuth(&handle.auth, &dev->session[0].auth);
+    for (;;) {
+        XMEMSET(&in, 0, sizeof(in));
+        in.capability = TPM_CAP_HANDLES;
+        in.property = next;
+        in.propertyCount = MAX_CAP_HANDLES;
+        rc = TPM2_GetCapability(&in, &out);
+        if (rc == TPM_RC_SUCCESS &&
+                out.capabilityData.capability != TPM_CAP_HANDLES) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc != TPM_RC_SUCCESS) {
+            break;
+        }
+        for (i = 0; i < handles->count; i++) {
+            if (handles->handle[i] < next ||
+                    (handles->handle[i] & HR_RANGE_MASK) != HR_TRANSIENT) {
+                break;
+            }
+            next = handles->handle[i] + 1;
+            handle.hndl = handles->handle[i];
+            flushRc = wolfTPM2_UnloadHandle(dev, &handle);
+            if (flushRc != TPM_RC_SUCCESS && firstFlushRc == TPM_RC_SUCCESS) {
+                firstFlushRc = flushRc;
+            }
+        }
+        /* continue only after a non-empty page of ascending transient
+         * handles that reports more data */
+        if (!out.moreData || handles->count == 0 || i < handles->count) {
+            break;
+        }
+    }
+    TPM2_ForceZero(&handle, sizeof(handle));
+
+    /* The fixed range ignores individual flush results, so it cannot confirm
+     * anything was unloaded: try it, but report that discovery failed. */
+    if (rc != TPM_RC_SUCCESS && next == TRANSIENT_FIRST) {
+        (void)wolfTPM2_UnloadHandles(dev, TRANSIENT_FIRST, MAX_HANDLE_NUM);
+    }
+    return (rc != TPM_RC_SUCCESS) ? rc : firstFlushRc;
 }
 
 int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,

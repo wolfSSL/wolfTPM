@@ -82,6 +82,8 @@ tests/packet_auth.test
 tests/packet_auth.log
 tests/signature_padding.test
 tests/signature_padding.log
+tests/transient_unload.test
+tests/transient_unload.log
 tests/spdm_config.test
 tests/spdm_config.log
 tests/spdm_ctrl.test

@@ -120,40 +120,6 @@ static const char* mlkemName(TPMI_MLKEM_PARAMETER_SET ps)
         "768";
 }
 
-/* Reclaim the transient object table by flushing exactly the handles the TPM
- * reports as loaded. Parts with a small object table (e.g. SealSQ QVault TPM)
- * hit TPM_RC_OBJECT_MEMORY when a key plus a sign/verify sequence object are
- * live at once. wolfTPM2_UnloadHandles_AllTransient() only covers
- * MAX_HANDLE_NUM (3) fixed handles, so query the actual loaded set instead. */
-static int pqc_flush_transient(WOLFTPM2_DEV* dev)
-{
-    int rc;
-    word32 i;
-    GetCapability_In in;
-    GetCapability_Out out;
-    FlushContext_In flushCtx;
-
-    (void)dev; /* operates on the active TPM context */
-    XMEMSET(&in, 0, sizeof(in));
-    XMEMSET(&out, 0, sizeof(out));
-    XMEMSET(&flushCtx, 0, sizeof(flushCtx));
-    in.capability = TPM_CAP_HANDLES;
-    in.property = TRANSIENT_FIRST;
-    in.propertyCount = MAX_CAP_HANDLES;
-    rc = TPM2_GetCapability(&in, &out);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc;
-    }
-    if (out.capabilityData.capability != TPM_CAP_HANDLES) {
-        return TPM_RC_FAILURE;
-    }
-    for (i = 0; i < out.capabilityData.data.handles.count; i++) {
-        flushCtx.flushHandle = out.capabilityData.data.handles.handle[i];
-        (void)TPM2_FlushContext(&flushCtx);
-    }
-    return TPM_RC_SUCCESS;
-}
-
 static int do_caps(WOLFTPM2_DEV* dev)
 {
     int rc;
@@ -401,7 +367,7 @@ static int do_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
     XMEMSET(&validation, 0, sizeof(validation));
     XMEMSET(&flushCtx, 0, sizeof(flushCtx));
 
-    (void)pqc_flush_transient(dev);
+    (void)wolfTPM2_UnloadHandles_AllTransient(dev);
 
     sig = (byte*)XMALLOC(MAX_MLDSA_SIG_SIZE, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (sig == NULL)
@@ -495,7 +461,7 @@ static int do_hash_mldsa(WOLFTPM2_DEV* dev, TPMI_MLDSA_PARAMETER_SET ps)
 #endif
     digestSz = TPM2_GetHashDigestSize(preHash);
 
-    (void)pqc_flush_transient(dev);
+    (void)wolfTPM2_UnloadHandles_AllTransient(dev);
 
     sig = (byte*)XMALLOC(MAX_MLDSA_SIG_SIZE, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (sig == NULL)
@@ -571,7 +537,7 @@ static int do_mlkem(WOLFTPM2_DEV* dev, TPMI_MLKEM_PARAMETER_SET ps)
     XMEMSET(ss1, 0, sizeof(ss1));
     XMEMSET(ss2, 0, sizeof(ss2));
 
-    (void)pqc_flush_transient(dev);
+    (void)wolfTPM2_UnloadHandles_AllTransient(dev);
 
     ct = (byte*)XMALLOC(MAX_MLKEM_CT_SIZE, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (ct == NULL)
@@ -721,7 +687,7 @@ static int handleOpt(WOLFTPM2_DEV* dev, const char* arg, int validateOnly)
         if (validateOnly) {
             return 0;
         }
-        rc = pqc_flush_transient(dev);
+        rc = wolfTPM2_UnloadHandles_AllTransient(dev);
         if (rc != TPM_RC_SUCCESS) {
             printf("FAIL  flush  0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
             return rc;
