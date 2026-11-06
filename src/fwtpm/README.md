@@ -86,6 +86,20 @@ scripts/tpm2_tools_test.sh
 `make check` runs `tests/fwtpm_check.sh`, which manages the
 `fwtpm_server` lifecycle automatically.
 
+The script picks a free port, but a machine-wide `killall fwtpm_server` from
+another shell still stops its server by process name, and every example after
+that point fails at `wolfTPM2_Init` with `TPM_RC_FAILURE`. A network namespace
+does not stop that, since it isolates the network rather than process
+visibility, and the server still answers a same-user signal. What it does give
+is a private port space, so concurrent copies of the suite cannot collide:
+
+```bash
+unshare -rn sh -c 'ip link set lo up && make check'
+```
+
+A fresh network namespace starts with `lo` down, so bringing it up is required;
+without it every socket test fails with `Network is unreachable`.
+
 ## CI Tests (fwtpm-test.yml)
 
 All tests below run in GitHub Actions CI. Run manually before PR submission.
