@@ -1,0 +1,46 @@
+/* tpm2_pikeos.h
+ *
+ * Copyright (C) 2006-2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTPM.
+ *
+ * wolfTPM is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTPM is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ */
+
+#ifndef _TPM2_PIKEOS_H_
+#define _TPM2_PIKEOS_H_
+
+#ifdef WOLFTPM_PIKEOS
+
+#include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_packet.h>
+
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
+/* TPM2 IO for using TPM through a PikeOS file provider (vm_open/vm_read) */
+WOLFTPM_LOCAL int TPM2_PIKEOS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
+
+/* Close the PikeOS TPM device */
+WOLFTPM_LOCAL int TPM2_PIKEOS_Cleanup(TPM2_CTX* ctx);
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
+
+#endif /* WOLFTPM_PIKEOS */
+
+#endif /* _TPM2_PIKEOS_H_ */

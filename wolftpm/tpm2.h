@@ -2243,6 +2243,16 @@ struct wolfTPM_tcpContext {
 };
 #endif /* WOLFTPM_SWTPM */
 
+#ifdef WOLFTPM_PIKEOS
+#include <p4.h>
+#include <vm.h>
+
+struct wolfTPM_pikeosContext {
+    vm_file_desc_t fd;
+    int isOpen;
+};
+#endif /* WOLFTPM_PIKEOS */
+
 #ifdef WOLFTPM_WINAPI
 #include <tbs.h>
 #include <winerror.h>
@@ -2326,6 +2336,9 @@ typedef struct TPM2_CTX {
 #endif
 #ifdef WOLFTPM_WINAPI
     struct wolfTPM_winContext winCtx;
+#endif
+#ifdef WOLFTPM_PIKEOS
+    struct wolfTPM_pikeosContext pikeosCtx;
 #endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifdef WOLFTPM2_USE_WOLF_RNG
@@ -3855,7 +3868,7 @@ WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
     \param ctx pointer to a TPM2_CTX struct
     \param ioCb pointer to TPM2HalIoCb (HAL IO) callback function
     \param userCtx pointer to the user's context that will be stored as a member of the ctx struct
-    \param timeoutTries specifies the number of attempts to confirm that TPM2 startup has completed
+    \param timeoutTries specifies the number of attempts to confirm that TPM2 startup has completed. Must be 0 with WOLFTPM_PIKEOS, which has no TIS layer; use TPM2_Init or TPM2_Init_minimal
 
     \sa TPM2_GetRCString
     \sa TPM2_Init_minimal
@@ -3887,7 +3900,7 @@ WOLFTPM_API TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx);
     \brief Deinitializes a TPM and wolfcrypt (if it was initialized)
 
     \return TPM_RC_SUCCESS: successful
-    \return TPM_RC_FAILURE: could not acquire the lock on the wolfTPM2 context
+    \return TPM_RC_FAILURE: could not acquire the lock on the wolfTPM2 context, or (PikeOS) the driver file could not be closed
     \return BAD_FUNC_ARG: the TPM2 device structure is a NULL pointer
 
     \param ctx pointer to a TPM2_CTX struct

@@ -1,0 +1,48 @@
+name: PikeOS Build (WOLFTPM_PIKEOS)
+
+# Build and host test of the PikeOS TPM driver transport (--enable-pikeos).
+# The PikeOS SDK is not available in CI, so tests/pikeos_stub supplies p4.h and
+# vm.h with the SDK's signatures, and tests/pikeos_unit.test stubs the vm_* calls.
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pikeos:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Configure (PikeOS transport, no wolfCrypt)
+        run: |
+          ./autogen.sh
+          ./configure --enable-pikeos --disable-wolfcrypt --disable-examples
+
+      - name: Build library and run transport test
+        run: |
+          make src/libwolftpm.la CFLAGS="-Itests/pikeos_stub -Werror"
+          make tests/pikeos_unit.test CFLAGS="-Itests/pikeos_stub -Werror"
+          ./tests/pikeos_unit.test
+
+      - name: Build library and run transport test (debug)
+        run: |
+          make clean
+          make src/libwolftpm.la tests/pikeos_unit.test \
+            CFLAGS="-Itests/pikeos_stub -Werror -DDEBUG_WOLFTPM -DWOLFTPM_DEBUG_VERBOSE"
+          ./tests/pikeos_unit.test
