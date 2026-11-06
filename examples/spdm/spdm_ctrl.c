@@ -221,7 +221,8 @@ static int ctrl_session_info(WOLFTPM2_DEV* dev)
     printf("\n=== SPDM Session Info (TPM_CAP_SPDM_SESSION_INFO) ===\n");
     XMEMSET(&info, 0, sizeof(info));
     rc = wolfTPM2_GetCapability_SPDMSessionInfo(dev, &info);
-    if (rc == TPM_RC_VALUE) {
+    /* Parameter bits ride on format-1 codes (Nuvoton answers 0x1c4) */
+    if (rc > 0 && (rc & RC_MAX_FMT1) == TPM_RC_VALUE) {
         printf("  Not supported by this TPM (TPM_RC_VALUE)\n");
         return rc;
     }
