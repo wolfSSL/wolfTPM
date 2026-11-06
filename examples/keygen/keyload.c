@@ -73,6 +73,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     const char* inputFile = "keyblob.bin";
     int persistent = 0;
     int endorseKey = 0;
+    int argBase = 1; /* first argv index the option scan may examine */
 
 
     if (argc >= 2) {
@@ -85,9 +86,10 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 
         if (argv[1][0] != '-') {
             inputFile = argv[1];
+            argBase = 2; /* consumed as the filename, not an option */
         }
     }
-    while (argc > 1) {
+    while (argc > argBase) {
         if (XSTRCMP(argv[argc-1], "-eh") == 0) {
             endorseKey = 1;
         }
