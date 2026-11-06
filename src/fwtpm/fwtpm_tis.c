@@ -84,6 +84,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
      * (STS/GO/FIFO). ACCESS and read-only ID/INT registers are not gated. */
     int isOwner;
     FWTPM_DECLARE_BUF(localCmd, FWTPM_TIS_FIFO_SIZE);
+    FWTPM_DECLARE_BUF(localRsp, FWTPM_TIS_FIFO_SIZE);
 
     isOwner = (ctx->tisLocality >= 0 && loc == ctx->tisLocality);
 
@@ -151,14 +152,18 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                         FWTPM_TIS_BURST_COUNT);
                 }
                 if (val & FWTPM_STS_GO) {
-                    /* Execute command - copy to local buffer first to
-                     * prevent TOCTOU if cmd_buf is in shared memory */
+                    /* Execute command - use local command and response
+                     * buffers to prevent TOCTOU if the registers are in
+                     * shared memory */
                     UINT32 localCmdLen;
                     int rspSize = 0;
                     int procRc = TPM_RC_FAILURE;
                     TPM_RC rc = TPM_RC_SUCCESS; /* FWTPM_ALLOC_BUF sets on OOM */
 
                     FWTPM_ALLOC_BUF(localCmd, FWTPM_TIS_FIFO_SIZE);
+                    if (rc == TPM_RC_SUCCESS) {
+                        FWTPM_ALLOC_BUF(localRsp, FWTPM_TIS_FIFO_SIZE);
+                    }
                     if (rc == TPM_RC_SUCCESS) {
                         localCmdLen = regs->cmd_len;
                         if (localCmdLen > FWTPM_TIS_FIFO_SIZE) {
@@ -172,12 +177,24 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 
                         /* Gated to the owner above, so loc == ctx->tisLocality:
                          * execute under the addressed (owning) locality. */
-                        rspSize = (int)sizeof(regs->rsp_buf);
+                        rspSize = FWTPM_TIS_FIFO_SIZE;
                         procRc = FWTPM_ProcessCommand(ctx,
                             localCmd, (int)localCmdLen,
-                            regs->rsp_buf, &rspSize, loc);
-                        FWTPM_FREE_BUF(localCmd);
+                            localRsp, &rspSize, loc);
+                        if (procRc == TPM_RC_SUCCESS && rspSize > 0 &&
+                                rspSize <= FWTPM_TIS_FIFO_SIZE) {
+                            XMEMCPY(regs->rsp_buf, localRsp, rspSize);
+                        }
+                        else {
+                            rspSize = 0;
+                        }
                     }
+                    TPM2_ForceZero(localRsp,
+                        FWTPM_SIZEOF_BUF(localRsp, FWTPM_TIS_FIFO_SIZE));
+                    TPM2_ForceZero(localCmd,
+                        FWTPM_SIZEOF_BUF(localCmd, FWTPM_TIS_FIFO_SIZE));
+                    FWTPM_FREE_BUF(localRsp);
+                    FWTPM_FREE_BUF(localCmd);
                     if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
                         /* Build minimal error response
                          * TPM_ST_NO_SESSIONS = 0x8001 (big-endian) */

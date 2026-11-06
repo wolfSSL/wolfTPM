@@ -32,6 +32,7 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
+#include <errno.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER
 /******************************************************************************/
@@ -59,7 +60,25 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
     FlushContext_In flushCtx;
 
     if (argc == 2) {
-        handle = (word32)XSTRTOUL(argv[1], NULL, 0);
+        char* end = NULL;
+        unsigned long val;
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
+            usage();
+            return 0;
+        }
+        /* strtoul accepts a sign and wraps it, so require a leading digit */
+        errno = 0;
+        val = XSTRTOUL(argv[1], &end, 0);
+        if (argv[1][0] < '0' || argv[1][0] > '9' || *end != '\0' ||
+                errno == ERANGE || val == 0 ||
+                (unsigned long)(word32)val != val) {
+            printf("Invalid handle %s\n", argv[1]);
+            usage();
+            return -1;
+        }
+        handle = (TPM_HANDLE)val;
     }
     else if (argc == 1) {
         allTransientObjects = 1;
@@ -78,7 +97,7 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
-    if (allTransientObjects || handle == 0) {
+    if (allTransientObjects) {
         /* Flush key objects */
         for (handle=0x80000000; handle < 0x8000000A; handle++) {
             flushCtx.flushHandle = handle;

@@ -11887,6 +11887,104 @@ static void test_fwtpm_policy_locality(void)
     fwtpm_pass("PolicyLocality:", 0);
 }
 
+/* A PolicyTemplate session authorizes only Create, CreatePrimary and
+ * CreateLoaded with the bound template, never another command. */
+static TPM_RC SendPolicyTemplate(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* templateHash)
+{
+    int pos = 0, rspSize = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyTemplate);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+    memcpy(gCmd + pos, templateHash, WC_SHA256_DIGEST_SIZE);
+    pos += WC_SHA256_DIGEST_SIZE;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+static void test_fwtpm_policy_template_create_only(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    UINT32 sessH;
+    UINT16 dSz;
+    byte templateHash[WC_SHA256_DIGEST_SIZE];
+    byte digest[64];
+#ifdef HAVE_ECC
+    TPM_ALG_ID alg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID alg = TPM_ALG_RSA;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* The template is inPublic of the CreatePrimary command below */
+    AssertIntGT(BuildCreatePrimaryCmd(gCmd, alg), 35);
+    AssertIntEQ(wc_Sha256Hash(gCmd + 35, GetU16BE(gCmd + 33), templateHash),
+        0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTemplate(&ctx, sessH, templateHash),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
+        TPM_RC_SUCCESS);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    AssertIntEQ(dSz, 32);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+    FlushHandle(&ctx, sessH);
+
+    /* ownerPolicy = PolicyTemplate(templateHash) */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_SetPrimaryPolicy);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, dSz); pos += 2;
+    memcpy(gCmd + pos, digest, dSz); pos += dSz;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyTemplate(&ctx, sessH, templateHash),
+        TPM_RC_SUCCESS);
+
+    /* The session must not authorize HierarchyChangeAuth(OWNER) */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_HierarchyChangeAuth);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 18, sessH);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* newAuth */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
+
+    /* Nor CreatePrimary with a different template */
+    pos = BuildCreatePrimaryCmd(gCmd, alg);
+    PutU32BE(gCmd + 18, sessH);
+    PutU32BE(gCmd + 39, GetU32BE(gCmd + 39) ^ TPMA_OBJECT_noDA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
+
+    /* It does authorize CreatePrimary with the bound template */
+    pos = BuildCreatePrimaryCmd(gCmd, alg);
+    PutU32BE(gCmd + 18, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyTemplate authorizes creation only:", 0);
+}
+
 static void test_fwtpm_policy_pcr(void)
 {
     FWTPM_CTX ctx;
@@ -22522,6 +22620,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_restart();
     test_fwtpm_policy_command_code();
     test_fwtpm_policy_locality();
+    test_fwtpm_policy_template_create_only();
     test_fwtpm_policy_pcr();
     test_fwtpm_policy_pcr_digest_verified();
 #ifndef FWTPM_NO_NV

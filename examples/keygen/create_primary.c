@@ -335,10 +335,12 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
 
     if (persistHandle > 0) {
     #ifndef WOLFTPM_WINAPI
-        /* Move storage key into persistent NV */
+        /* Move storage key into persistent NV. EvictControl takes the
+         * owner or platform hierarchy, never endorsement. */
         printf("Storing Primary key to handle 0x%08x\n", persistHandle);
-        rc = wolfTPM2_NVStoreKey(&dev, hierarchy, primary,
-            persistHandle);
+        rc = wolfTPM2_NVStoreKey(&dev,
+            hierarchy == TPM_RH_PLATFORM ? TPM_RH_PLATFORM : TPM_RH_OWNER,
+            primary, persistHandle);
         if (rc != TPM_RC_SUCCESS) goto exit;
     #else
         printf("Windows TBS does not allow persisting handles to "
