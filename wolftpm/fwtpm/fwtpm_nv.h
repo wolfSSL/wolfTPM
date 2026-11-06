@@ -134,6 +134,12 @@ typedef struct FWTPM_NV_HEADER {
 #define FWTPM_NV_TAG_PERSISTENT        0x0050
 #define FWTPM_NV_TAG_PERSISTENT_DEL    0x0051
 
+/* Settable feature configuration (value: per-config enable/lock byte pairs,
+ * in TPM_PT_CONFIG_* order). Its own tag rather than extra fields on
+ * FWTPM_NV_TAG_FLAGS, whose length is validated exactly; an older reader
+ * skips an unknown tag, so the journal stays readable both ways. */
+#define FWTPM_NV_TAG_CONFIGS           0x0039
+
 /* Primary cache (value: UINT32 hierarchy + byte[32] templateHash + ...) */
 #define FWTPM_NV_TAG_PRIMARY_CACHE     0x0060
 #define FWTPM_NV_TAG_PRIMARY_CACHE_DEL 0x0061
@@ -257,6 +263,7 @@ WOLFTPM_API int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx);
     \param ctx pointer to an initialized FWTPM_CTX
 */
 WOLFTPM_API int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx);
+WOLFTPM_API int FWTPM_NV_SaveConfigs(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV

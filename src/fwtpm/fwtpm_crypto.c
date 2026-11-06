@@ -3700,10 +3700,11 @@ int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key)
     return FwImportEccPubFromPublic(&obj->pub, key);
 }
 
-#ifndef FWTPM_NO_ZGEN_2PHASE
+#if !defined(FWTPM_NO_ZGEN_2PHASE) || !defined(FWTPM_NO_ECC_ENCRYPT)
 /* Compute ECDH shared point R = priv.k * peer.pub, returning both x and y
  * coordinates. wc_ecc_shared_secret only returns x; ZGen_2Phase marshals a
- * full TPM2B_ECC_POINT and TPM_ALG_ECMQV requires y as well.
+ * full TPM2B_ECC_POINT, TPM_ALG_ECMQV requires y as well, and the Part 1
+ * Annex C encryption used by TPM2_ECC_Encrypt hashes x2 || M || y2.
  * xBuf/yBuf must each hold at least curve byte length. */
 int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     byte* xBuf, word32* xSz, byte* yBuf, word32* ySz)
@@ -3776,7 +3777,7 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer, WC_RNG* rng,
     wc_ecc_del_point(R);
     return rc;
 }
-#endif /* !FWTPM_NO_ZGEN_2PHASE */
+#endif /* !FWTPM_NO_ZGEN_2PHASE || !FWTPM_NO_ECC_ENCRYPT */
 #endif /* HAVE_ECC */
 
 #ifndef NO_RSA

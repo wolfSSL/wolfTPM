@@ -7375,6 +7375,7 @@ const char* TPM2_GetRCString(int rc)
             TPM_RC_STR(TPM_RC_NEEDS_TEST,        "Some function needs testing");
             TPM_RC_STR(TPM_RC_NO_RESULT,         "Cannot process a request due to an unspecified problem");
             TPM_RC_STR(TPM_RC_SENSITIVE,         "The sensitive area did not unmarshal correctly after decryption");
+            TPM_RC_STR(TPM_RC_READ_ONLY,         "The TPM is in Read-Only mode and the command would modify state");
         default:
             break;
         }

@@ -1651,6 +1651,19 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                 ctx->nvOrderly = 1;
                 ctx->clockSafe = value[2] != 0;
             }
+            else if (valueLen == 4 && value[0] <= 1 && value[1] == 1 &&
+                    value[2] <= 1 && value[3] <= 1) {
+                /* Adds the Read-Only mode bit. Startup(CLEAR) clears it
+                 * again, so only Resume actually restores it. Accepted even
+                 * when Read-Only mode is compiled out, so a journal from a
+                 * build that has it stays readable; the bit is ignored. */
+                ctx->shutdownStateSaved = value[0] != 0;
+                ctx->nvOrderly = 1;
+                ctx->clockSafe = value[2] != 0;
+#ifndef FWTPM_NO_READONLY
+                ctx->readOnly = value[3] != 0;
+#endif
+            }
             else {
                 rc = TPM_RC_FAILURE;
             }
@@ -1912,6 +1925,30 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             }
             break;
         }
+
+        case FWTPM_NV_TAG_CONFIGS:
+            /* enable/lock byte pairs in TPM_PT_CONFIG_* order. A journal from
+             * a build with a different FWTPM_CONFIG_COUNT is read for as many
+             * pairs as both sides share. */
+            if (valueLen == 0 || (valueLen & 1) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                int cfgCnt = (int)(valueLen / 2);
+                int ci;
+                if (cfgCnt > FWTPM_CONFIG_COUNT) {
+                    cfgCnt = FWTPM_CONFIG_COUNT;
+                }
+                for (ci = 0; ci < cfgCnt; ci++) {
+                    if (value[ci * 2] > 1 || value[ci * 2 + 1] > 1) {
+                        rc = TPM_RC_FAILURE;
+                        break;
+                    }
+                    ctx->configEnable[ci] = value[ci * 2];
+                    ctx->configLock[ci] = value[ci * 2 + 1];
+                }
+            }
+            break;
 
         default:
             /* Unknown tag - skip */
@@ -2596,6 +2633,24 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_CLOCK, buf, (UINT16)pos);
     }
 
+    /* --- Settable feature configuration (TPM_CAP_CONFIGS) --- */
+    if (rc == 0) {
+        int haveConfig = 0;
+        pos = 0;
+        for (i = 0; i < FWTPM_CONFIG_COUNT; i++) {
+            FwNvMarshalU8(buf, &pos, bufSz, ctx->configEnable[i]);
+            FwNvMarshalU8(buf, &pos, bufSz, ctx->configLock[i]);
+            if (ctx->configEnable[i] != 0 || ctx->configLock[i] != 0) {
+                haveConfig = 1;
+            }
+        }
+        /* Only written once something has been set, so an untouched journal
+         * stays byte-identical to one from a build without this feature. */
+        if (haveConfig) {
+            rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_CONFIGS, buf, (UINT16)pos);
+        }
+    }
+
     /* --- Hierarchy policies --- */
     for (i = 0; i < 4 && rc == 0; i++) {
         UINT32 hier;
@@ -2728,12 +2783,20 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
 
     /* Commit the orderly-state marker after every snapshot entry. */
     if (rc == 0 && ctx->nvOrderly) {
-        byte stateSaved[3];
+        byte stateSaved[4];
+        UINT16 stateSavedSz = 3;
         stateSaved[0] = ctx->shutdownStateSaved ? 1 : 0;
         stateSaved[1] = 1;
         stateSaved[2] = clockSafe ? 1 : 0;
+#ifndef FWTPM_NO_READONLY
+        /* readOnly is preserved by TPM Resume (Part 2 Table 43), so it rides
+         * the orderly marker rather than the flags byte, which is full. A
+         * build without Read-Only mode writes the shorter legacy marker. */
+        stateSaved[3] = ctx->readOnly ? 1 : 0;
+        stateSavedSz = 4;
+#endif
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_SHUTDOWN_STATE,
-            stateSaved, sizeof(stateSaved));
+            stateSaved, stateSavedSz);
     }
 
     /* Append-only compaction defers its checkpoint until every entry is
@@ -2953,6 +3016,39 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     oldOrderly = ctx->nvOrderly;
     ctx->nvOrderly = 0;
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
+    if (rc != TPM_RC_SUCCESS) {
+        ctx->nvOrderly = oldOrderly;
+    }
+    return rc;
+#endif /* FWTPM_NO_NV */
+}
+
+int FWTPM_NV_SaveConfigs(FWTPM_CTX* ctx)
+{
+#ifdef FWTPM_NO_NV
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return TPM_RC_SUCCESS;
+#else
+    int rc;
+    int oldOrderly;
+    int i;
+    byte buf[FWTPM_CONFIG_COUNT * 2];
+    word32 pos = 0;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    for (i = 0; i < FWTPM_CONFIG_COUNT; i++) {
+        FwNvMarshalU8(buf, &pos, sizeof(buf), ctx->configEnable[i]);
+        FwNvMarshalU8(buf, &pos, sizeof(buf), ctx->configLock[i]);
+    }
+
+    oldOrderly = ctx->nvOrderly;
+    ctx->nvOrderly = 0;
+    rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_CONFIGS, buf, (UINT16)pos);
     if (rc != TPM_RC_SUCCESS) {
         ctx->nvOrderly = oldOrderly;
     }

@@ -281,9 +281,16 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
+    TPM_CC_ECC_Encrypt              = 0x00000199,
+    TPM_CC_ECC_Decrypt              = 0x0000019A,
+    TPM_CC_PolicyCapability         = 0x0000019B,
+    TPM_CC_PolicyParameters         = 0x0000019C,
+    TPM_CC_NV_DefineSpace2          = 0x0000019D,
+    TPM_CC_NV_ReadPublic2           = 0x0000019E,
     /* TPM 2.0 Library v1.85: settable feature configuration. Used by some
      * Infineon parts to enable/lock SPDM-PSK and other features. */
     TPM_CC_SetCapability            = 0x0000019F,
+    TPM_CC_ReadOnlyControl          = 0x000001A0,
 #ifdef WOLFTPM_SPDM
     TPM_CC_PolicyTransportSPDM      = 0x000001A1,
 #endif
@@ -301,7 +308,7 @@ typedef enum {
 #elif defined(WOLFTPM_SPDM)
     TPM_CC_LAST                     = TPM_CC_PolicyTransportSPDM,
 #else
-    TPM_CC_LAST                     = TPM_CC_SetCapability,
+    TPM_CC_LAST                     = TPM_CC_ReadOnlyControl,
 #endif
 
     CC_VEND                         = 0x20000000,
@@ -390,6 +397,8 @@ typedef enum {
     TPM_RC_NEEDS_TEST           = RC_VER1 + 0x053,
     TPM_RC_NO_RESULT            = RC_VER1 + 0x054,
     TPM_RC_SENSITIVE            = RC_VER1 + 0x055,
+    /* TPM 2.0 Library v1.84: returned while the TPM is in Read-Only mode */
+    TPM_RC_READ_ONLY            = RC_VER1 + 0x056,
     RC_MAX_FM0                  = RC_VER1 + 0x07F,
 
     RC_FMT1 = 0x080,
@@ -976,6 +985,8 @@ typedef UINT32 TPMA_STARTUP_CLEAR;
 #define TPMA_STARTUP_CLEAR_shEnable   0x00000002UL
 #define TPMA_STARTUP_CLEAR_ehEnable   0x00000004UL
 #define TPMA_STARTUP_CLEAR_phEnableNV 0x00000008UL
+/* v1.84: SET when all enabled hierarchies, including NULL, are Read-Only */
+#define TPMA_STARTUP_CLEAR_readOnly   0x00000010UL
 #define TPMA_STARTUP_CLEAR_orderly    0x80000000UL
 
 typedef UINT32 TPMA_MEMORY;
