@@ -45,9 +45,10 @@
 
 int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[]);
 
-static const char* ctrl_init_rc_string(int rc)
+static const char* ctrl_rc_string(int rc)
 {
-    if (rc >= WOLFSPDM_E_NOT_IMPL && rc <= WOLFSPDM_E_INVALID_ARG) {
+    /* -1 is also the HAL I/O failure code, so it keeps the TPM string */
+    if (rc >= WOLFSPDM_E_CHUNK && rc < WOLFSPDM_E_INVALID_ARG) {
         return wolfSPDM_GetErrorString(rc);
     }
     return TPM2_GetRCString(rc);
@@ -116,7 +117,7 @@ static int ctrl_caps(WOLFTPM2_DEV* dev)
         printf("  wolfTPM caps read successfully\n");
     }
     else {
-        printf("  FAILED: 0x%x: %s\n", rc, ctrl_init_rc_string(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -150,7 +151,7 @@ static int ctrl_session_info(WOLFTPM2_DEV* dev)
         return rc;
     }
     if (rc != 0) {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
         return rc;
     }
     printf("  Sessions: %u%s\n", info.count,
@@ -422,7 +423,7 @@ static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
 
 exit:
     if (rc != 0) {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
         /* Format-one codes may carry an auth-session selector in upper bits. */
         if ((rc & RC_MAX_FMT1) == TPM_RC_CHANNEL) {
             printf("  (the policy requires the command to arrive over SPDM)\n");
@@ -432,7 +433,7 @@ exit:
         int cleanupRc = wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
         if (cleanupRc != 0) {
             printf("  NV cleanup failed: 0x%x: %s\n", cleanupRc,
-                wolfTPM2_GetRCString(cleanupRc));
+                ctrl_rc_string(cleanupRc));
             if (rc == 0) rc = cleanupRc;
         }
     }
@@ -454,7 +455,7 @@ static int ctrl_enable(WOLFTPM2_DEV* dev)
         printf("  NTC2_PreConfig not supported (may already be enabled)\n");
         rc = 0;
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -472,7 +473,7 @@ static int ctrl_disable(WOLFTPM2_DEV* dev)
         printf("  NTC2_PreConfig not supported\n");
         rc = 0;
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -502,7 +503,7 @@ static int ctrl_status(WOLFTPM2_DEV* dev)
         if (status.spdmOnlyLocked)
             printf("  NOTE: SPDM-only mode, use --unlock to restore\n");
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -522,7 +523,7 @@ static int ctrl_get_pubkey(WOLFTPM2_DEV* dev)
         if (pubKeySz > 32) printf("...");
         printf("\n");
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -545,7 +546,7 @@ static int ctrl_connect(WOLFTPM2_DEV* dev)
         printf("  Session established (AES-256-GCM, SessionID: 0x%08x)\n",
             wolfTPM2_SpdmGetSessionId(dev));
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -558,7 +559,7 @@ static int ctrl_lock(WOLFTPM2_DEV* dev, int lock)
     if (rc == 0)
         printf("  %s\n", lock ? "LOCKED (TPM requires SPDM)" : "UNLOCKED");
     else
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     return rc;
 }
 #endif /* WOLFSPDM_NUVOTON */
@@ -701,7 +702,7 @@ static int ctrl_nations_psk_set(WOLFTPM2_DEV* dev,
     /* PSK_SET is a vendor-defined SPDM command — needs GET_VERSION first */
     rc = wolfSPDM_GetVersion(dev->spdmCtx->spdmCtx);
     if (rc != 0) {
-        printf("  GET_VERSION failed: %d\n", rc);
+        printf("  GET_VERSION failed: %d: %s\n", rc, ctrl_rc_string(rc));
         wc_ForceZero(payload, sizeof(payload));
         return rc;
     }
@@ -711,7 +712,7 @@ static int ctrl_nations_psk_set(WOLFTPM2_DEV* dev,
     if (rc == 0)
         printf("  PSK provisioned (64-byte PSK + 48-byte digest)\n");
     else
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     return rc;
 }
 
@@ -742,7 +743,7 @@ static int ctrl_nations_psk_clear(WOLFTPM2_DEV* dev, const char* authHex)
     if (rc == 0)
         printf("  PSK cleared\n");
     else
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     return rc;
 }
 
@@ -754,7 +755,7 @@ static int ctrl_nations_identity_key_set(WOLFTPM2_DEV* dev, int set)
     if (rc == 0) {
         printf("  Identity key %s\n", set ? "provisioned" : "un-provisioned");
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -771,7 +772,7 @@ static int ctrl_nations_get_pubkey(WOLFTPM2_DEV* dev)
     /* GET_PUBK is a vendor SPDM command — needs GET_VERSION first */
     rc = wolfSPDM_GetVersion(dev->spdmCtx->spdmCtx);
     if (rc != 0) {
-        printf("  GET_VERSION failed: %d\n", rc);
+        printf("  GET_VERSION failed: %d: %s\n", rc, ctrl_rc_string(rc));
         return rc;
     }
 
@@ -782,7 +783,7 @@ static int ctrl_nations_get_pubkey(WOLFTPM2_DEV* dev)
         if (pubKeySz > 32) printf("...");
         printf("\n");
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -814,7 +815,7 @@ static int ctrl_nations_caps184(WOLFTPM2_DEV* dev)
             printf("%02x", raw[i]);
         printf("\n");
     } else {
-        printf("    Failed: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("    Failed: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
 
     /* 2. TPM_CAP_PUB_KEYS (TPM 184: SPDM identity keys) */
@@ -836,7 +837,7 @@ static int ctrl_nations_caps184(WOLFTPM2_DEV* dev)
     } else if (rc == TPM_RC_VALUE) {
         printf("    Not supported (TPM_RC_VALUE)\n");
     } else {
-        printf("    Failed: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("    Failed: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
 
     /* 3. TPM_CAP_SPDM_SESSION_INFO (TPM 184: SPDM session state) */
@@ -863,7 +864,7 @@ static int ctrl_nations_connect(WOLFTPM2_DEV* dev)
         printf("  Session established (AES-256-GCM, SessionID: 0x%08x)\n",
             wolfTPM2_SpdmGetSessionId(dev));
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -883,7 +884,7 @@ static int ctrl_infineon_enable(WOLFTPM2_DEV* dev, int enable)
             enable ? "enabled" : "disabled");
     }
     else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -954,7 +955,7 @@ static int ctrl_infineon_connect(WOLFTPM2_DEV* dev)
     }
     rc = wolfTPM2_SpdmConnectInfineonTcg(dev, NULL, 0, NULL, 0);
     if (rc != TPM_RC_SUCCESS) {
-        printf("  FAILED: %d: %s\n", rc, ctrl_init_rc_string(rc));
+        printf("  FAILED: %d: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -1281,14 +1282,14 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
     }
     if (rc != 0) {
         printf("TPM initialization failed: 0x%x: %s\n", rc,
-            ctrl_init_rc_string(rc));
+            ctrl_rc_string(rc));
         return rc;
     }
 
     rc = wolfTPM2_SpdmInit(&dev);
     if (rc != 0) {
         printf("wolfTPM2_SpdmInit failed: %s\n",
-            ctrl_init_rc_string(rc));
+            ctrl_rc_string(rc));
         wolfTPM2_Cleanup(&dev);
         return rc;
     }

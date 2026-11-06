@@ -216,10 +216,31 @@ static int test_vendor_dispatch(void)
     return 0;
 }
 
+static int test_rc_string(void)
+{
+    if (XSTRCMP(ctrl_rc_string(WOLFSPDM_E_PEER_ERROR),
+            wolfSPDM_GetErrorString(WOLFSPDM_E_PEER_ERROR)) != 0)
+        return 1;
+    if (XSTRCMP(ctrl_rc_string(WOLFSPDM_E_CHUNK),
+            wolfSPDM_GetErrorString(WOLFSPDM_E_CHUNK)) != 0)
+        return 1;
+    if (XSTRCMP(ctrl_rc_string(TPM_RC_VALUE),
+            TPM2_GetRCString(TPM_RC_VALUE)) != 0)
+        return 1;
+    if (XSTRCMP(ctrl_rc_string(BAD_FUNC_ARG),
+            TPM2_GetRCString(BAD_FUNC_ARG)) != 0)
+        return 1;
+    if (XSTRCMP(ctrl_rc_string(-1), TPM2_GetRCString(-1)) != 0)
+        return 1;
+    puts("PASS: wolfSPDM and TPM error codes print their own names");
+    return 0;
+}
+
 int main(void)
 {
     int rc;
     rc = test_nv_cleanup();
+    if (rc == 0) rc = test_rc_string();
     if (rc == 0) rc = test_vendor_dispatch();
     if (rc != 0) puts("FAIL: SPDM control regression");
     return rc;
