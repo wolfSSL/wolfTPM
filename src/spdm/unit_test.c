@@ -2269,7 +2269,7 @@ static int test_encrypt_internal_null_args(void)
 
 static int test_encrypt_decrypt_roundtrip(void)
 {
-    byte plain[16] = "Hello SPDM test!";
+    byte plain[] = "Hello SPDM test!";
     static byte enc[512];
     static byte dec[256];
     word32 encSz = sizeof(enc);
@@ -2305,7 +2305,7 @@ static int test_encrypt_decrypt_roundtrip(void)
 #ifdef WOLFTPM_SPDM_TCG
 static int test_encrypt_decrypt_roundtrip_tcg(void)
 {
-    byte plain[16] = "TCG encrypt tst!";
+    byte plain[] = "TCG encrypt tst!";
     static byte enc[512];
     static byte dec[256];
     word32 encSz = sizeof(enc);
