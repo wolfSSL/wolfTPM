@@ -785,24 +785,33 @@ static int tcg_get_pub_key_io_cb(WOLFSPDM_CTX* ctx, const byte* txBuf,
     word32 txSz, byte* rxBuf, word32* rxSz, void* userCtx)
 {
     TCG_GET_PUB_KEY_IO_CTX* ioCtx = (TCG_GET_PUB_KEY_IO_CTX*)userCtx;
+    static const byte versionRsp[] = {
+        SPDM_VERSION_10, SPDM_VERSION, 0x00, 0x00, 0x00, 0x01,
+        0x00, SPDM_VERSION_13
+    };
     byte spdmRsp[WOLFSPDM_VENDOR_BUF_SZ];
     word32 totalSz;
     int spdmRspSz;
 
-    (void)txBuf;
-    (void)txSz;
-
-    if (ctx == NULL || rxBuf == NULL || rxSz == NULL || ioCtx == NULL) {
+    if (ctx == NULL || txBuf == NULL || rxBuf == NULL || rxSz == NULL ||
+            ioCtx == NULL || txSz < WOLFSPDM_TCG_HEADER_SIZE + 2) {
         return -1;
     }
 
-    spdmRspSz = wolfSPDM_BuildVendorDefined(SPDM_VERSION_13,
-        WOLFSPDM_VDCODE_GET_PUBK, ioCtx->pubKey, ioCtx->pubKeySz,
-        spdmRsp, sizeof(spdmRsp));
-    if (spdmRspSz < 0) {
-        return -1;
+    /* wolfSPDM sends GET_VERSION first when no version is negotiated */
+    if (txBuf[WOLFSPDM_TCG_HEADER_SIZE + 1] == SPDM_GET_VERSION) {
+        XMEMCPY(spdmRsp, versionRsp, sizeof(versionRsp));
+        spdmRspSz = (int)sizeof(versionRsp);
     }
-    spdmRsp[1] = SPDM_TEST_VENDOR_DEFINED_RSP;
+    else {
+        spdmRspSz = wolfSPDM_BuildVendorDefined(SPDM_VERSION_13,
+            WOLFSPDM_VDCODE_GET_PUBK, ioCtx->pubKey, ioCtx->pubKeySz,
+            spdmRsp, sizeof(spdmRsp));
+        if (spdmRspSz < 0) {
+            return -1;
+        }
+        spdmRsp[1] = SPDM_TEST_VENDOR_DEFINED_RSP;
+    }
 
     totalSz = WOLFSPDM_TCG_HEADER_SIZE + (word32)spdmRspSz;
     if (*rxSz < totalSz) {
@@ -2260,7 +2269,7 @@ static int test_encrypt_internal_null_args(void)
 
 static int test_encrypt_decrypt_roundtrip(void)
 {
-    byte plain[16] = "Hello SPDM test!";
+    byte plain[] = "Hello SPDM test!";
     static byte enc[512];
     static byte dec[256];
     word32 encSz = sizeof(enc);
@@ -2296,7 +2305,7 @@ static int test_encrypt_decrypt_roundtrip(void)
 #ifdef WOLFTPM_SPDM_TCG
 static int test_encrypt_decrypt_roundtrip_tcg(void)
 {
-    byte plain[16] = "TCG encrypt tst!";
+    byte plain[] = "TCG encrypt tst!";
     static byte enc[512];
     static byte dec[256];
     word32 encSz = sizeof(enc);

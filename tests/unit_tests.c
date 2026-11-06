@@ -315,6 +315,13 @@ static void test_wolfTPM2_InitWithSpdmPsk_success(void)
 #endif
 
 #ifdef WOLFTPM_SPDM
+/* Format-1 TPM_RC_VALUE carries parameter bits; Nuvoton answers 0x1c4 */
+static int spdm_cap_unsupported(int rc)
+{
+    return (rc > 0 && (rc & RC_MAX_FMT1) == TPM_RC_VALUE) ||
+        WOLFTPM_IS_COMMAND_UNAVAILABLE(rc);
+}
+
 static void test_wolfTPM2_PolicyTransportSPDMMake(void)
 {
     /* SHA-256 of (zeros[32] || 0x000001A1 || scKeyNameHash), scKeyNameHash =
@@ -407,6 +414,13 @@ static void test_wolfTPM2_PolicyTransportSPDMMake(void)
     rc = TPM2_PolicyTransportSPDM(NULL);
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
+    AssertIntEQ(spdm_cap_unsupported(TPM_RC_VALUE), 1);
+    AssertIntEQ(spdm_cap_unsupported(TPM_RC_VALUE | TPM_RC_P | TPM_RC_1), 1);
+    AssertIntEQ(spdm_cap_unsupported(TPM_RC_COMMAND_CODE), 1);
+    AssertIntEQ(spdm_cap_unsupported(TPM_RC_SIZE | TPM_RC_P | TPM_RC_1), 0);
+    AssertIntEQ(spdm_cap_unsupported(TPM_RC_SUCCESS), 0);
+    AssertIntEQ(spdm_cap_unsupported(BAD_FUNC_ARG), 0);
+
     printf("Test TPM Wrapper: %-40s Passed\n", "PolicyTransportSPDM make:");
 }
 
@@ -429,7 +443,7 @@ static void test_wolfTPM2_PolicyTransportSPDM_live(WOLFTPM2_DEV* dev)
     rc = wolfTPM2_GetCapability_SPDMSessionInfo(dev, &info);
     /* PolicyTransportSPDM and its capability are optional (TPM 2.0 v1.84).
      * A connected SPDM TPM that does not implement them is not a failure. */
-    if (rc == TPM_RC_VALUE || rc == TPM_RC_COMMAND_CODE) {
+    if (spdm_cap_unsupported(rc)) {
         printf("Test TPM Wrapper: %-40s Skipped\n",
             "PolicyTransportSPDM live:");
         return;

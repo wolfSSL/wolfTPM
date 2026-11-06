@@ -45,13 +45,89 @@
 
 int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[]);
 
-static const char* ctrl_init_rc_string(int rc)
+static const char* ctrl_rc_string(int rc)
 {
-    if (rc >= WOLFSPDM_E_NOT_IMPL && rc <= WOLFSPDM_E_INVALID_ARG) {
+    /* -1 is also the HAL I/O failure code, so it keeps the TPM string */
+    if (rc >= WOLFSPDM_E_CHUNK && rc < WOLFSPDM_E_INVALID_ARG) {
         return wolfSPDM_GetErrorString(rc);
     }
     return TPM2_GetRCString(rc);
 }
+
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#define CTRL_PUBK_MAX 256
+
+/* GET_PUBK returns a TPMT_PUBLIC or a raw point; --responder-pubkey takes
+ * the raw P-384 X||Y */
+static int ctrl_pubkey_point(const byte* pubKey, word32 pubKeySz,
+    byte* point)
+{
+    int rc;
+    int sizeUsed = 0;
+    int encSz = 0;
+    TPM2B_PUBLIC pub;
+    byte wire[2 + CTRL_PUBK_MAX];
+    byte enc[2 + CTRL_PUBK_MAX];
+
+    if (pubKey == NULL || point == NULL)
+        return BAD_FUNC_ARG;
+    if (pubKeySz == WOLFSPDM_ECC_POINT_SIZE) {
+        XMEMCPY(point, pubKey, WOLFSPDM_ECC_POINT_SIZE);
+        return TPM_RC_SUCCESS;
+    }
+    if (pubKeySz > CTRL_PUBK_MAX)
+        return BUFFER_E;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    wire[0] = (byte)(pubKeySz >> 8);
+    wire[1] = (byte)pubKeySz;
+    XMEMCPY(wire + 2, pubKey, pubKeySz);
+    rc = TPM2_ParsePublic(&pub, wire, pubKeySz + 2, &sizeUsed);
+    if (rc == TPM_RC_SUCCESS && ((word32)sizeUsed != pubKeySz + 2 ||
+            pub.publicArea.type != TPM_ALG_ECC ||
+            pub.publicArea.parameters.eccDetail.curveID != TPM_ECC_NIST_P384 ||
+            pub.publicArea.unique.ecc.x.size != WOLFSPDM_ECC_KEY_SIZE ||
+            pub.publicArea.unique.ecc.y.size != WOLFSPDM_ECC_KEY_SIZE)) {
+        rc = BAD_FUNC_ARG;
+    }
+    /* The parser clamps oversized fields, so require a lossless re-encode */
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TPM2_AppendPublic(enc, (word32)sizeof(enc), &encSz, &pub);
+        if (rc == TPM_RC_SUCCESS && (encSz != sizeUsed ||
+                XMEMCMP(enc, wire, (size_t)encSz) != 0)) {
+            rc = BAD_FUNC_ARG;
+        }
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        XMEMCPY(point, pub.publicArea.unique.ecc.x.buffer,
+            WOLFSPDM_ECC_KEY_SIZE);
+        XMEMCPY(point + WOLFSPDM_ECC_KEY_SIZE,
+            pub.publicArea.unique.ecc.y.buffer, WOLFSPDM_ECC_KEY_SIZE);
+    }
+    return rc;
+}
+
+static int ctrl_print_pubkey(const byte* pubKey, word32 pubKeySz)
+{
+    int rc;
+    word32 i;
+    byte point[WOLFSPDM_ECC_POINT_SIZE];
+
+    printf("  Got %u bytes\n", (unsigned int)pubKeySz);
+    rc = ctrl_pubkey_point(pubKey, pubKeySz, point);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("  Not a P-384 public key: 0x%x: %s\n", rc,
+            ctrl_rc_string(rc));
+        return rc;
+    }
+    printf("  SPDM responder public key: ");
+    for (i = 0; i < (word32)sizeof(point); i++) {
+        printf("%02x", point[i]);
+    }
+    printf("\n");
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
 
 static void usage(void)
 {
@@ -116,7 +192,7 @@ static int ctrl_caps(WOLFTPM2_DEV* dev)
         printf("  wolfTPM caps read successfully\n");
     }
     else {
-        printf("  FAILED: 0x%x: %s\n", rc, ctrl_init_rc_string(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -145,12 +221,13 @@ static int ctrl_session_info(WOLFTPM2_DEV* dev)
     printf("\n=== SPDM Session Info (TPM_CAP_SPDM_SESSION_INFO) ===\n");
     XMEMSET(&info, 0, sizeof(info));
     rc = wolfTPM2_GetCapability_SPDMSessionInfo(dev, &info);
-    if (rc == TPM_RC_VALUE) {
+    /* Parameter bits ride on format-1 codes (Nuvoton answers 0x1c4) */
+    if (rc > 0 && (rc & RC_MAX_FMT1) == TPM_RC_VALUE) {
         printf("  Not supported by this TPM (TPM_RC_VALUE)\n");
         return rc;
     }
     if (rc != 0) {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
         return rc;
     }
     printf("  Sessions: %u%s\n", info.count,
@@ -422,7 +499,7 @@ static int ctrl_policy_nv(WOLFTPM2_DEV* dev)
 
 exit:
     if (rc != 0) {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
         /* Format-one codes may carry an auth-session selector in upper bits. */
         if ((rc & RC_MAX_FMT1) == TPM_RC_CHANNEL) {
             printf("  (the policy requires the command to arrive over SPDM)\n");
@@ -432,7 +509,7 @@ exit:
         int cleanupRc = wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
         if (cleanupRc != 0) {
             printf("  NV cleanup failed: 0x%x: %s\n", cleanupRc,
-                wolfTPM2_GetRCString(cleanupRc));
+                ctrl_rc_string(cleanupRc));
             if (rc == 0) rc = cleanupRc;
         }
     }
@@ -454,7 +531,7 @@ static int ctrl_enable(WOLFTPM2_DEV* dev)
         printf("  NTC2_PreConfig not supported (may already be enabled)\n");
         rc = 0;
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -472,7 +549,7 @@ static int ctrl_disable(WOLFTPM2_DEV* dev)
         printf("  NTC2_PreConfig not supported\n");
         rc = 0;
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -502,7 +579,7 @@ static int ctrl_status(WOLFTPM2_DEV* dev)
         if (status.spdmOnlyLocked)
             printf("  NOTE: SPDM-only mode, use --unlock to restore\n");
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -510,19 +587,15 @@ static int ctrl_status(WOLFTPM2_DEV* dev)
 static int ctrl_get_pubkey(WOLFTPM2_DEV* dev)
 {
     int rc;
-    byte pubKey[128];
+    byte pubKey[CTRL_PUBK_MAX];
     word32 pubKeySz = sizeof(pubKey);
-    word32 i;
 
     printf("\n=== Get SPDM-Identity Public Key ===\n");
     rc = wolfTPM2_SpdmGetPubKey(dev, pubKey, &pubKeySz);
     if (rc == 0) {
-        printf("  Got %d bytes: ", (int)pubKeySz);
-        for (i = 0; i < pubKeySz && i < 32; i++) printf("%02x", pubKey[i]);
-        if (pubKeySz > 32) printf("...");
-        printf("\n");
+        rc = ctrl_print_pubkey(pubKey, pubKeySz);
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -545,7 +618,7 @@ static int ctrl_connect(WOLFTPM2_DEV* dev)
         printf("  Session established (AES-256-GCM, SessionID: 0x%08x)\n",
             wolfTPM2_SpdmGetSessionId(dev));
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -558,7 +631,7 @@ static int ctrl_lock(WOLFTPM2_DEV* dev, int lock)
     if (rc == 0)
         printf("  %s\n", lock ? "LOCKED (TPM requires SPDM)" : "UNLOCKED");
     else
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     return rc;
 }
 #endif /* WOLFSPDM_NUVOTON */
@@ -701,7 +774,7 @@ static int ctrl_nations_psk_set(WOLFTPM2_DEV* dev,
     /* PSK_SET is a vendor-defined SPDM command — needs GET_VERSION first */
     rc = wolfSPDM_GetVersion(dev->spdmCtx->spdmCtx);
     if (rc != 0) {
-        printf("  GET_VERSION failed: %d\n", rc);
+        printf("  GET_VERSION failed: %d: %s\n", rc, ctrl_rc_string(rc));
         wc_ForceZero(payload, sizeof(payload));
         return rc;
     }
@@ -711,7 +784,7 @@ static int ctrl_nations_psk_set(WOLFTPM2_DEV* dev,
     if (rc == 0)
         printf("  PSK provisioned (64-byte PSK + 48-byte digest)\n");
     else
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     return rc;
 }
 
@@ -742,7 +815,7 @@ static int ctrl_nations_psk_clear(WOLFTPM2_DEV* dev, const char* authHex)
     if (rc == 0)
         printf("  PSK cleared\n");
     else
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     return rc;
 }
 
@@ -754,7 +827,7 @@ static int ctrl_nations_identity_key_set(WOLFTPM2_DEV* dev, int set)
     if (rc == 0) {
         printf("  Identity key %s\n", set ? "provisioned" : "un-provisioned");
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -762,27 +835,23 @@ static int ctrl_nations_identity_key_set(WOLFTPM2_DEV* dev, int set)
 static int ctrl_nations_get_pubkey(WOLFTPM2_DEV* dev)
 {
     int rc;
-    byte pubKey[128];
+    byte pubKey[CTRL_PUBK_MAX];
     word32 pubKeySz = sizeof(pubKey);
-    word32 i;
 
     printf("\n=== Get SPDM-Identity Public Key ===\n");
 
     /* GET_PUBK is a vendor SPDM command — needs GET_VERSION first */
     rc = wolfSPDM_GetVersion(dev->spdmCtx->spdmCtx);
     if (rc != 0) {
-        printf("  GET_VERSION failed: %d\n", rc);
+        printf("  GET_VERSION failed: %d: %s\n", rc, ctrl_rc_string(rc));
         return rc;
     }
 
     rc = wolfTPM2_SpdmGetPubKey(dev, pubKey, &pubKeySz);
     if (rc == 0) {
-        printf("  Got %d bytes: ", (int)pubKeySz);
-        for (i = 0; i < pubKeySz && i < 32; i++) printf("%02x", pubKey[i]);
-        if (pubKeySz > 32) printf("...");
-        printf("\n");
+        rc = ctrl_print_pubkey(pubKey, pubKeySz);
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -814,7 +883,7 @@ static int ctrl_nations_caps184(WOLFTPM2_DEV* dev)
             printf("%02x", raw[i]);
         printf("\n");
     } else {
-        printf("    Failed: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("    Failed: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
 
     /* 2. TPM_CAP_PUB_KEYS (TPM 184: SPDM identity keys) */
@@ -836,7 +905,7 @@ static int ctrl_nations_caps184(WOLFTPM2_DEV* dev)
     } else if (rc == TPM_RC_VALUE) {
         printf("    Not supported (TPM_RC_VALUE)\n");
     } else {
-        printf("    Failed: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("    Failed: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
 
     /* 3. TPM_CAP_SPDM_SESSION_INFO (TPM 184: SPDM session state) */
@@ -863,7 +932,7 @@ static int ctrl_nations_connect(WOLFTPM2_DEV* dev)
         printf("  Session established (AES-256-GCM, SessionID: 0x%08x)\n",
             wolfTPM2_SpdmGetSessionId(dev));
     } else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -883,7 +952,7 @@ static int ctrl_infineon_enable(WOLFTPM2_DEV* dev, int enable)
             enable ? "enabled" : "disabled");
     }
     else {
-        printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("  FAILED: 0x%x: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -954,7 +1023,7 @@ static int ctrl_infineon_connect(WOLFTPM2_DEV* dev)
     }
     rc = wolfTPM2_SpdmConnectInfineonTcg(dev, NULL, 0, NULL, 0);
     if (rc != TPM_RC_SUCCESS) {
-        printf("  FAILED: %d: %s\n", rc, ctrl_init_rc_string(rc));
+        printf("  FAILED: %d: %s\n", rc, ctrl_rc_string(rc));
     }
     return rc;
 }
@@ -1281,14 +1350,14 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
     }
     if (rc != 0) {
         printf("TPM initialization failed: 0x%x: %s\n", rc,
-            ctrl_init_rc_string(rc));
+            ctrl_rc_string(rc));
         return rc;
     }
 
     rc = wolfTPM2_SpdmInit(&dev);
     if (rc != 0) {
         printf("wolfTPM2_SpdmInit failed: %s\n",
-            ctrl_init_rc_string(rc));
+            ctrl_rc_string(rc));
         wolfTPM2_Cleanup(&dev);
         return rc;
     }
