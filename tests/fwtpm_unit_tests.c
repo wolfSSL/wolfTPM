@@ -65,6 +65,14 @@
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
 int FWTPM_IO_TestHandleMssimSignal(FWTPM_CTX* ctx, SOCKET_T clientFd,
     UINT32 tssCmd);
+int FWTPM_IO_TestSendMssimReply(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    const byte* rsp, int rspSize);
+int FWTPM_IO_TestSetWritevLimit(size_t limit);
+int FWTPM_IO_TestWritevCalls(void);
+#ifndef _WIN32
+int FWTPM_IO_TestAcceptNoDelay(FWTPM_CTX* ctx, int* cmdNoDelay,
+    int* platNoDelay);
+#endif
 #endif
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(HAVE_HASHDRBG)
@@ -20497,6 +20505,119 @@ static void test_fwtpm_mssim_hash_data_framing(void)
     fwtpm_pass("MSSIM unsupported hash-data framing:", 0);
 }
 
+/* An mssim reply is size(4) + response + ack(4). Whether it goes out as one
+ * vectored write or three sequential ones, the byte stream on the wire must
+ * be identical and in that order. Builds with FWTPM_NO_WRITEV exercise the
+ * sequential path through this same test. */
+static void test_fwtpm_mssim_reply_framing(void)
+{
+    FWTPM_CTX ctx;
+    byte rsp[2048];
+    byte wire[4 + sizeof(rsp) + 4];
+    int sockets[2];
+    size_t total = 4 + sizeof(rsp) + 4;
+    size_t got = 0;
+    ssize_t n;
+    word32 i;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(wire, 0, sizeof(wire));
+    for (i = 0; i < (word32)sizeof(rsp); i++) {
+        rsp[i] = (byte)(i & 0xFF);
+    }
+
+    AssertIntEQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
+    AssertIntEQ(FWTPM_IO_TestSendMssimReply(&ctx, sockets[0], rsp,
+        (int)sizeof(rsp)), TPM_RC_SUCCESS);
+
+    while (got < total) {
+        n = read(sockets[1], wire + got, total - got);
+        if (n <= 0) {
+            break;
+        }
+        got += (size_t)n;
+    }
+    AssertIntEQ((int)got, (int)total);
+
+    /* size, then the response bytes unchanged, then a zero ack */
+    AssertIntEQ((int)GetU32BE(wire), (int)sizeof(rsp));
+    AssertIntEQ(XMEMCMP(wire + 4, rsp, sizeof(rsp)), 0);
+    AssertIntEQ((int)GetU32BE(wire + 4 + sizeof(rsp)), 0);
+
+    (void)close(sockets[1]);
+    (void)close(sockets[0]);
+    fwtpm_pass("MSSIM reply framing:", 0);
+}
+
+/* writev may stop anywhere in the size, the response or the ack. Cap every call
+ * at each possible length and check nothing is dropped or sent twice. */
+static void test_fwtpm_mssim_reply_partial_writes(void)
+{
+    FWTPM_CTX ctx;
+    byte rsp[16];
+    byte expected[4 + sizeof(rsp) + 4];
+    byte wire[sizeof(expected) + 1];
+    int sockets[2];
+    size_t limit;
+    size_t got;
+    ssize_t n;
+    word32 i;
+
+    if (FWTPM_IO_TestSetWritevLimit(0) != 0) {
+        return; /* sequential sends only in this build */
+    }
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(expected, 0, sizeof(expected));
+    for (i = 0; i < (word32)sizeof(rsp); i++) {
+        rsp[i] = (byte)(0xA0 + i);
+    }
+    expected[3] = (byte)sizeof(rsp);
+    XMEMCPY(expected + 4, rsp, sizeof(rsp));
+
+    for (limit = 1; limit < sizeof(expected); limit++) {
+        AssertIntEQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
+        AssertIntEQ(FWTPM_IO_TestSetWritevLimit(limit), 0);
+        AssertIntEQ(FWTPM_IO_TestSendMssimReply(&ctx, sockets[0], rsp,
+            (int)sizeof(rsp)), TPM_RC_SUCCESS);
+        AssertIntGT(FWTPM_IO_TestWritevCalls(), 1);
+        AssertIntEQ(shutdown(sockets[0], SHUT_WR), 0);
+
+        got = 0;
+        while (got < sizeof(wire)) {
+            n = read(sockets[1], wire + got, sizeof(wire) - got);
+            if (n <= 0) {
+                break;
+            }
+            got += (size_t)n;
+        }
+        AssertIntEQ((int)got, (int)sizeof(expected));
+        AssertIntEQ(XMEMCMP(wire, expected, sizeof(expected)), 0);
+
+        (void)close(sockets[1]);
+        (void)close(sockets[0]);
+    }
+    AssertIntEQ(FWTPM_IO_TestSetWritevLimit(0), 0);
+    fwtpm_pass("MSSIM reply partial writes:", 0);
+}
+
+/* Nagle must be off on the sockets the server accepts, command and platform */
+static void test_fwtpm_mssim_accept_nodelay(void)
+{
+    FWTPM_CTX ctx;
+    int cmdNoDelay = -1;
+    int platNoDelay = -1;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_IO_TestAcceptNoDelay(&ctx, &cmdNoDelay, &platNoDelay),
+        TPM_RC_SUCCESS);
+    AssertIntNE(cmdNoDelay, -1);
+    AssertIntNE(cmdNoDelay, 0);
+    AssertIntNE(platNoDelay, -1);
+    AssertIntNE(platNoDelay, 0);
+    fwtpm_pass("MSSIM accepted sockets TCP_NODELAY:", 0);
+}
+
 static void test_fwtpm_mssim_invalid_fd(void)
 {
     FWTPM_CTX ctx;
@@ -22731,6 +22852,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(_WIN32)
     test_fwtpm_mssim_hash_data_framing();
+    test_fwtpm_mssim_reply_framing();
+    test_fwtpm_mssim_reply_partial_writes();
+    test_fwtpm_mssim_accept_nodelay();
     test_fwtpm_mssim_invalid_fd();
 #endif
 #ifdef WOLFTPM_FWTPM_UNIT_TEST

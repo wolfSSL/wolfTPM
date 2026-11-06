@@ -61,6 +61,14 @@
 #ifndef _WIN32
 #include <sys/select.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h> /* TCP_NODELAY */
+#endif
+
+/* Scatter/gather send, so one mssim reply is one segment */
+#if !defined(_WIN32) && !defined(WOLFTPM_ZEPHYR) && \
+    !defined(FWTPM_NO_WRITEV)
+    #define FWTPM_HAVE_WRITEV
+    #include <sys/uio.h>
 #endif
 
 /* Async-signal-safe stop flag. Set by FWTPM_IO_RequestStop() (callable from
@@ -144,6 +152,49 @@ static int SocketSend(FWTPM_CTX* ctx, SOCKET_T fd, const void* buf, int sz)
     }
     return TPM_RC_SUCCESS;
 }
+
+#ifdef FWTPM_HAVE_WRITEV
+/* Send an iovec set, advancing over partial writes. Modifies iov. */
+static int SocketSendVec(FWTPM_CTX* ctx, SOCKET_T fd, struct iovec* iov,
+    int cnt)
+{
+    ssize_t sent;
+    int i = 0;
+
+    while (i < cnt) {
+        int rc = FWTPM_Clock_Update(ctx);
+        if (rc != TPM_RC_SUCCESS && rc != TPM_RC_NV_RATE) return rc;
+        rc = SocketWait(fd, 1);
+        if (rc == 0) {
+            if (g_stopRequested) return TPM_RC_FAILURE;
+            continue;
+        }
+        sent = (rc < 0) ? -1 : writev(fd, &iov[i], cnt - i);
+        if (sent < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: writev error %d\n", errno);
+        #endif
+            return TPM_RC_FAILURE;
+        }
+        if (sent == 0) {
+            /* No progress on a blocking socket with bytes outstanding */
+            return TPM_RC_FAILURE;
+        }
+        while (i < cnt && (size_t)sent >= iov[i].iov_len) {
+            sent -= (ssize_t)iov[i].iov_len;
+            i++;
+        }
+        if (i < cnt && sent > 0) {
+            iov[i].iov_base = (char*)iov[i].iov_base + sent;
+            iov[i].iov_len -= (size_t)sent;
+        }
+    }
+    return TPM_RC_SUCCESS;
+}
+#endif /* FWTPM_HAVE_WRITEV */
 
 static int SocketRecv(FWTPM_CTX* ctx, SOCKET_T fd, void* buf, int sz)
 {
@@ -258,6 +309,61 @@ static SOCKET_T CreateListenSocket(int port)
     }
 
     return fd;
+}
+
+/* Disable Nagle, which would hold the small mssim acknowledgement until the
+ * peer's delayed ACK. Advisory: a failure costs latency, not correctness. */
+static void SetSocketNoDelay(SOCKET_T fd)
+{
+#ifdef TCP_NODELAY
+    int optval = 1;
+
+    /* Winsock takes a char* here where POSIX takes a void*. */
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,
+            (const char*)&optval, sizeof(optval)) != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: setsockopt(TCP_NODELAY) failed\n");
+    #endif
+    }
+#else
+    (void)fd;
+#endif
+}
+
+/* mssim reply: size(4) + response + ack(4), as one segment where the
+ * platform allows it. A custom HAL has no vectored form, so it keeps the
+ * three sequential sends. */
+static int SendMssimReply(FWTPM_CTX* ctx, SOCKET_T clientFd,
+    const byte* rsp, int rspSize)
+{
+    int rc;
+    UINT32 sizeVal = FwTpmSwapU32((UINT32)rspSize);
+    UINT32 ackVal = FwTpmSwapU32(0); /* ack = 0 (success) */
+#ifdef FWTPM_HAVE_WRITEV
+    struct iovec iov[3];
+
+    if (ctx->ioHal.wait == NULL && clientFd != FWTPM_INVALID_FD) {
+        iov[0].iov_base = &sizeVal;
+        iov[0].iov_len = sizeof(sizeVal);
+        iov[1].iov_base = (void*)rsp;
+        iov[1].iov_len = (size_t)rspSize;
+        iov[2].iov_base = &ackVal;
+        iov[2].iov_len = sizeof(ackVal);
+        return SocketSendVec(ctx, clientFd, iov, 3);
+    }
+#endif
+
+    rc = TransportSend(ctx, FWTPM_IO_TYPE_COMMAND, clientFd, &sizeVal,
+        (int)sizeof(sizeVal));
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TransportSend(ctx, FWTPM_IO_TYPE_COMMAND, clientFd, rsp,
+            rspSize);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TransportSend(ctx, FWTPM_IO_TYPE_COMMAND, clientFd, &ackVal,
+            (int)sizeof(ackVal));
+    }
+    return rc;
 }
 
 /* Build a minimal TPM error response using TPM2_Packet API */
@@ -428,7 +534,6 @@ static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
     int rc;
     int rspSize = 0;
     int procRc;
-    UINT32 netVal;
     int dispatched = 0;
 #ifdef WOLFTPM_SPDM_RESPONDER
     UINT16 firstTag = (cmdSize >= 2) ? FwLoadU16BE(ctx->cmdBuf) : 0;
@@ -494,18 +599,7 @@ static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
             ctx->rspBuf, rspSize);
     }
     else {
-        /* mssim protocol: size(4) + response + ack(4) */
-        netVal = FwTpmSwapU32((UINT32)rspSize);
-        rc = TransportSend(ctx, FWTPM_IO_TYPE_COMMAND, clientFd, &netVal, 4);
-        if (rc == TPM_RC_SUCCESS) {
-            rc = TransportSend(ctx, FWTPM_IO_TYPE_COMMAND, clientFd,
-                ctx->rspBuf, rspSize);
-        }
-        if (rc == TPM_RC_SUCCESS) {
-            netVal = FwTpmSwapU32(0); /* ack = 0 (success) */
-            rc = TransportSend(ctx, FWTPM_IO_TYPE_COMMAND, clientFd,
-                &netVal, 4);
-        }
+        rc = SendMssimReply(ctx, clientFd, ctx->rspBuf, rspSize);
     }
 
     return rc;
@@ -974,6 +1068,7 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
         if (FD_ISSET(ctx->io.platListenFd, &readFds)) {
             SOCKET_T newFd = accept(ctx->io.platListenFd, NULL, NULL);
             if (newFd != FWTPM_INVALID_FD) {
+                SetSocketNoDelay(newFd);
                 if (platFd != FWTPM_INVALID_FD) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: platform connection replaced\n");
@@ -1008,6 +1103,7 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
         if (FD_ISSET(ctx->io.listenFd, &readFds)) {
             SOCKET_T newFd = accept(ctx->io.listenFd, NULL, NULL);
             if (newFd != FWTPM_INVALID_FD) {
+                SetSocketNoDelay(newFd);
                 for (i = 0; i < FWTPM_MAX_COMMAND_CLIENTS; i++) {
                     if (cmdFds[i] == FWTPM_INVALID_FD) {
                         cmdFds[i] = newFd;
