@@ -7,9 +7,10 @@
 #   scripts/tpm2_tools_test.sh [--no-start] [--verbose] [--tcti=mssim|swtpm]
 #
 # Environment:
-#   TPM2_SWTPM_PORT  TCP port the running TPM server listens on (default: 2321).
-#                    Used when this script is invoked from `make check` to
-#                    target the random port picked by tests/fwtpm_check.sh.
+#   TPM2_SWTPM_PORT  TCP port the TPM server listens on (default: 2321). Used
+#                    when this script is invoked from `make check` to target
+#                    the random port picked by tests/fwtpm_check.sh, and, when
+#                    this script starts its own server, the port it starts on.
 #
 # Requirements: tpm2-tools >= 5.0, libtss2-tcti-mssim (or libtss2-tcti-swtpm)
 #
@@ -25,14 +26,19 @@ WOLFTPM_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Both are supported. Default to mssim for backward compatibility.
 TCTI_TYPE="${TCTI_TYPE:-mssim}"
 export TPM2TOOLS_TCTI="${TCTI_TYPE}:host=localhost,port=${TPM2_SWTPM_PORT:-2321}"
-TEST_TMPDIR=/tmp/fwtpm_tpm2tools
+FWTPM_DEFAULT_PORT=2321
+FWTPM_PORT="${TPM2_SWTPM_PORT:-$FWTPM_DEFAULT_PORT}"
+FWTPM_PLAT_PORT=$((FWTPM_PORT + 1))
+# Two runs on one machine must not share context files or a server log, and the
+# port already distinguishes them.
+TEST_TMPDIR=/tmp/fwtpm_tpm2tools.$FWTPM_PORT
 VERBOSE=0
 NO_START=0
 PASS=0; FAIL=0; SKIP=0
 SERVER_PID=""
 SERVER_BIN="$WOLFTPM_ROOT/src/fwtpm/fwtpm_server"
 NV_FILE="$WOLFTPM_ROOT/fwtpm_nv.bin"
-SRV_LOG=/tmp/fwtpm_tpm2tools_srv.log
+SRV_LOG=/tmp/fwtpm_tpm2tools_srv.$FWTPM_PORT.log
 
 # ----------------------------------------------------------------
 # Argument parsing
@@ -46,7 +52,7 @@ for arg in "$@"; do
             export TPM2TOOLS_TCTI="${TCTI_TYPE}:host=localhost,port=${TPM2_SWTPM_PORT:-2321}"
             ;;
         --help|-h)
-            grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -12; exit 0 ;;
+            grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -13; exit 0 ;;
     esac
 done
 
@@ -126,17 +132,58 @@ flush_transient() {
 # ----------------------------------------------------------------
 # Server lifecycle (self-contained — no external scripts)
 # ----------------------------------------------------------------
+# Find the process holding the TCP listener on this run's port, reading the
+# socket inode out of /proc and then whichever process has it open. Used when
+# iproute2 is absent.
+listener_pid_from_proc() {
+    local hexport inode f d
+    hexport=$(printf '%04X' "$FWTPM_PORT")
+    for f in /proc/net/tcp /proc/net/tcp6; do
+        [ -r "$f" ] || continue
+        # State 0A is LISTEN; field 2 is local_address, field 10 the inode.
+        inode=$(awk -v p="$hexport" \
+            '$4 == "0A" && substr($2, index($2, ":") + 1) == p { print $10; exit }' \
+            "$f")
+        [ -n "$inode" ] && break
+    done
+    [ -n "$inode" ] || return 0
+    for d in /proc/[0-9]*; do
+        for f in "$d"/fd/*; do
+            if [ "$(readlink "$f" 2>/dev/null)" = "socket:[$inode]" ]; then
+                basename "$d"
+                return 0
+            fi
+        done
+    done
+}
+
+# Clear only the server that actually owns this run's port. Matching command
+# lines is a proxy for that and is wrong both ways: it misses a server started
+# with other arguments, and it reaches servers with no listener at all,
+# including ones other checkouts and concurrent runs are using.
+kill_server_on_port() {
+    local pid
+    pid=$(ss -ltnpH "sport = :$FWTPM_PORT" 2>/dev/null |
+        grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)
+    [ -n "$pid" ] || pid=$(listener_pid_from_proc)
+    if [ -n "$pid" ] &&
+            [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = "fwtpm_server" ]; then
+        kill "$pid" 2>/dev/null || true
+    fi
+}
+
 server_start() {
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
         kill "$SERVER_PID" 2>/dev/null
         wait "$SERVER_PID" 2>/dev/null || true
         SERVER_PID=""
     fi
-    killall fwtpm_server 2>/dev/null || true
+    kill_server_on_port
     sleep 0.2
     rm -f "$NV_FILE"
 
-    "$SERVER_BIN" > "$SRV_LOG" 2>&1 &
+    "$SERVER_BIN" --port "$FWTPM_PORT" \
+        --platform-port "$FWTPM_PLAT_PORT" > "$SRV_LOG" 2>&1 &
     SERVER_PID=$!
     disown "$SERVER_PID" 2>/dev/null || true
 
@@ -174,10 +221,11 @@ server_restart() {
         wait "$SERVER_PID" 2>/dev/null || true
         SERVER_PID=""
     fi
-    killall fwtpm_server 2>/dev/null || true
+    kill_server_on_port
     sleep 0.3
 
-    "$SERVER_BIN" >> "$SRV_LOG" 2>&1 &
+    "$SERVER_BIN" --port "$FWTPM_PORT" \
+        --platform-port "$FWTPM_PLAT_PORT" >> "$SRV_LOG" 2>&1 &
     SERVER_PID=$!
     sleep 1
     if ! kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -192,9 +240,9 @@ server_restart() {
     echo "[fwtpm] Server restarted (PID $SERVER_PID, NV preserved)"
 }
 
-if [ $NO_START -eq 0 ]; then
-    trap 'server_stop; rm -rf "$TEST_TMPDIR"' EXIT
-fi
+# The directory is per-run and server_stop does nothing without a server of
+# our own, so the same cleanup is correct in --no-start mode.
+trap 'server_stop; rm -rf "$TEST_TMPDIR"' EXIT
 
 # ----------------------------------------------------------------
 # Pre-flight: check tpm2-tools present
