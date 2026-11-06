@@ -323,7 +323,8 @@ TPM_RC FwImportParseSensitive(
 TPM_RC FwImportReconstructKey(
     const TPM2B_PUBLIC* objectPublic, UINT16 sensType,
     const byte* primeBuf, UINT16 primeSz,
-    byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSzOut);
+    byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSzOut,
+    WC_RNG* rng);
 
 /* --- Key import from DER/Public --- */
 
@@ -331,7 +332,7 @@ TPM_RC FwImportReconstructKey(
 int FwImportRsaKeyFromDer(const FWTPM_Object* obj, RsaKey* key);
 int FwImportRsaPubFromPublic(const TPMT_PUBLIC* pub, RsaKey* key);
 int FwImportRsaKey(const FWTPM_Object* obj, RsaKey* key);
-int FwRsaComputeCRT(RsaKey* rsaKey);
+int FwRsaComputeCRT(RsaKey* rsaKey, WC_RNG* rng);
 int FwGetRsaPadding(UINT16 scheme);
 int FwGetRsaHashOid(UINT16 hashAlg);
 #endif /* !NO_RSA */

@@ -2086,7 +2086,7 @@ TPM_RC FwDeriveRsaPrimaryKey(TPMI_ALG_HASH nameAlg,
 
     /* Compute CRT values: d, dP, dQ, u */
     if (rc == 0) {
-        rc = FwRsaComputeCRT(rsaKey);
+        rc = FwRsaComputeCRT(rsaKey, rng);
     }
 
     /* Mark as private key */
@@ -3471,7 +3471,8 @@ TPM_RC FwImportParseSensitive(
 TPM_RC FwImportReconstructKey(
     const TPM2B_PUBLIC* objectPublic, UINT16 sensType,
     const byte* primeBuf, UINT16 primeSz,
-    byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSzOut)
+    byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSzOut,
+    WC_RNG* rng)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
 
@@ -3566,7 +3567,7 @@ TPM_RC FwImportReconstructKey(
             }
         }
         if (rc == 0) {
-            rc = FwRsaComputeCRT(rsaKey);
+            rc = FwRsaComputeCRT(rsaKey, rng);
         }
         if (rc == 0) {
             rsaKey->type = RSA_PRIVATE;
@@ -3589,6 +3590,7 @@ TPM_RC FwImportReconstructKey(
     {
         (void)objectPublic; (void)primeBuf; (void)primeSz;
         (void)privKeyDer; (void)privKeyDerBufSz; (void)privKeyDerSzOut;
+        (void)rng;
         rc = TPM_RC_TYPE;
     }
     return rc;
@@ -3792,66 +3794,343 @@ int FwGetRsaPadding(UINT16 scheme)
     }
 }
 
-/* Helper: compute RSA CRT parameters (d, dP, dQ, u) from p, q, e.
- * Returns 0 on success. */
-int FwRsaComputeCRT(RsaKey* rsaKey)
+/* Number of random blinding factors to try before giving up on a value with
+ * no inverse modulo e. */
+#define FW_RSA_INV_BLIND_TRIES  64
+
+/* Helper: a^-1 mod m for word sized values. Returns 0 when there is none. */
+static word32 FwInvModWord(word32 a, word32 m)
+{
+    word64 r0 = m, r1 = a % m, t0 = 0, t1 = 1, q = 0, tmp = 0;
+    word32 inv;
+
+    while (r1 != 0) {
+        q = r0 / r1;
+        tmp = r0 - q * r1;
+        r0 = r1;
+        r1 = tmp;
+        tmp = (t0 + m - ((q * t1) % m)) % m;
+        t0 = t1;
+        t1 = tmp;
+    }
+    inv = (r0 == 1) ? (word32)t0 : 0;
+    TPM2_ForceZero(&r1, sizeof(r1));
+    TPM2_ForceZero(&t0, sizeof(t0));
+    TPM2_ForceZero(&t1, sizeof(t1));
+    TPM2_ForceZero(&q, sizeof(q));
+    TPM2_ForceZero(&tmp, sizeof(tmp));
+    return inv;
+}
+
+/* Helper: x = (-a)^-1 mod e for a < e, with a blinded by a fresh random
+ * factor. */
+static int FwRsaInvNegModE(word32 a, word32 e, WC_RNG* rng, word32* x)
+{
+    int rc = 0;
+    int i;
+    word32 r = 0, t = 0;
+
+    if (e == 1) {
+        *x = 0;
+        return 0;
+    }
+    /* a < e. When a is 0 so is every a*r, and there is no inverse. */
+    a = e - a;
+    for (i = 0; rc == 0 && i < FW_RSA_INV_BLIND_TRIES; i++) {
+        rc = wc_RNG_GenerateBlock(rng, (byte*)&r, (word32)sizeof(r));
+        if (rc == 0) {
+            r = (r % (e - 1)) + 1;
+            t = FwInvModWord((word32)(((word64)a * r) % e), e);
+            if (t != 0) {
+                *x = (word32)(((word64)t * r) % e);
+                break;
+            }
+        }
+    }
+    if (rc == 0 && i == FW_RSA_INV_BLIND_TRIES) {
+        rc = MP_VAL;
+    }
+    TPM2_ForceZero(&r, sizeof(r));
+    TPM2_ForceZero(&t, sizeof(t));
+    TPM2_ForceZero(&a, sizeof(a));
+    return rc;
+}
+
+/* Helper: r = m' with m'*e = 1 mod m, by Arazi's identity
+ * m' = (1 + m * ((-m)^-1 mod e)) / e. The division is exact, so it is a
+ * multiplication by eInv = e^-1 mod 2^k, where m < 2^k. n and c are
+ * temporaries. */
+static int FwRsaArazi(mp_int* m, word32 x, mp_int* eMp, mp_int* eInv, int k,
+    mp_int* r, mp_int* n, mp_int* c)
 {
     int rc;
-    int pm1Init = 0, qm1Init = 0, phiInit = 0;
-    mp_int pm1, qm1, phi;
 
-    rc = mp_init(&pm1);
+    rc = mp_set_int(r, (unsigned long)x);
+    if (rc == 0) {
+        rc = mp_mul(m, r, n);
+    }
+    if (rc == 0) {
+        rc = mp_add_d(n, 1, n);
+    }
+    if (rc == 0) {
+        rc = mp_mod_2d(n, k, r);
+    }
+    if (rc == 0) {
+        rc = mp_mul(r, eInv, r);
+    }
+    if (rc == 0) {
+        rc = mp_mod_2d(r, k, r);
+    }
+    /* Check r*e = 1 + m*x, which only holds when m*x = -1 mod e. */
+    if (rc == 0) {
+        rc = mp_mul(r, eMp, c);
+    }
+    if (rc == 0 && mp_cmp(c, n) != MP_EQ) {
+        rc = MP_VAL;
+    }
+    TPM2_ForceZero(&x, sizeof(x));
+    return rc;
+}
+
+typedef struct FW_RSA_CRT_TMP {
+    mp_int pm1, qm1, phi, t, eInv, c;
+} FW_RSA_CRT_TMP;
+
+/* Helper: compute RSA CRT parameters (d, dP, dQ, u) from p, q, e.
+ * p and q are secret, so nothing here inverts or divides modulo them in
+ * variable time: d, dP and dQ use Arazi's identity, which inverts only
+ * modulo the public e, and u = q^(p-2) mod p is computed from q in
+ * Montgomery form so q is not reduced modulo p first.
+ * Returns 0 on success. */
+int FwRsaComputeCRT(RsaKey* rsaKey, WC_RNG* rng)
+{
+    int rc = 0;
+    int k = 0;
+    int bits;
+    int pm1Init = 0, qm1Init = 0, phiInit = 0, tInit = 0, eInvInit = 0;
+    int cInit = 0;
+    word32 e = 0, pModE = 0, qModE = 0, phiModE = 0, x = 0;
+    mp_digit mp = 0, res = 0;
+    byte eBuf[4];
+    int eSz;
+    mp_int *pm1 = NULL, *qm1 = NULL, *phi = NULL, *t = NULL, *eInv = NULL;
+    mp_int *c = NULL;
+    FWTPM_DECLARE_VAR(tmp, FW_RSA_CRT_TMP);
+
+    if (rng == NULL) {
+        return TPM_RC_FAILURE;
+    }
+    eSz = mp_unsigned_bin_size(&rsaKey->e);
+    if (eSz <= 0 || eSz > (int)sizeof(eBuf) || !mp_isodd(&rsaKey->e)) {
+        return TPM_RC_FAILURE;
+    }
+    XMEMSET(eBuf, 0, sizeof(eBuf));
+    rc = mp_to_unsigned_bin(&rsaKey->e, eBuf + sizeof(eBuf) - eSz);
+    e = ((word32)eBuf[0] << 24) | ((word32)eBuf[1] << 16) |
+        ((word32)eBuf[2] << 8) | (word32)eBuf[3];
+    /* e is used as a single digit. */
+    if (rc == 0 && (word32)(mp_digit)e != e) {
+        rc = TPM_RC_FAILURE;
+    }
+
+    if (rc == 0) {
+        FWTPM_ALLOC_VAR(tmp, FW_RSA_CRT_TMP);
+    }
+    if (rc == 0) {
+        pm1 = &tmp->pm1;
+        qm1 = &tmp->qm1;
+        phi = &tmp->phi;
+        t = &tmp->t;
+        eInv = &tmp->eInv;
+        c = &tmp->c;
+        rc = mp_init(pm1);
+    }
     if (rc == 0) {
         pm1Init = 1;
-        rc = mp_init(&qm1);
+        rc = mp_init(qm1);
     }
     if (rc == 0) {
         qm1Init = 1;
-        rc = mp_init(&phi);
+        rc = mp_init(phi);
     }
     if (rc == 0) {
         phiInit = 1;
+        rc = mp_init(t);
+    }
+    if (rc == 0) {
+        tInit = 1;
+        rc = mp_init(eInv);
+    }
+    if (rc == 0) {
+        eInvInit = 1;
+        rc = mp_init(c);
+    }
+    if (rc == 0) {
+        cInit = 1;
     }
 
     /* phi = (p-1)(q-1) */
     if (rc == 0) {
-        rc = mp_sub_d(&rsaKey->p, 1, &pm1);
+        rc = mp_sub_d(&rsaKey->p, 1, pm1);
     }
     if (rc == 0) {
-        rc = mp_sub_d(&rsaKey->q, 1, &qm1);
+        rc = mp_sub_d(&rsaKey->q, 1, qm1);
     }
     if (rc == 0) {
-        rc = mp_mul(&pm1, &qm1, &phi);
+        rc = mp_mul(pm1, qm1, phi);
     }
 
-    /* d = e^{-1} mod phi */
+    /* Residues of phi, p-1 and q-1 modulo the public e. */
     if (rc == 0) {
-        rc = mp_invmod(&rsaKey->e, &phi, &rsaKey->d);
+        rc = mp_mod_d(phi, (mp_digit)e, &res);
+        phiModE = (word32)res;
     }
     if (rc == 0) {
-        rc = mp_mod(&rsaKey->d, &pm1, &rsaKey->dP);
+        rc = mp_mod_d(pm1, (mp_digit)e, &res);
+        pModE = (word32)res;
     }
     if (rc == 0) {
-        rc = mp_mod(&rsaKey->d, &qm1, &rsaKey->dQ);
-    }
-    if (rc == 0) {
-        rc = mp_invmod(&rsaKey->q, &rsaKey->p, &rsaKey->u);
+        rc = mp_mod_d(qm1, (mp_digit)e, &res);
+        qModE = (word32)res;
     }
 
+    /* eInv = e^-1 mod 2^k by Newton's iteration, which doubles the number of
+     * correct low bits each step. e*e = 1 mod 8 for odd e. */
+    if (rc == 0) {
+        k = mp_count_bits(phi);
+        rc = mp_copy(&rsaKey->e, eInv);
+    }
+    for (bits = 3; rc == 0 && bits < k; bits *= 2) {
+        rc = mp_mul(&rsaKey->e, eInv, t);
+        if (rc == 0) {
+            rc = mp_mod_2d(t, k, t);
+        }
+        if (rc == 0) {
+            rc = mp_2expt(pm1, k);
+        }
+        if (rc == 0) {
+            rc = mp_add_d(pm1, 2, pm1);
+        }
+        if (rc == 0) {
+            rc = mp_sub(pm1, t, t);
+        }
+        if (rc == 0) {
+            rc = mp_mod_2d(t, k, t);
+        }
+        if (rc == 0) {
+            rc = mp_mul(eInv, t, eInv);
+        }
+        if (rc == 0) {
+            rc = mp_mod_2d(eInv, k, eInv);
+        }
+    }
+    if (rc == 0) {
+        rc = mp_sub_d(&rsaKey->p, 1, pm1);
+    }
+
+    /* d = e^-1 mod phi, dP = e^-1 mod (p-1), dQ = e^-1 mod (q-1) */
+    if (rc == 0) {
+        rc = FwRsaInvNegModE(phiModE, e, rng, &x);
+    }
+    if (rc == 0) {
+        rc = FwRsaArazi(phi, x, &rsaKey->e, eInv, k,
+            &rsaKey->d, t, c);
+    }
+    if (rc == 0) {
+        rc = FwRsaInvNegModE(pModE, e, rng, &x);
+    }
+    if (rc == 0) {
+        rc = FwRsaArazi(pm1, x, &rsaKey->e, eInv, k,
+            &rsaKey->dP, t, c);
+    }
+    if (rc == 0) {
+        rc = FwRsaInvNegModE(qModE, e, rng, &x);
+    }
+    if (rc == 0) {
+        rc = FwRsaArazi(qm1, x, &rsaKey->e, eInv, k,
+            &rsaKey->dQ, t, c);
+    }
+
+    /* u = q^(p-2) mod p. With t = q*R^-1 mod p, t^(p-2) = u*R mod p, and one
+     * more Montgomery reduction gives u. The reduction needs q < p*R; for an
+     * unusually unbalanced key reduce q modulo p first. */
+    if (rc == 0) {
+        rc = mp_montgomery_setup(&rsaKey->p, &mp);
+    }
+    if (rc == 0) {
+        if (mp_count_bits(&rsaKey->q) >= 2 * mp_count_bits(&rsaKey->p)) {
+            rc = mp_mod(&rsaKey->q, &rsaKey->p, t);
+        }
+        else {
+            rc = mp_copy(&rsaKey->q, t);
+        }
+    }
+    if (rc == 0) {
+        rc = mp_montgomery_reduce_ct(t, &rsaKey->p, mp);
+    }
+    if (rc == 0) {
+        rc = mp_sub_d(&rsaKey->p, 2, qm1);
+    }
+    if (rc == 0) {
+        rc = mp_exptmod(t, qm1, &rsaKey->p, &rsaKey->u);
+    }
+    if (rc == 0) {
+        rc = mp_montgomery_reduce_ct(&rsaKey->u, &rsaKey->p, mp);
+    }
+    /* That is only an inverse when p is prime, and p may come from the caller
+     * so check it: u*t*R^-1 = R^-2 mod p exactly when u*q = 1 mod p. */
+    if (rc == 0) {
+        rc = mp_mul(&rsaKey->u, t, t);
+    }
+    if (rc == 0) {
+        rc = mp_montgomery_reduce_ct(t, &rsaKey->p, mp);
+    }
+    if (rc == 0) {
+        rc = mp_set(qm1, 1);
+    }
+    if (rc == 0) {
+        rc = mp_montgomery_reduce_ct(qm1, &rsaKey->p, mp);
+    }
+    if (rc == 0) {
+        rc = mp_montgomery_reduce_ct(qm1, &rsaKey->p, mp);
+    }
+    if (rc == 0 && mp_cmp(t, qm1) != MP_EQ) {
+        rc = MP_VAL;
+    }
+
+    TPM2_ForceZero(&pModE, sizeof(pModE));
+    TPM2_ForceZero(&qModE, sizeof(qModE));
+    TPM2_ForceZero(&phiModE, sizeof(phiModE));
+    TPM2_ForceZero(&mp, sizeof(mp));
+    TPM2_ForceZero(&x, sizeof(x));
+    TPM2_ForceZero(&res, sizeof(res));
     if (pm1Init) {
-        mp_forcezero(&pm1);
-        mp_clear(&pm1);
+        mp_forcezero(pm1);
+        mp_clear(pm1);
     }
     if (qm1Init) {
-        mp_forcezero(&qm1);
-        mp_clear(&qm1);
+        mp_forcezero(qm1);
+        mp_clear(qm1);
     }
     if (phiInit) {
-        mp_forcezero(&phi);
-        mp_clear(&phi);
+        mp_forcezero(phi);
+        mp_clear(phi);
     }
+    if (tInit) {
+        mp_forcezero(t);
+        mp_clear(t);
+    }
+    if (eInvInit) {
+        mp_forcezero(eInv);
+        mp_clear(eInv);
+    }
+    if (cInit) {
+        mp_forcezero(c);
+        mp_clear(c);
+    }
+    FWTPM_FREE_VAR(tmp);
 
-    if (rc != 0) {
+    if (rc != 0 && rc != TPM_RC_MEMORY) {
         rc = TPM_RC_FAILURE;
     }
     return rc;
