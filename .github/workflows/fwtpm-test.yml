@@ -521,6 +521,7 @@ jobs:
               -DFWTPM_NO_SYM_ENCRYPT
               -DFWTPM_NO_CLOCK
               -DFWTPM_NO_PP
+              -DFWTPM_NO_READONLY
 
           # Same gates with ML-DSA: SequenceUpdate must survive (the ML-DSA
           # verify sequences stream through it) while SequenceComplete must
@@ -541,6 +542,7 @@ jobs:
               -DFWTPM_NO_SYM_ENCRYPT
               -DFWTPM_NO_CLOCK
               -DFWTPM_NO_PP
+              -DFWTPM_NO_READONLY
 
           # Compatibility mode for pre-production TPM firmware that accepts
           # only SHA-256 pre-hashes. This runs the HashMLDSA weak-prehash
