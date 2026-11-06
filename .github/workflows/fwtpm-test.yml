@@ -78,6 +78,18 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden --disable-tls13 --disable-hkdf
             build_only: false
 
+          # v1.85 PQC with one ML-DSA parameter set left out, so the server
+          # answers TPM_RC_PARMS for it. The benchmark walks every set, so it
+          # has to record that one as unsupported and carry on to the rest.
+          # The unit tests use ML-DSA-44 throughout, so only the benchmark
+          # runs, in its own step below.
+          - name: fwtpm-v185-mldsa-trim
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-v185
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            build_only: true
+            extra_cflags: -DWOLFSSL_NO_ML_DSA_44
+
           # Build-only: fwTPM with RSA disabled
           - name: fwtpm-no-rsa
             os: ubuntu-latest
@@ -390,6 +402,59 @@ jobs:
           ./examples/pqc/no_sha1_examples.sh
           ./examples/bench/bench -iter=1 | tee /tmp/fwtpm_no_sha1_bench.log
           grep -E '^SHA1[[:space:]]+Skipped [(]not supported[)]$' /tmp/fwtpm_no_sha1_bench.log
+
+      - name: Run benchmark with ML-DSA-44 left out
+        if: matrix.name == 'fwtpm-v185-mldsa-trim'
+        run: |
+          set -euo pipefail
+          ./src/fwtpm/fwtpm_server --clear > /tmp/fwtpm_mldsa_trim.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          kill -0 "$server_pid"
+          ./examples/bench/bench -iter=1 | tee /tmp/fwtpm_mldsa_trim_bench.log
+          grep -E '^ML-DSA +44 key gen +Skipped [(]not supported[)]$' \
+            /tmp/fwtpm_mldsa_trim_bench.log
+          grep -E '^ML-DSA +65 key gen +[0-9]' /tmp/fwtpm_mldsa_trim_bench.log
+          grep -E '^ECDSA +384 verify +[0-9]' /tmp/fwtpm_mldsa_trim_bench.log
+          grep -E '^ECDSA +521 verify +[0-9]' /tmp/fwtpm_mldsa_trim_bench.log
+
+      - name: Run benchmark across RSA sizes
+        if: matrix.name == 'fwtpm-rsa4096'
+        run: |
+          set -euo pipefail
+          ./src/fwtpm/fwtpm_server --clear > /tmp/fwtpm_rsa4096.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          kill -0 "$server_pid"
+          ./examples/bench/bench -iter=1 | tee /tmp/fwtpm_rsa4096_bench.log
+          grep -E '^RSA +3072 Priv OAEP +[0-9]' /tmp/fwtpm_rsa4096_bench.log
+          grep -E '^RSA +4096 Priv OAEP +[0-9]' /tmp/fwtpm_rsa4096_bench.log
+          grep -E '^ECDSA +384 verify +[0-9]' /tmp/fwtpm_rsa4096_bench.log
+
+      # Rebuild only the server with smaller limits, so the benchmark offers an
+      # RSA size and an ECC curve the TPM rejects and must skip both.
+      - name: Run benchmark against a server without RSA 4096 and P-384
+        if: matrix.name == 'fwtpm-rsa4096'
+        run: |
+          set -euo pipefail
+          rm -f src/fwtpm/fwtpm_server src/fwtpm/*fwtpm_server-*.o \
+            src/*fwtpm_server-*.o
+          make src/fwtpm/fwtpm_server \
+            FWTPM_SERVER_CFLAGS="-DMAX_RSA_KEY_BITS=3072 -DMAX_ECC_KEY_BITS=256"
+          ./src/fwtpm/fwtpm_server --clear > /tmp/fwtpm_trim.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          kill -0 "$server_pid"
+          ./examples/bench/bench -iter=1 | tee /tmp/fwtpm_trim_bench.log
+          grep -E '^RSA +3072 Priv OAEP +[0-9]' /tmp/fwtpm_trim_bench.log
+          grep -E '^RSA +4096 key gen +Skipped [(]not supported[)]$' \
+            /tmp/fwtpm_trim_bench.log
+          grep -E '^ECDSA +256 verify +[0-9]' /tmp/fwtpm_trim_bench.log
+          grep -E '^ECC +384 key gen +Skipped [(]not supported[)]$' \
+            /tmp/fwtpm_trim_bench.log
 
       - name: Print test-suite.log on failure
         if: ${{ failure() && !matrix.build_only }}
