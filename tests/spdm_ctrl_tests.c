@@ -236,11 +236,89 @@ static int test_rc_string(void)
     return 0;
 }
 
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+static int test_pubkey_point(void)
+{
+    TPM2B_PUBLIC pubIn;
+    byte wire[2 + CTRL_PUBK_MAX];
+    byte raw[WOLFSPDM_ECC_POINT_SIZE];
+    byte point[WOLFSPDM_ECC_POINT_SIZE];
+    byte big[CTRL_PUBK_MAX];
+    word32 off;
+    int sz = 0;
+
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_ECC;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA384;
+    pubIn.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+    pubIn.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
+    pubIn.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
+        TPM_ALG_SHA384;
+    pubIn.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P384;
+    pubIn.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+    pubIn.publicArea.unique.ecc.x.size = WOLFSPDM_ECC_KEY_SIZE;
+    XMEMSET(pubIn.publicArea.unique.ecc.x.buffer, 0x11, WOLFSPDM_ECC_KEY_SIZE);
+    pubIn.publicArea.unique.ecc.y.size = WOLFSPDM_ECC_KEY_SIZE;
+    XMEMSET(pubIn.publicArea.unique.ecc.y.buffer, 0x22, WOLFSPDM_ECC_KEY_SIZE);
+    if (TPM2_AppendPublic(wire, (word32)sizeof(wire), &sz, &pubIn) != 0 ||
+            sz <= 2)
+        return 1;
+
+    XMEMSET(point, 0, sizeof(point));
+    if (ctrl_pubkey_point(wire + 2, (word32)sz - 2, point) != 0)
+        return 1;
+    XMEMSET(raw, 0x11, WOLFSPDM_ECC_KEY_SIZE);
+    XMEMSET(raw + WOLFSPDM_ECC_KEY_SIZE, 0x22, WOLFSPDM_ECC_KEY_SIZE);
+    if (XMEMCMP(point, raw, sizeof(raw)) != 0)
+        return 1;
+    if (ctrl_print_pubkey(wire + 2, (word32)sz - 2) != 0)
+        return 1;
+
+    XMEMSET(point, 0, sizeof(point));
+    if (ctrl_pubkey_point(raw, sizeof(raw), point) != 0 ||
+            XMEMCMP(point, raw, sizeof(raw)) != 0)
+        return 1;
+
+    /* 49-byte X must not be accepted as a clamped 48-byte coordinate */
+    off = (word32)sz - 2 - (2 * (2 + WOLFSPDM_ECC_KEY_SIZE));
+    XMEMCPY(big, wire + 2, off);
+    big[off++] = 0;
+    big[off++] = WOLFSPDM_ECC_KEY_SIZE + 1;
+    XMEMSET(big + off, 0x11, WOLFSPDM_ECC_KEY_SIZE + 1);
+    off += WOLFSPDM_ECC_KEY_SIZE + 1;
+    big[off++] = 0;
+    big[off++] = WOLFSPDM_ECC_KEY_SIZE;
+    XMEMSET(big + off, 0x22, WOLFSPDM_ECC_KEY_SIZE);
+    off += WOLFSPDM_ECC_KEY_SIZE;
+    if (ctrl_pubkey_point(big, off, point) == 0)
+        return 1;
+
+    if (ctrl_pubkey_point(wire + 2, (word32)sz - 3, point) == 0)
+        return 1;
+    wire[3] = (byte)TPM_ALG_RSA;
+    if (ctrl_pubkey_point(wire + 2, (word32)sz - 2, point) == 0)
+        return 1;
+
+    pubIn.publicArea.parameters.eccDetail.curveID = TPM_ECC_BP_P384_R1;
+    sz = 0;
+    if (TPM2_AppendPublic(wire, (word32)sizeof(wire), &sz, &pubIn) != 0 ||
+            sz <= 2)
+        return 1;
+    if (ctrl_pubkey_point(wire + 2, (word32)sz - 2, point) == 0)
+        return 1;
+    puts("PASS: GET_PUBK TPMT_PUBLIC reduces to the P-384 X||Y point");
+    return 0;
+}
+#endif
+
 int main(void)
 {
     int rc;
     rc = test_nv_cleanup();
     if (rc == 0) rc = test_rc_string();
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+    if (rc == 0) rc = test_pubkey_point();
+#endif
     if (rc == 0) rc = test_vendor_dispatch();
     if (rc != 0) puts("FAIL: SPDM control regression");
     return rc;
