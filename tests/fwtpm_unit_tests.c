@@ -13670,6 +13670,60 @@ static void TnvSetHal(FWTPM_CTX* ctx)
     ctx->nvHal.get_integrity_key = TnvKey;
 }
 
+/* A storage read error at start-up must fail FWTPM_Init and leave the journal
+ * untouched, not be taken for an empty journal and regenerated. */
+static word32 gTnvFailOff;
+static int gTnvWrites;
+static int TnvReadFail(void* c, word32 off, byte* buf, word32 sz)
+{
+    if (off == gTnvFailOff) return TPM_RC_FAILURE;
+    return TnvRead(c, off, buf, sz);
+}
+static int TnvWriteCount(void* c, word32 off, const byte* buf, word32 sz)
+{
+    gTnvWrites++;
+    return TnvWrite(c, off, buf, sz);
+}
+
+static void test_fwtpm_nv_read_error_keeps_journal(void)
+{
+    FWTPM_CTX ctx;
+    byte seed[FWTPM_SEED_SIZE];
+    word32 failOffs[2];
+    int i;
+    static byte snap[TNV_SIZE];
+
+    memset(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(FWTPM_NV_Save(&ctx), TPM_RC_SUCCESS);
+    memcpy(seed, ctx.ownerSeed, sizeof(seed));
+    FWTPM_Cleanup(&ctx);
+    memcpy(snap, gTnvBuf, sizeof(snap));
+
+    failOffs[0] = 0; /* header */
+    failOffs[1] = (word32)gTnvBuf[8] | ((word32)gTnvBuf[9] << 8) |
+        ((word32)gTnvBuf[10] << 16) | ((word32)gTnvBuf[11] << 24); /* MAC */
+    for (i = 0; i < 2; i++) {
+        TnvSetHal(&ctx);
+        ctx.nvHal.read = TnvReadFail;
+        ctx.nvHal.write = TnvWriteCount;
+        gTnvFailOff = failOffs[i];
+        gTnvWrites = 0;
+        AssertIntNE(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
+        AssertIntEQ(gTnvWrites, 0);
+        AssertIntEQ(memcmp(snap, gTnvBuf, sizeof(snap)), 0);
+    }
+
+    /* Once storage reads again, the same seeds come back */
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(memcmp(seed, ctx.ownerSeed, sizeof(seed)), 0);
+    FWTPM_Cleanup(&ctx);
+    TPM2_ForceZero(seed, sizeof(seed));
+    fwtpm_pass("NV read error keeps journal:", 0);
+}
+
 static void test_fwtpm_nv_journal_tamper_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -19050,6 +19104,126 @@ static void test_fwtpm_reset_command_client_flushes_transient(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tResetCommandClient flushes transient:\tPassed\n");
 }
+
+/* Overlapping clients share one TPM, so one closing must release only its own
+ * objects, sessions and saved session contexts. */
+static void test_fwtpm_flush_command_client(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0;
+    int i;
+    int sess1 = 0;
+    int sess2 = 0;
+    int cmdSz;
+    UINT32 key1, key2, saved1, saved2;
+    TPM_ALG_ID alg;
+
+#ifdef HAVE_ECC
+    alg = TPM_ALG_ECC;
+#else
+    alg = TPM_ALG_RSA;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    FWTPM_SetCommandClient(&ctx, 1);
+    key1 = CreatePrimaryHelper(&ctx, alg);
+    AssertIntNE(key1, 0);
+    AssertIntNE(StartSessionHelper(&ctx, TPM_SE_HMAC), 0);
+    saved1 = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(saved1, 0);
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, saved1);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_SetCommandClient(&ctx, 2);
+    key2 = CreatePrimaryHelper(&ctx, alg);
+    AssertIntNE(key2, 0);
+    AssertIntNE(StartSessionHelper(&ctx, TPM_SE_HMAC), 0);
+    saved2 = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(saved2, 0);
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, saved2);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.contextLiveCount, 2);
+
+#ifndef FWTPM_NO_HASH_CMDS
+    for (i = 1; i <= 2; i++) {
+        FWTPM_SetCommandClient(&ctx, (UINT32)i);
+        cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_HashSequenceStart);
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+        PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+        PutU32BE(gCmd + 2, (UINT32)cmdSz);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+#endif
+
+    FWTPM_FlushCommandClient(&ctx, 1);
+
+    AssertIntEQ(ctx.objects[0].used, 0);
+    AssertIntEQ(ctx.objects[1].used, 1);
+    AssertIntEQ(ctx.objects[1].handle, key2);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used) {
+            if (ctx.sessions[i].clientId == 1) {
+                sess1++;
+            }
+            else if (ctx.sessions[i].clientId == 2) {
+                sess2++;
+            }
+        }
+    }
+    AssertIntEQ(sess1, 0);
+    AssertIntGT(sess2, 0);
+    AssertIntEQ(ctx.contextLiveCount, 1);
+    AssertIntEQ(ctx.contextLiveClient[0], 2);
+#ifndef FWTPM_NO_HASH_CMDS
+    AssertIntEQ(ctx.hashSeq[0].used, 0);
+    AssertIntEQ(ctx.hashSeq[1].used, 1);
+    AssertIntEQ(ctx.hashSeq[1].clientId, 2);
+#endif
+
+    /* The freed slot is reused, and owned by whoever allocates it */
+    key1 = CreatePrimaryHelper(&ctx, alg);
+    AssertIntNE(key1, 0);
+    AssertIntEQ(ctx.objects[0].clientId, 2);
+
+    /* A session loaded from a saved context belongs to the client loading it */
+    FWTPM_SetCommandClient(&ctx, 3);
+    saved1 = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(saved1, 0);
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, saved1);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    memmove(gCmd + TPM2_HEADER_SIZE, gRsp + TPM2_HEADER_SIZE,
+        (size_t)rspSize - TPM2_HEADER_SIZE);
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, rspSize, TPM_CC_ContextLoad);
+    FWTPM_SetCommandClient(&ctx, 4);
+    cmdSz = rspSize;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FWTPM_FlushCommandClient(&ctx, 3);
+    sess1 = 0;
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == saved1) {
+            AssertIntEQ(ctx.sessions[i].clientId, 4);
+            sess1++;
+        }
+    }
+    AssertIntEQ(sess1, 1);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tFlushCommandClient keeps other clients:\tPassed\n");
+}
 #endif /* !FWTPM_NO_CONTEXT */
 
 static void test_fwtpm_evict_control(void)
@@ -22657,6 +22831,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_context_blob_domain_separation();
     test_fwtpm_reset_command_client_flushes_transient();
+    test_fwtpm_flush_command_client();
 #endif /* !FWTPM_NO_CONTEXT */
 
     /* Crypto */
@@ -22783,6 +22958,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();
+    test_fwtpm_nv_read_error_keeps_journal();
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
     test_fwtpm_nv_journal_mac_alloc_failure();
 #endif

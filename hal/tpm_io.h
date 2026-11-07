@@ -57,7 +57,7 @@
  */
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-    defined(WOLFTPM_WINAPI)
+    defined(WOLFTPM_OPTEE) || defined(WOLFTPM_WINAPI)
 
 /* HAL not required, so use NULL */
 #define TPM2_IoCb NULL

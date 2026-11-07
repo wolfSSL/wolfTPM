@@ -4161,6 +4161,7 @@ static FWTPM_Object* FwAllocObject(FWTPM_CTX* ctx, TPM_HANDLE* outHandle)
         if (!ctx->objects[i].used) {
             XMEMSET(&ctx->objects[i], 0, sizeof(FWTPM_Object));
             ctx->objects[i].used = 1;
+            ctx->objects[i].clientId = ctx->clientId;
             ctx->objects[i].handle = TRANSIENT_FIRST + (TPM_HANDLE)i;
             if (outHandle != NULL) {
                 *outHandle = ctx->objects[i].handle;
@@ -4243,6 +4244,7 @@ static FWTPM_Session* FwAllocSession(FWTPM_CTX* ctx, TPM_SE sessionType,
             }
             XMEMSET(&ctx->sessions[i], 0, sizeof(FWTPM_Session));
             ctx->sessions[i].used = 1;
+            ctx->sessions[i].clientId = ctx->clientId;
             ctx->sessions[i].handle = handle;
             ctx->sessions[i].sessionType = sessionType;
             if (outHandle != NULL) {
@@ -4295,6 +4297,7 @@ static void FwRemoveSavedContext(FWTPM_CTX* ctx, int idx)
     for (i = idx; i < ctx->contextLiveCount - 1; i++) {
         ctx->contextLive[i] = ctx->contextLive[i + 1];
         ctx->contextLiveHandle[i] = ctx->contextLiveHandle[i + 1];
+        ctx->contextLiveClient[i] = ctx->contextLiveClient[i + 1];
     }
     ctx->contextLiveCount--;
 }
@@ -4337,6 +4340,53 @@ void FWTPM_ResetCommandClient(FWTPM_CTX* ctx)
 #ifdef WOLFTPM_MLDSA
     for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
         if (ctx->signSeq[i].used) {
+            FwFreeSignSeq(&ctx->signSeq[i]);
+        }
+    }
+#endif
+}
+
+void FWTPM_SetCommandClient(FWTPM_CTX* ctx, UINT32 clientId)
+{
+    if (ctx != NULL) {
+        ctx->clientId = clientId;
+    }
+}
+
+void FWTPM_FlushCommandClient(FWTPM_CTX* ctx, UINT32 clientId)
+{
+    int i;
+
+    if (ctx == NULL) {
+        return;
+    }
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx->objects[i].used && ctx->objects[i].clientId == clientId) {
+            FwFreeObject(&ctx->objects[i]);
+        }
+    }
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx->sessions[i].used && ctx->sessions[i].clientId == clientId) {
+            FwFreeSession(&ctx->sessions[i]);
+        }
+    }
+#ifndef FWTPM_NO_CONTEXT
+    for (i = ctx->contextLiveCount - 1; i >= 0; i--) {
+        if (ctx->contextLiveClient[i] == clientId) {
+            FwRemoveSavedContext(ctx, i);
+        }
+    }
+#endif
+#ifndef FWTPM_NO_HASH_CMDS
+    for (i = 0; i < FWTPM_MAX_HASH_SEQ; i++) {
+        if (ctx->hashSeq[i].used && ctx->hashSeq[i].clientId == clientId) {
+            FwFreeHashSeq(&ctx->hashSeq[i]);
+        }
+    }
+#endif
+#ifdef WOLFTPM_MLDSA
+    for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+        if (ctx->signSeq[i].used && ctx->signSeq[i].clientId == clientId) {
             FwFreeSignSeq(&ctx->signSeq[i]);
         }
     }
@@ -6134,6 +6184,7 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* Record so this session context loads at most once, any order */
             ctx->contextLive[ctx->contextLiveCount] = ctx->contextSeqCounter;
             ctx->contextLiveHandle[ctx->contextLiveCount] = saveHandle;
+            ctx->contextLiveClient[ctx->contextLiveCount] = ctx->clientId;
             ctx->contextLiveCount++;
         }
         seqHi = (UINT32)(ctx->contextSeqCounter >> 32);
@@ -6411,6 +6462,7 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (rc == 0) {
                 XMEMCPY(&ctx->sessions[si], &restored,
                     sizeof(FWTPM_Session));
+                ctx->sessions[si].clientId = ctx->clientId;
                 /* Keep the original handle — cpHash includes session
                  * handle as entity name, so it must match what ESYS
                  * computed. FwFindSession searches by handle value. */
@@ -10854,6 +10906,7 @@ static FWTPM_HashSeq* FwAllocHashSeq(FWTPM_CTX* ctx, TPM_HANDLE* handle)
         if (!ctx->hashSeq[i].used) {
             XMEMSET(&ctx->hashSeq[i], 0, sizeof(ctx->hashSeq[i]));
             ctx->hashSeq[i].used = 1;
+            ctx->hashSeq[i].clientId = ctx->clientId;
             ctx->hashSeq[i].handle = TRANSIENT_FIRST +
                 FWTPM_MAX_OBJECTS + (TPM_HANDLE)i;
             *handle = ctx->hashSeq[i].handle;
@@ -18851,6 +18904,7 @@ static FWTPM_SignSeq* FwAllocSignSeq(FWTPM_CTX* ctx, TPM_HANDLE* handle)
         if (!ctx->signSeq[i].used) {
             XMEMSET(&ctx->signSeq[i], 0, sizeof(ctx->signSeq[i]));
             ctx->signSeq[i].used = 1;
+            ctx->signSeq[i].clientId = ctx->clientId;
             /* Use a separate handle range above hash sequences to avoid
              * collisions in FwCmd_SequenceUpdate dispatch. */
             ctx->signSeq[i].handle = TRANSIENT_FIRST +
@@ -21338,8 +21392,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         sizeof(ctx->activeCmdAuthIsPolicy));
 #endif
 
-    /* rspSize is in/out: capacity in, bytes written out. Callers that leave
-     * it unset get the historic FWTPM_MAX_COMMAND_SIZE assumption. */
     /* Handlers commit state before marshalling and some write outside the
      * packet API, so they are only ever run with a full-size buffer. A
      * caller with a smaller transport buffer must stage through one.
