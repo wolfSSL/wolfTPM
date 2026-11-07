@@ -24,6 +24,27 @@ PASS=0
 FAIL=0
 SKIP=0
 STARTED_SERVER=0
+
+# A server that exits partway through the suite makes every later example fail
+# at wolfTPM2_Init with TPM_RC_FAILURE, which reads as a failure of whichever
+# example happened to be running. The server log is only shown when startup
+# fails, so call this on a mid-suite failure to say what actually happened.
+report_server_death() {
+    if [ "${STARTED_SERVER:-0}" -ne 1 ]; then
+        return 0
+    fi
+    if [ -f "$PID_FILE" ] && ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        echo "fwtpm_server (pid $(cat "$PID_FILE")) is no longer running;" \
+            "it exited during the suite rather than at the end."
+        echo "A machine-wide 'killall fwtpm_server' from another session will" \
+            "do this even when this run has its own port."
+    fi
+    if [ -f "/tmp/fwtpm_check_$$.log" ]; then
+        echo "--- fwtpm_server log ---"
+        cat "/tmp/fwtpm_check_$$.log"
+        echo "--- end fwtpm_server log ---"
+    fi
+}
 SKIP_EXAMPLES=0
 SKIP_EXAMPLES_REASON=""
 
@@ -584,6 +605,7 @@ elif [ -x "$RUN_EXAMPLES" ]; then
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: run_examples.sh"
+        report_server_death
     fi
 else
     echo "SKIP: run_examples.sh not found"
@@ -641,6 +663,7 @@ elif [ -x "$TPM2_TOOLS_SCRIPT" ]; then
     else
         FAIL=$((FAIL + 1))
         echo "FAIL: tpm2_tools_test.sh (exit $rc)"
+        report_server_death
     fi
 else
     echo "SKIP: tpm2_tools_test.sh not found"

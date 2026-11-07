@@ -190,6 +190,8 @@ These fwTPM-specific macros disable entire groups of TPM 2.0 functionality to re
 | `FWTPM_NO_CONTEXT` | not defined | `ContextSave`, `ContextLoad` (`FlushContext` retained), plus the per-boot context protection key and saved-context replay list in `FWTPM_CTX` |
 | `FWTPM_NO_SYM_ENCRYPT` | not defined | `EncryptDecrypt`, `EncryptDecrypt2` |
 | `FWTPM_NO_CLOCK` | not defined | `ReadClock`, `ClockSet`, `ClockRateAdjust` |
+| `FWTPM_NO_ECC_ENCRYPT` | set automatically unless wolfSSL defines `WOLFSSL_PUBLIC_ECC_ADD_DBL` | `ECC_Encrypt`, `ECC_Decrypt`. Both need the full ECDH shared point, so they use the same RNG-blinded multiplication as `ZGen_2Phase` and are disabled on the same terms rather than falling back to an unblinded multiply |
+| `FWTPM_NO_READONLY` | not defined | `ReadOnlyControl`, the Version 184 Read-Only Mode enforcement in the dispatcher, the conditional NV checks, the `readOnly` bit of `TPMA_STARTUP_CLEAR`, and the `readOnly` field in `FWTPM_CTX`. The NV orderly-shutdown marker reverts to its shorter legacy form, though a marker written by a build that has Read-Only Mode is still accepted and its bit ignored |
 
 Removing a command group also removes it from the `TPM2_GetCapability(TPM_CAP_COMMANDS)` advertisement and the `TPM_PT_TOTAL_COMMANDS` count, since both are derived from the dispatch table. When `WOLFTPM_MLDSA` is built, `SequenceUpdate` alone is retained under `FWTPM_NO_HASH_CMDS`, because ML-DSA verify sequences stream their message through it. `SequenceComplete` is not shared (ML-DSA sequences finalize through `TPM2_SignSequenceComplete` and `TPM2_VerifySequenceComplete`), so it is gated out with the rest of the hash commands rather than advertised as a command that can never succeed.
 
@@ -203,7 +205,7 @@ The `FWTPM_DA_USED_RETRY` macro (off by default) does not remove commands. It ma
         -DFWTPM_NO_POLICY -DFWTPM_NO_ATTESTATION -DFWTPM_NO_CREDENTIAL \
         -DFWTPM_NO_DA -DFWTPM_NO_PARAM_ENC -DFWTPM_NO_KEY_MIGRATION \
         -DFWTPM_NO_ECDH -DFWTPM_NO_HASH_CMDS -DFWTPM_NO_CONTEXT \
-        -DFWTPM_NO_SYM_ENCRYPT -DFWTPM_NO_CLOCK"
+        -DFWTPM_NO_SYM_ENCRYPT -DFWTPM_NO_CLOCK -DFWTPM_NO_READONLY"
 ```
 
 That set retains a core fTPM: `Startup`, `Shutdown`, `SelfTest`, `GetRandom`, `GetCapability`, the `PCR_*` commands, `Create`, `CreatePrimary`, `Load`, `ReadPublic`, `FlushContext`, `Sign`, `VerifySignature`, the `NV_*` commands, and session support (`StartAuthSession` and `Unseal`). Add `-DFWTPM_NO_NV` to also drop NV, or drop any `-DFWTPM_NO_*` above to keep that group. This ECC-only build is small enough to run as a soft-core fTPM on a constrained FPGA (see the MicroBlaze V example in the `wolftpm-examples` repository, which fits an ECC-only fTPM into about 192 KB of on-chip memory).

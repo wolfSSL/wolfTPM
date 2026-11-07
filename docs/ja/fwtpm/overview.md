@@ -1,6 +1,6 @@
 # fwTPM 概要
 
-wolfTPM の fwTPM (fTPM とも呼ばれます) は、wolfCrypt の暗号プリミティブを基盤とするファームウェア TPM 2.0 です。テスト専用のエミュレータではありません。スタンドアロンのサーバープロセス (`fwtpm_server`) として動作するか、組み込みファームウェアイメージにリンクして使用できる、ポータブルな TPM 2.0 コマンドプロセッサです。RSA、ECC、AES、およびすべての機能グループを有効にしたデフォルトビルドでは、TPM 2.0 Revision 1.38 の 112 個のコマンドコードのうち 103 個がディスパッチテーブルに含まれます。Version 185 のポスト量子コマンド 8 個を加えると 111 個になります。カウント方法と、最小限のセルフテストや `SU_STATE` による再開が未対応であることなどの既知の制限については、以下のコマンドカバレッジを参照してください。
+wolfTPM の fwTPM (fTPM とも呼ばれます) は、wolfCrypt の暗号プリミティブを基盤とするファームウェア TPM 2.0 です。テスト専用のエミュレータではありません。スタンドアロンのサーバープロセス (`fwtpm_server`) として動作するか、組み込みファームウェアイメージにリンクして使用できる、ポータブルな TPM 2.0 コマンドプロセッサです。RSA、ECC、AES、およびすべての機能グループを有効にしたデフォルトビルドでは、TPM 2.0 Revision 1.38 の 112 個のコマンドコードのうち 103 個がディスパッチテーブルに含まれます。さらに Version 184 での追加 8 個を加えて 111 個となり、Version 185 のポスト量子コマンド 8 個を加えると 119 個になります。カウント方法と、最小限のセルフテストや `SU_STATE` による再開が未対応であることなどの既知の制限については、以下のコマンドカバレッジを参照してください。
 
 fwTPM はテストに使用できるほか、ディスクリート TPM チップが利用できない、または使いたくない環境での本番運用、セキュリティ重視、分離型のデプロイメントにも使用できます。そのようなデプロイメントでは、TPM のセキュリティはそれをホストするプラットフォームに依存します。ファームウェア TPM は、それ自体ではディスクリート TPM チップのような物理的な分離を提供しません。そのため、インテグレーターが分離 (別コア、TrustZone のセキュアワールドなど) を用意し、NV ストレージを保護する必要があります。デフォルトのファイルベース NV ストアは、階層シード、認可値、秘密鍵を平文で保持し、`fwtpm_server` 自体は開発およびテスト用のツールです。また、fwTPM は TPM シリコンのないプラットフォームにポスト量子暗号と SPDM を提供します。
 
@@ -239,12 +239,12 @@ fwTPM は、TPM 2.0 仕様 (Part 1、Section 19.8) をモデルとしたディ�
 
 ## コマンドカバレッジ
 
-### 実装済み (Revision 1.38 のコマンドコード 103 個)
+### 実装済み (Revision 1.38 のコマンドコード 103 個、および Version 184 での追加 8 個)
 
-このページではコマンド名ではなくコマンドコードを数え、標準の合計から `TPM_CC_Vendor_TCG_Test` を除外しています。Revision 1.38 は 112 個の標準コマンドコードを定義しています。RSA、ECC、AES、およびすべての機能グループを有効にした場合、ディスパッチテーブルにはそのうち 103 個が含まれ、これは Revision 1.38 の約 92% にあたります。Version 185 のポスト量子コマンドがさらに 8 個加わります。エントリ数を 113 にするには、`WOLFTPM_SPDM` (コマンド 1 個、`PolicyTransportSPDM` が追加されます) とテスト専用のベンダーコマンドも必要です。
+このページではコマンド名ではなくコマンドコードを数え、標準の合計から `TPM_CC_Vendor_TCG_Test` を除外しています。Revision 1.38 は 112 個の標準コマンドコードを定義しています。RSA、ECC、AES、およびすべての機能グループを有効にした場合、ディスパッチテーブルにはそのうち 103 個が含まれ、これは Revision 1.38 の約 92% にあたります。Version 184 での追加が 8 個、Version 185 のポスト量子コマンドがさらに 8 個加わります。エントリ数を 121 にするには、`WOLFTPM_SPDM` (コマンド 1 個、`PolicyTransportSPDM` が追加されます) とテスト専用のベンダーコマンドも必要です。
 
-**コアセット、ゲートされない (36 コマンド):**
-Startup, Shutdown, SelfTest, IncrementalSelfTest, GetTestResult, GetRandom, StirRandom, GetCapability, TestParms, PCR_Read, PCR_Extend, PCR_Reset, PCR_Event, PCR_Allocate, PCR_SetAuthPolicy, PCR_SetAuthValue, CreatePrimary, FlushContext, ReadPublic, Clear, ClearControl, ChangeEPS, ChangePPS, HierarchyControl, HierarchyChangeAuth, SetPrimaryPolicy, EvictControl, Create, ObjectChangeAuth, Load, Sign, VerifySignature, StartAuthSession, Unseal, LoadExternal, CreateLoaded
+**コアセット、ゲートされない (37 コマンド):**
+Startup, Shutdown, SelfTest, IncrementalSelfTest, GetTestResult, GetRandom, StirRandom, GetCapability, TestParms, PCR_Read, PCR_Extend, PCR_Reset, PCR_Event, PCR_Allocate, PCR_SetAuthPolicy, PCR_SetAuthValue, CreatePrimary, FlushContext, ReadPublic, Clear, ClearControl, ChangeEPS, ChangePPS, HierarchyControl, HierarchyChangeAuth, SetPrimaryPolicy, EvictControl, Create, ObjectChangeAuth, Load, Sign, VerifySignature, StartAuthSession, Unseal, LoadExternal, CreateLoaded, SetCapability (Version 184)
 
 これらはすべてのビルドに含まれます。
 
@@ -256,8 +256,8 @@ RSA_Encrypt, RSA_Decrypt, ECDH_KeyGen, ECDH_ZGen, ECC_Parameters, EC_Ephemeral, 
 
 **機能マクロに依存:**
 
-- `FWTPM_NO_POLICY`: PolicyGetDigest, PolicyRestart, PolicyPCR, PolicyPassword, PolicyAuthValue, PolicyCommandCode, PolicyOR, PolicySecret, PolicyAuthorize, PolicyLocality, PolicySigned, PolicyNV, PolicyPhysicalPresence, PolicyCpHash, PolicyNameHash, PolicyDuplicationSelect, PolicyNvWritten, PolicyTemplate, PolicyCounterTimer, PolicyTicket, PolicyAuthorizeNV (21 コマンド)。条件付きの `PolicyTransportSPDM` コマンドもゲートします。
-- `FWTPM_NO_NV`: NV_DefineSpace, NV_UndefineSpace, NV_UndefineSpaceSpecial, NV_ReadPublic, NV_Write, NV_Read, NV_Extend, NV_Increment, NV_WriteLock, NV_ReadLock, NV_SetBits, NV_ChangeAuth, NV_GlobalWriteLock (13 コマンド)。ポリシーが有効な場合は PolicyNV と PolicyAuthorizeNV もゲートし、`FWTPM_CTX` からメモリ内の NV インデックススロットを削除します。NV_Certify は `FWTPM_NO_ATTESTATION` に加えて `FWTPM_NO_NV` でもゲートされます。
+- `FWTPM_NO_POLICY`: PolicyGetDigest, PolicyRestart, PolicyPCR, PolicyPassword, PolicyAuthValue, PolicyCommandCode, PolicyOR, PolicySecret, PolicyAuthorize, PolicyLocality, PolicySigned, PolicyNV, PolicyPhysicalPresence, PolicyCpHash, PolicyNameHash, PolicyDuplicationSelect, PolicyNvWritten, PolicyTemplate, PolicyCounterTimer, PolicyTicket, PolicyAuthorizeNV, PolicyCapability (Version 184), PolicyParameters (Version 184) (23 コマンド)。条件付きの `PolicyTransportSPDM` コマンドもゲートします。
+- `FWTPM_NO_NV`: NV_DefineSpace, NV_UndefineSpace, NV_UndefineSpaceSpecial, NV_ReadPublic, NV_Write, NV_Read, NV_Extend, NV_Increment, NV_WriteLock, NV_ReadLock, NV_SetBits, NV_ChangeAuth, NV_GlobalWriteLock, NV_ReadPublic2 および NV_DefineSpace2 (Version 184) (15 コマンド)。ポリシーが有効な場合は PolicyNV と PolicyAuthorizeNV もゲートし、`FWTPM_CTX` からメモリ内の NV インデックススロットを削除します。NV_Certify は `FWTPM_NO_ATTESTATION` に加えて `FWTPM_NO_NV` でもゲートされます。
 - `FWTPM_NO_ATTESTATION`: Quote, Certify, CertifyCreation, GetTime, NV_Certify (NV_Certify は `FWTPM_NO_NV` でも削除されます)
 - `FWTPM_NO_CREDENTIAL`: MakeCredential, ActivateCredential
 - `FWTPM_NO_DA`: DictionaryAttackLockReset, DictionaryAttackParameters (2 コマンド)
@@ -268,6 +268,8 @@ RSA_Encrypt, RSA_Decrypt, ECDH_KeyGen, ECDH_ZGen, ECC_Parameters, EC_Ephemeral, 
 - `FWTPM_NO_CONTEXT`: ContextSave, ContextLoad (2 コマンド)。FlushContext は残ります。`FWTPM_CTX` から起動ごとのコンテキスト保護鍵と保存済みコンテキストのリプレイリストも削除します。
 - `FWTPM_NO_SYM_ENCRYPT`: EncryptDecrypt, EncryptDecrypt2 (2 コマンド)。`NO_AES` の内側にネストされます。AES 自体は、セッションパラメータ暗号化、AES-GCM、および (`FWTPM_NO_CONTEXT` も設定されていない場合は) コンテキスト保護のために残ります。
 - `FWTPM_NO_CLOCK`: ReadClock, ClockSet, ClockRateAdjust (3 コマンド)。GetTime はこのフラグではなく `FWTPM_NO_ATTESTATION` の対象です。
+- `FWTPM_NO_ECC_ENCRYPT`: ECC_Encrypt, ECC_Decrypt (2 コマンド、Version 184)。`FWTPM_NO_ZGEN_2PHASE` と同じ条件で、wolfCrypt が RNG でブラインドされた ECC スカラー倍算をエクスポートしない場合は自動的に設定されます。
+- `FWTPM_NO_READONLY`: ReadOnlyControl (1 コマンド、Version 184)。ディスパッチャの読み取り専用強制、条件付きの NV チェック、`TPMA_STARTUP_CLEAR` の `readOnly` ビット、および `FWTPM_CTX` の `readOnly` フィールドも削除します。
 - `FWTPM_NO_PP`: PolicyPhysicalPresence と物理プレゼンスの強制。物理プレゼンス HAL、プラットフォームラッチ、および `FWTPM_PP_SetHAL` を削除します。
 
 これらのゲートは独立しており、意図的に包括的なマクロは用意されていません。fTPM に不要なグループだけを正確に選択してください。すべてのゲートを適用すると、常に存在する 36 個のコアコマンドと、アルゴリズム構成によって残るコマンドだけが残ります (NV を残すか、`FWTPM_NO_NV` を追加して NV も削除する)。具体的な選択例については、`wolftpm-examples` リポジトリの MicroBlaze V サンプル ([使用方法](usage.md)に記載) を参照してください。
@@ -309,24 +311,17 @@ RSA_Encrypt, RSA_Decrypt, ECDH_KeyGen, ECDH_ZGen, ECC_Parameters, EC_Ephemeral, 
 | `TPM2_Policy_AC_SendSelect` | 32.4 | 中 | Version 184 で非推奨。AC_Send 用のポリシー。他のポリシーコマンドと同様 |
 | `TPM2_ACT_SetTimeout` | 33.2 | 中 | 認証付きカウントダウンタイマーを設定。ACT の状態とタイマー基盤が必要 |
 
-#### Version 184 での追加 (コマンドコード 9 個、未実装 8 個)
+#### Version 184 での追加 (コマンドコード 9 個、未実装なし)
 
 Version 184 では、`CreateLoaded`、`AC_GetCapability`、`AC_Send`、`Policy_AC_SendSelect`、`CertifyX509` が非推奨とされています。`CreateLoaded` はここでは引き続き実装されています。
 
-| コマンド | 仕様セクション | 難易度 | 備考 |
-|------------------------------------------|--------|--------|------------------------------------------|
-| `TPM2_ECC_Encrypt` | 14.8 | 中 | Part 1 Annex C で定義された TPM 固有の構成 (一時的な ECDH 点、KDF によるマスキング、および完全性データ) を用いる ECC ベースの暗号化。このコマンドではスキームを選択できません。 |
-| `TPM2_ECC_Decrypt` | 14.9 | 中 | ECC ベースの復号。ECC_Encrypt と対をなす |
-| `TPM2_PolicyCapability` | 23.x | 易 | ポリシーセッションで TPM のケイパビリティ値をアサート |
-| `TPM2_PolicyParameters` | 23.x | 易 | ポリシーセッションでコマンドパラメータをアサート |
-| `TPM2_SetCapability` | 30.x | 中 | TPM のケイパビリティ設定を変更。プラットフォーム認可が必要 |
-| `TPM2_NV_DefineSpace2` | 31.x | 中 | 拡張 NV 領域の定義 (より大きな属性フィールド)。既存の NV_DefineSpace を拡張 |
-| `TPM2_NV_ReadPublic2` | 31.x | 易 | 拡張 NV のパブリック読み取り。既存の NV_ReadPublic を拡張 |
-| `TPM2_ReadOnlyControl` | 24.x | 易 | TPM の読み取り専用モードを切り替え。単純なフラグ |
+9 個の追加はすべて実装済みです。`TPM2_ECC_Encrypt` と `TPM2_ECC_Decrypt` は、RNG でブラインドされた ECC 点スカラー倍算をエクスポートする wolfSSL を必要とし、`TPM2_NV_DefineSpace2` は `TPM_HT_NV_INDEX` ハンドルタイプのみを受け付けます。後述の「ECC 暗号化」を参照してください。
 
 #### 条件付きで実装
 
 `TPM2_PolicyTransportSPDM` は、`WOLFTPM_SPDM` が有効な場合は常にハンドラとディスパッチテーブルのエントリを持ち、`FWTPM_NO_POLICY` によって削除されます。未実装ではありません。[SPDM レスポンダ](spdm.md)を参照してください。
+
+`TPM2_ReadOnlyControl`、`TPM2_SetCapability`、`TPM2_NV_ReadPublic2`、`TPM2_PolicyCapability`、`TPM2_PolicyParameters` は実装済みです。後述の「読み取り専用モード」および「設定可能な機能構成」を参照してください。
 
 ### カバレッジのまとめ
 
@@ -336,12 +331,42 @@ Version 184 では、`CreateLoaded`、`AC_GetCapability`、`AC_Send`、`Policy_A
 |-------------|---------------------|-----------------------------|---------|----------|
 | Revision 1.38 | 112 | 103 | 9 | 92% |
 | Revision 1.59 | 117 | 103 | 14 | 88% |
-| Version 184 | 126 | 103 | 23 | 82% |
-| Version 185 | 134 | 111 | 23 | 83% |
+| Version 184 | 126 | 111 | 15 | 88% |
+| Version 185 | 134 | 119 | 15 | 89% |
 
 実装済みの数は、RSA、ECC、AES、およびすべての機能グループが有効で、SPDM、PQC (Version 185 の行を除く)、およびベンダーテストコマンドが無効であることを前提としています。`WOLFTPM_SPDM` を有効にすると `PolicyTransportSPDM` が加わります (実装済みのコードが 1 個増えます)。Version 185 の行には 8 個の PQC コマンドが含まれます。
 
 既知の制限: `TPM2_SelfTest` は最小限のスモークテストで、`TPM2_IncrementalSelfTest` はスタブです (前述のとおり)。また、`SU_STATE` による再開はサポートされていません (ライフサイクルのセクションを参照)。上記のコマンドカバレッジを、TCG 仕様への完全な準拠を示すものと解釈しないでください。
+
+## 読み取り専用モード (Version 184)
+
+デフォルトで有効です。機能全体をコンパイル対象から外すには `FWTPM_NO_READONLY` を定義してください。[ビルド](building.md)を参照してください。
+
+`TPM2_ReadOnlyControl` はプラットフォーム認可を必要とし、1 個の `TPMI_YES_NO` を取ります。状態は `TPMA_STARTUP_CLEAR` の `readOnly` ビット (ビット 4) として報告され、`TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES, TPM_PT_STARTUP_CLEAR)` で読み取れます。
+
+このモードが有効な間、ディスパッチャは Part 3 Table 190 で許可されないとされているコマンドすべてを `TPM_RC_READ_ONLY` で拒否します。拒否は認可処理より前に行われるため、拒否されたコマンドがディクショナリアタックの試行回数やセッションを消費することはありません。本実装が持つコマンドのうち、拒否される対象は Create, CreateLoaded, ObjectChangeAuth, CreatePrimary, HierarchyControl, SetPrimaryPolicy, ChangePPS, ChangeEPS, Clear, ClearControl, HierarchyChangeAuth, EvictControl, PCR_Allocate, PCR_SetAuthPolicy, PCR_SetAuthValue, DictionaryAttackParameters, ClockSet, ClockRateAdjust, SetCapability, NV_DefineSpace, NV_UndefineSpace, NV_UndefineSpaceSpecial, NV_Increment, NV_GlobalWriteLock, NV_ChangeAuth です。
+
+`NV_Write`、`NV_Extend`、`NV_SetBits`、`NV_WriteLock`、`NV_ReadLock` は全面的な拒否ではなく条件付きです。`TPMA_NV_ORDERLY` と `TPMA_NV_CLEAR_STCLEAR` の両方を指定して定義されたインデックスに対してのみ成功します。これにより、変更がこのモードを解除する電源サイクルを越えて残ることはありません。それ以外のインデックスでは `TPM_RC_READ_ONLY` を返します。`NV_Increment` は、TPM が全インデックスで 1 個のグローバルなインクリメントカウンタを保持しているため、どのインデックスに対しても拒否されます。読み取り、暗号演算、PCR の拡張、署名、Quote、コンテキストの保存と読み込みは引き続き利用できます。
+
+Table 190 では `TPM2_PolicySecret` も、認可を与えるエンティティが PIN Pass/Fail の NV インデックスでないことを条件としています。本実装ではこのケースは発生しません。`TPM2_NV_DefineSpace` は `TPM_NT_ORDINARY`、`TPM_NT_COUNTER`、`TPM_NT_BITS`、`TPM_NT_EXTEND` のみを受け付けるため PIN インデックスを定義できず、そのためのチェックは実装していません。
+
+このビットは TPM Reset および TPM Restart で CLEAR となり、TPM Resume では保持されます。フラグバイトに空きビットがないため、このビットは NV の正常シャットダウンマーカーに格納されます。そのため正常な `Shutdown(STATE)` とプロセスの再起動を越えて保持されます。このマーカーは 4 バイト目が追加されます。古いファームウェアは長くなったレコードを拒否します。これはこのマーカーに対する過去 2 回の拡張と同じダウングレード時の考慮事項です。
+
+## ECC 暗号化 (Version 184)
+
+`TPM2_ECC_Encrypt` と `TPM2_ECC_Decrypt` は、TPM 2.0 Part 1 Annex C.2.4 に示された GB/T 32918.4-2016 を実装します。Annex C はこれを、restricted 属性が CLEAR である任意の ECC 鍵に一般化しています。一時的な公開点が `C1` として返され、平文は共有点の両座標から導出した鍵ストリームでマスクされ、完全性値は `C3 = H(x2 || M || y2)` です。
+
+Annex C は `TPM_ALG_KDF2` のみをサポートすると述べているため、それ以外の KDF スキームは `TPM_RC_SCHEME` を返します。ISO/IEC 18033-2 の KDF2 は SharedInfo が空の X9.63 と同一なので、`wc_X963_KDF` がそのまま使用でき、新しいプリミティブは不要です。`C3` は暗号文ではなく平文を対象とするため、復号ではまず平文を復元し、完全性値を検証してから結果を返します。復号にはさらに decrypt が SET である必要があり、鍵の曲線上にない点は `TPM_RC_ECC_POINT` で拒否されます。
+
+両コマンドは x 座標だけでなく共有点の全体を必要とするため、`TPM2_ZGen_2Phase` と同じ RNG ブラインド付き乗算を使用します。この API は wolfSSL が `WOLFSSL_PUBLIC_ECC_ADD_DBL` (`--enable-wpas` で設定されます) でビルドされた場合にのみエクスポートされます。これがない場合は `FWTPM_NO_ECC_ENCRYPT` が自動的に設定されてコマンドが存在しなくなるため、ブラインドなしの乗算に暗黙的にフォールバックすることはありません。fwTPM が対応しているハッシュであっても KDF 側で拒否されることがあります。`wc_X963_KDF` が SHA-3 を受け付けるのは十分に新しい wolfSSL の場合のみで、FIPS ビルドでは決して受け付けません。この場合は `TPM_RC_HASH` として現れます。
+
+## 設定可能な機能構成 (Version 184)
+
+`TPM2_SetCapability` は、プラットフォーム認可の下で 1 回の呼び出しごとに 1 個の `TPMS_TAGGED_CONFIG` を書き込みます。Part 2 Table 137 が `TPMU_SET_CAPABILITIES` の定義を TCG のレジストリに委ねているため、規範的なメンバー一覧が存在しません。そのため受け付けるケイパビリティは `TPM_CAP_CONFIGS` (`0x81C90001`) のみで、これは wolfTPM のクライアント側が既に送信している構造と一致します。それ以外のケイパビリティ、認識できない `TPM_PT_CONFIG_*`、および `lock` が既に SET されている構成への書き込みは `TPM_RC_VALUE` を返します。最後のケースを区別できる `TPM_RC_LOCKED` は存在しません。
+
+4 個の構成 (`ENCRYPTDECRYPT2`、`CHANGEEPS`、`TPMID_NV`、`SPDM_PSK`) は `enable` と `lock` のフラグとともに保存され、専用の NV ジャーナルタグで永続化され、`TPM2_GetCapability(TPM_CAP_CONFIGS)` によって `TPML_TAGGED_CONFIG` として報告されます。`lock` は部品の寿命にわたって有効で、`TPM2_Clear` を越えて保持されます。
+
+これらの構成は記録および報告されますが、コマンドの利用可否をゲートするものではありません。本実装は機能セットをビルド時に `FWTPM_NO_*` マクロで選択します。構成の状態は、実行時のスイッチではなくプロビジョニングのメタデータとして扱ってください。
 
 ## 起動とシャットダウンのライフサイクル
 
