@@ -8396,29 +8396,16 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_FAILURE;
         }
 
-        /* p = n / q, capturing the remainder so we can reject a caller-
-         * supplied q that does not evenly divide n. Without this check
-         * FwRsaComputeCRT would succeed on a mathematically inconsistent
-         * key whose CRT components do not match the public modulus,
-         * mirroring the existing guard in FwReconstructRsaPrivateKey. */
+        /* p = n / q, rejecting a caller-supplied q that does not evenly
+         * divide n. Without this check FwRsaComputeCRT would succeed on a
+         * mathematically inconsistent key whose CRT components do not match
+         * the public modulus. */
         if (rc == 0) {
-            mp_int rem;
-            rc = mp_init(&rem);
-            if (rc == 0) {
-                rc = mp_div(&rsaKey->n, &rsaKey->q, &rsaKey->p, &rem);
-                if (rc == 0 && !mp_iszero(&rem)) {
-                    rc = TPM_RC_BINDING;
-                }
-                mp_forcezero(&rem);
-                mp_clear(&rem);
-            }
-            if (rc != 0 && rc != TPM_RC_BINDING) {
-                rc = TPM_RC_FAILURE;
-            }
+            rc = FwRsaPrimeFromModulus(rsaKey);
         }
 
         if (rc == 0) {
-            rc = FwRsaComputeCRT(rsaKey);
+            rc = FwRsaComputeCRT(rsaKey, &ctx->rng);
         }
 
         if (rc == 0) {
@@ -8884,7 +8871,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && primeSz > 0) {
         rc = FwImportReconstructKey(objectPublic, sensType,
             primeBuf, primeSz,
-            privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz);
+            privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz, &ctx->rng);
     }
 
 
