@@ -2767,6 +2767,7 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     UINT16 keyInSz = 0;
     int hashDigestSz;
     TPMA_SESSION sessionAttributes = 0;
+    TPM2B_DATA salt;
 
     if (dev == NULL || session == NULL)
         return BAD_FUNC_ARG;
@@ -2847,9 +2848,23 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             return rc;
         }
 
-        /* Encrypt salt using "SECRET" */
-        rc = wolfTPM2_EncryptSecret(dev, tpmKey, (TPM2B_DATA*)&session->salt,
+        /* Encrypt salt using "SECRET". The salt member is a TPM2B_DIGEST,
+         * which is smaller than the TPM2B_DATA the secret exchange works on. */
+        XMEMSET(&salt, 0, sizeof(salt));
+        salt.size = session->salt.size;
+        XMEMCPY(salt.buffer, session->salt.buffer, salt.size);
+        rc = wolfTPM2_EncryptSecret(dev, tpmKey, &salt,
             &authSesIn.encryptedSalt, "SECRET");
+        if (rc == 0) {
+            if (salt.size > (UINT16)sizeof(session->salt.buffer)) {
+                rc = BUFFER_E;
+            }
+            else {
+                session->salt.size = salt.size;
+                XMEMCPY(session->salt.buffer, salt.buffer, salt.size);
+            }
+        }
+        TPM2_ForceZero(&salt, sizeof(salt));
         if (rc != 0) {
         #ifdef DEBUG_WOLFTPM
             printf("Building encrypted salt failed %d: %s!\n", rc,
