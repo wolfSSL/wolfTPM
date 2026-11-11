@@ -862,6 +862,15 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     TPM2_SetActiveCtx(NULL);
     rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeData, NULL, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = TPM2_ST33_FieldUpgradeStart_ex(TPM_RS_PW,
+        TPM_CC_FieldUpgradeStartVendor_ST33, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#ifdef WOLFTPM_IFX_FW_UPGRADE
+    rc = TPM2_IFX_FieldUpgradeStart(TPM_RS_PW, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeData, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
     TPM2_SetActiveCtx(savedCtx);
 
     /* Initialize TPM */

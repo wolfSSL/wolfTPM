@@ -6979,6 +6979,10 @@ int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
     TPMS_AUTH_COMMAND session;
 
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
@@ -7009,6 +7013,10 @@ int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
@@ -7030,6 +7038,10 @@ int TPM2_ST33_FieldUpgradeStart_ex(TPM_HANDLE sessionHandle, TPM_CC cc,
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
     TPMS_AUTH_COMMAND session;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
