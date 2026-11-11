@@ -2139,6 +2139,11 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         return TPM_RC_SUCCESS;
     }
 
+    if (!TPM2_IS_HMAC_SESSION(tpmSession->handle.hndl) &&
+            !TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
+        return BAD_FUNC_ARG;
+    }
+
     rc = wolfTPM2_SetAuth(dev, index, tpmSession->handle.hndl,
         &tpmSession->handle.auth, sessionAttributes, NULL);
     if (rc == TPM_RC_SUCCESS) {
@@ -2853,6 +2858,22 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
         TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
         return rc;
+    }
+
+    /* The StartAuthSession response is not authenticated, so the handle type
+     * must match the requested session type before it selects how later
+     * commands are authorized. */
+    if ((sesType == TPM_SE_HMAC) ?
+            !TPM2_IS_HMAC_SESSION(authSesOut.sessionHandle) :
+            !TPM2_IS_POLICY_SESSION(authSesOut.sessionHandle)) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_StartAuthSession: unexpected handle 0x%x\n",
+            (word32)authSesOut.sessionHandle);
+    #endif
+        TPM2_ForceZero(&session->salt, sizeof(session->salt));
+        TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+        TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
+        return TPM_RC_FAILURE;
     }
 
     /* Calculate "key" and store into auth */

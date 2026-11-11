@@ -617,6 +617,33 @@ static void test_wolfTPM2_InitUpgrade(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Init upgrade context:");
 }
+
+/* The test server answers StartAuthSession with TPM_RS_PW as the session
+ * handle. A handle that is not of the requested session type must be refused
+ * rather than installed as a password authorization. */
+static void test_wolfTPM2_StartSession_HandleType(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(session.handle.hndl, 0);
+
+    session.handle.hndl = TPM_RS_PW;
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session, TPMA_SESSION_decrypt);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    AssertIntEQ(dev.session[1].sessionHandle, 0);
+
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Session handle type:");
+}
 #endif
 
 /* When the SPDM integration harness supplies a trusted pin, route the
@@ -11837,6 +11864,10 @@ int unit_tests(int argc, char *argv[])
     !defined(WOLFTPM2_NO_WRAPPER)
     if (argc == 2 && XSTRCMP(argv[1], "--init-upgrade") == 0) {
         test_wolfTPM2_InitUpgrade();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "--session-handle") == 0) {
+        test_wolfTPM2_StartSession_HandleType();
         return 0;
     }
 #endif
