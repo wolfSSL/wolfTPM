@@ -693,6 +693,21 @@ static void test_wolfTPM2_StartSession_NonceFail(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Session nonce failure:");
 }
+
+/* The test server fails Startup. A failed open must not leave the caller's
+ * context registered as the active one. */
+static void test_wolfTPM2_OpenExisting_Fail(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+
+    rc = wolfTPM2_OpenExisting(&dev, NULL, NULL);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertNull(TPM2_GetActiveCtx());
+    AssertIntEQ(dev.ctx.locality, -1);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Open existing failure:");
+}
 #endif
 
 /* When the SPDM integration harness supplies a trusted pin, route the
@@ -11924,6 +11939,10 @@ int unit_tests(int argc, char *argv[])
     }
     if (argc == 2 && XSTRCMP(argv[1], "--nonce-fail") == 0) {
         test_wolfTPM2_StartSession_NonceFail();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "--open-existing-fail") == 0) {
+        test_wolfTPM2_OpenExisting_Fail();
         return 0;
     }
 #endif

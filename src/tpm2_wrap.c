@@ -947,6 +947,11 @@ int wolfTPM2_OpenExisting(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     /* The 0 startup indicates use existing locality */
     rc = wolfTPM2_Init_ex(&dev->ctx, ioCb, userCtx, 0);
     if (rc != TPM_RC_SUCCESS) {
+        /* TPM_RC_UPGRADE leaves a usable active context so callers can
+         * continue the vendor firmware-recovery flow. */
+        if (rc != TPM_RC_UPGRADE) {
+            wolfTPM2_InitFailureCleanup(dev);
+        }
         return rc;
     }
 
