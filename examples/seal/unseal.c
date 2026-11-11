@@ -268,6 +268,8 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     wolfTPM2_UnsetAuth(&dev, 0);
 
 exit:
+    wc_ForceZero(&cmdOut_unseal, sizeof(cmdOut_unseal));
+
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &newKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);

@@ -332,6 +332,8 @@ exit:
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    wc_ForceZero(&unsealOut, sizeof(unsealOut));
+
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
