@@ -206,6 +206,11 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     for (i=0; i<info->authCnt; i++) {
         TPM2_AUTH_SESSION* session = &ctx->session[i];
 
+        /* the session array is caller memory; its sizes are copied below */
+        if (session->nonceCaller.size > sizeof(session->nonceCaller.buffer) ||
+                session->auth.size > sizeof(session->auth.buffer)) {
+            return BUFFER_E;
+        }
         if (session->sessionHandle == TPM_RS_PW) {
             continue;
         }
@@ -7218,6 +7223,9 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 
     if ((handleValue >= TRANSIENT_FIRST) ||
         (handleValue >= NV_INDEX_FIRST && handleValue <= NV_INDEX_LAST)) {
+        if (session->name.size > sizeof(name->name)) {
+            return BUFFER_E;
+        }
         if (session->name.size > 0) {
             name->size = session->name.size;
             XMEMCPY(name->name, session->name.name, name->size);

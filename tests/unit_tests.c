@@ -3265,6 +3265,59 @@ static void test_TPM2_command_process_buffer_cleanup(void)
     TPM2_Cleanup(&ctx);
     printf("Test TPM Wrapper:	Command process buffer cleanup:	Passed\n");
 }
+
+/* The native session array is caller memory. A size larger than its buffer
+ * must be refused before it is used as a copy length. */
+static void test_TPM2_command_process_session_sizes(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION sessions[MAX_SESSION_NUM];
+    NV_Write_In in;
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&in, 0, sizeof(in));
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
+    AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
+#else
+    AssertIntEQ(TPM2_Init_ex(&ctx, TPM2_IoCb, NULL, 0),
+        TPM_RC_SUCCESS);
+#endif
+    ctx.session = sessions;
+    in.authHandle = TPM_RH_OWNER;
+    in.nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    in.data.size = 1;
+
+    /* password authorization */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[0].auth.size = (UINT16)sizeof(sessions[0].auth.buffer) + 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* caller nonce; only a password slot keeps the size it was given */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[0].nonceCaller.size =
+        (UINT16)sizeof(sessions[0].nonceCaller.buffer) + 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
+
+#ifndef NO_HMAC
+    /* name of the second handle (the NV index) */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = HMAC_SESSION_FIRST;
+    sessions[0].authHash = TPM_ALG_SHA256;
+    sessions[0].symmetric.algorithm = TPM_ALG_NULL;
+    sessions[1].name.size = (UINT16)sizeof(sessions[1].name.name) + 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
+
+    TPM2_Cleanup(&ctx);
+    printf("Test TPM Wrapper:\tCommand process session sizes:\tPassed\n");
+}
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
@@ -12046,6 +12099,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVOwnerAuth();
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();
+    test_TPM2_command_process_session_sizes();
 #endif
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
     test_TPM2_transport_buffer_cleanup();
