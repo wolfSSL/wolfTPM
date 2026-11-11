@@ -1272,7 +1272,16 @@ int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
     in.capability = TPM_CAP_HANDLES;
     in.property = handle;
     in.propertyCount = MAX_CAP_HANDLES;
+    XMEMSET(&out, 0, sizeof(out));
+    if (handles != NULL) {
+        XMEMSET(handles, 0, sizeof(TPML_HANDLE));
+    }
     rc = TPM2_GetCapability(&in, &out);
+    /* the response selects which capability member was filled in */
+    if (rc == TPM_RC_SUCCESS &&
+            out.capabilityData.capability != TPM_CAP_HANDLES) {
+        rc = TPM_RC_FAILURE;
+    }
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_GetCapability handles failed 0x%x: %s\n", rc,

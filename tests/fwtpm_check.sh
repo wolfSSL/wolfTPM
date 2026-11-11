@@ -93,6 +93,7 @@ pick_available_port() {
 # This drives real wrapper paths with responses a hardware TPM would not give.
 #   init-upgrade    Startup returns TPM_RC_UPGRADE
 #   session-handle  StartAuthSession returns TPM_RS_PW as the session handle
+#   cap-selector    GetCapability returns a selector that was not requested
 run_mock_tpm_test() {
     local mode="$1"
     local port server_pid rc
@@ -140,6 +141,8 @@ def respond(command):
         return 0x12D, b""  # TPM_RC_UPGRADE
     if mode == "session-handle" and cc == 0x176:  # StartAuthSession
         return 0, struct.pack(">IH", 0x40000009, 32) + b"\x5a" * 32
+    if mode == "cap-selector" and cc == 0x17A:  # GetCapability
+        return 0, struct.pack(">BI", 0, 0x7FFFFFFF)
     return 0, b""
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -501,7 +504,7 @@ if [ $IS_SWTPM_MODE -eq 1 ] && [ $HAS_GETENV -eq 1 ] && \
         [ -x "$UNIT_TEST" ]; then
     echo ""
     echo "=== Running mock TPM regressions ==="
-    for mode in init-upgrade session-handle; do
+    for mode in init-upgrade session-handle cap-selector; do
         run_mock_tpm_test "$mode"
         rc=$?
         if [ $rc -eq 0 ]; then

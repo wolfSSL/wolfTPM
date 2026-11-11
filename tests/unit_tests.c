@@ -644,6 +644,29 @@ static void test_wolfTPM2_StartSession_HandleType(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Session handle type:");
 }
+
+/* The test server answers a TPM_CAP_HANDLES query with a different capability
+ * selector, which leaves the handle list in the response unfilled. */
+static void test_wolfTPM2_GetHandles_Selector(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    TPML_HANDLE handles;
+
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&handles, 0xA5, sizeof(handles));
+    rc = wolfTPM2_GetHandles(TRANSIENT_FIRST, &handles);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(handles.count, 0);
+    rc = wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Get handles selector:");
+}
 #endif
 
 /* When the SPDM integration harness supplies a trusted pin, route the
@@ -11867,6 +11890,10 @@ int unit_tests(int argc, char *argv[])
     }
     if (argc == 2 && XSTRCMP(argv[1], "--session-handle") == 0) {
         test_wolfTPM2_StartSession_HandleType();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "--cap-selector") == 0) {
+        test_wolfTPM2_GetHandles_Selector();
         return 0;
     }
 #endif
