@@ -3763,20 +3763,16 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     TPM_HANDLE parentHandle;
     TPM2B_DATA symSeed;
 
-    if (dev == NULL || keyBlob == NULL || pub == NULL ||
+    /* Without a storage parent there is no key to protect the import seed,
+     * so the sensitive area would be marshalled unwrapped. */
+    if (dev == NULL || parentKey == NULL || keyBlob == NULL || pub == NULL ||
             sens == NULL) {
         return BAD_FUNC_ARG;
     }
 
-    /* set session auth for key */
-    if (parentKey != NULL) {
-        /* set session auth for parent key */
-        wolfTPM2_SetAuthHandle(dev, 0, &parentKey->handle);
-        parentHandle = parentKey->handle.hndl;
-    }
-    else {
-        parentHandle = TPM_RH_OWNER;
-    }
+    /* set session auth for parent key */
+    wolfTPM2_SetAuthHandle(dev, 0, &parentKey->handle);
+    parentHandle = parentKey->handle.hndl;
 
     /* Import private key */
     XMEMSET(&importIn, 0, sizeof(importIn));
@@ -3850,16 +3846,8 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     XMEMCPY(&keyBlob, key, sizeof(WOLFTPM2_KEY));
     rc = wolfTPM2_ImportPrivateKey(dev, parentKey, &keyBlob, pub, sens);
     if (rc == 0) {
-        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
-        if (parentKey != NULL) {
-            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
-        }
-        else {
-            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
-            parentHandle->hndl = TPM_RH_OWNER;
-        }
-
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */
@@ -4049,15 +4037,8 @@ int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
     rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, &keyBlob, rsaPub, rsaPubSz,
         exponent, rsaPriv, rsaPrivSz, scheme, hashAlg);
     if (rc == 0) {
-        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
-        if (parentKey != NULL) {
-            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
-        }
-        else {
-            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
-            parentHandle->hndl = TPM_RH_OWNER;
-        }
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */
@@ -4253,15 +4234,8 @@ int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     rc = wolfTPM2_ImportEccPrivateKey(dev, parentKey, &keyBlob, curveId,
         eccPubX, eccPubXSz, eccPubY, eccPubYSz, eccPriv, eccPrivSz);
     if (rc == 0) {
-        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
-        if (parentKey != NULL) {
-            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
-        }
-        else {
-            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
-            parentHandle->hndl = TPM_RH_OWNER;
-        }
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */

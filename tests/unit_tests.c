@@ -10502,21 +10502,20 @@ static void test_wolfTPM2_LoadPrivateKey_NullParent(void)
 
     XMEMSET(&key, 0, sizeof(key));
 
-    /* Test NULL parentKey does not crash (should not dereference NULL) */
+    /* A NULL parentKey leaves nothing to wrap the private key with, so the
+     * import must be refused before anything is marshalled or sent */
 #ifndef NO_RSA
     rc = wolfTPM2_LoadRsaPrivateKey_ex(&dev, NULL, &key, rsaPub, sizeof(rsaPub),
         RSA_DEFAULT_PUBLIC_EXPONENT, rsaPriv, sizeof(rsaPriv),
         TPM_ALG_NULL, TPM_ALG_NULL);
-    /* rc may fail due to no real TPM, but must not crash */
-    AssertIntNE(rc, BAD_FUNC_ARG);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
 #endif
 #ifdef HAVE_ECC
     XMEMSET(&key, 0, sizeof(key));
     rc = wolfTPM2_LoadEccPrivateKey(&dev, NULL, &key, TPM_ECC_NIST_P256,
         eccPubX, sizeof(eccPubX), eccPubY, sizeof(eccPubY),
         eccPriv, sizeof(eccPriv));
-    /* rc may fail due to no real TPM, but must not crash */
-    AssertIntNE(rc, BAD_FUNC_ARG);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
 #endif
 
     wolfTPM2_Cleanup(&dev);

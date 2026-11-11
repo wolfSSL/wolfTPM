@@ -1440,7 +1440,7 @@ WOLFTPM_API int wolfTPM2_LoadPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param key pointer to an empty struct of WOLFTPM2_KEY type
     \param pub pointer to a populated structure of TPM2B_PUBLIC type
     \param sens pointer to a populated structure of TPM2B_SENSITIVE type
@@ -1463,7 +1463,7 @@ WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
     \param pub pointer to a populated structure of TPM2B_PUBLIC type
     \param sens pointer to a populated structure of TPM2B_SENSITIVE type
@@ -1534,7 +1534,7 @@ WOLFTPM_API int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ke
     \return BUFFER_E: arguments size is larger than what the TPM buffers allow
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
     \param rsaPub pointer to a byte buffer, containing the public part of the RSA key
     \param rsaPubSz integer value of word32 type, specifying the public part buffer size
@@ -1569,7 +1569,7 @@ WOLFTPM_API int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
     \return BUFFER_E: arguments size is larger than what the TPM buffers allow
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
     \param rsaPub pointer to a byte buffer, containing the public part of the RSA key
     \param rsaPubSz integer value of word32 type, specifying the public part buffer size
@@ -1603,7 +1603,7 @@ WOLFTPM_API int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param key pointer to an empty struct of WOLFTPM2_KEY type
     \param rsaPub pointer to a byte buffer, containing the public part of the RSA key
     \param rsaPubSz integer value of word32 type, specifying the public part buffer size
@@ -1629,7 +1629,7 @@ WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param key pointer to an empty struct of WOLFTPM2_KEY type
     \param rsaPub pointer to a byte buffer, containing the public part of the RSA key
     \param rsaPubSz integer value of word32 type, specifying the public part buffer size
@@ -1729,7 +1729,7 @@ WOLFTPM_API int wolfTPM2_LoadEccPublicKey_ex(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
     \param curveId integer value, one of the accepted TPM_ECC_CURVE values
     \param eccPubX pointer to a byte buffer containing the public material of point X
@@ -1763,7 +1763,7 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
     \param curveId integer value, one of the accepted TPM_ECC_CURVE values
     \param eccPubX pointer to a byte buffer containing the public material of point X
@@ -1797,7 +1797,7 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (required, must be a loaded storage key)
     \param key pointer to an empty struct of WOLFTPM2_KEY type
     \param curveId integer value, one of the accepted TPM_ECC_CURVE values
     \param eccPubX pointer to a byte buffer containing the public material of point X
