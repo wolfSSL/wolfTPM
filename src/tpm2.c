@@ -7250,6 +7250,12 @@ void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
     int i = 0;
 
     if (pcr && pcrIndex >= (int)PCR_FIRST && pcrIndex <= (int)PCR_LAST) {
+        if (pcr->count > HASH_COUNT) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_SetupPCRSel: Hash algorithm count error\n");
+        #endif
+            return;
+        }
         /* if we have no banks in use, use the 0th one */
         if (pcr->count == 0) {
             pcr->count = 1;

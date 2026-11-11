@@ -2047,6 +2047,13 @@ static void test_TPM2_PCRSel(void)
 {
     int rc = 0;
     TPML_PCR_SELECTION pcr;
+    /* A selection followed by the storage one more bank would occupy */
+    union {
+        TPML_PCR_SELECTION pcr;
+        byte raw[sizeof(TPML_PCR_SELECTION) + sizeof(TPMS_PCR_SELECTION)];
+    } over;
+    byte* past;
+    TPMS_PCR_SELECTION pastSel;
     /* This array holds PCR indexes, not a select bitmap, so it is sized by the
      * number of indexes the test uses. PCR_SELECT_MAX is a byte count and is
      * only 1 in a reduced-PCR build (IMPLEMENTATION_PCR <= 8). */
@@ -2107,6 +2114,20 @@ static void test_TPM2_PCRSel(void)
         rc = BAD_FUNC_ARG;
     }
     AssertIntEQ(rc, 0);
+
+    /* Test bad case - count beyond the array. The slot past the end holds
+     * the requested algorithm, so a search that runs off the array finds it
+     * and would then set a PCR bit there. */
+    XMEMSET(&over, 0, sizeof(over));
+    XMEMSET(&pastSel, 0, sizeof(pastSel));
+    pastSel.hash = TPM_ALG_SHA256;
+    past = over.raw + ((byte*)over.pcr.pcrSelections - (byte*)&over.pcr) +
+        (HASH_COUNT * sizeof(TPMS_PCR_SELECTION));
+    XMEMCPY(past, &pastSel, sizeof(pastSel));
+    over.pcr.count = HASH_COUNT + 1;
+    TPM2_SetupPCRSel(&over.pcr, TPM_ALG_SHA256, 1);
+    AssertIntEQ(over.pcr.count, HASH_COUNT + 1);
+    AssertIntEQ(XMEMCMP(past, &pastSel, sizeof(pastSel)), 0);
 
     printf("Test TPM Wrapper: %-40s %s\n", "PCR Select Array:",
         rc == 0 ? "Passed" : "Failed");
