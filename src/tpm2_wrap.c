@@ -709,6 +709,9 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
 #endif
         return BUFFER_E;
     }
+    if (key->priv.size > sizeof(key->priv.buffer)) {
+        return BUFFER_E;
+    }
 
     /* calculate actual size */
     sz = sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size +
@@ -765,6 +768,9 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
 #ifdef DEBUG_WOLFTPM
         printf("Sanity check for publicArea size failed\n");
 #endif
+        return BUFFER_E;
+    }
+    if (key->priv.size > sizeof(key->priv.buffer)) {
         return BUFFER_E;
     }
 
@@ -842,6 +848,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Public area size too large (%u)\n", key->pub.size);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -849,6 +856,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -860,6 +868,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer,
         (word32)(sizeof(UINT16) + key->pub.size), &pubAreaSize);
     if (rc != TPM_RC_SUCCESS) {
+        TPM2_ForceZero(key, sizeof(*key));
         return rc;
     }
 
@@ -867,6 +876,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -879,6 +889,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Private area size too large (%u)\n", key->priv.size);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -886,6 +897,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 

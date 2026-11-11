@@ -10412,6 +10412,8 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     byte blob[sizeof(TPM2B_PUBLIC) + sizeof(TPM2B_PRIVATE)];
     TPMT_PUBLIC publicTemplate;
     word32 privBufferSz, pubBufferSz;
+    word32 privSizeOff;
+    int blobSz;
     char nameBuf[32];
 
     XMEMSET(&srk, 0, sizeof(srk));
@@ -10476,11 +10478,35 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     rc = wolfTPM2_GetKeyBlobAsBuffer(blob, sizeof(blob), &key);
     AssertIntGT(rc, 0);
 
+    blobSz = rc;
+
+    /* A private size beyond its buffer must not be exported */
+    key.priv.size = (UINT16)sizeof(key.priv.buffer) + 1;
+    rc = wolfTPM2_GetKeyBlobAsBuffer(NULL, sizeof(blob), &key);
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_GetKeyBlobAsBuffer(blob, sizeof(blob), &key);
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_GetKeyBlobAsSeparateBuffers(NULL, &pubBufferSz,
+        NULL, &privBufferSz, &key);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* A rejected blob must not leave its sizes behind in the key */
+    privSizeOff = (word32)(sizeof(key.pub.size) + sizeof(UINT16) +
+        key.pub.size);
+    blob[privSizeOff] ^= 0xFF;
+    blob[privSizeOff + 1] ^= 0xFF;
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, blobSz);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(key.priv.size, 0);
+    AssertIntEQ(key.pub.size, 0);
+    blob[privSizeOff] ^= 0xFF;
+    blob[privSizeOff + 1] ^= 0xFF;
+
     /* Reset the originally created key */
     XMEMSET(&key, 0, sizeof(key));
 
     /* Load key blob (private/public) from buffer */
-    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, rc);
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, blobSz);
     AssertIntEQ(rc, 0);
     key.handle.auth.size = sizeof(gKeyAuth)-1;
     XMEMCPY(key.handle.auth.buffer, gKeyAuth, key.handle.auth.size);
