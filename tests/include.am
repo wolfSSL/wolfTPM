@@ -67,6 +67,30 @@ tests_fwtpm_hal_unit_test_CPPFLAGS = \
 tests_fwtpm_hal_unit_test_LDADD = $(FWTPM_TIS_LIBS)
 endif
 
+# OP-TEE trusted application port against a mock TEE, with the fwTPM core
+# stubbed out. tests/optee/optee_core.mk builds the same port against the real
+# core and a WOLFSSL_OPTEE wolfCrypt; the optee-mock CI job runs that.
+if BUILD_FWTPM
+check_PROGRAMS += tests/fwtpm_optee_port.test
+noinst_PROGRAMS += tests/fwtpm_optee_port.test
+tests_fwtpm_optee_port_test_SOURCES = \
+    tests/optee/fwtpm_optee_port_tests.c \
+    tests/optee/mock_tee.c \
+    src/fwtpm/ports/optee/fwtpm_optee_ta.c \
+    src/fwtpm/ports/optee/fwtpm_optee_nv.c
+tests_fwtpm_optee_port_test_CPPFLAGS = -DWOLFTPM_FWTPM -DWOLFSSL_OPTEE \
+    -I$(srcdir)/tests/optee $(AM_CPPFLAGS)
+endif
+
+EXTRA_DIST += tests/optee/README.md \
+              tests/optee/tee_internal_api.h \
+              tests/optee/tee_internal_api_extensions.h \
+              tests/optee/pta_system.h \
+              tests/optee/mock_tee.h \
+              tests/optee/user_settings.h \
+              tests/optee/optee_core_tests.c \
+              tests/optee/optee_core.mk
+
 # TPM make check: manages server, runs unit.test + run_examples.sh
 # Used for --enable-fwtpm builds
 if BUILD_FWTPM
