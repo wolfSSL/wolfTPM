@@ -94,6 +94,7 @@ pick_available_port() {
 #   init-upgrade    Startup returns TPM_RC_UPGRADE
 #   session-handle  StartAuthSession returns TPM_RS_PW as the session handle
 #   cap-selector    GetCapability returns a selector that was not requested
+#   nonce-fail      GetRandom fails, StartAuthSession returns an HMAC session
 run_mock_tpm_test() {
     local mode="$1"
     local port server_pid rc
@@ -134,6 +135,10 @@ def send_response(conn, response_code, body=b""):
 
 def respond(command):
     cc = struct.unpack(">I", command[6:10])[0]
+    if mode == "nonce-fail" and cc == 0x17B:  # GetRandom
+        return 0x101, b""  # TPM_RC_FAILURE
+    if mode == "nonce-fail" and cc == 0x176:  # StartAuthSession
+        return 0, struct.pack(">IH", 0x02000000, 32) + b"\x5a" * 32
     if cc == 0x17B:  # GetRandom
         size = struct.unpack(">H", command[10:12])[0]
         return 0, struct.pack(">H", size) + b"\x5a" * size
@@ -504,7 +509,7 @@ if [ $IS_SWTPM_MODE -eq 1 ] && [ $HAS_GETENV -eq 1 ] && \
         [ -x "$UNIT_TEST" ]; then
     echo ""
     echo "=== Running mock TPM regressions ==="
-    for mode in init-upgrade session-handle cap-selector; do
+    for mode in init-upgrade session-handle cap-selector nonce-fail; do
         run_mock_tpm_test "$mode"
         rc=$?
         if [ $rc -eq 0 ]; then

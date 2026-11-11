@@ -667,6 +667,32 @@ static void test_wolfTPM2_GetHandles_Selector(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Get handles selector:");
 }
+
+/* The test server fails GetRandom and would accept StartAuthSession. When the
+ * caller nonce comes from the TPM the session must not start without it. */
+static void test_wolfTPM2_StartSession_NonceFail(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_NULL);
+#ifdef WOLFTPM2_USE_WOLF_RNG
+    AssertIntEQ(rc, 0);
+    AssertTrue(TPM2_IS_HMAC_SESSION(session.handle.hndl));
+#else
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(session.handle.hndl, 0);
+#endif
+
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Session nonce failure:");
+}
 #endif
 
 /* When the SPDM integration harness supplies a trusted pin, route the
@@ -11894,6 +11920,10 @@ int unit_tests(int argc, char *argv[])
     }
     if (argc == 2 && XSTRCMP(argv[1], "--cap-selector") == 0) {
         test_wolfTPM2_GetHandles_Selector();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "--nonce-fail") == 0) {
+        test_wolfTPM2_StartSession_NonceFail();
         return 0;
     }
 #endif

@@ -2822,7 +2822,7 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     authSesIn.nonceCaller.size = hashDigestSz;
     rc = TPM2_GetNonceNoLock(authSesIn.nonceCaller.buffer,
                        authSesIn.nonceCaller.size);
-    if (rc < 0) {
+    if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_GetNonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
