@@ -3610,6 +3610,11 @@ static void test_wolfTPM2_Cleanup(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+    TPM2_CTX zeroCtx;
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    int stdinOpen;
+#endif
 
     /* Test arguments */
     rc = wolfTPM2_Cleanup(NULL);
@@ -3617,6 +3622,23 @@ static void test_wolfTPM2_Cleanup(void)
 
     /* Test success */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* A zero-filled context that was never initialized owns nothing: cleanup
+     * must not close descriptor 0 or release what the live device holds */
+    XMEMSET(&zeroCtx, 0, sizeof(zeroCtx));
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    stdinOpen = (fcntl(0, F_GETFD) != -1);
+#endif
+    rc = TPM2_Cleanup(&zeroCtx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    if (stdinOpen) {
+        AssertIntNE(fcntl(0, F_GETFD), -1);
+    }
+#endif
+    AssertTrue(TPM2_GetActiveCtx() == &dev.ctx);
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
 
     rc = wolfTPM2_Cleanup(&dev);

@@ -1057,6 +1057,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
     ctx->locality = TPM2_LOCALITY_UNINITIALIZED;
+    ctx->initialized = 1;
 
 #if defined(WOLFTPM_SWTPM)
     /* set before any early return so cleanup cannot act on fd 0 */
@@ -1172,6 +1173,15 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 
     if (ctx == NULL)
         return BAD_FUNC_ARG;
+
+    /* A context that never reached TPM2_Init_ex holds no wolfCrypt reference,
+     * lock or descriptor, and its zero fields are not valid ones to release. */
+    if (!ctx->initialized) {
+        if (TPM2_GetActiveCtx() == ctx)
+            TPM2_SetActiveCtx(NULL);
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
+        return TPM_RC_SUCCESS;
+    }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     wolfCryptInit = (ctx->locality != TPM2_LOCALITY_UNINITIALIZED);
