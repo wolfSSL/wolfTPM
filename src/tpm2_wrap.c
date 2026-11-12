@@ -709,6 +709,9 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
 #endif
         return BUFFER_E;
     }
+    if (key->priv.size > sizeof(key->priv.buffer)) {
+        return BUFFER_E;
+    }
 
     /* calculate actual size */
     sz = sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size +
@@ -765,6 +768,9 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
 #ifdef DEBUG_WOLFTPM
         printf("Sanity check for publicArea size failed\n");
 #endif
+        return BUFFER_E;
+    }
+    if (key->priv.size > sizeof(key->priv.buffer)) {
         return BUFFER_E;
     }
 
@@ -842,6 +848,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Public area size too large (%u)\n", key->pub.size);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -849,6 +856,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -860,6 +868,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer,
         (word32)(sizeof(UINT16) + key->pub.size), &pubAreaSize);
     if (rc != TPM_RC_SUCCESS) {
+        TPM2_ForceZero(key, sizeof(*key));
         return rc;
     }
 
@@ -867,6 +876,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -879,6 +889,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Private area size too large (%u)\n", key->priv.size);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -886,6 +897,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
+        TPM2_ForceZero(key, sizeof(*key));
         return BUFFER_E;
     }
 
@@ -947,6 +959,11 @@ int wolfTPM2_OpenExisting(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     /* The 0 startup indicates use existing locality */
     rc = wolfTPM2_Init_ex(&dev->ctx, ioCb, userCtx, 0);
     if (rc != TPM_RC_SUCCESS) {
+        /* TPM_RC_UPGRADE leaves a usable active context so callers can
+         * continue the vendor firmware-recovery flow. */
+        if (rc != TPM_RC_UPGRADE) {
+            wolfTPM2_InitFailureCleanup(dev);
+        }
         return rc;
     }
 
@@ -1272,7 +1289,16 @@ int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
     in.capability = TPM_CAP_HANDLES;
     in.property = handle;
     in.propertyCount = MAX_CAP_HANDLES;
+    XMEMSET(&out, 0, sizeof(out));
+    if (handles != NULL) {
+        XMEMSET(handles, 0, sizeof(TPML_HANDLE));
+    }
     rc = TPM2_GetCapability(&in, &out);
+    /* the response selects which capability member was filled in */
+    if (rc == TPM_RC_SUCCESS &&
+            out.capabilityData.capability != TPM_CAP_HANDLES) {
+        rc = BUFFER_E;
+    }
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_GetCapability handles failed 0x%x: %s\n", rc,
@@ -2139,6 +2165,11 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         return TPM_RC_SUCCESS;
     }
 
+    if (!TPM2_IS_HMAC_SESSION(tpmSession->handle.hndl) &&
+            !TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
+        return BAD_FUNC_ARG;
+    }
+
     rc = wolfTPM2_SetAuth(dev, index, tpmSession->handle.hndl,
         &tpmSession->handle.auth, sessionAttributes, NULL);
     if (rc == TPM_RC_SUCCESS) {
@@ -2748,6 +2779,7 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     UINT16 keyInSz = 0;
     int hashDigestSz;
     TPMA_SESSION sessionAttributes = 0;
+    TPM2B_DATA salt;
 
     if (dev == NULL || session == NULL)
         return BAD_FUNC_ARG;
@@ -2808,7 +2840,7 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     authSesIn.nonceCaller.size = hashDigestSz;
     rc = TPM2_GetNonceNoLock(authSesIn.nonceCaller.buffer,
                        authSesIn.nonceCaller.size);
-    if (rc < 0) {
+    if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_GetNonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
@@ -2828,9 +2860,23 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             return rc;
         }
 
-        /* Encrypt salt using "SECRET" */
-        rc = wolfTPM2_EncryptSecret(dev, tpmKey, (TPM2B_DATA*)&session->salt,
+        /* Encrypt salt using "SECRET". The salt member is a TPM2B_DIGEST,
+         * which is smaller than the TPM2B_DATA the secret exchange works on. */
+        XMEMSET(&salt, 0, sizeof(salt));
+        salt.size = session->salt.size;
+        XMEMCPY(salt.buffer, session->salt.buffer, salt.size);
+        rc = wolfTPM2_EncryptSecret(dev, tpmKey, &salt,
             &authSesIn.encryptedSalt, "SECRET");
+        if (rc == 0) {
+            if (salt.size > (UINT16)sizeof(session->salt.buffer)) {
+                rc = BUFFER_E;
+            }
+            else {
+                session->salt.size = salt.size;
+                XMEMCPY(session->salt.buffer, salt.buffer, salt.size);
+            }
+        }
+        TPM2_ForceZero(&salt, sizeof(salt));
         if (rc != 0) {
         #ifdef DEBUG_WOLFTPM
             printf("Building encrypted salt failed %d: %s!\n", rc,
@@ -2853,6 +2899,22 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
         TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
         return rc;
+    }
+
+    /* The StartAuthSession response is not authenticated, so the handle type
+     * must match the requested session type before it selects how later
+     * commands are authorized. */
+    if ((sesType == TPM_SE_HMAC) ?
+            !TPM2_IS_HMAC_SESSION(authSesOut.sessionHandle) :
+            !TPM2_IS_POLICY_SESSION(authSesOut.sessionHandle)) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_StartAuthSession: unexpected handle 0x%x\n",
+            (word32)authSesOut.sessionHandle);
+    #endif
+        TPM2_ForceZero(&session->salt, sizeof(session->salt));
+        TPM2_ForceZero(&authSesIn, sizeof(authSesIn));
+        TPM2_ForceZero(&authSesOut, sizeof(authSesOut));
+        return TPM_RC_FAILURE;
     }
 
     /* Calculate "key" and store into auth */
@@ -3742,20 +3804,16 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     TPM_HANDLE parentHandle;
     TPM2B_DATA symSeed;
 
-    if (dev == NULL || keyBlob == NULL || pub == NULL ||
+    /* Without a storage parent there is no key to protect the import seed,
+     * so the sensitive area would be marshalled unwrapped. */
+    if (dev == NULL || parentKey == NULL || keyBlob == NULL || pub == NULL ||
             sens == NULL) {
         return BAD_FUNC_ARG;
     }
 
-    /* set session auth for key */
-    if (parentKey != NULL) {
-        /* set session auth for parent key */
-        wolfTPM2_SetAuthHandle(dev, 0, &parentKey->handle);
-        parentHandle = parentKey->handle.hndl;
-    }
-    else {
-        parentHandle = TPM_RH_OWNER;
-    }
+    /* set session auth for parent key */
+    wolfTPM2_SetAuthHandle(dev, 0, &parentKey->handle);
+    parentHandle = parentKey->handle.hndl;
 
     /* Import private key */
     XMEMSET(&importIn, 0, sizeof(importIn));
@@ -3829,16 +3887,8 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     XMEMCPY(&keyBlob, key, sizeof(WOLFTPM2_KEY));
     rc = wolfTPM2_ImportPrivateKey(dev, parentKey, &keyBlob, pub, sens);
     if (rc == 0) {
-        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
-        if (parentKey != NULL) {
-            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
-        }
-        else {
-            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
-            parentHandle->hndl = TPM_RH_OWNER;
-        }
-
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */
@@ -4028,15 +4078,8 @@ int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
     rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, &keyBlob, rsaPub, rsaPubSz,
         exponent, rsaPriv, rsaPrivSz, scheme, hashAlg);
     if (rc == 0) {
-        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
-        if (parentKey != NULL) {
-            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
-        }
-        else {
-            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
-            parentHandle->hndl = TPM_RH_OWNER;
-        }
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */
@@ -4232,15 +4275,8 @@ int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     rc = wolfTPM2_ImportEccPrivateKey(dev, parentKey, &keyBlob, curveId,
         eccPubX, eccPubXSz, eccPubY, eccPubYSz, eccPriv, eccPrivSz);
     if (rc == 0) {
-        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
-        if (parentKey != NULL) {
-            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
-        }
-        else {
-            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
-            parentHandle->hndl = TPM_RH_OWNER;
-        }
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */

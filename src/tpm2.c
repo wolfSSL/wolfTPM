@@ -206,6 +206,11 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     for (i=0; i<info->authCnt; i++) {
         TPM2_AUTH_SESSION* session = &ctx->session[i];
 
+        /* the session array is caller memory; its sizes are copied below */
+        if (session->nonceCaller.size > sizeof(session->nonceCaller.buffer) ||
+                session->auth.size > sizeof(session->auth.buffer)) {
+            return BUFFER_E;
+        }
         if (session->sessionHandle == TPM_RS_PW) {
             continue;
         }
@@ -757,6 +762,10 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     cmd = packet->buf;
     cmdSz = packet->pos;
     (void)cmd;
+    if (packet->pos > packet->size) {
+        TPM2_ForceZero(packet->buf, packet->size);
+        return BUFFER_E;
+    }
 
     /* restart the unmarshalling position */
     packet->pos = 0;
@@ -1057,6 +1066,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
     ctx->locality = TPM2_LOCALITY_UNINITIALIZED;
+    ctx->initialized = 1;
 
 #if defined(WOLFTPM_SWTPM)
     /* set before any early return so cleanup cannot act on fd 0 */
@@ -1172,6 +1182,15 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 
     if (ctx == NULL)
         return BAD_FUNC_ARG;
+
+    /* A context that never reached TPM2_Init_ex holds no wolfCrypt reference,
+     * lock or descriptor, and its zero fields are not valid ones to release. */
+    if (!ctx->initialized) {
+        if (TPM2_GetActiveCtx() == ctx)
+            TPM2_SetActiveCtx(NULL);
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
+        return TPM_RC_SUCCESS;
+    }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     wolfCryptInit = (ctx->locality != TPM2_LOCALITY_UNINITIALIZED);
@@ -6969,6 +6988,10 @@ int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
     TPMS_AUTH_COMMAND session;
 
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
@@ -6999,6 +7022,10 @@ int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
@@ -7020,6 +7047,10 @@ int TPM2_ST33_FieldUpgradeStart_ex(TPM_HANDLE sessionHandle, TPM_CC cc,
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
     TPMS_AUTH_COMMAND session;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -7196,6 +7227,9 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 
     if ((handleValue >= TRANSIENT_FIRST) ||
         (handleValue >= NV_INDEX_FIRST && handleValue <= NV_INDEX_LAST)) {
+        if (session->name.size > sizeof(name->name)) {
+            return BUFFER_E;
+        }
         if (session->name.size > 0) {
             name->size = session->name.size;
             XMEMCPY(name->name, session->name.name, name->size);
@@ -7220,6 +7254,12 @@ void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
     int i = 0;
 
     if (pcr && pcrIndex >= (int)PCR_FIRST && pcrIndex <= (int)PCR_LAST) {
+        if (pcr->count > HASH_COUNT) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_SetupPCRSel: Hash algorithm count error\n");
+        #endif
+            return;
+        }
         /* if we have no banks in use, use the 0th one */
         if (pcr->count == 0) {
             pcr->count = 1;

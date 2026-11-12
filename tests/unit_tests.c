@@ -617,6 +617,97 @@ static void test_wolfTPM2_InitUpgrade(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Init upgrade context:");
 }
+
+/* The test server answers StartAuthSession with TPM_RS_PW as the session
+ * handle. A handle that is not of the requested session type must be refused
+ * rather than installed as a password authorization. */
+static void test_wolfTPM2_StartSession_HandleType(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(session.handle.hndl, 0);
+
+    session.handle.hndl = TPM_RS_PW;
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session, TPMA_SESSION_decrypt);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    AssertIntEQ(dev.session[1].sessionHandle, 0);
+
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Session handle type:");
+}
+
+/* The test server answers a TPM_CAP_HANDLES query with a different capability
+ * selector, which leaves the handle list in the response unfilled. */
+static void test_wolfTPM2_GetHandles_Selector(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    TPML_HANDLE handles;
+
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&handles, 0xA5, sizeof(handles));
+    rc = wolfTPM2_GetHandles(TRANSIENT_FIRST, &handles);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(handles.count, 0);
+    rc = wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL);
+    AssertIntEQ(rc, BUFFER_E);
+
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Get handles selector:");
+}
+
+/* The test server fails GetRandom and would accept StartAuthSession. When the
+ * caller nonce comes from the TPM the session must not start without it. */
+static void test_wolfTPM2_StartSession_NonceFail(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_NULL);
+#ifdef WOLFTPM2_USE_WOLF_RNG
+    AssertIntEQ(rc, 0);
+    AssertTrue(TPM2_IS_HMAC_SESSION(session.handle.hndl));
+#else
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(session.handle.hndl, 0);
+#endif
+
+    AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Session nonce failure:");
+}
+
+/* The test server fails Startup. A failed open must not leave the caller's
+ * context registered as the active one. */
+static void test_wolfTPM2_OpenExisting_Fail(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+
+    rc = wolfTPM2_OpenExisting(&dev, NULL, NULL);
+    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertNull(TPM2_GetActiveCtx());
+    AssertIntEQ(dev.ctx.locality, -1);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Open existing failure:");
+}
 #endif
 
 /* When the SPDM integration harness supplies a trusted pin, route the
@@ -771,6 +862,15 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     TPM2_SetActiveCtx(NULL);
     rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeData, NULL, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = TPM2_ST33_FieldUpgradeStart_ex(TPM_RS_PW,
+        TPM_CC_FieldUpgradeStartVendor_ST33, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#ifdef WOLFTPM_IFX_FW_UPGRADE
+    rc = TPM2_IFX_FieldUpgradeStart(TPM_RS_PW, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeData, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
     TPM2_SetActiveCtx(savedCtx);
 
     /* Initialize TPM */
@@ -1947,6 +2047,13 @@ static void test_TPM2_PCRSel(void)
 {
     int rc = 0;
     TPML_PCR_SELECTION pcr;
+    /* A selection followed by the storage one more bank would occupy */
+    union {
+        TPML_PCR_SELECTION pcr;
+        byte raw[sizeof(TPML_PCR_SELECTION) + sizeof(TPMS_PCR_SELECTION)];
+    } over;
+    byte* past;
+    TPMS_PCR_SELECTION pastSel;
     /* This array holds PCR indexes, not a select bitmap, so it is sized by the
      * number of indexes the test uses. PCR_SELECT_MAX is a byte count and is
      * only 1 in a reduced-PCR build (IMPLEMENTATION_PCR <= 8). */
@@ -2007,6 +2114,20 @@ static void test_TPM2_PCRSel(void)
         rc = BAD_FUNC_ARG;
     }
     AssertIntEQ(rc, 0);
+
+    /* Test bad case - count beyond the array. The slot past the end holds
+     * the requested algorithm, so a search that runs off the array finds it
+     * and would then set a PCR bit there. */
+    XMEMSET(&over, 0, sizeof(over));
+    XMEMSET(&pastSel, 0, sizeof(pastSel));
+    pastSel.hash = TPM_ALG_SHA256;
+    past = over.raw + ((byte*)over.pcr.pcrSelections - (byte*)&over.pcr) +
+        (HASH_COUNT * sizeof(TPMS_PCR_SELECTION));
+    XMEMCPY(past, &pastSel, sizeof(pastSel));
+    over.pcr.count = HASH_COUNT + 1;
+    TPM2_SetupPCRSel(&over.pcr, TPM_ALG_SHA256, 1);
+    AssertIntEQ(over.pcr.count, HASH_COUNT + 1);
+    AssertIntEQ(XMEMCMP(past, &pastSel, sizeof(pastSel)), 0);
 
     printf("Test TPM Wrapper: %-40s %s\n", "PCR Select Array:",
         rc == 0 ? "Passed" : "Failed");
@@ -3165,6 +3286,62 @@ static void test_TPM2_command_process_buffer_cleanup(void)
     TPM2_Cleanup(&ctx);
     printf("Test TPM Wrapper:	Command process buffer cleanup:	Passed\n");
 }
+
+/* The native session array is caller memory. A size larger than its buffer
+ * must be refused before it is used as a copy length. */
+static void test_TPM2_command_process_session_sizes(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION sessions[MAX_SESSION_NUM];
+    NV_Write_In in;
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&in, 0, sizeof(in));
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
+    AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
+#else
+    AssertIntEQ(TPM2_Init_ex(&ctx, TPM2_IoCb, NULL, 0),
+        TPM_RC_SUCCESS);
+#endif
+    ctx.session = sessions;
+    in.authHandle = TPM_RH_OWNER;
+    in.nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    in.data.size = 1;
+
+    /* password authorization */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[0].auth.size = (UINT16)sizeof(sessions[0].auth.buffer) + 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
+    sessions[0].auth.size = 0xFFFF;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* caller nonce; only a password slot keeps the size it was given */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[0].nonceCaller.size =
+        (UINT16)sizeof(sessions[0].nonceCaller.buffer) + 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
+
+#ifndef NO_HMAC
+    /* name of the second handle (the NV index) */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = HMAC_SESSION_FIRST;
+    sessions[0].authHash = TPM_ALG_SHA256;
+    sessions[0].symmetric.algorithm = TPM_ALG_NULL;
+    sessions[1].name.size = (UINT16)sizeof(sessions[1].name.name) + 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
+
+    TPM2_Cleanup(&ctx);
+    printf("Test TPM Wrapper:\tCommand process session sizes:\tPassed\n");
+}
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
@@ -3519,6 +3696,11 @@ static void test_wolfTPM2_Cleanup(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+    TPM2_CTX zeroCtx;
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    int stdinOpen;
+#endif
 
     /* Test arguments */
     rc = wolfTPM2_Cleanup(NULL);
@@ -3526,6 +3708,23 @@ static void test_wolfTPM2_Cleanup(void)
 
     /* Test success */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* A zero-filled context that was never initialized owns nothing: cleanup
+     * must not close descriptor 0 or release what the live device holds */
+    XMEMSET(&zeroCtx, 0, sizeof(zeroCtx));
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    stdinOpen = (fcntl(0, F_GETFD) != -1);
+#endif
+    rc = TPM2_Cleanup(&zeroCtx);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    if (stdinOpen) {
+        AssertIntNE(fcntl(0, F_GETFD), -1);
+    }
+#endif
+    AssertTrue(TPM2_GetActiveCtx() == &dev.ctx);
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
 
     rc = wolfTPM2_Cleanup(&dev);
@@ -10216,6 +10415,8 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     byte blob[sizeof(TPM2B_PUBLIC) + sizeof(TPM2B_PRIVATE)];
     TPMT_PUBLIC publicTemplate;
     word32 privBufferSz, pubBufferSz;
+    word32 privSizeOff;
+    int blobSz;
     char nameBuf[32];
 
     XMEMSET(&srk, 0, sizeof(srk));
@@ -10280,11 +10481,35 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     rc = wolfTPM2_GetKeyBlobAsBuffer(blob, sizeof(blob), &key);
     AssertIntGT(rc, 0);
 
+    blobSz = rc;
+
+    /* A private size beyond its buffer must not be exported */
+    key.priv.size = (UINT16)sizeof(key.priv.buffer) + 1;
+    rc = wolfTPM2_GetKeyBlobAsBuffer(NULL, sizeof(blob), &key);
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_GetKeyBlobAsBuffer(blob, sizeof(blob), &key);
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_GetKeyBlobAsSeparateBuffers(NULL, &pubBufferSz,
+        NULL, &privBufferSz, &key);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* A rejected blob must not leave its sizes behind in the key */
+    privSizeOff = (word32)(sizeof(key.pub.size) + sizeof(UINT16) +
+        key.pub.size);
+    blob[privSizeOff] ^= 0xFF;
+    blob[privSizeOff + 1] ^= 0xFF;
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, blobSz);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(key.priv.size, 0);
+    AssertIntEQ(key.pub.size, 0);
+    blob[privSizeOff] ^= 0xFF;
+    blob[privSizeOff + 1] ^= 0xFF;
+
     /* Reset the originally created key */
     XMEMSET(&key, 0, sizeof(key));
 
     /* Load key blob (private/public) from buffer */
-    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, rc);
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, blobSz);
     AssertIntEQ(rc, 0);
     key.handle.auth.size = sizeof(gKeyAuth)-1;
     XMEMCPY(key.handle.auth.buffer, gKeyAuth, key.handle.auth.size);
@@ -10475,21 +10700,20 @@ static void test_wolfTPM2_LoadPrivateKey_NullParent(void)
 
     XMEMSET(&key, 0, sizeof(key));
 
-    /* Test NULL parentKey does not crash (should not dereference NULL) */
+    /* A NULL parentKey leaves nothing to wrap the private key with, so the
+     * import must be refused before anything is marshalled or sent */
 #ifndef NO_RSA
     rc = wolfTPM2_LoadRsaPrivateKey_ex(&dev, NULL, &key, rsaPub, sizeof(rsaPub),
         RSA_DEFAULT_PUBLIC_EXPONENT, rsaPriv, sizeof(rsaPriv),
         TPM_ALG_NULL, TPM_ALG_NULL);
-    /* rc may fail due to no real TPM, but must not crash */
-    AssertIntNE(rc, BAD_FUNC_ARG);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
 #endif
 #ifdef HAVE_ECC
     XMEMSET(&key, 0, sizeof(key));
     rc = wolfTPM2_LoadEccPrivateKey(&dev, NULL, &key, TPM_ECC_NIST_P256,
         eccPubX, sizeof(eccPubX), eccPubY, sizeof(eccPubY),
         eccPriv, sizeof(eccPriv));
-    /* rc may fail due to no real TPM, but must not crash */
-    AssertIntNE(rc, BAD_FUNC_ARG);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
 #endif
 
     wolfTPM2_Cleanup(&dev);
@@ -11839,6 +12063,22 @@ int unit_tests(int argc, char *argv[])
         test_wolfTPM2_InitUpgrade();
         return 0;
     }
+    if (argc == 2 && XSTRCMP(argv[1], "--session-handle") == 0) {
+        test_wolfTPM2_StartSession_HandleType();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "--cap-selector") == 0) {
+        test_wolfTPM2_GetHandles_Selector();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "--nonce-fail") == 0) {
+        test_wolfTPM2_StartSession_NonceFail();
+        return 0;
+    }
+    if (argc == 2 && XSTRCMP(argv[1], "--open-existing-fail") == 0) {
+        test_wolfTPM2_OpenExisting_Fail();
+        return 0;
+    }
 #endif
 #ifndef WOLFTPM2_NO_WRAPPER
     if (argc == 2 && XSTRCMP(argv[1], "nv-read-wipe") == 0) {
@@ -11909,6 +12149,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVOwnerAuth();
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();
+    test_TPM2_command_process_session_sizes();
 #endif
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
     test_TPM2_transport_buffer_cleanup();

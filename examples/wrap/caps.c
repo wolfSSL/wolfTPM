@@ -127,7 +127,7 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
 
     /* List the active persistent handles */
     rc = wolfTPM2_GetHandles(PERSISTENT_FIRST, NULL);
-    if (rc >= 0) {
+    if (rc >= 0 && rc <= (int)MAX_CAP_HANDLES) {
         printf("Found %d persistent handles\n", rc);
         rc = TPM_RC_SUCCESS;
     }

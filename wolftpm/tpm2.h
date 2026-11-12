@@ -2354,6 +2354,7 @@ typedef struct TPM2_CTX {
     unsigned int rngInit:1;
     #endif
 #endif
+    unsigned int initialized:1; /* context has been through TPM2_Init_ex */
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     int fd;
 #endif

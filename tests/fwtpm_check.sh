@@ -88,19 +88,27 @@ pick_available_port() {
     return 1
 }
 
-# Return TPM_RC_UPGRADE from Startup using the simulator socket framing, then
-# accept the cleanup Shutdown. This drives the real initialization path without
-# putting a hardware TPM into firmware-recovery mode.
-run_init_upgrade_test() {
+# Scripted TPM using the simulator socket framing. The mode picks which command
+# gets a crafted response; every other command succeeds with an empty body.
+# This drives real wrapper paths with responses a hardware TPM would not give.
+#   init-upgrade    Startup returns TPM_RC_UPGRADE
+#   session-handle  StartAuthSession returns TPM_RS_PW as the session handle
+#   cap-selector    GetCapability returns a selector that was not requested
+#   nonce-fail      GetRandom fails, StartAuthSession returns an HMAC session
+#   open-existing-fail  Startup returns TPM_RC_FAILURE
+run_mock_tpm_test() {
+    local mode="$1"
     local port server_pid rc
 
     command -v python3 >/dev/null 2>&1 || return 77
     port=$(pick_available_port) || return 1
 
-    python3 - "$port" <<'PY' &
+    python3 - "$port" "$mode" <<'PY' &
 import socket
 import struct
 import sys
+
+mode = sys.argv[2]
 
 def recv_exact(conn, size):
     data = b""
@@ -113,15 +121,37 @@ def recv_exact(conn, size):
 
 def recv_command(conn):
     command = struct.unpack(">I", recv_exact(conn, 4))[0]
+    if command == 20:  # TPM_SESSION_END
+        return None
     if command != 8:  # TPM_SEND_COMMAND
         raise RuntimeError("unexpected simulator command")
     recv_exact(conn, 1)  # locality
     command_size = struct.unpack(">I", recv_exact(conn, 4))[0]
-    recv_exact(conn, command_size)
+    return recv_exact(conn, command_size)
 
-def send_response(conn, response_code):
-    response = struct.pack(">HII", 0x8001, 10, response_code)
+def send_response(conn, response_code, body=b""):
+    response = struct.pack(">HII", 0x8001, 10 + len(body), response_code)
+    response += body
     conn.sendall(struct.pack(">I", len(response)) + response + b"\0" * 4)
+
+def respond(command):
+    cc = struct.unpack(">I", command[6:10])[0]
+    if mode == "nonce-fail" and cc == 0x17B:  # GetRandom
+        return 0x101, b""  # TPM_RC_FAILURE
+    if mode == "nonce-fail" and cc == 0x176:  # StartAuthSession
+        return 0, struct.pack(">IH", 0x02000000, 32) + b"\x5a" * 32
+    if cc == 0x17B:  # GetRandom
+        size = struct.unpack(">H", command[10:12])[0]
+        return 0, struct.pack(">H", size) + b"\x5a" * size
+    if mode == "init-upgrade" and cc == 0x144:  # Startup
+        return 0x12D, b""  # TPM_RC_UPGRADE
+    if mode == "open-existing-fail" and cc == 0x144:  # Startup
+        return 0x101, b""  # TPM_RC_FAILURE
+    if mode == "session-handle" and cc == 0x176:  # StartAuthSession
+        return 0, struct.pack(">IH", 0x40000009, 32) + b"\x5a" * 32
+    if mode == "cap-selector" and cc == 0x17A:  # GetCapability
+        return 0, struct.pack(">BI", 0, 0x7FFFFFFF)
+    return 0, b""
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -129,13 +159,11 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
     listener.listen(1)
     conn, _ = listener.accept()
     with conn:
-        recv_command(conn)
-        send_response(conn, 0x12D)  # TPM_RC_UPGRADE from Startup
-        recv_command(conn)
-        send_response(conn, 0)      # TPM_RC_SUCCESS from Shutdown
-        session_end = struct.unpack(">I", recv_exact(conn, 4))[0]
-        if session_end != 20:       # TPM_SESSION_END
-            raise RuntimeError("unexpected simulator session command")
+        while True:
+            command = recv_command(conn)
+            if command is None:
+                break
+            send_response(conn, *respond(command))
 PY
     server_pid=$!
 
@@ -146,7 +174,7 @@ PY
     fi
 
     TPM2_SWTPM_HOST=127.0.0.1 TPM2_SWTPM_PORT="$port" \
-        "$UNIT_TEST" --init-upgrade
+        "$UNIT_TEST" "--$mode"
     rc=$?
     if [ $rc -ne 0 ]; then
         kill "$server_pid" 2>/dev/null
@@ -483,19 +511,22 @@ fi
 if [ $IS_SWTPM_MODE -eq 1 ] && [ $HAS_GETENV -eq 1 ] && \
         [ -x "$UNIT_TEST" ]; then
     echo ""
-    echo "=== Running init upgrade context regression ==="
-    run_init_upgrade_test
-    rc=$?
-    if [ $rc -eq 0 ]; then
-        PASS=$((PASS + 1))
-        echo "PASS: init upgrade context"
-    elif [ $rc -eq 77 ]; then
-        SKIP=$((SKIP + 1))
-        echo "SKIP: init upgrade context (python3 unavailable)"
-    else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: init upgrade context"
-    fi
+    echo "=== Running mock TPM regressions ==="
+    for mode in init-upgrade session-handle cap-selector nonce-fail \
+            open-existing-fail; do
+        run_mock_tpm_test "$mode"
+        rc=$?
+        if [ $rc -eq 0 ]; then
+            PASS=$((PASS + 1))
+            echo "PASS: mock TPM $mode"
+        elif [ $rc -eq 77 ]; then
+            SKIP=$((SKIP + 1))
+            echo "SKIP: mock TPM $mode (python3 unavailable)"
+        else
+            FAIL=$((FAIL + 1))
+            echo "FAIL: mock TPM $mode"
+        fi
+    done
 fi
 
 if [ -x "$UNIT_TEST" ]; then
