@@ -571,6 +571,7 @@ WOLFTPM_API int wolfTPM2_IsAlgSupported(WOLFTPM2_DEV* dev, TPM_ALG_ID alg,
     \return 0 or greater: successful, count of handles
     \return TPM_RC_FAILURE: generic failure (check TPM IO communication and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: the response did not carry a handle list
 
     \param handle handle to start from (example: PCR_FIRST, NV_INDEX_FIRST,
         HMAC_SESSION_FIRST, POLICY_SESSION_FIRST, PERMANENT_FIRST,

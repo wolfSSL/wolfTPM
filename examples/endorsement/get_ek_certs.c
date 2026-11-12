@@ -222,7 +222,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
 
     /* List TCG stored handles */
     rc = wolfTPM2_GetHandles(TPM_20_TCG_NV_SPACE, &handles);
-    if (rc < 0) {
+    if (rc < 0 || rc > (int)MAX_CAP_HANDLES) {
         goto exit;
     }
     rc = 0;

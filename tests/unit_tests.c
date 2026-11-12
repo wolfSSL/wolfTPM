@@ -658,10 +658,10 @@ static void test_wolfTPM2_GetHandles_Selector(void)
 
     XMEMSET(&handles, 0xA5, sizeof(handles));
     rc = wolfTPM2_GetHandles(TRANSIENT_FIRST, &handles);
-    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(rc, BUFFER_E);
     AssertIntEQ(handles.count, 0);
     rc = wolfTPM2_GetHandles(TRANSIENT_FIRST, NULL);
-    AssertIntEQ(rc, TPM_RC_FAILURE);
+    AssertIntEQ(rc, BUFFER_E);
 
     AssertIntEQ(wolfTPM2_Cleanup(&dev), TPM_RC_SUCCESS);
 

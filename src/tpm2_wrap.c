@@ -1297,7 +1297,7 @@ int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
     /* the response selects which capability member was filled in */
     if (rc == TPM_RC_SUCCESS &&
             out.capabilityData.capability != TPM_CAP_HANDLES) {
-        rc = TPM_RC_FAILURE;
+        rc = BUFFER_E;
     }
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
