@@ -528,6 +528,11 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
         for (i=0; i<info->authCnt; i++) {
             TPM2_AUTH_SESSION* session = &ctx->session[i];
 
+            /* TPM2_CommandProcess refuses an auth larger than its buffer */
+            if (session->auth.size > sizeof(session->auth.buffer)) {
+                continue;
+            }
+
             /* Determine auth size - appended later in TPM2_CommandProcess */
 
             /* sessionHandle */

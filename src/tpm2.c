@@ -762,6 +762,10 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     cmd = packet->buf;
     cmdSz = packet->pos;
     (void)cmd;
+    if (packet->pos > packet->size) {
+        TPM2_ForceZero(packet->buf, packet->size);
+        return BUFFER_E;
+    }
 
     /* restart the unmarshalling position */
     packet->pos = 0;

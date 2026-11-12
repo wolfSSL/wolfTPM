@@ -3316,6 +3316,9 @@ static void test_TPM2_command_process_session_sizes(void)
     sessions[0].auth.size = (UINT16)sizeof(sessions[0].auth.buffer) + 1;
     rc = TPM2_NV_Write(&in);
     AssertIntEQ(rc, BUFFER_E);
+    sessions[0].auth.size = 0xFFFF;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
 
     /* caller nonce; only a password slot keeps the size it was given */
     XMEMSET(sessions, 0, sizeof(sessions));
