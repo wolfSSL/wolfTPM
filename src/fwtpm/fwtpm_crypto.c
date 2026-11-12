@@ -51,6 +51,11 @@
 #include <wolfssl/wolfcrypt/random.h>
 #ifndef NO_RSA
 #include <wolfssl/wolfcrypt/rsa.h>
+#include <wolfssl/version.h>
+#if LIBWOLFSSL_VERSION_HEX < 0x05008002
+    /* wolfSSL before v5.8.2 names this get_digit_count */
+    #define mp_get_digit_count get_digit_count
+#endif
 #endif
 #ifdef HAVE_ECC
 #include <wolfssl/wolfcrypt/ecc.h>
