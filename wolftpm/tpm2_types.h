@@ -242,6 +242,10 @@ typedef int64_t  INT64;
             while (len--) *z++ = 0;
         }
     #endif
+    #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX < 0x05008002
+        /* mp_get_digit_count was named get_digit_count before v5.8.2 */
+        #define mp_get_digit_count get_digit_count
+    #endif
 
     #define ENCODING_TYPE_PEM  1 /* CTC_FILETYPE_PEM */
     #define ENCODING_TYPE_ASN1 2 /* CTC_FILETYPE_ASN1 */
