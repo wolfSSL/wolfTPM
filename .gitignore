@@ -75,6 +75,9 @@ tests/fwtpm_unit.log
 tests/fwtpm_unit.test
 tests/fwtpm_hal_unit.test
 tests/fwtpm_hal_unit.log
+tests/fwtpm_optee_port.test
+tests/fwtpm_optee_port.log
+tests/optee/optee_core.test
 tests/swtpm_uart_unit.test
 tests/swtpm_uart_unit.log
 tests/fwtpm_check.sh.log
