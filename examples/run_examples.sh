@@ -535,14 +535,14 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
-    run_keyload rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
+    run_keyload rsakeyblobeh.bin -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa failed! $RESULT" && exit 1
 
     ./examples/keygen/keygen ecckeyblobeh.bin -ecc -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen endorsement ecc failed! $RESULT" && exit 1
-    run_keyload ecckeyblobeh.bin -ecc -eh >> $TPMPWD/run.out 2>&1
+    run_keyload ecckeyblobeh.bin -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload endorsement ecc failed! $RESULT" && exit 1
 
