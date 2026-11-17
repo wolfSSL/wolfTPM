@@ -22242,7 +22242,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Symmetric --- */
 #ifndef NO_AES
 #ifndef FWTPM_NO_SYM_ENCRYPT
-    { TPM_CC_EncryptDecrypt,     FwCmd_EncryptDecrypt,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_EncryptDecrypt,     FwCmd_EncryptDecrypt,        1, 1, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_EncryptDecrypt2,    FwCmd_EncryptDecrypt2,       1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif /* !FWTPM_NO_SYM_ENCRYPT */
 #endif
