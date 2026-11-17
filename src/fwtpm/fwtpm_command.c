@@ -18611,6 +18611,17 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
+    /* A key with no scheme of its own needs one from inScheme
+     * (Part 3 Sec.18.4) */
+    if (rc == 0 && sigScheme == TPM_ALG_NULL &&
+            ((sigObj->pub.type == TPM_ALG_RSA &&
+              sigObj->pub.parameters.rsaDetail.scheme.scheme ==
+                TPM_ALG_NULL) ||
+             (sigObj->pub.type == TPM_ALG_ECC &&
+              sigObj->pub.parameters.eccDetail.scheme.scheme ==
+                TPM_ALG_NULL))) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
 
     /* PCRselect */
     if (rc == 0) {
@@ -18656,11 +18667,13 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* pcrDigest = hash of the selected PCR values under the signature's
          * hash so a verifier agrees. ML-DSA keys resolve to nameAlg (no scheme
-         * hash on the wire); classical keys honor the wire hash then PCR bank. */
+         * hash on the wire); classical keys use the hash of the selected
+         * signing scheme (Part 3 Sec.18.4). */
         pcrHashAlg = FwAttestMldsaHashAlg(sigObj);
         if (pcrHashAlg == TPM_ALG_NULL) {
-            pcrHashAlg = (sigHashAlg != TPM_ALG_NULL) ? sigHashAlg :
-                (numSel > 0 ? selections[0].hashAlg : (UINT16)TPM_ALG_SHA256);
+            UINT16 keyScheme = sigScheme;
+            pcrHashAlg = sigHashAlg;
+            FwResolveSignScheme(sigObj, &keyScheme, &pcrHashAlg);
         }
         wcH = FwGetWcHashType(pcrHashAlg);
         dSz = TPM2_GetHashDigestSize(pcrHashAlg);

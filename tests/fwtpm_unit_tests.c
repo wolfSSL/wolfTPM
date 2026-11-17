@@ -14658,7 +14658,7 @@ static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
 #endif /* !FWTPM_NO_ECDH && !FWTPM_NO_ZGEN_2PHASE */
 
 /* Quote requires a signing key per Part 3 Sec.18.4. Build the command with
- * no inScheme and an empty PCR selection. */
+ * an ECDSA SHA-256 inScheme and an empty PCR selection. */
 static int BuildQuoteCmd(byte* buf, UINT32 signHandle)
 {
     int pos = 0;
@@ -14668,7 +14668,8 @@ static int BuildQuoteCmd(byte* buf, UINT32 signHandle)
     PutU32BE(buf + pos, signHandle); pos += 4;
     pos = AppendPwAuth(buf, pos, NULL, 0);
     PutU16BE(buf + pos, 0); pos += 2; /* qualifyingData */
-    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
+    PutU16BE(buf + pos, TPM_ALG_ECDSA); pos += 2; /* inScheme */
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
     PutU32BE(buf + pos, 1); pos += 4; /* PCRselect count */
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
     buf[pos++] = (byte)PCR_SELECT_MAX;
@@ -26680,6 +26681,124 @@ static void test_fwtpm_da_recovery_zero_disables(void)
 }
 #endif /* !FWTPM_NO_DA && HAVE_ECC */
 
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+/* ECC P-256 signing primary; sigScheme TPM_ALG_NULL leaves the scheme open */
+static UINT32 CreateEccSignPrimaryScheme(FWTPM_CTX* ctx, UINT32 attributes,
+    UINT16 sigScheme, UINT16 sigHashAlg)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_CreatePrimary);
+    int pubStart, rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 4); pos += 2; /* inSensitive */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+    PutU16BE(gCmd + pos, sigScheme); pos += 2;
+    if (sigScheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, sigHashAlg); pos += 2;
+    }
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* kdf */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* x */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* y */
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU16BE(gCmd + pos, 0); pos += 2; /* outsideInfo */
+    PutU32BE(gCmd + pos, 0); pos += 4; /* creationPCR */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* Quote FW_TEST_PCR of one bank. On success *pcrDigestSz is the size of the
+ * pcrDigest inside the returned TPMS_ATTEST. */
+static TPM_RC SendQuoteScheme(FWTPM_CTX* ctx, UINT32 keyH, UINT16 sigScheme,
+    UINT16 sigHashAlg, UINT16 bankAlg, int* pcrDigestSz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Quote);
+    int rspSize = 0;
+    int pcr = FW_TEST_PCR - PCR_FIRST;
+
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(gCmd + pos, sigScheme); pos += 2;
+    if (sigScheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, sigHashAlg); pos += 2;
+    }
+    PutU32BE(gCmd + pos, 1); pos += 4;
+    PutU16BE(gCmd + pos, bankAlg); pos += 2;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    memset(gCmd + pos, 0, PCR_SELECT_MAX);
+    gCmd[pos + pcr / 8] = (byte)(1 << (pcr % 8));
+    pos += PCR_SELECT_MAX;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) == TPM_RC_SUCCESS) {
+        /* paramSize(4) | attest size(2) | magic(4) | type(2) |
+         * qualifiedSigner | extraData | clockInfo(17) | firmware(8) |
+         * count(4) | hash(2) | sizeofSelect(1) | select | pcrDigest */
+        pos = TPM2_HEADER_SIZE + 4 + 2 + 4 + 2;
+        pos += 2 + GetU16BE(gRsp + pos);
+        pos += 2 + GetU16BE(gRsp + pos);
+        pos += 17 + 8 + 4 + 2 + 1 + PCR_SELECT_MAX;
+        *pcrDigestSz = GetU16BE(gRsp + pos);
+    }
+    return GetRspRC(gRsp);
+}
+
+/* pcrDigest is computed with the hash of the selected signing scheme, taken
+ * from the key or else from inScheme, not with the hash of the PCR bank. */
+static void test_fwtpm_quote_scheme_hash(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 keyH;
+    int dSz = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* restricted sign key with a fixed ECDSA SHA-256 scheme */
+    keyH = CreateEccSignPrimaryScheme(&ctx, 0x00050472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    AssertIntEQ(SendQuoteScheme(&ctx, keyH, TPM_ALG_NULL, TPM_ALG_NULL,
+        TPM_ALG_SHA256, &dSz), TPM_RC_SUCCESS);
+    AssertIntEQ(dSz, 32);
+#ifdef WOLFSSL_SHA384
+    AssertIntEQ(SendQuoteScheme(&ctx, keyH, TPM_ALG_NULL, TPM_ALG_NULL,
+        TPM_ALG_SHA384, &dSz), TPM_RC_SUCCESS);
+    AssertIntEQ(dSz, 32);
+#endif
+    FlushHandle(&ctx, keyH);
+
+    /* sign key with no scheme: inScheme has to supply one */
+    keyH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_NULL,
+        TPM_ALG_NULL);
+    AssertIntEQ(SendQuoteScheme(&ctx, keyH, TPM_ALG_NULL, TPM_ALG_NULL,
+        TPM_ALG_SHA256, &dSz), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendQuoteScheme(&ctx, keyH, TPM_ALG_ECDSA, TPM_ALG_SHA256,
+        TPM_ALG_SHA256, &dSz), TPM_RC_SUCCESS);
+    AssertIntEQ(dSz, 32);
+#ifdef WOLFSSL_SHA384
+    AssertIntEQ(SendQuoteScheme(&ctx, keyH, TPM_ALG_ECDSA, TPM_ALG_SHA384,
+        TPM_ALG_SHA256, &dSz), TPM_RC_SUCCESS);
+    AssertIntEQ(dSz, 48);
+#endif
+    FlushHandle(&ctx, keyH);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Quote pcrDigest uses scheme hash:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27458,6 +27577,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if !defined(FWTPM_NO_DA) && defined(HAVE_ECC)
     test_fwtpm_da_recovery_zero_disables();
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    test_fwtpm_quote_scheme_hash();
 #endif
 
     /* Destructive tests last (Clear changes state) */
