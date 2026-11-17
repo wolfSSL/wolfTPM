@@ -9366,7 +9366,7 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     TPM2_Packet_ParseU32(cmd, &objectHandle);
     TPM2_Packet_ParseU32(cmd, &newParentHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse encryptionKeyIn (TPM2B) - save for inner wrapping */
     TPM2_Packet_ParseU16(cmd, &encKeyInSz);
@@ -9830,7 +9830,7 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse handles */
     TPM2_Packet_ParseU32(cmd, &oldParentH);
     TPM2_Packet_ParseU32(cmd, &newParentH);
-    if (cmdTag == TPM_ST_SESSIONS)
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS)
         rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse inDuplicate (TPM2B) */

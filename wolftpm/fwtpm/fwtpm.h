@@ -531,8 +531,13 @@
      * the memset and leaking stack data into the output. */
     #define FWTPM_CALLOC_VAR(name, type) \
         do { \
-            (name) = (type*)XMALLOC(sizeof(type), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (type*)XMALLOC(sizeof(type), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
             else { XMEMSET((name), 0, sizeof(type)); } \
         } while (0)
@@ -547,8 +552,13 @@
         do { \
             typedef char _fwtpm_bufchk_##name[((sz) > 8) ? 1 : -1]; \
             (void)sizeof(_fwtpm_bufchk_##name); \
-            (name) = (byte*)XMALLOC((sz), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (byte*)XMALLOC((sz), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
         } while (0)
     /* Allocate AND zero-initialize byte buffer. */
@@ -556,8 +566,13 @@
         do { \
             typedef char _fwtpm_bufchk_##name[((sz) > 8) ? 1 : -1]; \
             (void)sizeof(_fwtpm_bufchk_##name); \
-            (name) = (byte*)XMALLOC((sz), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (byte*)XMALLOC((sz), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
             else { XMEMSET((name), 0, (sz)); } \
         } while (0)

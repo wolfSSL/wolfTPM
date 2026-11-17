@@ -657,6 +657,11 @@ static void fwtpm_test_fail_next_alloc(void)
     gFwTpmAllocFailCount = 1;
 }
 
+static void fwtpm_test_fail_alloc_at(int n)
+{
+    gFwTpmAllocFailCount = n;
+}
+
 static void test_fwtpm_crypto_alloc_failure(void)
 {
     byte hash[WC_SHA256_DIGEST_SIZE];
@@ -18089,6 +18094,88 @@ static void test_fwtpm_duplicate_needs_command_code(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Duplicate needs PolicyCommandCode:", 0);
 }
+
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+/* A failed small-stack allocation in Duplicate or Rewrap is reported as
+ * TPM_RC_MEMORY and the unallocated buffers are not used. */
+static void test_fwtpm_duplicate_rewrap_alloc_failure(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj = NULL;
+    FWTPM_Session* sess = NULL;
+    UINT32 keyH, sessH;
+    int i, n, pos, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_PolicyCommandCode);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Duplicate); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx.objects[i].used && ctx.objects[i].handle == keyH) {
+            obj = &ctx.objects[i];
+        }
+    }
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(obj);
+    AssertNotNull(sess);
+    obj->pub.objectAttributes &=
+        ~(TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent);
+    XMEMCPY(&obj->pub.authPolicy, &sess->policyDigest,
+        sizeof(obj->pub.authPolicy));
+
+    /* encSeedBuf, then outPrivate */
+    for (n = 1; n <= 2; n++) {
+        fwtpm_test_fail_alloc_at(n);
+        AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_NULL),
+            TPM_RC_MEMORY);
+        AssertIntEQ(gFwTpmAllocFailCount, 0);
+    }
+    AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_NULL),
+        TPM_RC_SUCCESS);
+
+    /* dupBuf, symSeedBuf, plainSens, encSeedBuf */
+    for (n = 1; n <= 4; n++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Rewrap);
+        PutU32BE(gCmd + pos, keyH); pos += 4; /* oldParent */
+        PutU32BE(gCmd + pos, keyH); pos += 4; /* newParent */
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU16BE(gCmd + pos, 8); pos += 2; /* inDuplicate */
+        memset(gCmd + pos, 0x5A, 8); pos += 8;
+        PutU16BE(gCmd + pos, 0); pos += 2; /* name */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* inSymSeed */
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        fwtpm_test_fail_alloc_at(n);
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_MEMORY);
+        AssertIntEQ(gFwTpmAllocFailCount, 0);
+    }
+
+    FlushHandle(&ctx, sessH);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Duplicate/Rewrap allocation failure:", 0);
+}
+#endif /* WOLFTPM_FWTPM_UNIT_TEST && WOLFTPM_SMALL_STACK */
 #endif /* !FWTPM_NO_KEY_MIGRATION && !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -28062,6 +28149,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_duplicate_encrypted_needs_new_parent();
     test_fwtpm_duplicate_needs_command_code();
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_duplicate_rewrap_alloc_failure();
+#endif
 #endif
 #endif /* !FWTPM_NO_KEY_MIGRATION */
     test_fwtpm_evict_control();
