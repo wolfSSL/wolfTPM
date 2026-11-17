@@ -16967,6 +16967,94 @@ static void test_fwtpm_rewrap_null_newparent_rejected(void)
 }
 #endif /* !FWTPM_NO_KEY_MIGRATION */
 
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
+    !defined(FWTPM_NO_CREDENTIAL)
+/* The RSA credential seed is OAEP-wrapped with the label "IDENTITY" and its
+ * terminating zero only (Part 1 Sec.24); the object Name enters through the
+ * KDFa "STORAGE" derivation, not the label. */
+static void test_fwtpm_rsa_credential_oaep_label(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* ek = NULL;
+    UINT32 ekH;
+    byte credential[16];
+    byte blob[sizeof(TPM2B_ID_OBJECT)];
+    byte secret[sizeof(TPM2B_ENCRYPTED_SECRET)];
+    byte seed[TPM_MAX_DIGEST_SIZE];
+    UINT16 blobSz, secretSz, outSz;
+    int i, pos, cmdSz, rspSize = 0, seedSz = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(credential, 0xC7, sizeof(credential));
+
+    cmdSz = BuildCreatePrimaryCmdEx(gCmd, TPM_ALG_RSA, 0x00030472);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ekH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx.objects[i].used && ctx.objects[i].handle == ekH) {
+            ek = &ctx.objects[i];
+        }
+    }
+    AssertNotNull(ek);
+    if (ek->name.size == 0) {
+        FwComputeObjectName(ek);
+    }
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_MakeCredential);
+    PutU32BE(gCmd + pos, ekH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(credential)); pos += 2;
+    memcpy(gCmd + pos, credential, sizeof(credential));
+    pos += (int)sizeof(credential);
+    PutU16BE(gCmd + pos, ek->name.size); pos += 2;
+    memcpy(gCmd + pos, ek->name.name, ek->name.size); pos += ek->name.size;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE;
+    blobSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(blobSz <= sizeof(blob), 1);
+    memcpy(blob, gRsp + pos, blobSz); pos += blobSz;
+    secretSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(secretSz <= sizeof(secret), 1);
+    memcpy(secret, gRsp + pos, secretSz);
+
+    AssertIntEQ(FwDecryptSeed(&ctx, ek, secret, secretSz,
+        (const byte*)"IDENTITY", 9, "IDENTITY",
+        seed, (int)sizeof(seed), &seedSz), TPM_RC_SUCCESS);
+    AssertIntGT(seedSz, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ActivateCredential);
+    PutU32BE(gCmd + pos, ekH); pos += 4; /* activateHandle */
+    PutU32BE(gCmd + pos, ekH); pos += 4; /* keyHandle */
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    for (i = 0; i < 2; i++) {
+        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        gCmd[pos++] = 0;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+    }
+    PutU16BE(gCmd + pos, blobSz); pos += 2;
+    memcpy(gCmd + pos, blob, blobSz); pos += blobSz;
+    PutU16BE(gCmd + pos, secretSz); pos += 2;
+    memcpy(gCmd + pos, secret, secretSz); pos += secretSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4;
+    outSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ((int)outSz, (int)sizeof(credential));
+    AssertIntEQ(XMEMCMP(gRsp + pos, credential, sizeof(credential)), 0);
+
+    FlushHandle(&ctx, ekH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("RSA credential OAEP label:", 0);
+}
+#endif /* !NO_RSA && WOLFSSL_KEY_GEN && !FWTPM_NO_CREDENTIAL */
+
 #if !defined(FWTPM_NO_KEY_MIGRATION) && !defined(FWTPM_NO_POLICY)
 static TPM_RC SendDuplicateToNullCmd(FWTPM_CTX* ctx, UINT32 objH,
     UINT32 sessH, UINT16 symAlg)
@@ -25338,6 +25426,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
+    !defined(FWTPM_NO_CREDENTIAL)
+    test_fwtpm_rsa_credential_oaep_label();
+#endif
 #ifndef FWTPM_NO_KEY_MIGRATION
     test_fwtpm_rewrap_null_newparent_rejected();
 #ifndef FWTPM_NO_POLICY

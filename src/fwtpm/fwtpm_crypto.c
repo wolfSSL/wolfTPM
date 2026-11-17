@@ -2776,7 +2776,7 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
 
 /* --- Shared helper: decrypt encrypted seed with RSA OAEP or ECC ECDH+KDFe ---
  * Used by Import ("DUPLICATE"), StartAuthSession ("SECRET"),
- * and ActivateCredential ("IDENTITY\0" + objectName). */
+ * and ActivateCredential ("IDENTITY"). */
 TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
     const FWTPM_Object* keyObj,
     const byte* encSeedBuf, UINT16 encSeedSz,

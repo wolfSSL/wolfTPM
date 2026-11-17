@@ -19208,8 +19208,6 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_BUF(encCred, FWTPM_MAX_NV_DATA + 2);
     word32 encCredSz = 0;
     byte outerHmac[TPM_MAX_DIGEST_SIZE];
-    byte oaepLabel[64];
-    int oaepLabelSz = 0;
 
     FWTPM_ALLOC_BUF(encSeed, FWTPM_MAX_PUB_BUF);
     FWTPM_ALLOC_BUF(encCred, FWTPM_MAX_NV_DATA + 2);
@@ -19297,25 +19295,10 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif
 
-    /* Build OAEP label: "IDENTITY\0" + objectName */
-    if (rc == 0) {
-        XMEMCPY(oaepLabel, "IDENTITY", 8);
-        oaepLabelSz = 8;
-        oaepLabel[oaepLabelSz++] = 0x00;
-        if (objectName.size + oaepLabelSz > (int)sizeof(oaepLabel)) {
-            rc = TPM_RC_SIZE;
-        }
-        else {
-            XMEMCPY(oaepLabel + oaepLabelSz, objectName.name,
-                objectName.size);
-            oaepLabelSz += objectName.size;
-        }
-    }
-
     /* Generate seed and encrypt to key's public key */
     if (rc == 0) {
         rc = FwEncryptSeed(ctx, keyObj,
-            oaepLabel, oaepLabelSz, "IDENTITY",
+            (const byte*)"IDENTITY", 9, "IDENTITY",
             seed, (int)sizeof(seed), &seedSz,
             encSeed, FWTPM_MAX_PUB_BUF, &encSeedSz);
     }
@@ -19407,8 +19390,6 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte hmacKey[TPM_MAX_DIGEST_SIZE];
     int symKeySz = 0;
     int hmacKeySz = 0;
-    byte oaepLabel[64];
-    int oaepLabelSz = 0;
     byte credOut[sizeof(TPMU_HA)];
     UINT16 credSz = 0;
     TPM2B_NAME* objName;
@@ -19519,26 +19500,11 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Build OAEP label: "IDENTITY\0" + activateObj->name */
-    if (rc == 0) {
-        objName = &activateObj->name;
-        XMEMCPY(oaepLabel, "IDENTITY", 8);
-        oaepLabelSz = 8;
-        oaepLabel[oaepLabelSz++] = 0x00;
-        if (objName->size + oaepLabelSz > (int)sizeof(oaepLabel)) {
-            rc = TPM_RC_SIZE;
-        }
-        else {
-            XMEMCPY(oaepLabel + oaepLabelSz, objName->name, objName->size);
-            oaepLabelSz += objName->size;
-        }
-    }
-
     /* Decrypt seed using keyHandle's private key */
     if (rc == 0) {
         rc = FwDecryptSeed(ctx, keyObj,
             secretBuf, secretSz,
-            oaepLabel, oaepLabelSz, "IDENTITY",
+            (const byte*)"IDENTITY", 9, "IDENTITY",
             seed, (int)sizeof(seed), &seedSzInt);
     }
 
