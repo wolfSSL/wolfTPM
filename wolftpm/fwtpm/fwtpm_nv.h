@@ -123,7 +123,8 @@ typedef struct FWTPM_NV_HEADER {
 /* Hierarchy policies (value: UINT32 hierarchy + UINT16 alg + digest) */
 #define FWTPM_NV_TAG_HIERARCHY_POLICY  0x0035
 
-/* Clock offset (value: UINT64 clockOffset, survives reboot) */
+/* Clock checkpoint (value: UINT64 Clock in ms, HAL time plus clockOffset,
+ * survives reboot) */
 #define FWTPM_NV_TAG_CLOCK             0x0038
 
 /* NV indices (value starts with UINT32 nvHandle) */
@@ -272,8 +273,8 @@ WOLFTPM_API int FWTPM_NV_SaveConfigs(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV
-    \brief Append the TPM clock offset to the NV journal so that time
-    survives a reboot.
+    \brief Append a checkpoint of the TPM Clock (HAL time plus the clock
+    offset, in ms) to the NV journal so that time survives a reboot.
 
     \return 0 on success; a nonzero error code on I/O error
 
