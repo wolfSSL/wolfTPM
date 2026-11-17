@@ -14435,6 +14435,186 @@ static void test_fwtpm_nv_access_matches_auth_method(void)
     fwtpm_pass("NV access method matches attributes:", 0);
 }
 
+/* Start a session and run one policy command, given by its parameter octets,
+ * on it. With digest not NULL the resulting SHA-256 policyDigest is copied
+ * out. */
+static UINT32 StartPolicyWith(FWTPM_CTX* ctx, UINT8 sessType, UINT32 cc,
+    const byte* params, int paramsSz, byte* digest)
+{
+    UINT32 sessH = StartSessionHelper(ctx, sessType);
+    int pos, rspSize = 0;
+
+    AssertIntNE(sessH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, cc);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    memcpy(gCmd + pos, params, paramsSz); pos += paramsSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    if (digest != NULL) {
+        AssertIntEQ(SendPolicyCmd(ctx, TPM_CC_PolicyGetDigest, sessH),
+            TPM_RC_SUCCESS);
+        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE),
+            WC_SHA256_DIGEST_SIZE);
+        memcpy(digest, gRsp + TPM2_HEADER_SIZE + 2, WC_SHA256_DIGEST_SIZE);
+    }
+    return sessH;
+}
+
+static TPM_RC SendSetOwnerPolicy(FWTPM_CTX* ctx, const byte* policy,
+    UINT16 policySz, UINT16 hashAlg)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_SetPrimaryPolicy);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, policySz); pos += 2;
+    if (policySz > 0) {
+        memcpy(gCmd + pos, policy, policySz); pos += policySz;
+    }
+    PutU16BE(gCmd + pos, hashAlg); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* NV_Write of one octet authorized by ownerPolicy through sessH */
+static TPM_RC SendNvOwnerPolicyWrite(FWTPM_CTX* ctx, UINT32 nvIndex,
+    UINT32 sessH)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_Write);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession,
+        NULL, 0);
+    PutU16BE(gCmd + pos, 1); pos += 2;
+    gCmd[pos++] = 0x5A;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A policy session whose policyDigest matches authPolicy still authorizes
+ * only the command PolicyCommandCode named, the handles PolicyNameHash
+ * named and the written state PolicyNvWritten named (Part 1 Sec.19.7). */
+static void test_fwtpm_policy_assertions_enforced(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NvIndex* nv = NULL;
+    UINT32 ccIdx = 0x01500091;
+    UINT32 writtenIdx = 0x01500092;
+    UINT32 nameIdx = 0x01500093;
+    UINT32 otherIdx = 0x01500094;
+    UINT32 sessH;
+    UINT16 nameSz = 0;
+    wc_HashAlg h;
+    byte params[2 + WC_SHA256_DIGEST_SIZE];
+    byte policy[WC_SHA256_DIGEST_SIZE];
+    byte name[2 + TPM_MAX_DIGEST_SIZE];
+    int i, cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* PolicyCommandCode(NV_Write) does not authorize NV_Read */
+    PutU32BE(params, TPM_CC_NV_Write);
+    sessH = StartPolicyWith(&ctx, TPM_SE_TRIAL, TPM_CC_PolicyCommandCode,
+        params, 4, policy);
+    FlushHandle(&ctx, sessH);
+    cmdSz = BuildNvDefineCmdEx(gCmd, ccIdx, 1,
+        TPMA_NV_POLICYWRITE | TPMA_NV_POLICYREAD | TPMA_NV_NO_DA,
+        NULL, 0, policy, sizeof(policy));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    PutU32BE(params, TPM_CC_NV_Write);
+    sessH = StartPolicyWith(&ctx, TPM_SE_POLICY, TPM_CC_PolicyCommandCode,
+        params, 4, NULL);
+    AssertIntEQ(SendNvAccessCmd(&ctx, ccIdx, sessH, NULL, 0, 0),
+        TPM_RC_POLICY_CC);
+    AssertIntEQ(SendNvAccessCmd(&ctx, ccIdx, sessH, NULL, 0, 1),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    /* PolicyNvWritten(NO) authorizes the first write only */
+    params[0] = 0;
+    sessH = StartPolicyWith(&ctx, TPM_SE_TRIAL, TPM_CC_PolicyNvWritten,
+        params, 1, policy);
+    FlushHandle(&ctx, sessH);
+    cmdSz = BuildNvDefineCmdEx(gCmd, writtenIdx, 1,
+        TPMA_NV_POLICYWRITE | TPMA_NV_POLICYREAD | TPMA_NV_NO_DA,
+        NULL, 0, policy, sizeof(policy));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    for (i = 0; i < 2; i++) {
+        params[0] = 0;
+        sessH = StartPolicyWith(&ctx, TPM_SE_POLICY, TPM_CC_PolicyNvWritten,
+            params, 1, NULL);
+        AssertIntEQ(SendNvAccessCmd(&ctx, writtenIdx, sessH, NULL, 0, 1),
+            (i == 0) ? TPM_RC_SUCCESS : TPM_RC_POLICY_FAIL);
+        FlushHandle(&ctx, sessH);
+    }
+
+    /* PolicyNameHash(TPM_RH_OWNER, nameIdx) does not authorize a write to
+     * otherIdx with ownerPolicy */
+    cmdSz = BuildNvDefineCmd(gCmd, nameIdx, 1,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cmdSz = BuildNvDefineCmd(gCmd, otherIdx, 1,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].inUse &&
+                ctx.nvIndices[i].nvPublic.nvIndex == nameIdx) {
+            nv = &ctx.nvIndices[i];
+        }
+    }
+    AssertNotNull(nv);
+    AssertIntEQ(FwComputeNvName(nv, name, &nameSz), 0);
+    PutU16BE(params, WC_SHA256_DIGEST_SIZE);
+    PutU32BE(policy, TPM_RH_OWNER);
+    AssertIntEQ(wc_HashInit(&h, WC_HASH_TYPE_SHA256), 0);
+    AssertIntEQ(wc_HashUpdate(&h, WC_HASH_TYPE_SHA256, policy, 4), 0);
+    AssertIntEQ(wc_HashUpdate(&h, WC_HASH_TYPE_SHA256, name, nameSz), 0);
+    AssertIntEQ(wc_HashFinal(&h, WC_HASH_TYPE_SHA256, params + 2), 0);
+    wc_HashFree(&h, WC_HASH_TYPE_SHA256);
+    sessH = StartPolicyWith(&ctx, TPM_SE_TRIAL, TPM_CC_PolicyNameHash,
+        params, sizeof(params), policy);
+    FlushHandle(&ctx, sessH);
+    AssertIntEQ(SendSetOwnerPolicy(&ctx, policy, sizeof(policy),
+        TPM_ALG_SHA256), TPM_RC_SUCCESS);
+    sessH = StartPolicyWith(&ctx, TPM_SE_POLICY, TPM_CC_PolicyNameHash,
+        params, sizeof(params), NULL);
+    AssertIntEQ(SendNvOwnerPolicyWrite(&ctx, otherIdx, sessH),
+        TPM_RC_POLICY_FAIL);
+    AssertIntEQ(SendNvOwnerPolicyWrite(&ctx, nameIdx, sessH),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+    AssertIntEQ(SendSetOwnerPolicy(&ctx, NULL, 0, TPM_ALG_NULL),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, ccIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, writtenIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nameIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, otherIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Policy command, name and NV written binding:", 0);
+}
+
 /* A policy that asserts PolicyAuthValue or PolicyPassword needs authValue
  * proof in the session HMAC field; only an empty authValue accepts none. */
 static void test_fwtpm_nv_policy_auth_proof_required(void)
@@ -30737,6 +30917,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_nv_access_matches_auth_method();
     test_fwtpm_nv_policy_auth_proof_required();
+    test_fwtpm_policy_assertions_enforced();
 #endif
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();
