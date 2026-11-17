@@ -19048,8 +19048,12 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &privHandle);
         TPM2_Packet_ParseU32(cmd, &signHandle);
-        (void)privHandle;
-
+        /* privacyAdminHandle is a TPMI_RH_ENDORSEMENT (Part 3 Sec.18.7) */
+        if (privHandle != TPM_RH_ENDORSEMENT) {
+            rc = TPM_RC_VALUE | TPM_RC_1;
+        }
+    }
+    if (rc == 0) {
         sigObj = FwFindObject(ctx, signHandle);
         if (sigObj == NULL) {
             rc = TPM_RC_HANDLE;
