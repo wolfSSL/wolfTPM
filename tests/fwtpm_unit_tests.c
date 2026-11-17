@@ -26023,6 +26023,55 @@ static void test_fwtpm_shutdown_state_after_pcr_allocate(void)
     fwtpm_pass("Shutdown(STATE) after PCR_Allocate:", 0);
 }
 
+#ifndef NO_SHA
+/* PCR_Extend for FW_TEST_PCR with one digest per algs[] entry */
+static TPM_RC SendPcrExtendAlgs(FWTPM_CTX* ctx, const UINT16* algs, int count)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PCR_Extend);
+    int rspSize = 0;
+    int i, dSz;
+
+    PutU32BE(gCmd + pos, FW_TEST_PCR); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, (UINT32)count); pos += 4;
+    for (i = 0; i < count; i++) {
+        dSz = TPM2_GetHashDigestSize(algs[i]);
+        PutU16BE(gCmd + pos, algs[i]); pos += 2;
+        memset(gCmd + pos, 0x5A, dSz); pos += dSz;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* The SHA-1 bank is implemented but not allocated by default, so a digest
+ * for it is skipped while the allocated banks are extended. */
+static void test_fwtpm_pcr_extend_unallocated_bank(void)
+{
+    FWTPM_CTX ctx;
+    UINT16 algs[2];
+    byte zero[TPM_MAX_DIGEST_SIZE];
+    int pcr = FW_TEST_PCR - PCR_FIRST;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(zero, 0, sizeof(zero));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA1), 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
+
+    algs[0] = TPM_ALG_SHA1;
+    algs[1] = TPM_ALG_SHA256;
+    AssertIntEQ(SendPcrExtendAlgs(&ctx, algs, 2), TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(ctx.pcrDigest[pcr][FWTPM_PCR_BANK_SHA1], zero,
+        sizeof(zero)), 0);
+    AssertIntNE(memcmp(ctx.pcrDigest[pcr][FWTPM_PCR_BANK_SHA256], zero,
+        sizeof(zero)), 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Extend skips unallocated bank:", 0);
+}
+#endif /* !NO_SHA */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -26778,6 +26827,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_gettestresult_needs_test_then_success();
     test_fwtpm_pcr_auth_startup_clear();
     test_fwtpm_shutdown_state_after_pcr_allocate();
+#ifndef NO_SHA
+    test_fwtpm_pcr_extend_unallocated_bank();
+#endif
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();

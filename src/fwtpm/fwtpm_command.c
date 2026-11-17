@@ -3692,7 +3692,7 @@ static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_COMMAND_SIZE;
             break;
         }
-        if (bank < 0) {
+        if (bank < 0 || (ctx->pcrAllocatedBanks & (1u << bank)) == 0) {
             /* Known algorithm but unsupported bank — skip the digest bytes */
             cmd->pos += dSize;
             continue;
