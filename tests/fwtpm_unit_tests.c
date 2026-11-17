@@ -17054,6 +17054,153 @@ static void test_fwtpm_nv_owner_access_platform_index(void)
     fwtpm_pass("NV owner access to platform index:", 0);
 }
 
+static TPM_RC SendHierarchyControl(FWTPM_CTX* ctx, UINT32 authHandle,
+    UINT32 enable, byte state)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_HierarchyControl);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, authHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, enable); pos += 4;
+    gCmd[pos++] = state;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* ownerAuth and endorsementAuth can only disable their own hierarchy and
+ * platformAuth changes every enable. A disabled hierarchy takes its
+ * transient objects with it and makes its handle and NV indexes unusable
+ * (Part 3 Sec.24.2, Part 1 Sec.14.2). */
+static void test_fwtpm_hierarchy_control(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 ownerIdx = 0x01400091;
+    UINT32 ppIdx = 0x01400092;
+    int pos, cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, ownerIdx, 1,
+        TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cmdSz = BuildNvDefineCmd(gCmd, ppIdx, 1, TPMA_NV_PLATFORMCREATE |
+        TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE, TPM_RH_PLATFORM);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ownerIdx, ownerIdx, 1),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ppIdx, ppIdx, 1),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM, TPM_RH_OWNER, 2),
+        TPM_RC_VALUE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM, TPM_RH_LOCKOUT,
+        0), TPM_RC_VALUE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_ENDORSEMENT,
+        0), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_PLATFORM, 0),
+        TPM_RC_AUTH_TYPE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_PLATFORM_NV,
+        0), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_ENDORSEMENT, TPM_RH_OWNER,
+        0), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_RH_PLATFORM, 0), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(ctx.shDisabled | ctx.ehDisabled | ctx.phDisabled |
+        ctx.phNvDisabled, 0);
+
+    /* stand-ins for a loaded object of each hierarchy */
+    ctx.objects[0].used = 1;
+    ctx.objects[0].handle = TRANSIENT_FIRST;
+    ctx.objects[0].hierarchy = TPM_RH_OWNER;
+    ctx.objects[1].used = 1;
+    ctx.objects[1].handle = TRANSIENT_FIRST + 1;
+    ctx.objects[1].hierarchy = TPM_RH_ENDORSEMENT;
+
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_OWNER, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.shDisabled, 1);
+    AssertIntEQ(ctx.objects[0].used, 0);
+    AssertIntEQ(ctx.objects[1].used, 1);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_OWNER, 1),
+        TPM_RC_HIERARCHY);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_ENDORSEMENT, TPM_RH_OWNER,
+        1), TPM_RC_AUTH_TYPE);
+    cmdSz = BuildNvDefineCmd(gCmd, ownerIdx + 2, 1,
+        TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HIERARCHY);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ownerIdx, ownerIdx, 0),
+        TPM_RC_HANDLE);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ppIdx, ppIdx, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.shDisabled, 1);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM, TPM_RH_OWNER, 1),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.shDisabled, 0);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ownerIdx, ownerIdx, 0),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_RH_ENDORSEMENT, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.ehDisabled, 1);
+    AssertIntEQ(ctx.objects[1].used, 0);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_RH_ENDORSEMENT, 1), TPM_RC_HIERARCHY);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM,
+        TPM_RH_ENDORSEMENT, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.ehDisabled, 0);
+
+    /* phEnableNV governs the indexes the platform created */
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM,
+        TPM_RH_PLATFORM_NV, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.phNvDisabled, 1);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ppIdx, ppIdx, 0),
+        TPM_RC_HANDLE);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ownerIdx, ownerIdx, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM,
+        TPM_RH_PLATFORM_NV, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.phNvDisabled, 0);
+    AssertIntEQ(SendNvHandleAccessCmd(&ctx, ppIdx, ppIdx, 0),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, ownerIdx),
+        TPM_RC_SUCCESS);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_UndefineSpace);
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
+    PutU32BE(gCmd + pos, ppIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* phEnable stays clear until the next Startup */
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM, TPM_RH_PLATFORM,
+        0), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.phDisabled, 1);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_PLATFORM, TPM_RH_PLATFORM,
+        1), TPM_RC_HIERARCHY);
+    FWTPM_Cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.shDisabled | ctx.ehDisabled | ctx.phDisabled |
+        ctx.phNvDisabled, 0);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("HierarchyControl:", 0);
+}
+
 /* NV_Read size is the number of octets to return, so zero reads nothing. */
 static void test_fwtpm_nv_read_zero_size(void)
 {
@@ -31077,6 +31224,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_yes_no_range();
     test_fwtpm_clear_disabled();
     test_fwtpm_nv_owner_access_platform_index();
+    test_fwtpm_hierarchy_control();
     test_fwtpm_nv_read_zero_size();
     test_fwtpm_nv_buffer_max();
     test_fwtpm_nv_extend_buffer_max();
