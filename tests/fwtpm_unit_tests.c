@@ -11407,6 +11407,155 @@ static void FlushHandle(FWTPM_CTX* ctx, UINT32 handle)
     FWTPM_ProcessCommand(ctx, gCmd, 14, gRsp, &rspSize, 0);
 }
 
+#if defined(HAVE_ECC) || (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN))
+#ifdef HAVE_ECC
+    #define FW_TEST_CREATE_ALG TPM_ALG_ECC
+#else
+    #define FW_TEST_CREATE_ALG TPM_ALG_RSA
+#endif
+
+/* Replace the empty outsideInfo and creationPCR that end a command from
+ * BuildCreatePrimaryCmd with "abcde" and SHA-256 PCR 0 and 7. */
+static int SetCreationInputs(byte* buf, int cmdSz)
+{
+    int pos = cmdSz - 6;
+
+    PutU16BE(buf + pos, 5); pos += 2;
+    memcpy(buf + pos, "abcde", 5); pos += 5;
+    PutU32BE(buf + pos, 1); pos += 4;
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+    buf[pos++] = PCR_SELECT_MAX;
+    memset(buf + pos, 0, PCR_SELECT_MAX);
+    buf[pos] = 0x81;
+    pos += PCR_SELECT_MAX;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* Send a command from BuildCreatePrimaryCmd whose creationPCR lists count
+ * selections of hashAlg, each with sizeofSelect zero octets. */
+static TPM_RC SendCreationPcr(FWTPM_CTX* ctx, UINT32 cc, UINT32 parentH,
+    UINT32 count, UINT16 hashAlg, byte sizeofSelect)
+{
+    int cmdSz = BuildCreatePrimaryCmd(gCmd, FW_TEST_CREATE_ALG);
+    int pos = cmdSz - 4;
+    int rspSize = 0;
+    UINT32 i;
+
+    PutU32BE(gCmd + 6, cc);
+    PutU32BE(gCmd + 10, parentH);
+    PutU32BE(gCmd + pos, count); pos += 4;
+    for (i = 0; i < count; i++) {
+        PutU16BE(gCmd + pos, hashAlg); pos += 2;
+        gCmd[pos++] = sizeofSelect;
+        memset(gCmd + pos, 0, sizeofSelect); pos += sizeofSelect;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* Check the TPM2B_CREATION_DATA at gRsp + pos, made from SetCreationInputs,
+ * and the creationHash after it. */
+static void CheckCreationData(FWTPM_CTX* ctx, int pos, UINT16 parentNameAlg,
+    const byte* parentName, UINT16 parentNameSz)
+{
+    byte pcrs[2 * WC_SHA256_DIGEST_SIZE];
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    int cdSz = GetU16BE(gRsp + pos);
+    int cdStart = pos + 2;
+    int i;
+
+    memcpy(pcrs, ctx->pcrDigest[0][FWTPM_PCR_BANK_SHA256],
+        WC_SHA256_DIGEST_SIZE);
+    memcpy(pcrs + WC_SHA256_DIGEST_SIZE,
+        ctx->pcrDigest[7][FWTPM_PCR_BANK_SHA256], WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(wc_Sha256Hash(pcrs, (word32)sizeof(pcrs), digest), 0);
+
+    pos = cdStart;
+    AssertIntEQ(GetU32BE(gRsp + pos), 1); pos += 4; /* pcrSelect */
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_SHA256); pos += 2;
+    AssertIntEQ(gRsp[pos], PCR_SELECT_MAX); pos++;
+    AssertIntEQ(gRsp[pos], 0x81);
+    for (i = 1; i < PCR_SELECT_MAX; i++) {
+        AssertIntEQ(gRsp[pos + i], 0x00);
+    }
+    pos += PCR_SELECT_MAX;
+    AssertIntEQ(GetU16BE(gRsp + pos), WC_SHA256_DIGEST_SIZE); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, digest, sizeof(digest)), 0);
+    pos += WC_SHA256_DIGEST_SIZE;
+    AssertIntEQ(gRsp[pos], 0x01); pos++; /* TPM_LOC_ZERO */
+    AssertIntEQ(GetU16BE(gRsp + pos), parentNameAlg); pos += 2;
+    AssertIntEQ(GetU16BE(gRsp + pos), parentNameSz); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, parentName, parentNameSz), 0);
+    pos += parentNameSz;
+    /* parentQualifiedName */
+    AssertIntEQ(GetU16BE(gRsp + pos), parentNameSz); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, parentName, parentNameSz), 0);
+    pos += parentNameSz;
+    AssertIntEQ(GetU16BE(gRsp + pos), 5); pos += 2; /* outsideInfo */
+    AssertIntEQ(memcmp(gRsp + pos, "abcde", 5), 0); pos += 5;
+    AssertIntEQ(pos, cdStart + cdSz);
+
+    /* creationHash */
+    AssertIntEQ(wc_Sha256Hash(gRsp + cdStart, (word32)cdSz, digest), 0);
+    AssertIntEQ(GetU16BE(gRsp + pos), WC_SHA256_DIGEST_SIZE); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, digest, sizeof(digest)), 0);
+}
+
+/* CreatePrimary creationData names the hierarchy as the parent under
+ * TPM_ALG_NULL and carries outsideInfo and the creationPCR selection and
+ * digest (Part 2 Sec.15.1). */
+static void test_fwtpm_create_primary_creation_data(void)
+{
+    FWTPM_CTX ctx;
+    byte owner[4];
+    UINT32 keyH;
+    int pos, cmdSz, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    PutU32BE(owner, TPM_RH_OWNER);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, FW_TEST_CREATE_ALG);
+    cmdSz = SetCreationInputs(gCmd, cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    pos = TPM2_HEADER_SIZE + 4 + 4;
+    pos += 2 + GetU16BE(gRsp + pos); /* outPublic */
+    CheckCreationData(&ctx, pos, TPM_ALG_NULL, owner, sizeof(owner));
+    FlushHandle(&ctx, keyH);
+
+    /* outsideInfo larger than a TPM2B_DATA */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, FW_TEST_CREATE_ALG);
+    pos = cmdSz - 6;
+    PutU16BE(gCmd + pos, sizeof(TPMT_HA) + 1); pos += 2;
+    memset(gCmd + pos, 0, sizeof(TPMT_HA) + 1); pos += sizeof(TPMT_HA) + 1;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE | TPM_RC_P | TPM_RC_3);
+
+    /* creationPCR is checked as a TPML_PCR_SELECTION */
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_CreatePrimary, TPM_RH_OWNER,
+        HASH_COUNT + 1, TPM_ALG_SHA256, PCR_SELECT_MAX),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_CreatePrimary, TPM_RH_OWNER,
+        1, TPM_ALG_NULL, PCR_SELECT_MAX), TPM_RC_HASH | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_CreatePrimary, TPM_RH_OWNER,
+        1, TPM_ALG_SHA256, PCR_SELECT_MIN - 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_CreatePrimary, TPM_RH_OWNER,
+        1, TPM_ALG_SHA256, PCR_SELECT_MAX + 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_4);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("CreatePrimary creationData:", 0);
+}
+#endif /* HAVE_ECC || (!NO_RSA && WOLFSSL_KEY_GEN) */
+
 /* Helper: build StartAuthSession command. Returns cmd size. */
 static int BuildStartAuthSessionCmd(byte* buf, UINT8 sessionType,
     UINT16 hashAlg)
@@ -29850,6 +29999,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #ifdef HAVE_ECC
     test_fwtpm_create_primary_ecc();
+#endif
+#if defined(HAVE_ECC) || (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN))
+    test_fwtpm_create_primary_creation_data();
 #endif
 #ifdef WOLFTPM_V185
     test_fwtpm_create_primary_mlkem();

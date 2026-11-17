@@ -4655,6 +4655,113 @@ void FWTPM_FlushCommandClient(FWTPM_CTX* ctx, UINT32 clientId)
 #endif
 }
 
+/* Append TPMS_CREATION_DATA (Part 2 Sec.15.1). creationPcr points at the
+ * TPML_PCR_SELECTION of the command, already checked against its size, and
+ * parent is NULL when parentHandle is a permanent handle. */
+static TPM_RC FwAppendCreationData(FWTPM_CTX* ctx, TPM2_Packet* rsp,
+    TPM_HANDLE parentHandle, FWTPM_Object* parent, TPMI_ALG_HASH nameAlg,
+    const byte* creationPcr, const byte* outsideInfo, UINT16 outsideInfoSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
+    enum wc_HashType wcHash = FwGetWcHashType(nameAlg);
+    int dSz = TPM2_GetHashDigestSize(nameAlg);
+    byte pcrDigest[TPM_MAX_DIGEST_SIZE];
+    UINT32 count = FwLoadU32BE(creationPcr);
+    UINT32 s;
+    int hashInit = 0;
+
+    FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+
+    if (rc == 0 && (wcHash == WC_HASH_TYPE_NONE || dSz <= 0)) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0) {
+        if (wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            hashInit = 1;
+        }
+    }
+
+    /* pcrSelect, less the PCR that are not implemented or allocated, and
+     * pcrDigest over the PCR that are left */
+    if (rc == 0) {
+        creationPcr += 4;
+        TPM2_Packet_AppendU32(rsp, count);
+    }
+    for (s = 0; s < count && rc == 0; s++) {
+        UINT16 hashAlg = FwLoadU16BE(creationPcr);
+        UINT8 sizeofSelect = creationPcr[2];
+        int bank = FwGetPcrBankIndex(hashAlg);
+        int bankDSz = TPM2_GetHashDigestSize(hashAlg);
+        int j, bit;
+
+        if (bank >= 0 && (ctx->pcrAllocatedBanks & (1u << bank)) == 0) {
+            bank = -1;
+        }
+        creationPcr += 3;
+        TPM2_Packet_AppendU16(rsp, hashAlg);
+        TPM2_Packet_AppendU8(rsp, sizeofSelect);
+        for (j = 0; j < (int)sizeofSelect && rc == 0; j++) {
+            byte sel = creationPcr[j];
+            if (bank < 0 || j >= (int)PCR_SELECT_MAX) {
+                sel = 0;
+            }
+            TPM2_Packet_AppendU8(rsp, sel);
+            for (bit = 0; bit < 8 && rc == 0; bit++) {
+                if ((sel & (1 << bit)) != 0 &&
+                        wc_HashUpdate(hashCtx, wcHash,
+                            ctx->pcrDigest[j * 8 + bit][bank],
+                            (word32)bankDSz) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+            }
+        }
+        creationPcr += sizeofSelect;
+    }
+    if (rc == 0 && wc_HashFinal(hashCtx, wcHash, pcrDigest) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (hashInit) {
+        wc_HashFree(hashCtx, wcHash);
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_AppendU16(rsp, (UINT16)dSz);
+        TPM2_Packet_AppendBytes(rsp, pcrDigest, dSz);
+        /* TPMA_LOCALITY: one bit for each of localities 0-4 */
+        TPM2_Packet_AppendU8(rsp, (ctx->activeLocality < 5) ?
+            (UINT8)(1 << ctx->activeLocality) : (UINT8)ctx->activeLocality);
+        if (parent == NULL) {
+            TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL);
+            TPM2_Packet_AppendU16(rsp, 4); /* parentName */
+            TPM2_Packet_AppendU32(rsp, parentHandle);
+            TPM2_Packet_AppendU16(rsp, 4); /* parentQualifiedName */
+            TPM2_Packet_AppendU32(rsp, parentHandle);
+        }
+        else {
+            if (parent->name.size == 0) {
+                rc = FwComputeObjectName(parent);
+            }
+            TPM2_Packet_AppendU16(rsp, parent->pub.nameAlg);
+            TPM2_Packet_AppendU16(rsp, parent->name.size);
+            TPM2_Packet_AppendBytes(rsp, (byte*)parent->name.name,
+                parent->name.size);
+            /* Qualified Names are not tracked: the Name stands in */
+            TPM2_Packet_AppendU16(rsp, parent->name.size);
+            TPM2_Packet_AppendBytes(rsp, (byte*)parent->name.name,
+                parent->name.size);
+        }
+        TPM2_Packet_AppendU16(rsp, outsideInfoSz);
+        TPM2_Packet_AppendBytes(rsp, (byte*)outsideInfo, outsideInfoSz);
+    }
+
+    FWTPM_FREE_VAR(hashCtx);
+    return rc;
+}
+
 /* --- TPM2_CreatePrimary (CC 0x0131) --- */
 static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -4673,6 +4780,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_PrimaryCache* cached = NULL;
     int cacheIdx;
     int cdStart;
+    int outsideInfoPos = 0, creationPcrPos = 0;
     FWTPM_DECLARE_BUF(sensData, FWTPM_MAX_DATA_BUF);
     UINT16 sensDataSize = 0;
     byte hashUnique[TPM_MAX_DIGEST_SIZE];
@@ -4733,7 +4841,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidateLimitedAttributes(&inPublic->publicArea);
     }
 #endif /* WOLFTPM_V185 */
-    /* Parse outsideInfo (TPM2B_DATA) - skip */
+    /* Parse outsideInfo (TPM2B_DATA) */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -4744,12 +4852,16 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (cmd->pos + outsideInfoSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
+        else if (outsideInfoSize > sizeof(((TPM2B_DATA*)0)->buffer)) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
     }
     if (rc == 0) {
+        outsideInfoPos = cmd->pos;
         cmd->pos += outsideInfoSize;
     }
 
-    /* Parse creationPCR (TPML_PCR_SELECTION) - skip */
+    /* Parse creationPCR (TPML_PCR_SELECTION) */
     if (rc == 0) {
         if (cmd->pos + 4 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -4757,15 +4869,28 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         UINT32 s;
+        creationPcrPos = cmd->pos;
         TPM2_Packet_ParseU32(cmd, &creationPcrCount);
+        if (creationPcrCount > HASH_COUNT) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_4;
+        }
         for (s = 0; s < creationPcrCount && rc == 0; s++) {
+            UINT16 pcrHashAlg;
             UINT8 selectSize;
             if (cmd->pos + 3 > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
             }
-            cmd->pos += 2; /* hashAlg */
+            TPM2_Packet_ParseU16(cmd, &pcrHashAlg);
             TPM2_Packet_ParseU8(cmd, &selectSize);
+            if (FwGetWcHashType(pcrHashAlg) == WC_HASH_TYPE_NONE) {
+                rc = TPM_RC_HASH | TPM_RC_P | TPM_RC_4;
+                break;
+            }
+            if (selectSize < PCR_SELECT_MIN || selectSize > PCR_SELECT_MAX) {
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_4;
+                break;
+            }
             if (cmd->pos + selectSize > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
@@ -5138,16 +5263,9 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* creationData (TPM2B_CREATION_DATA) */
         TPM2_Packet_MarkU16(rsp, &cdMarkPos);
         cdStart = rsp->pos; /* start of TPMS_CREATION_DATA */
-        /* TPMS_CREATION_DATA */
-        TPM2_Packet_AppendU32(rsp, 0); /* pcrSelect count = 0 */
-        TPM2_Packet_AppendU16(rsp, 0); /* pcrDigest size = 0 */
-        TPM2_Packet_AppendU8(rsp, 0);  /* locality */
-        TPM2_Packet_AppendU16(rsp, TPM_ALG_SHA256); /* parentNameAlg */
-        TPM2_Packet_AppendU16(rsp, 4); /* parentName */
-        TPM2_Packet_AppendU32(rsp, primaryHandle);
-        TPM2_Packet_AppendU16(rsp, 4); /* parentQualifiedName */
-        TPM2_Packet_AppendU32(rsp, primaryHandle);
-        TPM2_Packet_AppendU16(rsp, 0); /* outsideInfo */
+        rc = FwAppendCreationData(ctx, rsp, primaryHandle, NULL,
+            obj->pub.nameAlg, cmd->buf + creationPcrPos,
+            cmd->buf + outsideInfoPos, outsideInfoSize);
         TPM2_Packet_PlaceU16(rsp, cdMarkPos);
 
         FwAppendCreationHashAndTicket(ctx, rsp, primaryHandle,
