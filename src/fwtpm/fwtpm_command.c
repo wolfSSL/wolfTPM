@@ -13785,15 +13785,14 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_AUTH_TYPE;
         }
     }
-    /* Per TPM 2.0 Part 3 Section 23.5: each digest must be the size of
-     * the session's hash algorithm digest */
+    /* Per TPM 2.0 Part 3 Section 23.6: a digest of another size is not an
+     * error, it only cannot match policyDigest */
     if (rc == 0) {
-        dSz = TPM2_GetHashDigestSize(sess->authHash);
         for (i = 0; i < (int)digestCount; i++) {
             rc = FwPolicyParseTpm2b(cmd, cmdSize, digests[i],
                 (UINT16)sizeof(digests[i]), &digestSizes[i]);
-            if (rc == 0 && digestSizes[i] != (UINT16)dSz) {
-                rc = TPM_RC_SIZE;
+            if (rc == TPM_RC_SIZE) {
+                rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
             }
             if (rc != 0) {
                 break;

@@ -12317,6 +12317,62 @@ static void test_fwtpm_policy_or_count(void)
     fwtpm_pass("PolicyOR digest count:", 0);
 }
 
+/* A pHashList entry of another digest size is not an error; it only cannot
+ * match policyDigest, and is still hashed as supplied (Part 3 Sec.23.6). */
+static void test_fwtpm_policy_or_mixed_sizes(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    byte list[(2 + TPM_SHA_DIGEST_SIZE) + (2 + WC_SHA256_DIGEST_SIZE)];
+    byte hashSrc[WC_SHA256_DIGEST_SIZE + 4 + TPM_SHA_DIGEST_SIZE +
+        WC_SHA256_DIGEST_SIZE];
+    byte expect[WC_SHA256_DIGEST_SIZE];
+    byte big[(2 + TPM_MAX_DIGEST_SIZE + 1) + (2 + WC_SHA256_DIGEST_SIZE)];
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* SHA-1 sized entry, then the all-zero SHA-256 start digest */
+    memset(list, 0, sizeof(list));
+    PutU16BE(list, TPM_SHA_DIGEST_SIZE);
+    memset(list + 2, 0x5A, TPM_SHA_DIGEST_SIZE);
+    PutU16BE(list + 2 + TPM_SHA_DIGEST_SIZE, WC_SHA256_DIGEST_SIZE);
+
+    memset(hashSrc, 0, sizeof(hashSrc));
+    PutU32BE(hashSrc + WC_SHA256_DIGEST_SIZE, TPM_CC_PolicyOR);
+    memset(hashSrc + WC_SHA256_DIGEST_SIZE + 4, 0x5A, TPM_SHA_DIGEST_SIZE);
+    AssertIntEQ(wc_Sha256Hash(hashSrc, (word32)sizeof(hashSrc), expect), 0);
+
+    for (i = 0; i < 2; i++) {
+        sessH = StartSessionHelper(&ctx, (i == 0) ? TPM_SE_TRIAL :
+            TPM_SE_POLICY);
+        AssertIntNE(sessH, 0);
+        AssertIntEQ(SendPolicyOR(&ctx, sessH, 2, list, (int)sizeof(list)),
+            TPM_RC_SUCCESS);
+        AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
+            TPM_RC_SUCCESS);
+        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4),
+            WC_SHA256_DIGEST_SIZE);
+        AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 6, expect,
+            WC_SHA256_DIGEST_SIZE), 0);
+        FlushHandle(&ctx, sessH);
+    }
+
+    /* An entry larger than any digest is not a TPM2B_DIGEST */
+    memset(big, 0, sizeof(big));
+    PutU16BE(big, TPM_MAX_DIGEST_SIZE + 1);
+    PutU16BE(big + 2 + TPM_MAX_DIGEST_SIZE + 1, WC_SHA256_DIGEST_SIZE);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyOR(&ctx, sessH, 2, big, (int)sizeof(big)),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    FlushHandle(&ctx, sessH);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyOR mixed digest sizes:", 0);
+}
+
 #ifndef FWTPM_NO_NV
 /* PolicyNV and PolicyAuthorizeNV must verify the caller is authorized to
  * read the NV index. An OWNER authHandle against an index without
@@ -25854,6 +25910,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policyauthorize_null_ticket_rejected();
     test_fwtpm_policy_password_digest();
     test_fwtpm_policy_or_count();
+    test_fwtpm_policy_or_mixed_sizes();
 #ifndef FWTPM_NO_NV
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();
