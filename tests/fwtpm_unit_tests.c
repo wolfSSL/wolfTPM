@@ -25806,10 +25806,9 @@ static int fwtpm_nv_define_sess(byte* buf, UINT32 nvIndex, UINT16 dataSize,
     return pos;
 }
 
-/* The parameter binding must also hold for an entity whose authPolicy is
- * empty. Such an entity is authorized by its auth value through
- * PolicyPassword, never by comparing the session digest against a policy, so
- * a binding enforced only alongside that comparison would not apply here. */
+/* An entity whose authPolicy is empty has no policy authorization, so a
+ * policy session is refused for it whether or not the command matches the
+ * PolicyParameters binding, even with PolicyPassword and the auth value. */
 static void test_fwtpm_policy_parameters_empty_policy(void)
 {
     FWTPM_CTX ctx;
@@ -25858,8 +25857,7 @@ static void test_fwtpm_policy_parameters_empty_policy(void)
         pHash, &pHashSz), 0);
     AssertIntEQ(pHashSz, WC_SHA256_DIGEST_SIZE);
 
-    /* Bound to okIdx, so a different index is a different parameter area and
-     * must be refused even though the password authorizes the owner. */
+    /* Bound to okIdx, so a different index is a different parameter area */
     sessH = fwtpm_policy_parameters_session(&ctx, pHash);
     AssertIntNE(sessH, 0);
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyPassword, sessH),
@@ -25868,10 +25866,10 @@ static void test_fwtpm_policy_parameters_empty_policy(void)
         pw, (int)sizeof(pw));
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
     FlushHandle(&ctx, sessH);
 
-    /* The command the pHash was computed over is still authorized */
+    /* The command the pHash was computed over is refused as well */
     sessH = fwtpm_policy_parameters_session(&ctx, pHash);
     AssertIntNE(sessH, 0);
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyPassword, sessH),
@@ -25880,7 +25878,7 @@ static void test_fwtpm_policy_parameters_empty_policy(void)
         pw, (int)sizeof(pw));
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
     FlushHandle(&ctx, sessH);
 
     FWTPM_Cleanup(&ctx);
@@ -26799,6 +26797,92 @@ static void test_fwtpm_quote_scheme_hash(void)
 }
 #endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
 
+#if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
+/* A policy session cannot authorize an entity that has no authPolicy, even
+ * after PolicyPassword with the right authValue: an NV index or a hierarchy
+ * has no policy authorization available, and an object's empty authPolicy
+ * never equals a policyDigest. */
+static void test_fwtpm_policy_session_needs_auth_policy(void)
+{
+    FWTPM_CTX ctx;
+    static const byte pw[] = { 'p', 'w' };
+    const UINT32 nvIdx = 0x01500A20;
+    UINT32 sessH;
+#ifdef HAVE_ECC
+    UINT32 objH;
+#endif
+    int cmdSz, pos, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmdEx(gCmd, nvIdx, 8, TPMA_NV_AUTHREAD |
+        TPMA_NV_AUTHWRITE, pw, (UINT16)sizeof(pw), NULL, 0);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendHierarchyChangeAuth(&ctx, TPM_RH_OWNER, NULL, 0, pw,
+        (int)sizeof(pw)), TPM_RC_SUCCESS);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyPassword, sessH),
+        TPM_RC_SUCCESS);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_HierarchyChangeAuth);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession, pw,
+        (int)sizeof(pw));
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
+    AssertIntEQ(SendHierarchyChangeAuth(&ctx, TPM_RH_OWNER, pw,
+        (int)sizeof(pw), NULL, 0), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvAccessCmd(&ctx, nvIdx, sessH, pw, (int)sizeof(pw), 1),
+        TPM_RC_AUTH_UNAVAILABLE);
+    AssertIntEQ(SendNvAccessCmd(&ctx, nvIdx, TPM_RS_PW, pw, (int)sizeof(pw),
+        1), TPM_RC_SUCCESS);
+
+#ifdef HAVE_ECC
+    /* An object: the session's digest cannot match the empty authPolicy */
+    objH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    AssertIntNE(objH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Create);
+    PutU32BE(gCmd + pos, objH); pos += 4;
+    pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
+    FlushHandle(&ctx, objH);
+#endif
+
+    /* A PCR: its empty authPolicy cannot match the session's digest either */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PCR_Extend);
+    PutU32BE(gCmd + pos, 16); pos += 4;
+    pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession, NULL, 0);
+    PutU32BE(gCmd + pos, 1); pos += 4;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    memset(gCmd + pos, 0, WC_SHA256_DIGEST_SIZE);
+    pos += WC_SHA256_DIGEST_SIZE;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
+
+    /* The missing authPolicy is reported ahead of a stale PolicyPCR */
+    AssertIntEQ(SendPolicyPcrCmd(&ctx, sessH, NULL, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvAccessCmd(&ctx, nvIdx, sessH, pw, (int)sizeof(pw), 1),
+        TPM_RC_AUTH_UNAVAILABLE);
+    FlushHandle(&ctx, sessH);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Policy session needs an authPolicy:", 0);
+}
+#endif /* !FWTPM_NO_POLICY && !FWTPM_NO_NV */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27580,6 +27664,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_quote_scheme_hash();
+#endif
+#if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
+    test_fwtpm_policy_session_needs_auth_policy();
 #endif
 
     /* Destructive tests last (Clear changes state) */

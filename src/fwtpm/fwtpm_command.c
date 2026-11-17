@@ -23435,24 +23435,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             int policyDiff;
             word32 cmpSz;
 
-            /* PCR values changed since PolicyPCR: the session no longer
-             * reflects the PCR state it was evaluated against. */
-            if (pSess->hasPcrUpdateCounter &&
-                pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
-                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_PCR_CHANGED);
-                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
-                return TPM_RC_SUCCESS;
-            }
-
-            if (pSess->timeout != 0 &&
-                    pSess->timeout < FWTPM_Clock_GetMs(ctx)) {
-                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_EXPIRED);
-                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
-                return TPM_RC_SUCCESS;
-            }
-
             /* Find entity's authPolicy by handle type */
 #ifndef FWTPM_NO_NV
             if ((entityH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
@@ -23494,6 +23476,53 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             else if (entityH <= PCR_LAST) {
                 authPolicy = &ctx->pcrPolicy[entityH - PCR_FIRST];
                 authPolicyAlg = ctx->pcrPolicyAlg[entityH - PCR_FIRST];
+            }
+
+            if (authPolicy != NULL && authPolicy->size == 0) {
+                /* A policy session cannot authorize an entity that has no
+                 * authPolicy (Part 1 Sec.19.7.1). The empty authPolicy of an
+                 * object or a PCR never equals a policyDigest; any other
+                 * entity has no policy authorization available, which is
+                 * reported ahead of the session checks. */
+                TPM_RC noPolicyRc = TPM_RC_AUTH_UNAVAILABLE;
+                if ((entityH & 0xFF000000) ==
+                        (TRANSIENT_FIRST & 0xFF000000) ||
+                    (entityH & 0xFF000000) ==
+                        (PERSISTENT_FIRST & 0xFF000000) ||
+                    entityH <= PCR_LAST) {
+                    noPolicyRc = TPM_RC_POLICY_FAIL;
+                    if (pSess->hasPcrUpdateCounter &&
+                        pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
+                        noPolicyRc = TPM_RC_PCR_CHANGED;
+                    }
+                }
+            #ifdef DEBUG_WOLFTPM
+                printf("fwTPM: Policy session rejected for "
+                    "handle 0x%x without authPolicy (CC=0x%x)\n",
+                    entityH, cmdCode);
+            #endif
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, noPolicyRc);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
+            }
+
+            /* PCR values changed since PolicyPCR: the session no longer
+             * reflects the PCR state it was evaluated against. */
+            if (pSess->hasPcrUpdateCounter &&
+                pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_PCR_CHANGED);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
+            }
+
+            if (pSess->timeout != 0 &&
+                    pSess->timeout < FWTPM_Clock_GetMs(ctx)) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_EXPIRED);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
             }
 
             /* If entity has a non-empty authPolicy, it must match */
@@ -23567,22 +23596,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     return TPM_RC_SUCCESS;
                 }
 #endif /* !FWTPM_NO_PP */
-            }
-            else if (authPolicy != NULL && authPolicy->size == 0 &&
-                    (cmdAuths[pj].cmdHmacSize == 0 ||
-                     (!pSess->isPasswordPolicy && !pSess->isAuthValuePolicy))) {
-                /* A policy session authorizes an empty-authPolicy entity only
-                 * via PolicyPassword or PolicyAuthValue; otherwise the entity
-                 * auth is excluded and an unbound/empty HMAC would authorize. */
-            #ifdef DEBUG_WOLFTPM
-                printf("fwTPM: Policy session empty-HMAC rejected for "
-                    "handle 0x%x without authPolicy (CC=0x%x)\n",
-                    entityH, cmdCode);
-            #endif
-                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
-                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
-                return TPM_RC_SUCCESS;
             }
             else if (authPolicy == NULL) {
                 /* A policy session cannot authorize a handle whose authPolicy
