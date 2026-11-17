@@ -418,7 +418,8 @@ static int FwNvMarshalPublic(byte* buf, word32* pos, word32 maxSz,
     XMEMCPY(&pub2b.publicArea, pub, sizeof(TPMT_PUBLIC));
     TPM2_Packet_AppendPublic(&pkt, &pub2b);
 
-    if (pkt.pos <= 0 || (word32)pkt.pos > (maxSz - *pos)) {
+    if (pkt.overflow || pkt.pos <= 0 ||
+            (word32)pkt.pos > (maxSz - *pos)) {
         return TPM_RC_FAILURE;
     }
     *pos += pkt.pos;
