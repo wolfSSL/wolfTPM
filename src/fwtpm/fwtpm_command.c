@@ -5379,21 +5379,6 @@ static int FwCopyHmacContext(Hmac* src, Hmac* dst)
 #endif
 #endif
 
-#ifndef FWTPM_NO_CONTEXT
-#define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
-#define FWTPM_CTX_VER    1u
-#define FWTPM_CTX_SAVED_STCLEAR (TRANSIENT_FIRST + 2u)
-#define FWTPM_OBJ_CTX_WRAPPED_MAX \
-    ((MAX_CONTEXT_SIZE - 8 < FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26) ? \
-        MAX_CONTEXT_SIZE - 8 : FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26)
-#define FWTPM_OBJ_CTX_PLAIN_MAX \
-    (FWTPM_OBJ_CTX_WRAPPED_MAX - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
-
-#define FWTPM_CTX_SAVED_SEQUENCE (TRANSIENT_FIRST + 1u)
-#define FWTPM_SEQ_CTX_PLAIN_MAX \
-    (MAX_CONTEXT_SIZE - 8 - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
-#define FWTPM_SEQ_CTX_WRAPPED_MAX (MAX_CONTEXT_SIZE - 8)
-
 static int FwIsSequenceHandle(FWTPM_CTX* ctx, TPM_HANDLE handle)
 {
     (void)ctx;
@@ -5410,6 +5395,21 @@ static int FwIsSequenceHandle(FWTPM_CTX* ctx, TPM_HANDLE handle)
 #endif
     return 0;
 }
+
+#ifndef FWTPM_NO_CONTEXT
+#define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
+#define FWTPM_CTX_VER    1u
+#define FWTPM_CTX_SAVED_STCLEAR (TRANSIENT_FIRST + 2u)
+#define FWTPM_OBJ_CTX_WRAPPED_MAX \
+    ((MAX_CONTEXT_SIZE - 8 < FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26) ? \
+        MAX_CONTEXT_SIZE - 8 : FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26)
+#define FWTPM_OBJ_CTX_PLAIN_MAX \
+    (FWTPM_OBJ_CTX_WRAPPED_MAX - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
+
+#define FWTPM_CTX_SAVED_SEQUENCE (TRANSIENT_FIRST + 1u)
+#define FWTPM_SEQ_CTX_PLAIN_MAX \
+    (MAX_CONTEXT_SIZE - 8 - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
+#define FWTPM_SEQ_CTX_WRAPPED_MAX (MAX_CONTEXT_SIZE - 8)
 
 #define FWTPM_SEQ_CTX_HASH 1u
 #define FWTPM_SEQ_CTX_SIGN 2u
@@ -6840,7 +6840,9 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         obj = FwFindObject(ctx, objectHandle);
         if (obj == NULL) {
-            rc = TPM_RC_HANDLE;
+            /* Part 3 Sec.12.4.1: a sequence object has no public area */
+            rc = FwIsSequenceHandle(ctx, objectHandle) ?
+                TPM_RC_SEQUENCE : TPM_RC_HANDLE;
         }
     }
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {

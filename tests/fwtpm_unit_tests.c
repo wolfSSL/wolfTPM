@@ -19648,6 +19648,34 @@ static UINT32 StartHashSeqHelper(FWTPM_CTX* ctx)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+/* A sequence object has no public area to read (Part 3 Sec.12.4.1). */
+static void test_fwtpm_read_public_sequence(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 seqH;
+    int pos, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    seqH = StartHashSeqHelper(&ctx);
+    AssertIntNE(seqH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ReadPublic);
+    PutU32BE(gCmd + pos, seqH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SEQUENCE);
+
+    FlushHandle(&ctx, seqH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntNE(GetRspRC(gRsp), TPM_RC_SEQUENCE);
+    AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ReadPublic on a sequence handle:", 0);
+}
+
 /* SequenceUpdate, or SequenceComplete asking for an owner ticket */
 static TPM_RC SendSeqDataCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 seqH,
     const byte* data, UINT16 dataSz)
@@ -28321,6 +28349,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_hash();
     test_fwtpm_hash_sequence();
+    test_fwtpm_read_public_sequence();
     test_fwtpm_hashcheck_ticket_generated_prefix();
 #if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
     test_fwtpm_param_enc_session_selection();
