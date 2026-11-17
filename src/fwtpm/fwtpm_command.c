@@ -13617,7 +13617,8 @@ static FWTPM_Session* FwPolicyParseSession(FWTPM_CTX* ctx,
 }
 
 /* --- TPM2_PolicyPassword (CC 0x018C) --- */
-/* policyDigest = H(policyDigest || TPM_CC_PolicyPassword) */
+/* policyDigest = H(policyDigest || TPM_CC_PolicyAuthValue), the same digest
+ * as PolicyAuthValue (Part 3 Sec.23.18) */
 static TPM_RC FwCmd_PolicyPassword(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -13638,7 +13639,7 @@ static TPM_RC FwCmd_PolicyPassword(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PolicyPassword(session=0x%x)\n", sess->handle);
     #endif
-        if (FwPolicyExtend(sess, TPM_CC_PolicyPassword, NULL, 0,
+        if (FwPolicyExtend(sess, TPM_CC_PolicyAuthValue, NULL, 0,
                 NULL, 0, 0) != 0) {
             rc = TPM_RC_FAILURE;
         }

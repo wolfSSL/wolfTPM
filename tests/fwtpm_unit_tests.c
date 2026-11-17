@@ -12242,6 +12242,36 @@ static void test_fwtpm_policyauthorize_null_ticket_rejected(void)
     fwtpm_pass("PolicyAuthorize zero-ticket (TICKET):", 0);
 }
 
+/* PolicyPassword extends policyDigest with TPM_CC_PolicyAuthValue, so one
+ * authPolicy is satisfied by either command (Part 3 Sec.23.18). */
+static void test_fwtpm_policy_password_digest(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    byte digest[2][WC_SHA256_DIGEST_SIZE];
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < 2; i++) {
+        sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+        AssertIntNE(sessH, 0);
+        AssertIntEQ(SendPolicyCmd(&ctx, (i == 0) ? TPM_CC_PolicyPassword :
+            TPM_CC_PolicyAuthValue, sessH), TPM_RC_SUCCESS);
+        AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
+            TPM_RC_SUCCESS);
+        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4),
+            WC_SHA256_DIGEST_SIZE);
+        memcpy(digest[i], gRsp + TPM2_HEADER_SIZE + 6, WC_SHA256_DIGEST_SIZE);
+        FlushHandle(&ctx, sessH);
+    }
+    AssertIntEQ(memcmp(digest[0], digest[1], WC_SHA256_DIGEST_SIZE), 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyPassword digest:", 0);
+}
+
 #ifndef FWTPM_NO_NV
 /* PolicyNV and PolicyAuthorizeNV must verify the caller is authorized to
  * read the NV index. An OWNER authHandle against an index without
@@ -25777,6 +25807,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();
+    test_fwtpm_policy_password_digest();
 #ifndef FWTPM_NO_NV
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();
