@@ -4807,9 +4807,10 @@ int FwComputeNvName(FWTPM_NvIndex* nv, byte* buf, UINT16* sz)
 /* Attestation helpers                                                 */
 /* ================================================================== */
 
-/* Helper: resolve signing scheme from key defaults if NULL.
- * If sigScheme is TPM_ALG_NULL, use the key's scheme. If still NULL,
- * default to RSASSA/ECDSA with SHA-256. */
+/* Helper: resolve the signing scheme and hash to use with a key.
+ * A key that has a scheme always signs with that scheme and hash, whatever
+ * the caller passed in. A key with a NULL scheme keeps the caller's pair,
+ * and a NULL scheme or hash there defaults to RSASSA/ECDSA and SHA-256. */
 void FwResolveSignScheme(FWTPM_Object* obj, UINT16* sigScheme,
     UINT16* sigHashAlg)
 {
@@ -4934,7 +4935,8 @@ static TPM_RC FwSignAttestMldsa(FWTPM_CTX* ctx, FWTPM_Object* obj,
 /* Helper: sign attestation buffer with signing key.
  * attestBuf/attestSz: serialized TPMS_ATTEST bytes
  * obj: signing key object
- * sigScheme/sigHashAlg: from command inScheme (TPM_ALG_NULL = use key default)
+ * sigScheme/sigHashAlg: from command inScheme; a scheme the key has takes
+ *   their place, see FwResolveSignScheme
  * rsp: where to write TPMT_SIGNATURE */
 TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
     UINT16 sigScheme, UINT16 sigHashAlg,

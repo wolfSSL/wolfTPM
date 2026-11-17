@@ -10830,7 +10830,8 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* Use key's scheme if command scheme is NULL */
+        /* A NULL inScheme takes the key's scheme, or the default for a key
+         * that has none */
         FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
     }
     /* Part 3 Sec.20.2.1: digest size MUST match the scheme hashAlg digest
