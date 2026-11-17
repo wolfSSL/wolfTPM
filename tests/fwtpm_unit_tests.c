@@ -4313,7 +4313,7 @@ static void test_fwtpm_mlkem_activatecredential_unrestricted_rejected(void)
         secret, sizeof(secret));
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE | TPM_RC_2);
 
     FlushHandle(&ctx, ekHandle);
     FWTPM_Cleanup(&ctx);
@@ -27215,6 +27215,71 @@ static void test_fwtpm_gettime_privacy_admin_handle(void)
 }
 #endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
 
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
+    !defined(FWTPM_NO_CREDENTIAL)
+/* keyHandle has to be a Storage Key: anything else is TPM_RC_TYPE for the
+ * second handle. */
+static void test_fwtpm_activate_credential_key_type(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 signH, hmacH;
+    int i, pos, authStart, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    signH = CreateEccSignPrimaryScheme(&ctx, 0x00050472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+
+    /* An HMAC key: fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|
+     * noDA|sign */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_CreatePrimary);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 4); pos += 2; /* inSensitive */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 16); pos += 2; /* inPublic */
+    PutU16BE(gCmd + pos, TPM_ALG_KEYEDHASH); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, 0x00040472); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, TPM_ALG_HMAC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* outsideInfo */
+    PutU32BE(gCmd + pos, 0); pos += 4; /* creationPCR */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    hmacH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* A signing key is not a Storage Key, an HMAC key is not asymmetric */
+    for (i = 0; i < 2; i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+            TPM_CC_ActivateCredential);
+        PutU32BE(gCmd + pos, signH); pos += 4; /* activateHandle */
+        PutU32BE(gCmd + pos, (i == 0) ? signH : hmacH); pos += 4;
+        authStart = pos;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        gCmd[pos++] = 0;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+        PutU16BE(gCmd + pos, 0); pos += 2; /* credentialBlob */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* secret */
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE | TPM_RC_2);
+    }
+
+    FlushHandle(&ctx, hmacH);
+    FlushHandle(&ctx, signH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ActivateCredential keyHandle type:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION && !FWTPM_NO_CREDENTIAL */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -28008,6 +28073,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_gettime_privacy_admin_handle();
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
+    !defined(FWTPM_NO_CREDENTIAL)
+    test_fwtpm_activate_credential_key_type();
 #endif
 
     /* Destructive tests last (Clear changes state) */

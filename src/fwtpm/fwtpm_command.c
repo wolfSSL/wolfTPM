@@ -19599,7 +19599,7 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             keyObj->pub.type != TPM_ALG_MLKEM &&
 #endif
             keyObj->pub.type != TPM_ALG_ECC) {
-            rc = TPM_RC_KEY;
+            rc = TPM_RC_TYPE | TPM_RC_2;
         }
     }
     /* Part 3 Sec.24: keyHandle MUST be restricted decryption (Storage). An
@@ -19608,7 +19608,7 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 &&
         (((keyObj->pub.objectAttributes & TPMA_OBJECT_restricted) == 0) ||
          ((keyObj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0))) {
-        rc = TPM_RC_ATTRIBUTES;
+        rc = TPM_RC_TYPE | TPM_RC_2;
     }
     /* Credential protection derives the HMAC under the key's nameAlg and the
      * symmetric key at its declared AES-CFB size (Part 1 Sec.24). Reject a key
