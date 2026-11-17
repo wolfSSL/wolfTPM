@@ -7022,6 +7022,17 @@ static TPM_RC FwCmd_ChangeEPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
 
+            /* Persistent endorsement objects are flushed with the seed
+             * (Part 3 Sec.24.5). The compacting FWTPM_NV_Save in the
+             * pendingClear path drops the freed slots. */
+            for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+                if (ctx->persistent[i].used &&
+                    ctx->persistent[i].hierarchy == TPM_RH_ENDORSEMENT) {
+                    TPM2_ForceZero(&ctx->persistent[i],
+                        sizeof(ctx->persistent[i]));
+                }
+            }
+
             /* A new endorsement seed re-enables the hierarchy (Part 3
              * Sec.24.5). */
             ctx->ehDisabled = 0;
@@ -7079,6 +7090,17 @@ static TPM_RC FwCmd_ChangePPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     ctx->primaryCache[i].hierarchy == TPM_RH_PLATFORM) {
                     XMEMSET(&ctx->primaryCache[i], 0,
                         sizeof(ctx->primaryCache[i]));
+                }
+            }
+
+            /* Persistent platform objects are flushed with the seed
+             * (Part 3 Sec.24.4). The compacting FWTPM_NV_Save in the
+             * pendingClear path drops the freed slots. */
+            for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+                if (ctx->persistent[i].used &&
+                    ctx->persistent[i].hierarchy == TPM_RH_PLATFORM) {
+                    TPM2_ForceZero(&ctx->persistent[i],
+                        sizeof(ctx->persistent[i]));
                 }
             }
 

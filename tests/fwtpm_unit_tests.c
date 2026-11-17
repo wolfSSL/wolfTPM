@@ -26177,6 +26177,95 @@ static void test_fwtpm_pcr_allocate_unlisted_bank(void)
 }
 #endif /* WOLFSSL_SHA384 */
 
+#if !defined(FWTPM_NO_NV) && defined(HAVE_ECC)
+static UINT32 CreatePrimaryInHierarchy(FWTPM_CTX* ctx, UINT32 hierarchy)
+{
+    int cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_ECC);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + TPM2_HEADER_SIZE, hierarchy);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+static TPM_RC SendEvictControl(FWTPM_CTX* ctx, UINT32 authHandle,
+    UINT32 objectHandle, UINT32 persistentHandle)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_EvictControl);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, authHandle); pos += 4;
+    PutU32BE(gCmd + pos, objectHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persistentHandle); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+static TPM_RC SendReadPublic(FWTPM_CTX* ctx, UINT32 handle)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ReadPublic);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* ChangeEPS and ChangePPS flush the persistent objects of the hierarchy
+ * whose seed they replace and leave the other hierarchies alone. */
+static void test_fwtpm_change_seed_evicts_persistent(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 h;
+    const UINT32 ownerP = PERSISTENT_FIRST + 0x10;
+    const UINT32 endorseP = PERSISTENT_FIRST + 0x11;
+    const UINT32 platformP = PLATFORM_PERSISTENT + 0x10;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    h = CreatePrimaryInHierarchy(&ctx, TPM_RH_OWNER);
+    AssertIntEQ(SendEvictControl(&ctx, TPM_RH_OWNER, h, ownerP),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, h);
+    h = CreatePrimaryInHierarchy(&ctx, TPM_RH_ENDORSEMENT);
+    AssertIntEQ(SendEvictControl(&ctx, TPM_RH_OWNER, h, endorseP),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, h);
+    h = CreatePrimaryInHierarchy(&ctx, TPM_RH_PLATFORM);
+    AssertIntEQ(SendEvictControl(&ctx, TPM_RH_PLATFORM, h, platformP),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, h);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_ChangeEPS, TPM_RH_PLATFORM),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendReadPublic(&ctx, endorseP), TPM_RC_HANDLE);
+    AssertIntEQ(SendReadPublic(&ctx, ownerP), TPM_RC_SUCCESS);
+    AssertIntEQ(SendReadPublic(&ctx, platformP), TPM_RC_SUCCESS);
+
+    /* The eviction is persistent */
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(SendReadPublic(&ctx, endorseP), TPM_RC_HANDLE);
+    AssertIntEQ(SendReadPublic(&ctx, platformP), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_ChangePPS, TPM_RH_PLATFORM),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendReadPublic(&ctx, platformP), TPM_RC_HANDLE);
+    AssertIntEQ(SendReadPublic(&ctx, ownerP), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendEvictControl(&ctx, TPM_RH_OWNER, ownerP, ownerP),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ChangeEPS/ChangePPS evict persistent:", 0);
+}
+#endif /* !FWTPM_NO_NV && HAVE_ECC */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -26940,6 +27029,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #ifdef WOLFSSL_SHA384
     test_fwtpm_pcr_allocate_unlisted_bank();
+#endif
+#if !defined(FWTPM_NO_NV) && defined(HAVE_ECC)
+    test_fwtpm_change_seed_evicts_persistent();
 #endif
 
     /* Destructive tests last (Clear changes state) */
