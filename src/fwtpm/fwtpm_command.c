@@ -1486,6 +1486,12 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
     }
 
+    /* A staged PCR_Allocate needs a TPM Reset, so the state cannot be saved
+     * for a Resume (Part 3 Sec.22.5). */
+    if (rc == 0 && shutdownType == TPM_SU_STATE && ctx->pcrAllocPending) {
+        rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_1;
+    }
+
     if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: Shutdown(%s)\n",

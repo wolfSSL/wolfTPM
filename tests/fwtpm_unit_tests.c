@@ -25978,6 +25978,51 @@ static void test_fwtpm_pcr_auth_startup_clear(void)
     fwtpm_pass("PCR authValue reset by Startup(CLEAR):", 0);
 }
 
+static TPM_RC SendShutdown(FWTPM_CTX* ctx, UINT16 shutdownType)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_Shutdown);
+    int rspSize = 0;
+
+    PutU16BE(gCmd + pos, shutdownType); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A staged PCR_Allocate only takes effect on a TPM Reset, so the state may
+ * not be saved for a Resume until then. */
+static void test_fwtpm_shutdown_state_after_pcr_allocate(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, cmdSz;
+    UINT16 algs[2];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    algs[0] = TPM_ALG_SHA256;
+    algs[1] = TPM_ALG_SHA384;
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 2, 1);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 1);
+
+    AssertIntEQ(SendShutdown(&ctx, TPM_SU_STATE),
+        TPM_RC_TYPE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(ctx.shutdownStateSaved, 0);
+    AssertIntEQ(SendShutdown(&ctx, TPM_SU_CLEAR), TPM_RC_SUCCESS);
+
+    /* Startup(CLEAR) applies the allocation and lifts the restriction */
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(SendShutdown(&ctx, TPM_SU_STATE), TPM_RC_SUCCESS);
+    AssertIntEQ(SendShutdown(&ctx, TPM_SU_CLEAR), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Shutdown(STATE) after PCR_Allocate:", 0);
+}
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -26732,6 +26777,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_incremental_selftest_truncated_returns_cmd_size();
     test_fwtpm_gettestresult_needs_test_then_success();
     test_fwtpm_pcr_auth_startup_clear();
+    test_fwtpm_shutdown_state_after_pcr_allocate();
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();
