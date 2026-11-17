@@ -3486,6 +3486,7 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     if (selections[s].pcrSelect[j] & (1 << pcr)) {
                         int pcrIndex = j * 8 + pcr;
                         if (bank < 0 || pcrIndex >= IMPLEMENTATION_PCR ||
+                                (ctx->pcrAllocatedBanks & (1u << bank)) == 0 ||
                                 totalDigests >= 8) {
                             selections[s].pcrSelect[j] &= (byte)~(1 << pcr);
                         }

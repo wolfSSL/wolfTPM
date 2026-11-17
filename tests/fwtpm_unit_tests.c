@@ -26072,6 +26072,47 @@ static void test_fwtpm_pcr_extend_unallocated_bank(void)
 }
 #endif /* !NO_SHA */
 
+#ifndef NO_SHA
+/* PCR_Read reports only what TPM_CAP_PCRS reports as allocated: a selection
+ * in the unallocated SHA-1 bank comes back empty with no digest. */
+static void test_fwtpm_pcr_read_unallocated_bank(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, cmdSz, pos, i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA1), 0);
+
+    cmdSz = BuildPcrReadCmd(gCmd, FW_TEST_PCR);
+    PutU16BE(gCmd + TPM2_HEADER_SIZE + 4, TPM_ALG_SHA1);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* pcrUpdateCounter(4) | count(4) | hash(2) | sizeofSelect(1) | select */
+    pos = TPM2_HEADER_SIZE + 4;
+    AssertIntEQ(GetU32BE(gRsp + pos), 1); pos += 4;
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_SHA1); pos += 2;
+    AssertIntEQ(gRsp[pos], PCR_SELECT_MAX); pos++;
+    for (i = 0; i < PCR_SELECT_MAX; i++) {
+        AssertIntEQ(gRsp[pos + i], 0);
+    }
+    pos += PCR_SELECT_MAX;
+    AssertIntEQ(GetU32BE(gRsp + pos), 0); pos += 4;
+    AssertIntEQ(rspSize, pos);
+
+    /* The allocated bank is unaffected */
+    cmdSz = BuildPcrReadCmd(gCmd, FW_TEST_PCR);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 4 + 2 + 1 + PCR_SELECT_MAX;
+    AssertIntEQ(GetU32BE(gRsp + pos), 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Read skips unallocated bank:", 0);
+}
+#endif /* !NO_SHA */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -26829,6 +26870,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_shutdown_state_after_pcr_allocate();
 #ifndef NO_SHA
     test_fwtpm_pcr_extend_unallocated_bank();
+#endif
+#ifndef NO_SHA
+    test_fwtpm_pcr_read_unallocated_bank();
 #endif
 
     /* Destructive tests last (Clear changes state) */
