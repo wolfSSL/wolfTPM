@@ -23600,6 +23600,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     if (!FwSpdmSessionNames(ctx, &scReq, &scTpm)) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_CHANNEL);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                         return TPM_RC_SUCCESS;
                     }
                     if ((pSess->checkReqKey || pSess->checkTpmKey) &&
@@ -23612,6 +23613,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             scHash, (word32)scHashSz) != 0)) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_CHANNEL_KEY);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                         return TPM_RC_SUCCESS;
                     }
                 }
