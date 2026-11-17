@@ -24742,6 +24742,73 @@ static void test_fwtpm_start_auth_session_salt_rules(void)
     fwtpm_pass("StartAuthSession salt rules:", 0);
 }
 
+static TPM_RC SendStartAuthSessionNonce(FWTPM_CTX* ctx, UINT32 tpmKey,
+    UINT16 nonceSz, UINT16 encSaltSz)
+{
+    int pos, rspSize = 0;
+    TPM_RC rc;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_StartAuthSession);
+    PutU32BE(gCmd + pos, tpmKey); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* bind */
+    PutU16BE(gCmd + pos, nonceSz); pos += 2;
+    memset(gCmd + pos, 0xAA, nonceSz); pos += nonceSz; /* nonceCaller */
+    PutU16BE(gCmd + pos, encSaltSz); pos += 2;
+    memset(gCmd + pos, 0x5C, encSaltSz); pos += encSaltSz;
+    gCmd[pos++] = TPM_SE_HMAC;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* authHash */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    rc = GetRspRC(gRsp);
+    if (rc == TPM_RC_SUCCESS) {
+        FlushHandle(ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+    }
+    return rc;
+}
+
+/* nonceCaller is 16 octets up to the authHash digest size, tpmKey is a
+ * decryption key and comes with a salt (Part 3 Sec.11.1.1). */
+static void test_fwtpm_start_auth_session_input_checks(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 keyH;
+    int cmdSz, rspSize = 0;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendStartAuthSessionNonce(&ctx, TPM_RH_NULL, 15, 0),
+        TPM_RC_SIZE);
+    AssertIntEQ(SendStartAuthSessionNonce(&ctx, TPM_RH_NULL, 16, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendStartAuthSessionNonce(&ctx, TPM_RH_NULL,
+        WC_SHA256_DIGEST_SIZE, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendStartAuthSessionNonce(&ctx, TPM_RH_NULL,
+        WC_SHA256_DIGEST_SIZE + 1, 0), TPM_RC_SIZE);
+    AssertIntEQ(SendStartAuthSessionNonce(&ctx, TPM_RH_NULL,
+        TPM_MAX_DIGEST_SIZE + 1, 0), TPM_RC_SIZE);
+
+    cmdSz = BuildRsa2048SignPrimary(gCmd, TPM_ALG_NULL, 0);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendStartAuthSessionNonce(&ctx, keyH, 16, 256),
+        TPM_RC_ATTRIBUTES);
+    FlushHandle(&ctx, keyH);
+
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(keyH, 0);
+    AssertIntEQ(SendStartAuthSessionNonce(&ctx, keyH, 16, 0),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    FlushHandle(&ctx, keyH);
+
+    AssertIntEQ(ctx.sessions[0].used, 0);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("StartAuthSession input checks:", 0);
+}
+
 static void test_fwtpm_rsa_hash_matrix(void)
 {
     test_fwtpm_rsa_seed_hashes();
@@ -29708,6 +29775,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
         test_fwtpm_rsa_hash_matrix();
         test_fwtpm_start_auth_session_salt_rules();
+        test_fwtpm_start_auth_session_input_checks();
 #endif
     }
 
