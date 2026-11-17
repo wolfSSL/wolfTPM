@@ -6940,12 +6940,12 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             ctx->shDisabled = 0;
             ctx->ehDisabled = 0;
 
-        #ifndef FWTPM_NO_DA
-            /* Clear resets lockoutAuth and DA state to defaults
-             * (Part 3 Sec.24.6) */
+            /* Clear resets lockoutAuth (Part 3 Sec.24.6) */
             TPM2_ForceZero(ctx->lockoutAuth.buffer,
                 sizeof(ctx->lockoutAuth.buffer));
             ctx->lockoutAuth.size = 0;
+        #ifndef FWTPM_NO_DA
+            /* Clear resets the DA state to defaults (Part 3 Sec.24.6) */
             ctx->daFailedTries = 0;
             ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
             ctx->daRecoveryTime = FWTPM_DA_DEFAULT_RECOVERY;

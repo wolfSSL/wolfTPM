@@ -26321,6 +26321,61 @@ static void test_fwtpm_change_pps_resets_policies(void)
     fwtpm_pass("ChangePPS resets platform and PCR policy:", 0);
 }
 
+static TPM_RC SendHierarchyChangeAuth(FWTPM_CTX* ctx, UINT32 authHandle,
+    const byte* oldAuth, int oldAuthSz, const byte* newAuth, int newAuthSz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_HierarchyChangeAuth);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, authHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, oldAuth, oldAuthSz);
+    PutU16BE(gCmd + pos, (UINT16)newAuthSz); pos += 2;
+    if (newAuthSz > 0) {
+        memcpy(gCmd + pos, newAuth, newAuthSz);
+        pos += newAuthSz;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* Clear returns lockoutAuth to the Empty Auth, with or without DA support */
+static void test_fwtpm_clear_resets_lockout_auth(void)
+{
+    FWTPM_CTX ctx;
+    static const byte lockoutAuth[] = "lockout";
+    const int lockoutAuthSz = (int)sizeof(lockoutAuth) - 1;
+    int pos, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(SendHierarchyChangeAuth(&ctx, TPM_RH_LOCKOUT, NULL, 0,
+        lockoutAuth, lockoutAuthSz), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.lockoutAuth.size, lockoutAuthSz);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.lockoutAuth.size, 0);
+
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.lockoutAuth.size, 0);
+
+    /* ClearControl(TPM_RH_LOCKOUT, NO) with the Empty Auth */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ClearControl);
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    gCmd[pos++] = 0;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear resets lockoutAuth:", 0);
+}
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27089,6 +27144,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_change_seed_evicts_persistent();
 #endif
     test_fwtpm_change_pps_resets_policies();
+    test_fwtpm_clear_resets_lockout_auth();
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();
