@@ -16219,6 +16219,68 @@ static void test_fwtpm_nv_extend_buffer_max(void)
     fwtpm_pass("NV_Extend buffer maximum:", 0);
 }
 
+/* A bits or extend index is unwritten until its first SetBits or Extend:
+ * TPMA_NV_WRITTEN is CLEAR and a read is TPM_RC_NV_UNINITIALIZED. */
+static void test_fwtpm_nv_bits_extend_unwritten(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A05;
+    UINT16 size;
+    int i, pos, cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < 2; i++) {
+        size = (i == 0) ? 8 : WC_SHA256_DIGEST_SIZE;
+        cmdSz = BuildNvDefineCmd(gCmd, nvIdx, size, TPMA_NV_OWNERWRITE |
+            TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+            ((UINT32)((i == 0) ? TPM_NT_BITS : TPM_NT_EXTEND) << 4));
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+        /* TPM2B_NV_PUBLIC: size(2) | nvIndex(4) | nameAlg(2) | attributes */
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_NV_ReadPublic);
+        PutU32BE(gCmd + pos, nvIdx); pos += 4;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 2 + 4 + 2) &
+            TPMA_NV_WRITTEN, 0);
+
+        AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL, size,
+            0), TPM_RC_NV_UNINITIALIZED);
+
+        if (i == 0) {
+            pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_SetBits);
+            PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+            PutU32BE(gCmd + pos, nvIdx); pos += 4;
+            pos = AppendPwAuth(gCmd, pos, NULL, 0);
+            PutU32BE(gCmd + pos, 0); pos += 4;
+            PutU32BE(gCmd + pos, 1); pos += 4;
+            PutU32BE(gCmd + 2, (UINT32)pos);
+            rspSize = 0;
+            FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        }
+        else {
+            AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Extend, nvIdx, NULL,
+                4, 0), TPM_RC_SUCCESS);
+        }
+        AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL, size,
+            0), TPM_RC_SUCCESS);
+
+        AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+            TPM_RC_SUCCESS);
+    }
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV bits and extend unwritten:", 0);
+}
+
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
 /* Only size 0 with offset 0 selects the digest form; size 0 at any other
  * offset certifies zero octets (Part 3 Sec.31.16). */
@@ -26305,6 +26367,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_read_zero_size();
     test_fwtpm_nv_buffer_max();
     test_fwtpm_nv_extend_buffer_max();
+    test_fwtpm_nv_bits_extend_unwritten();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_nv_certify_zero_size_offset();
 #endif

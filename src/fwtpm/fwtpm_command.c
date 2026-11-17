@@ -16887,21 +16887,20 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         slot->written = 0;
 
-        /* Counter is not written until its first increment. */
+        /* A counter, bits or extend index starts from zero but is not
+         * written until its first Increment, SetBits or Extend. */
         nt = (int)((slot->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4);
         if (nt == TPM_NT_COUNTER) {
             XMEMSET(slot->data, 0, 8);
         }
         else if (nt == TPM_NT_BITS) {
             XMEMSET(slot->data, 0, 8);
-            slot->written = 1;
         }
         else if (nt == TPM_NT_EXTEND) {
             int hSz = TPM2_GetHashDigestSize(slot->nvPublic.nameAlg);
             if (hSz > 0) {
                 XMEMSET(slot->data, 0, hSz);
             }
-            slot->written = 1;
         }
 
         rc = FWTPM_NV_SaveNvIndex(ctx,
