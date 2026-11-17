@@ -17288,9 +17288,6 @@ static TPM_RC FwCmd_NV_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &readSize);
         TPM2_Packet_ParseU16(cmd, &offset);
 
-        if (readSize == 0) {
-            readSize = nv->nvPublic.dataSize;
-        }
         if ((UINT32)offset + readSize > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }

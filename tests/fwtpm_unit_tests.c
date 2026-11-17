@@ -11497,6 +11497,35 @@ static TPM_RC SendNvLockCmd(FWTPM_CTX* ctx, UINT32 commandCode,
     return GetRspRC(gRsp);
 }
 
+/* Owner-authorized NV_Read (size, offset), NV_Write (data, offset) or
+ * NV_Extend (data). A NULL data pointer sends size octets of 0xA5. */
+static TPM_RC SendNvOwnerCmd(FWTPM_CTX* ctx, UINT32 commandCode,
+    UINT32 nvIndex, const byte* data, UINT16 size, UINT16 offset)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, commandCode);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, size); pos += 2;
+    if (commandCode != TPM_CC_NV_Read) {
+        if (data != NULL) {
+            memcpy(gCmd + pos, data, size);
+        }
+        else {
+            memset(gCmd + pos, 0xA5, size);
+        }
+        pos += size;
+    }
+    if (commandCode != TPM_CC_NV_Extend) {
+        PutU16BE(gCmd + pos, offset); pos += 2;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
 #ifndef FWTPM_NO_POLICY
 static TPM_RC SendNvAccessCmd(FWTPM_CTX* ctx, UINT32 nvIndex,
     UINT32 sessionHandle, const byte* auth, int authSz, int isWrite)
@@ -16028,6 +16057,40 @@ static void test_fwtpm_nv_owner_access_platform_index(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("NV owner access to platform index:", 0);
+}
+
+/* NV_Read size is the number of octets to return, so zero reads nothing. */
+static void test_fwtpm_nv_read_zero_size(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A01;
+    int cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL, 0, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL, 0, 4),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL, 4, 4),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), 4);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_Read zero size:", 0);
 }
 
 /* State-changing handlers that persist to NV must report failure, not
@@ -26070,6 +26133,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_clear_control_nv_failure();
     test_fwtpm_yes_no_range();
     test_fwtpm_nv_owner_access_platform_index();
+    test_fwtpm_nv_read_zero_size();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
     test_fwtpm_nv_compaction_commit();
