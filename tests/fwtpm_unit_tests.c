@@ -12373,6 +12373,38 @@ static void test_fwtpm_policy_or_mixed_sizes(void)
     fwtpm_pass("PolicyOR mixed digest sizes:", 0);
 }
 
+/* PolicyNameHash has no same-value exception: once the session's
+ * cpHash/nameHash slot is occupied it is TPM_RC_CPHASH (Part 3 Sec.23.14). */
+static void test_fwtpm_policy_name_hash_repeat(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    int i, pos, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    for (i = 0; i < 2; i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyNameHash);
+        PutU32BE(gCmd + pos, sessH); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+        memset(gCmd + pos, 0x33, WC_SHA256_DIGEST_SIZE);
+        pos += WC_SHA256_DIGEST_SIZE;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), (i == 0) ? TPM_RC_SUCCESS :
+            TPM_RC_CPHASH);
+    }
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyNameHash repeat:", 0);
+}
+
 #ifndef FWTPM_NO_NV
 /* PolicyNV and PolicyAuthorizeNV must verify the caller is authorized to
  * read the NV index. An OWNER authHandle against an index without
@@ -25911,6 +25943,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_password_digest();
     test_fwtpm_policy_or_count();
     test_fwtpm_policy_or_mixed_sizes();
+    test_fwtpm_policy_name_hash_repeat();
 #ifndef FWTPM_NO_NV
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();

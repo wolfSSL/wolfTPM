@@ -15448,9 +15448,6 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     UINT16 nameHashSz = 0;
     byte nameHashBuf[TPM_MAX_DIGEST_SIZE];
-    int sizeMismatch;
-    int nameDiff;
-    word32 cmpSz;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
     if (sess == NULL) {
@@ -15471,22 +15468,12 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* cpHash, nameHash, templateHash and paramHash share one slot */
-        if (sess->cpHashA.size > 0 || sess->templateHash.size > 0 ||
-                sess->paramHash.size > 0) {
+        /* cpHash, nameHash, templateHash and paramHash share one slot.
+         * Unlike PolicyCpHash, a repeat of the same nameHash is refused
+         * (Part 3 Sec.23.14). */
+        if (sess->cpHashA.size > 0 || sess->nameHash.size > 0 ||
+                sess->templateHash.size > 0 || sess->paramHash.size > 0) {
             rc = TPM_RC_CPHASH;
-        }
-        /* If nameHash already set, must be identical — always run
-         * TPM2_ConstantCompare so timing doesn't leak size match */
-        else if (sess->nameHash.size > 0) {
-            sizeMismatch = (sess->nameHash.size != nameHashSz);
-            cmpSz = (sess->nameHash.size < nameHashSz) ?
-                sess->nameHash.size : nameHashSz;
-            nameDiff = TPM2_ConstantCompare(sess->nameHash.buffer, nameHashBuf,
-                cmpSz);
-            if (sizeMismatch | nameDiff) {
-                rc = TPM_RC_CPHASH;
-            }
         }
     }
     if (rc == 0) {
