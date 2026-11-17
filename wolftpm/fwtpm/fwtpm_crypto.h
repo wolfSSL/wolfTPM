@@ -318,6 +318,7 @@ TPM_RC FwImportVerifyAndDecrypt(
 TPM_RC FwImportParseSensitive(
     const byte* plainSens, int plainSensSz,
     UINT16* sensType, TPM2B_AUTH* importedAuth,
+    const byte** seedOut, UINT16* seedSzOut,
     UINT16* primeSzOut, byte* primeBuf, int primeBufSz);
 
 TPM_RC FwImportReconstructKey(

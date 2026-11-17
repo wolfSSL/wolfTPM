@@ -8954,8 +8954,332 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
 
 #ifndef FWTPM_NO_KEY_MIGRATION
+/* Add a parameter or handle number to a format-one response code that has
+ * none. */
+static TPM_RC FwRcAddIndex(TPM_RC rc, TPM_RC index)
+{
+    if ((rc & RC_FMT1) != 0 && (rc & (TPM_RC_P | 0xF00)) == 0) {
+        rc |= index;
+    }
+    return rc;
+}
+
+/* Marshal the TPM2B_SENSITIVE of an object for duplication: one prime for
+ * RSA, the private scalar for ECC and the stored key octets for the other
+ * types. The authValue is zero padded to the nameAlg digest size. This TPM
+ * keeps no seedValue. */
+static TPM_RC FwDupMarshalSensitive(const FWTPM_Object* obj, byte* buf,
+    int bufSz, int* outSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPM2B_AUTH auth;
+    const byte* sens = obj->privKey;
+    int sensSz = obj->privKeySize;
+    int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+    int sz;
+    FWTPM_DECLARE_BUF(comp, FWTPM_MAX_DER_SIG_BUF);
+
+    FWTPM_CALLOC_BUF(comp, FWTPM_MAX_DER_SIG_BUF);
+
+    XMEMSET(&auth, 0, sizeof(auth));
+    if (rc == 0 && obj->authValue.size > sizeof(auth.buffer)) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        auth.size = obj->authValue.size;
+        XMEMCPY(auth.buffer, obj->authValue.buffer, auth.size);
+        if (digestSz > (int)auth.size && digestSz <= (int)sizeof(auth.buffer)) {
+            auth.size = (UINT16)digestSz;
+        }
+    }
+
+#ifndef NO_RSA
+    if (rc == 0 && obj->pub.type == TPM_ALG_RSA) {
+        FWTPM_DECLARE_VAR(rsaKey, RsaKey);
+        FWTPM_ALLOC_VAR(rsaKey, RsaKey);
+        if (rc == 0) {
+            if (FwImportRsaKeyFromDer(obj, rsaKey) != 0) {
+                rc = TPM_RC_KEY;
+            }
+            else {
+                sensSz = mp_unsigned_bin_size(&rsaKey->p);
+                if (sensSz <= 0 || sensSz > (int)FWTPM_MAX_DER_SIG_BUF) {
+                    rc = TPM_RC_KEY;
+                }
+                else if (mp_to_unsigned_bin(&rsaKey->p, comp) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                wc_FreeRsaKey(rsaKey);
+            }
+        }
+        FWTPM_FREE_VAR(rsaKey);
+        sens = comp;
+    }
+#endif
+#ifdef HAVE_ECC
+    if (rc == 0 && obj->pub.type == TPM_ALG_ECC) {
+        word32 dSz = (word32)FWTPM_MAX_DER_SIG_BUF;
+        FWTPM_DECLARE_VAR(eccKey, ecc_key);
+        FWTPM_ALLOC_VAR(eccKey, ecc_key);
+        if (rc == 0) {
+            if (FwImportEccKeyFromDer(obj, eccKey) != 0) {
+                rc = TPM_RC_KEY;
+            }
+            else {
+                if (wc_ecc_export_private_only(eccKey, comp, &dSz) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                sensSz = (int)dSz;
+                wc_ecc_free(eccKey);
+            }
+        }
+        FWTPM_FREE_VAR(eccKey);
+        sens = comp;
+    }
+#endif
+
+    if (rc == 0) {
+        sz = FwMarshalSensitiveStd(buf, bufSz, obj->pub.type, &auth,
+            sens, sensSz);
+        if (sz < 0) {
+            rc = TPM_RC_SIZE;
+        }
+        else {
+            *outSz = sz;
+        }
+    }
+
+    TPM2_ForceZero(&auth, sizeof(auth));
+    TPM2_ForceZero(comp, FWTPM_MAX_DER_SIG_BUF);
+    FWTPM_FREE_BUF(comp);
+    return rc;
+}
+
+/* Inner wrap of a duplication blob (Part 1 Sec.23.3.2.2). buf holds dataSz
+ * octets of sensitive after room for a TPM2B_DIGEST of the object nameAlg.
+ * The digest of sensitive || Name is stored there and both are encrypted
+ * with AES-CFB under a zero IV. */
+static TPM_RC FwDupInnerWrap(TPMI_ALG_HASH nameAlg, const byte* name,
+    int nameSz, const byte* key, int keySz, byte* buf, int dataSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(nameAlg);
+    int hRc;
+
+    if (digestSz <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0) {
+        hRc = FwComputeHashUnique(nameAlg, buf + 2 + digestSz, dataSz,
+            name, nameSz, buf + 2);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        FwStoreU16BE(buf, (UINT16)digestSz);
+        if (TPM2_AesCfbEncrypt(key, keySz, NULL, buf,
+                (word32)(2 + digestSz + dataSz)) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    return rc;
+}
+
+/* Remove the inner wrap of a duplication blob in place: decrypt, then check
+ * the leading TPM2B_DIGEST against the digest of sensitive || Name. sensOff
+ * receives the offset of the sensitive. */
+static TPM_RC FwDupInnerUnwrap(TPMI_ALG_HASH nameAlg, const byte* name,
+    int nameSz, const byte* key, int keySz, byte* buf, int bufSz,
+    int* sensOff)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(nameAlg);
+    int integSz = 0;
+    int hRc;
+    int cmpSz;
+    int sizeMismatch;
+    int digestDiff;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+
+    if (digestSz <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0 && TPM2_AesCfbDecrypt(key, keySz, NULL, buf,
+            (word32)bufSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && bufSz < 2) {
+        rc = TPM_RC_INSUFFICIENT;
+    }
+    if (rc == 0) {
+        integSz = (int)FwLoadU16BE(buf);
+        if (integSz > (int)sizeof(digest)) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (2 + integSz > bufSz) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+    }
+    if (rc == 0) {
+        hRc = FwComputeHashUnique(nameAlg, buf + 2 + integSz,
+            bufSz - 2 - integSz, name, nameSz, digest);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        cmpSz = (integSz < digestSz) ? integSz : digestSz;
+        sizeMismatch = (integSz != digestSz);
+        digestDiff = TPM2_ConstantCompare(buf + 2, digest, (word32)cmpSz);
+        if (sizeMismatch | digestDiff) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    if (rc == 0) {
+        *sensOff = 2 + integSz;
+    }
+    TPM2_ForceZero(digest, sizeof(digest));
+    return rc;
+}
+
+/* Outer wrap of a duplication blob (Part 1 Sec.23.3.2.3). buf holds dataSz
+ * octets after room for a TPM2B_DIGEST of the new parent nameAlg. The data
+ * is encrypted with AES-CFB under a zero IV and the HMAC of the encrypted
+ * data || Name is stored in front of it. */
+static TPM_RC FwDupOuterWrap(const FWTPM_Object* newParent, const byte* seed,
+    int seedSz, const byte* name, int nameSz, byte* buf, int dataSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPMI_ALG_HASH parentNameAlg = newParent->pub.nameAlg;
+    int digestSz = TPM2_GetHashDigestSize(parentNameAlg);
+    int symKeySz = 0;
+    byte aesKey[FWTPM_MAX_SYM_KEY_SIZE];
+    byte hmacKey[FWTPM_MAX_HMAC_KEY_SIZE];
+
+    if (digestSz <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0) {
+        if (newParent->pub.type == TPM_ALG_RSA) {
+            symKeySz = (int)(newParent->pub.parameters.rsaDetail
+                .symmetric.keyBits.sym / 8);
+        }
+        else {
+            symKeySz = (int)(newParent->pub.parameters.eccDetail
+                .symmetric.keyBits.sym / 8);
+        }
+        if (symKeySz <= 0) {
+            symKeySz = 16; /* default AES-128 */
+        }
+        if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
+            rc = TPM_RC_SYMMETRIC;
+        }
+    }
+    if (rc == 0) {
+        if (TPM2_KDFa_ex(parentNameAlg, seed, seedSz, "STORAGE", name,
+                (UINT32)nameSz, NULL, 0, aesKey, symKeySz) != symKeySz) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        if (TPM2_KDFa_ex(parentNameAlg, seed, seedSz, "INTEGRITY", NULL, 0,
+                NULL, 0, hmacKey, digestSz) != digestSz) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        if (TPM2_AesCfbEncrypt(aesKey, symKeySz, NULL, buf + 2 + digestSz,
+                (word32)dataSz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        FwStoreU16BE(buf, (UINT16)digestSz);
+        if (TPM2_HmacCompute(parentNameAlg, hmacKey, (word32)digestSz,
+                buf + 2 + digestSz, (word32)dataSz, name, (word32)nameSz,
+                buf + 2, NULL) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    TPM2_ForceZero(aesKey, sizeof(aesKey));
+    TPM2_ForceZero(hmacKey, sizeof(hmacKey));
+    return rc;
+}
+
+/* Check an imported KEYEDHASH or SYMCIPHER sensitive area and return its
+ * key: the key fits the public parameters and unique is the nameAlg digest
+ * of seedValue || key. Objects created by this TPM have an empty
+ * seedValue. */
+static TPM_RC FwImportSymSensitive(const TPMT_PUBLIC* pub, UINT16 sensType,
+    const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz,
+    byte* privKey, int privKeyBufSz, int* privKeySz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int maxSz = 128;
+    int hRc;
+    UINT16 scheme;
+    byte unique[TPM_MAX_DIGEST_SIZE];
+
+    if (sensType != pub->type) {
+        rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_3;
+    }
+    else if (pub->type == TPM_ALG_SYMCIPHER) {
+        if ((int)keySz * 8 != (int)pub->parameters.symDetail.sym.keyBits.sym) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+    }
+    else {
+        scheme = pub->parameters.keyedHashDetail.scheme.scheme;
+        if (scheme == TPM_ALG_HMAC) {
+            maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+                pub->parameters.keyedHashDetail.scheme.details.hmac.hashAlg));
+        }
+        else if (scheme == TPM_ALG_XOR) {
+            maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+                pub->parameters.keyedHashDetail.scheme.details.xorr.hashAlg));
+        }
+        else if (scheme != TPM_ALG_NULL) {
+            rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+        }
+        if (rc == 0 && (maxSz <= 0 || (int)keySz > maxSz)) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+    }
+    if (rc == 0 && (int)keySz > privKeyBufSz) {
+        rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+    }
+    if (rc == 0) {
+        if (digestSz <= 0 || (seedSz != 0 && (int)seedSz != digestSz)) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+    }
+    if (rc == 0) {
+        hRc = FwComputeHashUnique(pub->nameAlg, seed, seedSz, key, keySz,
+            unique);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+        else if ((int)pub->unique.keyedHash.size != digestSz ||
+                TPM2_ConstantCompare(pub->unique.keyedHash.buffer, unique,
+                    (word32)digestSz) != 0) {
+            rc = TPM_RC_BINDING;
+        }
+    }
+    if (rc == 0) {
+        if (keySz > 0) {
+            XMEMCPY(privKey, key, keySz);
+        }
+        *privKeySz = (int)keySz;
+    }
+    TPM2_ForceZero(unique, sizeof(unique));
+    return rc;
+}
+
 /* --- TPM2_Import (CC 0x156) ---
- * Import an externally created key (outer-wrapped) under a parent key.
+ * Import a duplicate, with or without its inner and outer wrap, under a
+ * parent key.
  * Response: [paramSz] | outPrivate */
 static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -8994,7 +9318,9 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int plainSensSz = 0;
     UINT16 sensType = 0;
     UINT16 primeSz = 0;
-    FWTPM_DECLARE_VAR(innerHashCtx, wc_HashAlg);
+    const byte* sensSeed = NULL;
+    UINT16 sensSeedSz = 0;
+    int innerOff = 0;
     FWTPM_DECLARE_BUF(primeBuf, FWTPM_MAX_DER_SIG_BUF);
     TPM2B_AUTH importedAuth;
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -9005,7 +9331,6 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_BUF(pubAreaBuf, FWTPM_MAX_PUB_BUF);
     FWTPM_ALLOC_BUF(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_ALLOC_BUF(primeBuf, FWTPM_MAX_DER_SIG_BUF);
-    FWTPM_ALLOC_VAR(innerHashCtx, wc_HashAlg);
     FWTPM_CALLOC_VAR(objectPublic, TPM2B_PUBLIC);
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
 
@@ -9047,7 +9372,6 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_Packet_ParseBytes(cmd, encKeyBuf, encKeySz);
         }
     }
-    /* encKeyBuf used later for inner decryption if symmetricAlg != NULL */
 
     /* Parse objectPublic */
     if (rc == 0) {
@@ -9135,10 +9459,33 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     (void)symMode;
 
-    if (rc == 0 && (objectPublic->publicArea.objectAttributes &
-            TPMA_OBJECT_encryptedDuplication) != 0 &&
-            (encKeySz == 0 || symSeedSz == 0 || symAlg == TPM_ALG_NULL)) {
-        rc = TPM_RC_ATTRIBUTES;
+    /* The inner wrap key matches symmetricAlg, and an encryptedDuplication
+     * object arrives under both wraps (Part 3 Sec.13.3). */
+    if (rc == 0 && symAlg != TPM_ALG_NULL) {
+        if (symAlg != TPM_ALG_AES) {
+            rc = TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_5;
+        }
+        else if (symKeyBits != 128 && symKeyBits != 192 &&
+                symKeyBits != 256) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_5;
+        }
+        else if (encKeySz != symKeyBits / 8) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+    }
+    else if (rc == 0) {
+        if (encKeySz != 0) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+        else if ((objectPublic->publicArea.objectAttributes &
+                TPMA_OBJECT_encryptedDuplication) != 0) {
+            rc = TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_1;
+        }
+    }
+    if (rc == 0 && symSeedSz == 0 &&
+            (objectPublic->publicArea.objectAttributes &
+            TPMA_OBJECT_encryptedDuplication) != 0) {
+        rc = TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_4;
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -9175,12 +9522,14 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_KEY;
     }
 
-    /* Decrypt inSymSeed with parent key */
-    if (rc == 0) {
+    /* Decrypt inSymSeed with parent key. An empty inSymSeed means the
+     * duplicate has no outer wrap. */
+    if (rc == 0 && symSeedSz != 0) {
         rc = FwDecryptSeed(ctx, parent,
             symSeedBuf, symSeedSz,
             (const byte*)"DUPLICATE", 10, "DUPLICATE",
             seedBuf, (int)sizeof(seedBuf), &seedSz);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_4);
     }
 
     /* Compute name of objectPublic: nameAlg(2) || Hash(publicArea) */
@@ -9213,7 +9562,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* KDFa for storage key (AES wrap key) */
-    if (rc == 0) {
+    if (rc == 0 && symSeedSz != 0) {
         rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
             "STORAGE", nameBuf, nameSz, NULL, 0, aesKey, symKeySz);
         if (rc != symKeySz) {
@@ -9225,7 +9574,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* KDFa for integrity key (HMAC key) */
-    if (rc == 0) {
+    if (rc == 0 && symSeedSz != 0) {
         rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
             "INTEGRITY", NULL, 0, NULL, 0, hmacKeyBuf, digestSz);
         if (rc != digestSz) {
@@ -9238,117 +9587,60 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
 
     /* Verify integrity and decrypt duplicate */
-    if (rc == 0) {
+    if (rc == 0 && symSeedSz != 0) {
         rc = FwImportVerifyAndDecrypt(parentNameAlg,
             hmacKeyBuf, digestSz, aesKey, symKeySz,
             nameBuf, nameSz, dupBuf, dupSz,
             plainSens, (int)(FWTPM_MAX_SENSITIVE_SIZE), &plainSensSz);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_3);
+    }
+    else if (rc == 0) {
+        if (dupSz > (UINT16)FWTPM_MAX_SENSITIVE_SIZE) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+        else {
+            XMEMCPY(plainSens, dupBuf, dupSz);
+            plainSensSz = dupSz;
+        }
     }
 
-
-    /* Inner decryption: if symmetricAlg != NULL and encryptionKey provided,
-     * the plainSens contains inner wrapping that must be removed.
-     * Per TPM spec Part 1 Section 23.4:
-     *   innerWrapped = innerIntegrity(TPM2B) || AES-CFB(encryptionKey, sens)
-     * innerIntegrity = HMAC(nameAlg, sensitive || objectName) */
-    if (rc == 0 && symAlg != TPM_ALG_NULL && encKeySz > 0 &&
-        plainSensSz > 2) {
-        UINT16 innerIntegSz;
-        int innerStart;
-        byte* encInner;
-        int encInnerSz;
-        byte innerHash[TPM_MAX_DIGEST_SIZE];
-        int ihRc;
-
-        /* Parse inner integrity size */
-        innerIntegSz = FwLoadU16BE(plainSens);
-        innerStart = 2 + innerIntegSz;
-
-        if (innerStart >= plainSensSz) {
-        #ifdef DEBUG_WOLFTPM
-            printf("fwTPM: Import inner integrity fail: "
-                "innerIntegSz=%d, innerStart=%d, plainSensSz=%d\n",
-                innerIntegSz, innerStart, plainSensSz);
-        #endif
-            rc = TPM_RC_INTEGRITY;
-        }
-
-        /* AES-CFB decrypt inner sensitive using encryptionKey */
-        if (rc == 0) {
-            encInner = plainSens + innerStart;
-            encInnerSz = plainSensSz - innerStart;
-            rc = TPM2_AesCfbDecrypt(encKeyBuf, encKeySz,
-                NULL, encInner, (word32)encInnerSz);
-            if (rc != 0) {
-                rc = TPM_RC_FAILURE;
-            }
-        }
-
-        /* Verify inner integrity: Hash(decryptedSensitive || objectName)
-         * Per TPM 2.0 Part 1 Section 23.4 */
-        if (rc == 0 && objDigestSz > 0 &&
-            (UINT16)objDigestSz != innerIntegSz) {
-            rc = TPM_RC_INTEGRITY;
-        }
-        if (rc == 0) {
-            ihRc = wc_HashInit(innerHashCtx, objWcHash);
-            if (ihRc == 0) {
-                ihRc = wc_HashUpdate(innerHashCtx, objWcHash,
-                    encInner, (word32)encInnerSz);
-            }
-            if (ihRc == 0) {
-                ihRc = wc_HashUpdate(innerHashCtx, objWcHash,
-                    nameBuf, (word32)nameSz);
-            }
-            if (ihRc == 0) {
-                ihRc = wc_HashFinal(innerHashCtx, objWcHash, innerHash);
-            }
-            wc_HashFree(innerHashCtx, objWcHash);
-            if (ihRc != 0) {
-                rc = TPM_RC_FAILURE;
-            }
-            if (rc == 0) {
-                if (TPM2_ConstantCompare(innerHash, plainSens + 2,
-                        innerIntegSz) != 0) {
-                    rc = TPM_RC_INTEGRITY;
-                }
-            }
-            TPM2_ForceZero(innerHash, sizeof(innerHash));
-        }
-
-        /* Shift decrypted sensitive to beginning of plainSens buffer */
-        if (rc == 0) {
-            XMEMMOVE(plainSens, plainSens + innerStart, encInnerSz);
-            plainSensSz = encInnerSz;
-        }
-
-    #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: Import inner decrypt: rc=0x%x, innerIntegSz=%d, "
-            "plainSensSz=%d, first4=0x%02x%02x%02x%02x\n",
-            rc, innerIntegSz, plainSensSz,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[0] : 0,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[1] : 0,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[2] : 0,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[3] : 0);
-    #endif
+    /* Remove the inner wrap: innerIntegrity || sensitive encrypted with
+     * encryptionKey, innerIntegrity = H_nameAlg(sensitive || Name)
+     * (Part 1 Sec.23.3.2.2) */
+    if (rc == 0 && symAlg != TPM_ALG_NULL) {
+        rc = FwDupInnerUnwrap(objNameAlg, nameBuf, nameSz, encKeyBuf,
+            encKeySz, plainSens, plainSensSz, &innerOff);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_3);
     }
-    (void)encKeyBuf;
 
     /* Parse decrypted sensitive area */
     if (rc == 0) {
-        rc = FwImportParseSensitive(plainSens, plainSensSz,
-            &sensType, &importedAuth,
+        rc = FwImportParseSensitive(plainSens + innerOff,
+            plainSensSz - innerOff, &sensType, &importedAuth,
+            &sensSeed, &sensSeedSz,
             &primeSz, primeBuf, (int)FWTPM_MAX_DER_SIG_BUF);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_3);
     }
 
-
     /* Reconstruct private key from sensitive data */
-    if (rc == 0 && primeSz > 0) {
+    if (rc == 0 && (objectPublic->publicArea.type == TPM_ALG_KEYEDHASH ||
+            objectPublic->publicArea.type == TPM_ALG_SYMCIPHER)) {
+        rc = FwImportSymSensitive(&objectPublic->publicArea, sensType,
+            sensSeed, sensSeedSz, primeBuf, primeSz,
+            privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz);
+    }
+    else if (rc == 0 && primeSz > 0) {
         rc = FwImportReconstructKey(objectPublic, sensType,
             primeBuf, primeSz,
             privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz, &ctx->rng);
     }
 
+    /* Trailing zeros of an authValue are not significant; a duplicate
+     * carries it padded to the nameAlg digest size. */
+    while (rc == 0 && importedAuth.size > 0 &&
+            importedAuth.buffer[importedAuth.size - 1] == 0) {
+        importedAuth.size--;
+    }
 
     /* Wrap private for output, bound to the imported object's Name */
     if (rc == 0) {
@@ -9383,7 +9675,6 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(plainSens);
     TPM2_ForceZero(primeBuf, FWTPM_MAX_DER_SIG_BUF);
     FWTPM_FREE_BUF(primeBuf);
-    FWTPM_FREE_VAR(innerHashCtx);
     FWTPM_FREE_VAR(objectPublic);
     FWTPM_FREE_VAR(outPrivate);
     return rc;
@@ -9412,6 +9703,12 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int seedSz = 0;
     FWTPM_DECLARE_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
     int encSeedSz = 0;
+    byte innerKey[32];
+    int innerKeySz = 0;
+    int innerDigestSz = 0;
+    int innerOff = 0;
+    int sensOff = 0;
+    int dataSz = 0;
 
     FWTPM_ALLOC_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
@@ -9423,7 +9720,7 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse encryptionKeyIn (TPM2B) - save for inner wrapping */
     TPM2_Packet_ParseU16(cmd, &encKeyInSz);
     if (encKeyInSz > sizeof(encKeyIn)) {
-        rc = TPM_RC_SIZE;
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
     }
     else if (cmd->pos + encKeyInSz > cmdSize) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -9461,19 +9758,40 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPMA_OBJECT_fixedParent)) {
         rc = TPM_RC_ATTRIBUTES;
     }
+    if (rc == 0) {
+        innerDigestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+        if (innerDigestSz <= 0) {
+            rc = TPM_RC_TYPE | TPM_RC_1;
+        }
+    }
     /* Per TPM 2.0 Part 3 Section 13.1: encryptedDuplication needs both an
-     * inner wrap and an outer wrap to a new parent. The outer-wrap path below
-     * does not also apply the inner wrap, so no new parent is accepted yet. */
+     * inner wrap and an outer wrap to a new parent. */
     if (rc == 0 && (obj->pub.objectAttributes &
         TPMA_OBJECT_encryptedDuplication)) {
         if (symAlg == TPM_ALG_NULL) {
-            rc = TPM_RC_SYMMETRIC;
+            rc = TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_2;
         }
         else if (newParentHandle == TPM_RH_NULL) {
             rc = TPM_RC_HIERARCHY | TPM_RC_2;
         }
-        else {
-            rc = TPM_RC_SYMMETRIC;
+    }
+    /* encryptionKeyIn is empty or the size of the inner wrap key */
+    if (rc == 0 && symAlg == TPM_ALG_NULL) {
+        if (encKeyInSz != 0) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+    }
+    else if (rc == 0) {
+        innerKeySz = symKeyBits / 8;
+        if (symAlg != TPM_ALG_AES) {
+            rc = TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_2;
+        }
+        else if (symKeyBits != 128 && symKeyBits != 192 &&
+                symKeyBits != 256) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if (encKeyInSz != 0 && (int)encKeyInSz != innerKeySz) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -9485,316 +9803,64 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Wrap the object's private data for export */
+    /* Ensure object name is computed */
+    if (rc == 0 && obj->name.size == 0) {
+        FwComputeObjectName(obj);
+    }
+
+    /* The duplicate is built in place per TPM 2.0 Part 1 Section 23.3:
+     * [outer integrity] [inner integrity] TPM2B_SENSITIVE, each integrity
+     * a TPM2B_DIGEST present only when that wrap is applied. */
     if (rc == 0) {
         if (newParent != NULL) {
-            /* Outer wrapping under new parent per TPM 2.0 Part 1 Section 24:
-             * 1. Encrypt seed to newParent's public key → outSymSeed
-             * 2. KDFa(seed, "STORAGE") → AES key
-             * 3. KDFa(seed, "INTEGRITY") → HMAC key
-             * 4. AES-CFB encrypt sensitive, HMAC for integrity */
-            TPMI_ALG_HASH parentNameAlg = newParent->pub.nameAlg;
-            int digestSz = TPM2_GetHashDigestSize(parentNameAlg);
-            int symKeySz;
-            byte aesKey[FWTPM_MAX_SYM_KEY_SIZE];
-            byte hmacKey[FWTPM_MAX_HMAC_KEY_SIZE];
-            FWTPM_DECLARE_BUF(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
-            int sensSz = 0;
-            byte hmacDigest[FWTPM_MAX_HMAC_DIGEST_SIZE];
-            int outPos = 0;
-
-            FWTPM_ALLOC_BUF(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
-
-            if (digestSz <= 0) {
+            innerOff = TPM2_GetHashDigestSize(newParent->pub.nameAlg);
+            if (innerOff <= 0) {
                 rc = TPM_RC_HASH;
             }
-
-            /* Get parent's symmetric key size from its public template */
-            if (rc == 0) {
-                if (newParent->pub.type == TPM_ALG_RSA) {
-                    symKeySz = (int)(newParent->pub.parameters.rsaDetail
-                        .symmetric.keyBits.sym / 8);
-                }
-                else {
-                    symKeySz = (int)(newParent->pub.parameters.eccDetail
-                        .symmetric.keyBits.sym / 8);
-                }
-                if (symKeySz <= 0) {
-                    symKeySz = 16; /* default AES-128 */
-                }
-                if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
-                    rc = TPM_RC_SYMMETRIC;
-                }
-            }
-
-            /* Ensure object name is computed */
-            if (rc == 0 && obj->name.size == 0) {
-                FwComputeObjectName(obj);
-            }
-
-            /* Encrypt seed to newParent's public key */
-            if (rc == 0) {
-                rc = FwEncryptSeed(ctx, newParent,
-                    (const byte*)"DUPLICATE", 10, "DUPLICATE",
-                    seedBuf, (int)sizeof(seedBuf), &seedSz,
-                    encSeedBuf, FWTPM_MAX_PUB_BUF, &encSeedSz);
-            }
-
-            /* KDFa for AES wrap key */
-            if (rc == 0) {
-                rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                    "STORAGE",
-                    (const byte*)obj->name.name, obj->name.size,
-                    NULL, 0, aesKey, symKeySz);
-                if (rc != symKeySz) {
-                    rc = TPM_RC_FAILURE;
-                }
-                else {
-                    rc = 0;
-                }
-            }
-
-            /* KDFa for HMAC integrity key */
-            if (rc == 0) {
-                rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                    "INTEGRITY", NULL, 0, NULL, 0,
-                    hmacKey, digestSz);
-                if (rc != digestSz) {
-                    rc = TPM_RC_FAILURE;
-                }
-                else {
-                    rc = 0;
-                }
-            }
-
-            /* Extract raw sensitive component from DER key:
-             * RSA: prime p, ECC: private scalar d */
-            if (rc == 0) {
-                byte sensComp[FWTPM_MAX_DER_SIG_BUF];
-                int sensCompSz = 0;
-            #ifndef NO_RSA
-                if (obj->pub.type == TPM_ALG_RSA) {
-                    FWTPM_DECLARE_VAR(tmpRsa, RsaKey);
-                    FWTPM_ALLOC_VAR(tmpRsa, RsaKey);
-                    rc = FwImportRsaKeyFromDer(obj, tmpRsa);
-                    if (rc == 0) {
-                        word32 pSz = (word32)sizeof(sensComp);
-                        rc = mp_to_unsigned_bin(&tmpRsa->p, sensComp);
-                        if (rc == 0) {
-                            pSz = (word32)mp_unsigned_bin_size(&tmpRsa->p);
-                            sensCompSz = (int)pSz;
-                        }
-                        else {
-                            rc = TPM_RC_FAILURE;
-                        }
-                        wc_FreeRsaKey(tmpRsa);
-                    }
-                    else {
-                        rc = TPM_RC_KEY;
-                    }
-                    FWTPM_FREE_VAR(tmpRsa);
-                }
-                else
-            #endif
-            #ifdef HAVE_ECC
-                if (obj->pub.type == TPM_ALG_ECC) {
-                    FWTPM_DECLARE_VAR(tmpEcc, ecc_key);
-                    FWTPM_ALLOC_VAR(tmpEcc, ecc_key);
-                    if (rc == 0) {
-                        rc = FwImportEccKeyFromDer(obj, tmpEcc);
-                    }
-                    if (rc == 0) {
-                        word32 dSz = (word32)sizeof(sensComp);
-                        rc = wc_ecc_export_private_only(tmpEcc,
-                            sensComp, &dSz);
-                        if (rc == 0) {
-                            sensCompSz = (int)dSz;
-                        }
-                        else {
-                            rc = TPM_RC_FAILURE;
-                        }
-                        wc_ecc_free(tmpEcc);
-                    }
-                    else {
-                        rc = TPM_RC_KEY;
-                    }
-                    FWTPM_FREE_VAR(tmpEcc);
-                }
-                else
-            #endif
-                {
-                    rc = TPM_RC_KEY;
-                }
-
-                /* Marshal in standard TPM 2.0 format */
-                if (rc == 0) {
-                    sensSz = FwMarshalSensitiveStd(sensBuf,
-                        FWTPM_MAX_SENSITIVE_SIZE,
-                        obj->pub.type, &obj->authValue,
-                        sensComp, sensCompSz);
-                    if (sensSz < 0) {
-                        rc = TPM_RC_SIZE;
-                    }
-                }
-                TPM2_ForceZero(sensComp, sizeof(sensComp));
-            }
-
-            /* AES-CFB encrypt (zero IV) */
-            if (rc == 0) {
-                rc = TPM2_AesCfbEncrypt(aesKey, symKeySz,
-                    NULL, sensBuf, (word32)sensSz);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* HMAC(hmacKey, encSens || objectName) */
-            if (rc == 0) {
-                rc = TPM2_HmacCompute(parentNameAlg,
-                    hmacKey, (word32)digestSz,
-                    sensBuf, (word32)sensSz,
-                    (byte*)obj->name.name, obj->name.size,
-                    hmacDigest, NULL);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* Pack outPrivate: integritySize(2) + integrity + encSens */
-            if (rc == 0) {
-                FwStoreU16BE(outPrivate->buffer + outPos, (UINT16)digestSz);
-                outPos += 2;
-                XMEMCPY(outPrivate->buffer + outPos, hmacDigest, digestSz);
-                outPos += digestSz;
-                if (outPos + sensSz > (int)sizeof(outPrivate->buffer)) {
-                    rc = TPM_RC_SIZE;
-                }
-            }
-            if (rc == 0) {
-                XMEMCPY(outPrivate->buffer + outPos, sensBuf, sensSz);
-                outPos += sensSz;
-                outPrivate->size = (UINT16)outPos;
-            }
-
-            TPM2_ForceZero(seedBuf, sizeof(seedBuf));
-            TPM2_ForceZero(aesKey, sizeof(aesKey));
-            TPM2_ForceZero(hmacKey, sizeof(hmacKey));
-            TPM2_ForceZero(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
-            FWTPM_FREE_BUF(sensBuf);
+            innerOff += 2;
         }
-        else if (symAlg != TPM_ALG_NULL) {
-            /* Inner wrapping with AES-CFB + HMAC integrity per
-             * TPM 2.0 Part 3 Section 12.5 */
-            byte innerKey[32];
-            int innerKeySz = symKeyBits / 8;
-            FWTPM_DECLARE_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 64);
-            int sensSz;
-            byte innerHmac[TPM_SHA256_DIGEST_SIZE];
-            int innerHmacSz = TPM_SHA256_DIGEST_SIZE;
-            int outPos = 0;
-
-            FWTPM_ALLOC_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 64);
-
-            if (innerKeySz <= 0 || innerKeySz > (int)sizeof(innerKey)) {
-                rc = TPM_RC_KEY_SIZE;
-            }
-
-            /* Get or generate inner key */
-            if (rc == 0) {
-                if (encKeyInSz > 0) {
-                    XMEMCPY(innerKey, encKeyIn, encKeyInSz);
-                    innerKeySz = encKeyInSz;
-                }
-                else {
-                    rc = wc_RNG_GenerateBlock(&ctx->rng, innerKey,
-                        (word32)innerKeySz);
-                    /* Save generated key for response encryptionKeyOut */
-                    if (rc == 0) {
-                        XMEMCPY(encKeyIn, innerKey, innerKeySz);
-                    }
-                }
-            }
-
-            /* Marshal sensitive */
-            if (rc == 0) {
-                sensSz = FwMarshalSensitive(sensBuf,
-                    FWTPM_MAX_PRIVKEY_DER + 64,
-                    obj->pub.type, &obj->authValue,
-                    obj->privKey, obj->privKeySize);
-                if (sensSz < 0) {
-                    rc = TPM_RC_SIZE;
-                }
-            }
-
-            /* AES-CFB encrypt (zero IV) */
-            if (rc == 0) {
-                rc = TPM2_AesCfbEncrypt(innerKey, innerKeySz,
-                    NULL, sensBuf, (word32)sensSz);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* HMAC(innerKey, encSens || objectName) */
-            if (rc == 0) {
-                if (obj->name.size == 0) {
-                    FwComputeObjectName(obj);
-                }
-                rc = TPM2_HmacCompute(TPM_ALG_SHA256,
-                    innerKey, (word32)innerKeySz,
-                    sensBuf, (word32)sensSz,
-                    (byte*)obj->name.name, obj->name.size,
-                    innerHmac, NULL);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* Pack: integritySize(2) || integrity || encSens */
-            if (rc == 0) {
-                FwStoreU16BE(outPrivate->buffer + outPos, (UINT16)innerHmacSz);
-                outPos += 2;
-                XMEMCPY(outPrivate->buffer + outPos, innerHmac, innerHmacSz);
-                outPos += innerHmacSz;
-                if (outPos + sensSz > (int)sizeof(outPrivate->buffer)) {
-                    rc = TPM_RC_SIZE;
-                }
-            }
-            if (rc == 0) {
-                XMEMCPY(outPrivate->buffer + outPos, sensBuf, sensSz);
-                outPos += sensSz;
-                outPrivate->size = (UINT16)outPos;
-            }
-
-            TPM2_ForceZero(innerKey, sizeof(innerKey));
-            TPM2_ForceZero(sensBuf, FWTPM_MAX_PRIVKEY_DER + 64);
-            FWTPM_FREE_BUF(sensBuf);
+        sensOff = innerOff;
+        if (symAlg != TPM_ALG_NULL) {
+            sensOff += 2 + innerDigestSz;
         }
-        else {
-            /* symAlg == NULL and newParent == NULL: output plaintext
-             * sensitive (no wrapping) */
-            int pos = 0;
-            if (obj->privKeySize + 6 + (int)obj->authValue.size >
-                (int)sizeof(outPrivate->buffer)) {
-                rc = TPM_RC_SIZE;
-            }
-            if (rc == 0) {
-                FwStoreU16BE(outPrivate->buffer + pos, obj->pub.type);
-                pos += 2;
-                FwStoreU16BE(outPrivate->buffer + pos, obj->authValue.size);
-                pos += 2;
-                if (obj->authValue.size > 0) {
-                    XMEMCPY(outPrivate->buffer + pos,
-                        obj->authValue.buffer, obj->authValue.size);
-                    pos += obj->authValue.size;
-                }
-                FwStoreU16BE(outPrivate->buffer + pos,
-                    (UINT16)obj->privKeySize);
-                pos += 2;
-                if (obj->privKeySize > 0) {
-                    XMEMCPY(outPrivate->buffer + pos, obj->privKey,
-                        obj->privKeySize);
-                    pos += obj->privKeySize;
-                }
-                outPrivate->size = (UINT16)pos;
-            }
+    }
+    if (rc == 0) {
+        rc = FwDupMarshalSensitive(obj, outPrivate->buffer + sensOff,
+            (int)sizeof(outPrivate->buffer) - sensOff, &dataSz);
+    }
+
+    /* Inner wrap with the caller's key or one generated here */
+    if (rc == 0 && symAlg != TPM_ALG_NULL) {
+        if (encKeyInSz > 0) {
+            XMEMCPY(innerKey, encKeyIn, encKeyInSz);
         }
+        else if (wc_RNG_GenerateBlock(&ctx->rng, innerKey,
+                (word32)innerKeySz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc == 0) {
+            rc = FwDupInnerWrap(obj->pub.nameAlg,
+                (const byte*)obj->name.name, obj->name.size,
+                innerKey, innerKeySz, outPrivate->buffer + innerOff, dataSz);
+            dataSz += 2 + innerDigestSz;
+        }
+    }
+
+    /* Outer wrap: the seed is encrypted to newParent's public key */
+    if (rc == 0 && newParent != NULL) {
+        rc = FwEncryptSeed(ctx, newParent,
+            (const byte*)"DUPLICATE", 10, "DUPLICATE",
+            seedBuf, (int)sizeof(seedBuf), &seedSz,
+            encSeedBuf, FWTPM_MAX_PUB_BUF, &encSeedSz);
+        if (rc == 0) {
+            rc = FwDupOuterWrap(newParent, seedBuf, seedSz,
+                (const byte*)obj->name.name, obj->name.size,
+                outPrivate->buffer, dataSz);
+            dataSz += innerOff;
+        }
+    }
+    if (rc == 0) {
+        outPrivate->size = (UINT16)dataSz;
     }
 
     if (rc == 0) {
@@ -9807,11 +9873,9 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
         /* encryptionKeyOut (TPM2B) - return generated key if we made one */
-        if (newParentHandle == TPM_RH_NULL && symAlg != TPM_ALG_NULL &&
-            encKeyInSz == 0) {
-            int innerKeySz2 = symKeyBits / 8;
-            TPM2_Packet_AppendU16(rsp, (UINT16)innerKeySz2);
-            TPM2_Packet_AppendBytes(rsp, encKeyIn, innerKeySz2);
+        if (symAlg != TPM_ALG_NULL && encKeyInSz == 0) {
+            TPM2_Packet_AppendU16(rsp, (UINT16)innerKeySz);
+            TPM2_Packet_AppendBytes(rsp, innerKey, innerKeySz);
         }
         else {
             TPM2_Packet_AppendU16(rsp, 0);
@@ -9836,9 +9900,10 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     TPM2_ForceZero(encKeyIn, sizeof(encKeyIn));
-    /* outPrivate is the encrypted/HMAC-protected blob — no zero needed. */
+    TPM2_ForceZero(innerKey, sizeof(innerKey));
     TPM2_ForceZero(seedBuf, sizeof(seedBuf));
     FWTPM_FREE_BUF(encSeedBuf);
+    TPM2_ForceZero(outPrivate, sizeof(*outPrivate));
     FWTPM_FREE_VAR(outPrivate);
     return rc;
 }

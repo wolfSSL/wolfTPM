@@ -3276,7 +3276,7 @@ TPM_RC FwImportVerifyAndDecrypt(
 
     /* Parse duplicate structure */
     if (dupSz < 4) {
-        rc = TPM_RC_FAILURE;
+        rc = TPM_RC_INSUFFICIENT;
     }
     if (rc == 0) {
         integritySize = FwLoadU16BE(dupBuf);
@@ -3286,7 +3286,7 @@ TPM_RC FwImportVerifyAndDecrypt(
         }
     }
     if (rc == 0 && dupPos + integritySize > (int)dupSz) {
-        rc = TPM_RC_FAILURE;
+        rc = TPM_RC_INSUFFICIENT;
     }
     if (rc == 0) {
         integrity = dupBuf + dupPos;
@@ -3294,7 +3294,7 @@ TPM_RC FwImportVerifyAndDecrypt(
         encSens = dupBuf + dupPos;
         encSensSz = (int)dupSz - dupPos;
         if (encSensSz <= 0) {
-            rc = TPM_RC_FAILURE;
+            rc = TPM_RC_INSUFFICIENT;
         }
     }
 
@@ -3379,6 +3379,7 @@ TPM_RC FwImportVerifyAndDecrypt(
 TPM_RC FwImportParseSensitive(
     const byte* plainSens, int plainSensSz,
     UINT16* sensType, TPM2B_AUTH* importedAuth,
+    const byte** seedOut, UINT16* seedSzOut,
     UINT16* primeSzOut, byte* primeBuf, int primeBufSz)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -3386,23 +3387,23 @@ TPM_RC FwImportParseSensitive(
     UINT16 totalSensSize, avSz, svSz, primeSz;
 
     if (sp + 2 > plainSensSz) {
-        rc = TPM_RC_FAILURE;
+        rc = TPM_RC_INSUFFICIENT;
     }
     if (rc == 0) {
         totalSensSize = FwLoadU16BE(plainSens + sp);
         sp += 2;
-        if (totalSensSize + 2 > (UINT16)plainSensSz) {
+        if ((int)totalSensSize + 2 != plainSensSz) {
             return TPM_RC_SIZE;
         }
         if (sp + 2 > plainSensSz) {
-            rc = TPM_RC_FAILURE;
+            rc = TPM_RC_INSUFFICIENT;
         }
     }
     if (rc == 0) {
         *sensType = FwLoadU16BE(plainSens + sp);
         sp += 2;
         if (sp + 2 > plainSensSz) {
-            rc = TPM_RC_FAILURE;
+            rc = TPM_RC_INSUFFICIENT;
         }
     }
 
@@ -3419,7 +3420,7 @@ TPM_RC FwImportParseSensitive(
         importedAuth->size = avSz;
         if (avSz > 0) {
             if (sp + avSz > plainSensSz) {
-                rc = TPM_RC_FAILURE;
+                rc = TPM_RC_INSUFFICIENT;
             }
             if (rc == 0) {
                 XMEMCPY(importedAuth->buffer, plainSens + sp, avSz);
@@ -3428,27 +3429,30 @@ TPM_RC FwImportParseSensitive(
         }
     }
 
-    /* seedValue (skip) */
+    /* seedValue */
     if (rc == 0) {
         if (sp + 2 > plainSensSz) {
-            rc = TPM_RC_FAILURE;
+            rc = TPM_RC_INSUFFICIENT;
         }
     }
     if (rc == 0) {
         svSz = FwLoadU16BE(plainSens + sp);
         sp += 2;
         if (sp + svSz > plainSensSz) {
-            rc = TPM_RC_FAILURE;
+            rc = TPM_RC_INSUFFICIENT;
         }
     }
     if (rc == 0) {
+        *seedOut = plainSens + sp;
+        *seedSzOut = svSz;
         sp += svSz;
         if (sp + 2 > plainSensSz) {
-            rc = TPM_RC_FAILURE;
+            rc = TPM_RC_INSUFFICIENT;
         }
     }
 
-    /* sensitive (prime q for RSA, private scalar d for ECC) */
+    /* sensitive (a prime for RSA, private scalar d for ECC, the key for
+     * KEYEDHASH and SYMCIPHER) */
     if (rc == 0) {
         primeSz = FwLoadU16BE(plainSens + sp);
         sp += 2;
@@ -3457,7 +3461,10 @@ TPM_RC FwImportParseSensitive(
         }
     }
     if (rc == 0 && sp + primeSz > plainSensSz) {
-        rc = TPM_RC_FAILURE;
+        rc = TPM_RC_INSUFFICIENT;
+    }
+    if (rc == 0 && sp + primeSz != plainSensSz) {
+        rc = TPM_RC_SIZE;
     }
     if (rc == 0) {
         XMEMCPY(primeBuf, plainSens + sp, primeSz);

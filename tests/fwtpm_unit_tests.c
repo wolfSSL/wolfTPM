@@ -18487,13 +18487,13 @@ static void test_fwtpm_rsa_credential_oaep_label(void)
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN && !FWTPM_NO_CREDENTIAL */
 
 #if !defined(FWTPM_NO_KEY_MIGRATION) && !defined(FWTPM_NO_POLICY)
-static TPM_RC SendDuplicateToNullCmd(FWTPM_CTX* ctx, UINT32 objH,
-    UINT32 sessH, UINT16 symAlg)
+static TPM_RC SendDuplicateCmd(FWTPM_CTX* ctx, UINT32 objH,
+    UINT32 newParentH, UINT32 sessH, UINT16 symAlg)
 {
     int pos, rspSize = 0;
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Duplicate);
     PutU32BE(gCmd + pos, objH); pos += 4;
-    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* newParentHandle */
+    PutU32BE(gCmd + pos, newParentH); pos += 4;
     pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession,
         NULL, 0);
     PutU16BE(gCmd + pos, 0); pos += 2; /* encryptionKeyIn */
@@ -18505,6 +18505,12 @@ static TPM_RC SendDuplicateToNullCmd(FWTPM_CTX* ctx, UINT32 objH,
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
+}
+
+static TPM_RC SendDuplicateToNullCmd(FWTPM_CTX* ctx, UINT32 objH,
+    UINT32 sessH, UINT16 symAlg)
+{
+    return SendDuplicateCmd(ctx, objH, TPM_RH_NULL, sessH, symAlg);
 }
 
 /* An encryptedDuplication object may leave the TPM only under both an inner
@@ -18555,7 +18561,7 @@ static void test_fwtpm_duplicate_encrypted_needs_new_parent(void)
         sizeof(obj->pub.authPolicy));
 
     AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_NULL),
-        TPM_RC_SYMMETRIC);
+        TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_2);
     AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_AES),
         TPM_RC_HIERARCHY | TPM_RC_2);
 
@@ -18615,6 +18621,927 @@ static void test_fwtpm_duplicate_needs_command_code(void)
     fwtpm_pass("Duplicate needs PolicyCommandCode:", 0);
 }
 
+#define DUP_INNER_CALLER 0x1
+#define DUP_INNER_TPM    0x2
+#define DUP_OUTER        0x4
+
+/* userWithAuth | noDA | sign, plus sensitiveDataOrigin for generated keys
+ * and decrypt for a symmetric cipher key */
+#define DUP_ATTR_HMAC 0x00040440
+#define DUP_ATTR_SIGN 0x00040460
+#define DUP_ATTR_SYM  0x00060460
+
+static const byte gDupAuth[] = "dupauth";
+static const byte gDupHmacKey[20] = {
+    0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
+    0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b
+};
+static const byte gDupInnerKey[32] = {
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f
+};
+
+/* objectPublic with its size prefix and the Duplicate / Import outputs */
+typedef struct DupBlob {
+    byte pub[640];
+    UINT16 pubSz;
+    byte encKey[32];
+    UINT16 encKeySz;
+    byte dup[1024];
+    UINT16 dupSz;
+    byte seed[640];
+    UINT16 seedSz;
+    byte priv[sizeof(TPM2B_PRIVATE)];
+    UINT16 privSz;
+} DupBlob;
+static DupBlob gDup;
+
+/* A primary that may be duplicated: fixedTPM and fixedParent clear,
+ * authValue gDupAuth and authPolicy PolicyCommandCode(TPM_CC_Duplicate).
+ * KEYEDHASH is an HMAC-SHA256 key holding gDupHmacKey, SYMCIPHER an AES-128
+ * key; ECC and RSA are signing keys. Its TPM2B_PUBLIC is copied to blob. */
+static UINT32 DupCreateObject(FWTPM_CTX* ctx, TPM_ALG_ID type,
+    UINT32 attributes, DupBlob* blob)
+{
+    byte policyIn[WC_SHA256_DIGEST_SIZE + 8];
+    byte policy[WC_SHA256_DIGEST_SIZE];
+    int pos, rspSize = 0, sensStart, pubStart;
+
+    memset(policyIn, 0, sizeof(policyIn));
+    PutU32BE(policyIn + WC_SHA256_DIGEST_SIZE, TPM_CC_PolicyCommandCode);
+    PutU32BE(policyIn + WC_SHA256_DIGEST_SIZE + 4, TPM_CC_Duplicate);
+    AssertIntEQ(wc_Sha256Hash(policyIn, sizeof(policyIn), policy), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_CreatePrimary);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    sensStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(gDupAuth) - 1); pos += 2;
+    memcpy(gCmd + pos, gDupAuth, sizeof(gDupAuth) - 1);
+    pos += sizeof(gDupAuth) - 1;
+    if (type == TPM_ALG_KEYEDHASH) {
+        PutU16BE(gCmd + pos, sizeof(gDupHmacKey)); pos += 2;
+        memcpy(gCmd + pos, gDupHmacKey, sizeof(gDupHmacKey));
+        pos += sizeof(gDupHmacKey);
+    }
+    else {
+        PutU16BE(gCmd + pos, 0); pos += 2;
+    }
+    PutU16BE(gCmd + sensStart, (UINT16)(pos - sensStart - 2));
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, type); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+    memcpy(gCmd + pos, policy, WC_SHA256_DIGEST_SIZE);
+    pos += WC_SHA256_DIGEST_SIZE;
+    if (type == TPM_ALG_KEYEDHASH) {
+        PutU16BE(gCmd + pos, TPM_ALG_HMAC); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    }
+    else if (type == TPM_ALG_SYMCIPHER) {
+        PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+        PutU16BE(gCmd + pos, 128); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+        PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    }
+    else if (type == TPM_ALG_ECC) {
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+        PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* kdf */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* unique.x */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* unique.y */
+    }
+    else {
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+        PutU16BE(gCmd + pos, TPM_ALG_RSASSA); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        PutU16BE(gCmd + pos, 2048); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4; /* exponent */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    }
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU16BE(gCmd + pos, 0); pos += 2; /* outsideInfo */
+    PutU32BE(gCmd + pos, 0); pos += 4; /* creationPCR */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE + 4 + 4;
+    blob->pubSz = (UINT16)(2 + GetU16BE(gRsp + pos));
+    AssertIntLE(blob->pubSz, sizeof(blob->pub));
+    memcpy(blob->pub, gRsp + pos, blob->pubSz);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* Duplicate objH on a new policy session bound to TPM_CC_Duplicate and copy
+ * encryptionKeyOut, duplicate and outSymSeed to blob */
+static TPM_RC DupSend(FWTPM_CTX* ctx, UINT32 objH, UINT32 newParentH,
+    const byte* key, UINT16 keySz, UINT16 symAlg, UINT16 keyBits,
+    DupBlob* blob)
+{
+    UINT32 sessH = StartSessionHelper(ctx, TPM_SE_POLICY);
+    int pos, rspSize = 0;
+    TPM_RC rc;
+
+    AssertIntNE(sessH, 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_PolicyCommandCode);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Duplicate); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Duplicate);
+    PutU32BE(gCmd + pos, objH); pos += 4;
+    PutU32BE(gCmd + pos, newParentH); pos += 4;
+    pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession,
+        NULL, 0);
+    PutU16BE(gCmd + pos, keySz); pos += 2;
+    if (keySz > 0) {
+        memcpy(gCmd + pos, key, keySz); pos += keySz;
+    }
+    PutU16BE(gCmd + pos, symAlg); pos += 2;
+    if (symAlg != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, keyBits); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    rc = GetRspRC(gRsp);
+    if (rc == TPM_RC_SUCCESS) {
+        pos = TPM2_HEADER_SIZE + 4;
+        blob->encKeySz = GetU16BE(gRsp + pos); pos += 2;
+        AssertIntLE(blob->encKeySz, sizeof(blob->encKey));
+        memcpy(blob->encKey, gRsp + pos, blob->encKeySz);
+        pos += blob->encKeySz;
+        blob->dupSz = GetU16BE(gRsp + pos); pos += 2;
+        AssertIntLE(blob->dupSz, sizeof(blob->dup));
+        memcpy(blob->dup, gRsp + pos, blob->dupSz); pos += blob->dupSz;
+        blob->seedSz = GetU16BE(gRsp + pos); pos += 2;
+        AssertIntLE(blob->seedSz, sizeof(blob->seed));
+        memcpy(blob->seed, gRsp + pos, blob->seedSz);
+    }
+    FlushHandle(ctx, sessH);
+    return rc;
+}
+
+/* Import the duplicate in blob under parentH; outPrivate is kept in blob */
+static TPM_RC DupImport(FWTPM_CTX* ctx, UINT32 parentH, const byte* key,
+    UINT16 keySz, UINT16 symAlg, UINT16 keyBits, DupBlob* blob)
+{
+    int pos, rspSize = 0;
+    TPM_RC rc;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Import);
+    PutU32BE(gCmd + pos, parentH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, keySz); pos += 2;
+    if (keySz > 0) {
+        memcpy(gCmd + pos, key, keySz); pos += keySz;
+    }
+    memcpy(gCmd + pos, blob->pub, blob->pubSz); pos += blob->pubSz;
+    PutU16BE(gCmd + pos, blob->dupSz); pos += 2;
+    memcpy(gCmd + pos, blob->dup, blob->dupSz); pos += blob->dupSz;
+    PutU16BE(gCmd + pos, blob->seedSz); pos += 2;
+    memcpy(gCmd + pos, blob->seed, blob->seedSz); pos += blob->seedSz;
+    PutU16BE(gCmd + pos, symAlg); pos += 2;
+    if (symAlg != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, keyBits); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    rc = GetRspRC(gRsp);
+    if (rc == TPM_RC_SUCCESS) {
+        pos = TPM2_HEADER_SIZE + 4;
+        blob->privSz = GetU16BE(gRsp + pos); pos += 2;
+        AssertIntLE(blob->privSz, sizeof(blob->priv));
+        memcpy(blob->priv, gRsp + pos, blob->privSz);
+    }
+    return rc;
+}
+
+/* Load the imported object under parentH and return its handle */
+static UINT32 DupLoad(FWTPM_CTX* ctx, UINT32 parentH, const DupBlob* blob)
+{
+    int pos, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
+    PutU32BE(gCmd + pos, parentH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, blob->privSz); pos += 2;
+    memcpy(gCmd + pos, blob->priv, blob->privSz); pos += blob->privSz;
+    memcpy(gCmd + pos, blob->pub, blob->pubSz); pos += blob->pubSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* The imported object still holds the sensitive area: an HMAC key matches
+ * wolfCrypt under gDupHmacKey, a symmetric cipher key equals the one in the
+ * original object origH, and a signature made with an asymmetric key
+ * verifies under origH. The commands authorize with gDupAuth. */
+static void DupCheckUse(FWTPM_CTX* ctx, TPM_ALG_ID type, UINT32 keyH,
+    UINT32 origH)
+{
+    FWTPM_Object* key = NULL;
+    FWTPM_Object* orig = NULL;
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    byte sig[600];
+    int i, pos, rspSize = 0;
+    UINT32 sigSz;
+
+    memset(digest, 0x5C, sizeof(digest));
+    if (type == TPM_ALG_KEYEDHASH) {
+#ifndef FWTPM_NO_HASH_CMDS
+        Hmac hmac;
+
+        AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+        AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, gDupHmacKey,
+            sizeof(gDupHmacKey)), 0);
+        AssertIntEQ(wc_HmacUpdate(&hmac, (const byte*)"abc", 3), 0);
+        AssertIntEQ(wc_HmacFinal(&hmac, digest), 0);
+        wc_HmacFree(&hmac);
+
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_HMAC);
+        PutU32BE(gCmd + pos, keyH); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, gDupAuth, sizeof(gDupAuth) - 1);
+        PutU16BE(gCmd + pos, 3); pos += 2;
+        memcpy(gCmd + pos, "abc", 3); pos += 3;
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), sizeof(digest));
+        AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 6, digest,
+            sizeof(digest)), 0);
+#endif
+    }
+    else if (type == TPM_ALG_SYMCIPHER) {
+        for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+            if (ctx->objects[i].used && ctx->objects[i].handle == keyH) {
+                key = &ctx->objects[i];
+            }
+            if (ctx->objects[i].used && ctx->objects[i].handle == origH) {
+                orig = &ctx->objects[i];
+            }
+        }
+        AssertNotNull(key);
+        AssertNotNull(orig);
+        AssertIntEQ(key->privKeySize, AES_128_KEY_SIZE);
+        AssertIntEQ(orig->privKeySize, AES_128_KEY_SIZE);
+        AssertIntEQ(memcmp(key->privKey, orig->privKey, AES_128_KEY_SIZE),
+            0);
+    }
+    else {
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Sign);
+        PutU32BE(gCmd + pos, keyH); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, gDupAuth, sizeof(gDupAuth) - 1);
+        PutU16BE(gCmd + pos, sizeof(digest)); pos += 2;
+        memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* use key scheme */
+        PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+        PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        sigSz = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+        AssertIntLE(sigSz, sizeof(sig));
+        memcpy(sig, gRsp + TPM2_HEADER_SIZE + 4, sigSz);
+
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_VerifySignature);
+        PutU32BE(gCmd + pos, origH); pos += 4;
+        PutU16BE(gCmd + pos, sizeof(digest)); pos += 2;
+        memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+        memcpy(gCmd + pos, sig, sigSz); pos += (int)sigSz;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+}
+
+/* Duplicate an object of objType with the wraps in mode, Import it under
+ * the parent again, Load it and use it. */
+static void DupRoundTrip(FWTPM_CTX* ctx, TPM_ALG_ID objType,
+    TPM_ALG_ID parentAlg, int mode, UINT16 keyBits)
+{
+    UINT32 parentH, objH, newH;
+    UINT16 symAlg = (mode & (DUP_INNER_CALLER | DUP_INNER_TPM)) ?
+        TPM_ALG_AES : TPM_ALG_NULL;
+    UINT16 keySz = (mode & DUP_INNER_CALLER) ? (UINT16)(keyBits / 8) : 0;
+    const byte* importKey = gDupInnerKey;
+
+    parentH = CreatePrimaryHelper(ctx, parentAlg);
+    AssertIntNE(parentH, 0);
+    objH = DupCreateObject(ctx, objType,
+        (objType == TPM_ALG_KEYEDHASH) ? DUP_ATTR_HMAC :
+        (objType == TPM_ALG_SYMCIPHER) ? DUP_ATTR_SYM : DUP_ATTR_SIGN,
+        &gDup);
+
+    AssertIntEQ(DupSend(ctx, objH,
+        (mode & DUP_OUTER) ? parentH : (TPM_HANDLE)TPM_RH_NULL,
+        gDupInnerKey, keySz,
+        symAlg, keyBits, &gDup), TPM_RC_SUCCESS);
+    AssertIntGT(gDup.dupSz, 0);
+    if (mode & DUP_OUTER) {
+        AssertIntGT(gDup.seedSz, 0);
+    }
+    else {
+        AssertIntEQ(gDup.seedSz, 0);
+    }
+    if (mode & DUP_INNER_TPM) {
+        AssertIntEQ(gDup.encKeySz, keyBits / 8);
+        importKey = gDup.encKey;
+        keySz = gDup.encKeySz;
+    }
+    else {
+        AssertIntEQ(gDup.encKeySz, 0);
+    }
+
+    AssertIntEQ(DupImport(ctx, parentH, importKey, keySz, symAlg, keyBits,
+        &gDup), TPM_RC_SUCCESS);
+    newH = DupLoad(ctx, parentH, &gDup);
+    DupCheckUse(ctx, objType, newH, objH);
+
+    FlushHandle(ctx, newH);
+    FlushHandle(ctx, objH);
+    FlushHandle(ctx, parentH);
+}
+
+/* Duplicate and Import agree on the Part 1 Sec.23.3 blob for no wrap, the
+ * inner wrap alone, the outer wrap alone and both, with a caller-supplied
+ * and a TPM-generated inner key. */
+static void test_fwtpm_duplicate_import_roundtrip(void)
+{
+    FWTPM_CTX ctx;
+    static const int modes[] = {
+        0, DUP_INNER_CALLER, DUP_INNER_TPM, DUP_OUTER,
+        DUP_INNER_CALLER | DUP_OUTER, DUP_INNER_TPM | DUP_OUTER
+    };
+    int i;
+#ifdef HAVE_ECC
+    TPM_ALG_ID parentAlg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID parentAlg = TPM_ALG_RSA;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < (int)(sizeof(modes) / sizeof(modes[0])); i++) {
+        DupRoundTrip(&ctx, TPM_ALG_KEYEDHASH, parentAlg, modes[i], 128);
+    }
+    DupRoundTrip(&ctx, TPM_ALG_KEYEDHASH, parentAlg,
+        DUP_INNER_CALLER | DUP_OUTER, 256);
+    DupRoundTrip(&ctx, TPM_ALG_SYMCIPHER, parentAlg, DUP_OUTER, 128);
+    DupRoundTrip(&ctx, TPM_ALG_SYMCIPHER, parentAlg,
+        DUP_INNER_TPM | DUP_OUTER, 128);
+#ifdef HAVE_ECC
+    DupRoundTrip(&ctx, TPM_ALG_ECC, TPM_ALG_ECC, DUP_INNER_CALLER, 128);
+    DupRoundTrip(&ctx, TPM_ALG_ECC, TPM_ALG_ECC, DUP_INNER_TPM | DUP_OUTER,
+        128);
+#endif
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    DupRoundTrip(&ctx, TPM_ALG_KEYEDHASH, TPM_ALG_RSA,
+        DUP_INNER_TPM | DUP_OUTER, 128);
+    DupRoundTrip(&ctx, TPM_ALG_RSA, TPM_ALG_RSA,
+        DUP_INNER_CALLER | DUP_OUTER, 128);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Duplicate/Import round trip:", 0);
+}
+
+/* Rewrap replaces the outer wrap only: an inner and outer wrapped duplicate
+ * moved to a second parent imports there with the inner key. */
+static void test_fwtpm_duplicate_rewrap_import(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj = NULL;
+    UINT32 oldH, newH, objH, keyH;
+    byte name[sizeof(TPM2B_NAME)];
+    UINT16 nameSz;
+    int i, pos, rspSize = 0;
+#ifdef HAVE_ECC
+    TPM_ALG_ID parentAlg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID parentAlg = TPM_ALG_RSA;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    oldH = CreatePrimaryHelper(&ctx, parentAlg);
+    AssertIntNE(oldH, 0);
+    objH = DupCreateObject(&ctx, TPM_ALG_KEYEDHASH, DUP_ATTR_HMAC, &gDup);
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx.objects[i].used && ctx.objects[i].handle == objH) {
+            obj = &ctx.objects[i];
+        }
+    }
+    AssertNotNull(obj);
+    nameSz = obj->name.size;
+    AssertIntGT(nameSz, 0);
+    memcpy(name, obj->name.name, nameSz);
+
+    AssertIntEQ(DupSend(&ctx, objH, oldH, gDupInnerKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, objH);
+#if defined(HAVE_ECC) && !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    newH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#else
+    newH = CreatePrimaryHelper(&ctx, parentAlg);
+#endif
+    AssertIntNE(newH, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Rewrap);
+    PutU32BE(gCmd + pos, oldH); pos += 4;
+    PutU32BE(gCmd + pos, newH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, gDup.dupSz); pos += 2;
+    memcpy(gCmd + pos, gDup.dup, gDup.dupSz); pos += gDup.dupSz;
+    PutU16BE(gCmd + pos, nameSz); pos += 2;
+    memcpy(gCmd + pos, name, nameSz); pos += nameSz;
+    PutU16BE(gCmd + pos, gDup.seedSz); pos += 2;
+    memcpy(gCmd + pos, gDup.seed, gDup.seedSz); pos += gDup.seedSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4;
+    gDup.dupSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(gDup.dupSz, sizeof(gDup.dup));
+    memcpy(gDup.dup, gRsp + pos, gDup.dupSz); pos += gDup.dupSz;
+    gDup.seedSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(gDup.seedSz, sizeof(gDup.seed));
+    memcpy(gDup.seed, gRsp + pos, gDup.seedSz);
+    FlushHandle(&ctx, oldH);
+
+    AssertIntEQ(DupImport(&ctx, newH, gDupInnerKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SUCCESS);
+    keyH = DupLoad(&ctx, newH, &gDup);
+    DupCheckUse(&ctx, TPM_ALG_KEYEDHASH, keyH, 0);
+
+    FlushHandle(&ctx, keyH);
+    FlushHandle(&ctx, newH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Duplicate/Rewrap/Import inner wrap:", 0);
+}
+
+/* The size and attribute rules of Part 3 Sec.13.1 and Sec.13.3 for the
+ * inner wrap key, and the integrity checks of both wraps. */
+static void test_fwtpm_duplicate_import_rejections(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 parentH, objH;
+    TPM_RC rc;
+    byte wrongKey[16];
+#ifdef HAVE_ECC
+    TPM_ALG_ID parentAlg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID parentAlg = TPM_ALG_RSA;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(wrongKey, 0xEE, sizeof(wrongKey));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, parentAlg);
+    AssertIntNE(parentH, 0);
+    objH = DupCreateObject(&ctx, TPM_ALG_KEYEDHASH, DUP_ATTR_HMAC, &gDup);
+
+    /* encryptionKeyIn without an inner wrap, of the wrong size, and a key
+     * size that is not an AES key size */
+    AssertIntEQ(DupSend(&ctx, objH, parentH, gDupInnerKey, 16, TPM_ALG_NULL,
+        0, &gDup), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(DupSend(&ctx, objH, parentH, gDupInnerKey, 24, TPM_ALG_AES,
+        128, &gDup), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(DupSend(&ctx, objH, TPM_RH_NULL, gDupInnerKey, 32,
+        TPM_ALG_AES, 128, &gDup), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(DupSend(&ctx, objH, parentH, NULL, 0, TPM_ALG_AES, 100,
+        &gDup), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+
+    /* Inner wrap alone: a changed octet fails the inner integrity */
+    AssertIntEQ(DupSend(&ctx, objH, TPM_RH_NULL, gDupInnerKey, 16,
+        TPM_ALG_AES, 128, &gDup), TPM_RC_SUCCESS);
+    gDup.dup[gDup.dupSz - 1] ^= 0x01;
+    AssertIntEQ(DupImport(&ctx, parentH, gDupInnerKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_INTEGRITY | TPM_RC_P | TPM_RC_3);
+    gDup.dup[gDup.dupSz - 1] ^= 0x01;
+
+    /* The wrong inner key leaves no valid integrity value */
+    rc = DupImport(&ctx, parentH, wrongKey, 16, TPM_ALG_AES, 128, &gDup);
+    AssertTrue(rc == (TPM_RC_INTEGRITY | TPM_RC_P | TPM_RC_3) ||
+        rc == (TPM_RC_SIZE | TPM_RC_P | TPM_RC_3) ||
+        rc == (TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_3));
+
+    /* encryptionKey of the wrong size, and without an inner wrap */
+    AssertIntEQ(DupImport(&ctx, parentH, gDupInnerKey, 24, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(DupImport(&ctx, parentH, gDupInnerKey, 16, TPM_ALG_NULL, 0,
+        &gDup), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(DupImport(&ctx, parentH, gDupInnerKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SUCCESS);
+
+    /* Both wraps: a changed octet fails the outer integrity */
+    AssertIntEQ(DupSend(&ctx, objH, parentH, gDupInnerKey, 16, TPM_ALG_AES,
+        128, &gDup), TPM_RC_SUCCESS);
+    gDup.dup[gDup.dupSz - 1] ^= 0x01;
+    AssertIntEQ(DupImport(&ctx, parentH, gDupInnerKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_INTEGRITY | TPM_RC_P | TPM_RC_3);
+    gDup.dup[gDup.dupSz - 1] ^= 0x01;
+    rc = DupImport(&ctx, parentH, wrongKey, 16, TPM_ALG_AES, 128, &gDup);
+    AssertTrue(rc == (TPM_RC_INTEGRITY | TPM_RC_P | TPM_RC_3) ||
+        rc == (TPM_RC_SIZE | TPM_RC_P | TPM_RC_3) ||
+        rc == (TPM_RC_INSUFFICIENT | TPM_RC_P | TPM_RC_3));
+    AssertIntEQ(DupImport(&ctx, parentH, gDupInnerKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, objH);
+
+    /* An encryptedDuplication object leaves and arrives under both wraps */
+    objH = DupCreateObject(&ctx, TPM_ALG_KEYEDHASH,
+        DUP_ATTR_HMAC | TPMA_OBJECT_encryptedDuplication, &gDup);
+    AssertIntEQ(DupSend(&ctx, objH, parentH, NULL, 0, TPM_ALG_NULL, 0,
+        &gDup), TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(DupSend(&ctx, objH, TPM_RH_NULL, NULL, 0, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_HIERARCHY | TPM_RC_2);
+    AssertIntEQ(DupSend(&ctx, objH, parentH, NULL, 0, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SUCCESS);
+    AssertIntEQ(gDup.encKeySz, 16);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(DupImport(&ctx, parentH, gDup.encKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SUCCESS);
+    gDup.seedSz = 0;
+    AssertIntEQ(DupImport(&ctx, parentH, gDup.encKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_4);
+
+    FlushHandle(&ctx, objH);
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Duplicate/Import wrap rejections:", 0);
+}
+
+/* A duplicate built here from fixed inputs per Part 1 Sec.23.3, with a
+ * seedValue and a padded authValue as another TPM produces them, imports
+ * and works: sensitive = TPM2B_SENSITIVE, inner = AES-CFB(innerKey,
+ * H(sensitive || Name) || sensitive), outer = HMAC(KDFa(seed, "INTEGRITY"),
+ * enc || Name) || enc with enc = AES-CFB(KDFa(seed, "STORAGE", Name),
+ * inner). */
+static void test_fwtpm_import_known_duplicate(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* parent = NULL;
+    UINT32 parentH, keyH;
+    Aes aes;
+    Hmac hmac;
+    wc_HashAlg hash;
+    byte iv[AES_BLOCK_SIZE];
+    byte seedValue[WC_SHA256_DIGEST_SIZE];
+    byte name[2 + WC_SHA256_DIGEST_SIZE];
+    byte seed[FWTPM_MAX_HMAC_DIGEST_SIZE];
+    byte symKey[AES_128_KEY_SIZE];
+    byte hmacKey[WC_SHA256_DIGEST_SIZE];
+    byte innerDigest[WC_SHA256_DIGEST_SIZE];
+    byte plain[128];
+    /* SHA-256 of the inner wrapped blob, computed outside wolfCrypt */
+    static const byte innerExpect[WC_SHA256_DIGEST_SIZE] = {
+        0xf8, 0xcc, 0x57, 0xc4, 0x3c, 0xf6, 0x47, 0x85,
+        0xef, 0x3d, 0x58, 0x1a, 0xe6, 0x39, 0x61, 0xd0,
+        0x0e, 0x6e, 0xaa, 0x63, 0x7c, 0xb3, 0xd3, 0x22,
+        0xd4, 0xf3, 0x2d, 0x22, 0xc0, 0xa7, 0x11, 0x20
+    };
+    byte* p;
+    byte* sens;
+    byte* inner;
+    int i, seedSz = 0, encSeedSz = 0, sensSz, innerSz;
+#ifdef HAVE_ECC
+    TPM_ALG_ID parentAlg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID parentAlg = TPM_ALG_RSA;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(iv, 0, sizeof(iv));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, parentAlg);
+    AssertIntNE(parentH, 0);
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx.objects[i].used && ctx.objects[i].handle == parentH) {
+            parent = &ctx.objects[i];
+        }
+    }
+    AssertNotNull(parent);
+    for (i = 0; i < (int)sizeof(seedValue); i++) {
+        seedValue[i] = (byte)(0x40 + i);
+    }
+
+    /* TPM2B_PUBLIC: HMAC-SHA256 key, unique = H(seedValue || key) */
+    p = gDup.pub + 2;
+    PutU16BE(p, TPM_ALG_KEYEDHASH); p += 2;
+    PutU16BE(p, TPM_ALG_SHA256); p += 2;
+    PutU32BE(p, DUP_ATTR_HMAC); p += 4;
+    PutU16BE(p, 0); p += 2; /* authPolicy */
+    PutU16BE(p, TPM_ALG_HMAC); p += 2;
+    PutU16BE(p, TPM_ALG_SHA256); p += 2;
+    PutU16BE(p, WC_SHA256_DIGEST_SIZE); p += 2;
+    AssertIntEQ(wc_HashInit(&hash, WC_HASH_TYPE_SHA256), 0);
+    AssertIntEQ(wc_HashUpdate(&hash, WC_HASH_TYPE_SHA256, seedValue,
+        sizeof(seedValue)), 0);
+    AssertIntEQ(wc_HashUpdate(&hash, WC_HASH_TYPE_SHA256, gDupHmacKey,
+        sizeof(gDupHmacKey)), 0);
+    AssertIntEQ(wc_HashFinal(&hash, WC_HASH_TYPE_SHA256, p), 0);
+    wc_HashFree(&hash, WC_HASH_TYPE_SHA256);
+    p += WC_SHA256_DIGEST_SIZE;
+    gDup.pubSz = (UINT16)(p - gDup.pub);
+    PutU16BE(gDup.pub, (UINT16)(gDup.pubSz - 2));
+    PutU16BE(name, TPM_ALG_SHA256);
+    AssertIntEQ(wc_Sha256Hash(gDup.pub + 2, (word32)(gDup.pubSz - 2),
+        name + 2), 0);
+
+    /* inner = TPM2B_DIGEST || TPM2B_SENSITIVE behind room for the outer
+     * TPM2B_DIGEST */
+    inner = gDup.dup + 2 + WC_SHA256_DIGEST_SIZE;
+    sens = inner + 2 + WC_SHA256_DIGEST_SIZE;
+    p = sens + 2;
+    PutU16BE(p, TPM_ALG_KEYEDHASH); p += 2;
+    PutU16BE(p, WC_SHA256_DIGEST_SIZE); p += 2;
+    memset(p, 0, WC_SHA256_DIGEST_SIZE);
+    memcpy(p, gDupAuth, sizeof(gDupAuth) - 1); p += WC_SHA256_DIGEST_SIZE;
+    PutU16BE(p, sizeof(seedValue)); p += 2;
+    memcpy(p, seedValue, sizeof(seedValue)); p += sizeof(seedValue);
+    PutU16BE(p, sizeof(gDupHmacKey)); p += 2;
+    memcpy(p, gDupHmacKey, sizeof(gDupHmacKey)); p += sizeof(gDupHmacKey);
+    sensSz = (int)(p - sens);
+    PutU16BE(sens, (UINT16)(sensSz - 2));
+    AssertIntLE(sensSz, (int)sizeof(plain));
+    memcpy(plain, sens, (size_t)sensSz);
+
+    PutU16BE(inner, WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(wc_HashInit(&hash, WC_HASH_TYPE_SHA256), 0);
+    AssertIntEQ(wc_HashUpdate(&hash, WC_HASH_TYPE_SHA256, sens,
+        (word32)sensSz), 0);
+    AssertIntEQ(wc_HashUpdate(&hash, WC_HASH_TYPE_SHA256, name,
+        sizeof(name)), 0);
+    AssertIntEQ(wc_HashFinal(&hash, WC_HASH_TYPE_SHA256, inner + 2), 0);
+    wc_HashFree(&hash, WC_HASH_TYPE_SHA256);
+    innerSz = 2 + WC_SHA256_DIGEST_SIZE + sensSz;
+    AssertIntEQ(wc_AesInit(&aes, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_AesSetKey(&aes, gDupInnerKey, AES_128_KEY_SIZE, iv,
+        AES_ENCRYPTION), 0);
+    AssertIntEQ(wc_AesCfbEncrypt(&aes, inner, inner, (word32)innerSz), 0);
+    wc_AesFree(&aes);
+    AssertIntEQ(wc_Sha256Hash(inner, (word32)innerSz, innerDigest), 0);
+    AssertIntEQ(memcmp(innerDigest, innerExpect, sizeof(innerExpect)), 0);
+
+    /* The seed is protected to the parent as for any duplicate */
+    AssertIntEQ(FwEncryptSeed(&ctx, parent, (const byte*)"DUPLICATE", 10,
+        "DUPLICATE", seed, (int)sizeof(seed), &seedSz, gDup.seed,
+        (int)sizeof(gDup.seed), &encSeedSz), TPM_RC_SUCCESS);
+    gDup.seedSz = (UINT16)encSeedSz;
+    AssertIntEQ(TPM2_KDFa_ex(TPM_ALG_SHA256, seed, (UINT32)seedSz, "STORAGE",
+        name, sizeof(name), NULL, 0, symKey, sizeof(symKey)),
+        (int)sizeof(symKey));
+    AssertIntEQ(TPM2_KDFa_ex(TPM_ALG_SHA256, seed, (UINT32)seedSz,
+        "INTEGRITY", NULL, 0, NULL, 0, hmacKey, sizeof(hmacKey)),
+        (int)sizeof(hmacKey));
+    AssertIntEQ(wc_AesInit(&aes, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_AesSetKey(&aes, symKey, sizeof(symKey), iv,
+        AES_ENCRYPTION), 0);
+    AssertIntEQ(wc_AesCfbEncrypt(&aes, inner, inner, (word32)innerSz), 0);
+    wc_AesFree(&aes);
+    PutU16BE(gDup.dup, WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, hmacKey, sizeof(hmacKey)),
+        0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, inner, (word32)innerSz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, name, sizeof(name)), 0);
+    AssertIntEQ(wc_HmacFinal(&hmac, gDup.dup + 2), 0);
+    wc_HmacFree(&hmac);
+    gDup.dupSz = (UINT16)(2 + WC_SHA256_DIGEST_SIZE + innerSz);
+
+    AssertIntEQ(DupImport(&ctx, parentH, gDupInnerKey, 16, TPM_ALG_AES, 128,
+        &gDup), TPM_RC_SUCCESS);
+    keyH = DupLoad(&ctx, parentH, &gDup);
+    DupCheckUse(&ctx, TPM_ALG_KEYEDHASH, keyH, 0);
+    FlushHandle(&ctx, keyH);
+
+    /* The same sensitive with no wrap, then with a key that unique does
+     * not cover */
+    memcpy(gDup.dup, plain, (size_t)sensSz);
+    gDup.dupSz = (UINT16)sensSz;
+    gDup.seedSz = 0;
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SUCCESS);
+    gDup.dup[sensSz - 1] ^= 0x01;
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_BINDING);
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Import known inner and outer wrap:", 0);
+}
+
+/* Unseal itemH with the password pw, or with the session sessH when it is
+ * not zero, and return the size of outData in dataSz */
+static TPM_RC SendUnseal(FWTPM_CTX* ctx, UINT32 itemH, UINT32 sessH,
+    const byte* pw, int pwSz, int* dataSz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Unseal);
+    int rspSize = 0;
+    TPM_RC rc;
+
+    PutU32BE(gCmd + pos, itemH); pos += 4;
+    if (sessH != 0) {
+        pos = AppendAuth(gCmd, pos, sessH, TPMA_SESSION_continueSession,
+            NULL, 0);
+    }
+    else {
+        pos = AppendPwAuth(gCmd, pos, pw, pwSz);
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    rc = GetRspRC(gRsp);
+    if (rc == TPM_RC_SUCCESS) {
+        *dataSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    }
+    return rc;
+}
+
+/* An unwrapped duplicate of a sealed data object whose data is the Empty
+ * Buffer: authValue gDupAuth and the given attributes and authPolicy */
+static void DupBuildEmptySealed(DupBlob* blob, UINT32 attributes,
+    const byte* policy, UINT16 policySz)
+{
+    byte seedValue[WC_SHA256_DIGEST_SIZE];
+    byte* p;
+
+    memset(seedValue, 0x33, sizeof(seedValue));
+    p = blob->pub + 2;
+    PutU16BE(p, TPM_ALG_KEYEDHASH); p += 2;
+    PutU16BE(p, TPM_ALG_SHA256); p += 2;
+    PutU32BE(p, attributes); p += 4;
+    PutU16BE(p, policySz); p += 2;
+    if (policySz > 0) {
+        memcpy(p, policy, policySz); p += policySz;
+    }
+    PutU16BE(p, TPM_ALG_NULL); p += 2;
+    PutU16BE(p, WC_SHA256_DIGEST_SIZE); p += 2;
+    /* unique = H(seedValue || data) */
+    AssertIntEQ(wc_Sha256Hash(seedValue, sizeof(seedValue), p), 0);
+    p += WC_SHA256_DIGEST_SIZE;
+    blob->pubSz = (UINT16)(p - blob->pub);
+    PutU16BE(blob->pub, (UINT16)(blob->pubSz - 2));
+
+    p = blob->dup + 2;
+    PutU16BE(p, TPM_ALG_KEYEDHASH); p += 2;
+    PutU16BE(p, sizeof(gDupAuth) - 1); p += 2;
+    memcpy(p, gDupAuth, sizeof(gDupAuth) - 1); p += sizeof(gDupAuth) - 1;
+    PutU16BE(p, sizeof(seedValue)); p += 2;
+    memcpy(p, seedValue, sizeof(seedValue)); p += sizeof(seedValue);
+    PutU16BE(p, 0); p += 2;
+    blob->dupSz = (UINT16)(p - blob->dup);
+    PutU16BE(blob->dup, (UINT16)(blob->dupSz - 2));
+    blob->seedSz = 0;
+}
+
+/* A KEYEDHASH object may hold a sensitive area whose data is the Empty
+ * Buffer. Imported and loaded, it still has its authValue and authPolicy to
+ * authorize with, unlike an object loaded without a sensitive area. */
+static void test_fwtpm_import_empty_keyedhash_auth(void)
+{
+    FWTPM_CTX ctx;
+    const UINT32 persH = 0x81000A20;
+    UINT32 parentH, objH, sessH;
+    byte policyIn[WC_SHA256_DIGEST_SIZE + 8];
+    byte policy[WC_SHA256_DIGEST_SIZE];
+    static const byte badAuth[] = "dupauti";
+#ifndef FWTPM_NO_CONTEXT
+    byte saved[sizeof(TPMS_CONTEXT)];
+    int ctxSz;
+#endif
+    int pos, rspSize = 0, dataSz;
+#ifdef HAVE_ECC
+    TPM_ALG_ID parentAlg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID parentAlg = TPM_ALG_RSA;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, parentAlg);
+    AssertIntNE(parentH, 0);
+
+    /* noDA with authPolicy PolicyCommandCode(TPM_CC_Unseal): only a policy
+     * session that made the assertion authorizes */
+    memset(policyIn, 0, sizeof(policyIn));
+    PutU32BE(policyIn + WC_SHA256_DIGEST_SIZE, TPM_CC_PolicyCommandCode);
+    PutU32BE(policyIn + WC_SHA256_DIGEST_SIZE + 4, TPM_CC_Unseal);
+    AssertIntEQ(wc_Sha256Hash(policyIn, sizeof(policyIn), policy), 0);
+    DupBuildEmptySealed(&gDup, 0x00000400, policy, sizeof(policy));
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SUCCESS);
+    objH = DupLoad(&ctx, parentH, &gDup);
+    AssertIntEQ(ctx.objects[objH - TRANSIENT_FIRST].privKeySize, 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendUnseal(&ctx, objH, sessH, NULL, 0, &dataSz),
+        TPM_RC_POLICY_FAIL);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyCommandCode);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Unseal); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    dataSz = -1;
+    AssertIntEQ(SendUnseal(&ctx, objH, sessH, NULL, 0, &dataSz),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(dataSz, 0);
+    FlushHandle(&ctx, sessH);
+    FlushHandle(&ctx, objH);
+
+    /* userWithAuth | noDA: the password is the authValue */
+    DupBuildEmptySealed(&gDup, 0x00000440, NULL, 0);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SUCCESS);
+    objH = DupLoad(&ctx, parentH, &gDup);
+    AssertIntEQ(ctx.objects[objH - TRANSIENT_FIRST].privKeySize, 0);
+    dataSz = -1;
+    AssertIntEQ(SendUnseal(&ctx, objH, 0, gDupAuth, sizeof(gDupAuth) - 1,
+        &dataSz), TPM_RC_SUCCESS);
+    AssertIntEQ(dataSz, 0);
+    AssertIntEQ(SendUnseal(&ctx, objH, 0, badAuth, sizeof(badAuth) - 1,
+        &dataSz), TPM_RC_BAD_AUTH);
+
+#ifndef FWTPM_NO_CONTEXT
+    /* A saved context keeps the sensitive area */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, objH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntLE(ctxSz, (int)sizeof(saved));
+    memcpy(saved, gRsp + TPM2_HEADER_SIZE, (size_t)ctxSz);
+    FlushHandle(&ctx, objH);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, saved, (size_t)ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    objH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendUnseal(&ctx, objH, 0, gDupAuth, sizeof(gDupAuth) - 1,
+        &dataSz), TPM_RC_SUCCESS);
+#endif
+
+    /* So does the persistent object, also when a restart loads it from NV */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_EvictControl);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, objH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, objH);
+    FlushHandle(&ctx, parentH);
+#ifndef FWTPM_NO_NV
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#endif
+    dataSz = -1;
+    AssertIntEQ(SendUnseal(&ctx, persH, 0, gDupAuth, sizeof(gDupAuth) - 1,
+        &dataSz), TPM_RC_SUCCESS);
+    AssertIntEQ(dataSz, 0);
+    AssertIntEQ(SendUnseal(&ctx, persH, 0, badAuth, sizeof(badAuth) - 1,
+        &dataSz), TPM_RC_BAD_AUTH);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_EvictControl);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Import empty KEYEDHASH authorizes:", 0);
+}
+
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
 /* A failed small-stack allocation in Duplicate or Rewrap is reported as
  * TPM_RC_MEMORY and the unallocated buffers are not used. */
@@ -18662,8 +19589,9 @@ static void test_fwtpm_duplicate_rewrap_alloc_failure(void)
     XMEMCPY(&obj->pub.authPolicy, &sess->policyDigest,
         sizeof(obj->pub.authPolicy));
 
-    /* encSeedBuf, then outPrivate */
-    for (n = 1; n <= 2; n++) {
+    /* encSeedBuf, outPrivate, then the sensitive component and the key it
+     * is exported from */
+    for (n = 1; n <= 4; n++) {
         fwtpm_test_fail_alloc_at(n);
         AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_NULL),
             TPM_RC_MEMORY);
@@ -28850,6 +29778,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_duplicate_encrypted_needs_new_parent();
     test_fwtpm_duplicate_needs_command_code();
+    test_fwtpm_duplicate_import_roundtrip();
+    test_fwtpm_duplicate_rewrap_import();
+    test_fwtpm_duplicate_import_rejections();
+    test_fwtpm_import_known_duplicate();
+    test_fwtpm_import_empty_keyedhash_auth();
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
     test_fwtpm_duplicate_rewrap_alloc_failure();
 #endif
