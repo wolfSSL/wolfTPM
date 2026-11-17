@@ -13174,6 +13174,12 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* encryptedSalt is an Empty Buffer without a tpmKey (Part 3
+     * Sec.11.1.1) */
+    if (rc == 0 && tpmKey == TPM_RH_NULL && encSaltSize != 0) {
+        rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+    }
+
     /* If tpmKey is specified, decrypt the encrypted salt */
     if (rc == 0 && tpmKey != TPM_RH_NULL) {
         FWTPM_Object* keyObj = FwFindObject(ctx, tpmKey);
@@ -13189,7 +13195,7 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_ATTRIBUTES;
         }
         else if (encSaltSize == 0) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
         }
         if (rc == 0) {
             rc = FwDecryptSeed(ctx, keyObj,
@@ -13197,8 +13203,14 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 (const byte*)"SECRET", 7, "SECRET",
                 salt, (int)sizeof(salt), &saltSize);
             if (rc != 0 && rc != TPM_RC_KEY) {
-                rc = TPM_RC_VALUE;
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
             }
+        }
+        /* An RSA salt is no larger than the digest of the tpmKey nameAlg
+         * (Part 3 Sec.11.1.1) */
+        if (rc == 0 && keyObj->pub.type == TPM_ALG_RSA &&
+                saltSize > TPM2_GetHashDigestSize(keyObj->pub.nameAlg)) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
         }
     }
 

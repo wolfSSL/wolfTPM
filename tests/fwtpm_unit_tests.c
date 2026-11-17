@@ -22854,6 +22854,88 @@ static void test_fwtpm_rsa_seed_hashes(void)
     fwtpm_pass("RSA seed encryption for each nameAlg:", 0);
 }
 
+static TPM_RC SendSaltedStartAuthSession(FWTPM_CTX* ctx, UINT32 tpmKey,
+    const byte* encSalt, UINT16 encSaltSz)
+{
+    int pos, rspSize = 0;
+    TPM_RC rc;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_StartAuthSession);
+    PutU32BE(gCmd + pos, tpmKey); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* bind */
+    PutU16BE(gCmd + pos, 16); pos += 2;
+    memset(gCmd + pos, 0xAA, 16); pos += 16; /* nonceCaller */
+    PutU16BE(gCmd + pos, encSaltSz); pos += 2;
+    memcpy(gCmd + pos, encSalt, encSaltSz); pos += encSaltSz;
+    gCmd[pos++] = TPM_SE_HMAC;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* authHash */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    rc = GetRspRC(gRsp);
+    if (rc == TPM_RC_SUCCESS) {
+        FlushHandle(ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+    }
+    return rc;
+}
+
+/* encryptedSalt must be empty when tpmKey is TPM_RH_NULL, and an RSA salt
+ * is at most the digest size of the tpmKey nameAlg (Part 3 Sec.11.1.1). */
+static void test_fwtpm_start_auth_session_salt_rules(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj;
+    RsaKey key;
+    UINT32 keyH;
+    byte salt[WC_SHA256_DIGEST_SIZE + 16];
+    byte encSalt[MAX_RSA_KEY_BYTES];
+    int encSaltSz;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(salt, 0x3C, sizeof(salt));
+    AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendSaltedStartAuthSession(&ctx, TPM_RH_NULL, salt, 8),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendSaltedStartAuthSession(&ctx, TPM_RH_NULL, salt, 0),
+        TPM_RC_SUCCESS);
+
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(keyH, 0);
+    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    AssertIntEQ(obj->pub.nameAlg, TPM_ALG_SHA256);
+    AssertIntEQ(FwImportRsaKey(obj, &key), TPM_RC_SUCCESS);
+    AssertIntEQ(wc_RsaSetRNG(&key, &ctx.rng), 0);
+
+    /* With a tpmKey the salt is not empty and has to decrypt */
+    AssertIntEQ(SendSaltedStartAuthSession(&ctx, keyH, salt, 0),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    XMEMSET(encSalt, 0x3C, sizeof(encSalt));
+    AssertIntEQ(SendSaltedStartAuthSession(&ctx, keyH, encSalt, 256),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+
+    encSaltSz = wc_RsaPublicEncrypt_ex(salt, WC_SHA256_DIGEST_SIZE,
+        encSalt, sizeof(encSalt), &key, &ctx.rng, WC_RSA_OAEP_PAD,
+        WC_HASH_TYPE_SHA256, WC_MGF1SHA256, (byte*)"SECRET", 7);
+    AssertIntEQ(encSaltSz, 256);
+    AssertIntEQ(SendSaltedStartAuthSession(&ctx, keyH, encSalt,
+        (UINT16)encSaltSz), TPM_RC_SUCCESS);
+
+    encSaltSz = wc_RsaPublicEncrypt_ex(salt, sizeof(salt),
+        encSalt, sizeof(encSalt), &key, &ctx.rng, WC_RSA_OAEP_PAD,
+        WC_HASH_TYPE_SHA256, WC_MGF1SHA256, (byte*)"SECRET", 7);
+    AssertIntEQ(encSaltSz, 256);
+    AssertIntEQ(SendSaltedStartAuthSession(&ctx, keyH, encSalt,
+        (UINT16)encSaltSz), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+
+    wc_FreeRsaKey(&key);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("StartAuthSession salt rules:", 0);
+}
+
 static void test_fwtpm_rsa_hash_matrix(void)
 {
     test_fwtpm_rsa_seed_hashes();
@@ -27683,6 +27765,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
         test_fwtpm_hash_capabilities();
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
         test_fwtpm_rsa_hash_matrix();
+        test_fwtpm_start_auth_session_salt_rules();
 #endif
     }
 
