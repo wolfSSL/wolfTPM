@@ -14657,8 +14657,8 @@ static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
 }
 #endif /* !FWTPM_NO_ECDH && !FWTPM_NO_ZGEN_2PHASE */
 
-/* Quote requires a restricted signing key per Part 3 Sec.18.4. Build the
- * command once and run it against keys that violate each requirement. */
+/* Quote requires a signing key per Part 3 Sec.18.4. Build the command with
+ * no inScheme and an empty PCR selection. */
 static int BuildQuoteCmd(byte* buf, UINT32 signHandle)
 {
     int pos = 0;
@@ -14699,26 +14699,42 @@ static void test_fwtpm_quote_decrypt_key_returns_key(void)
     printf("Test fwTPM:\tQuote(decrypt key) rejected:\tPassed\n");
 }
 
-static void test_fwtpm_quote_unrestricted_sign_returns_attributes(void)
+/* An unrestricted signing key may quote. With no scheme of its own it signs
+ * with the one in inScheme. */
+static void test_fwtpm_quote_unrestricted_sign(void)
 {
     FWTPM_CTX ctx;
-    int cmdSz, rspSize = 0;
+    int pos, rspSize = 0;
     UINT32 keyH;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* Non-restricted signing key must not be usable for attestation */
     keyH = CreatePrimaryEccSignHelper(&ctx);
     AssertIntNE(keyH, 0);
 
-    cmdSz = BuildQuoteCmd(gCmd, keyH);
-    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Quote);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2; /* inScheme */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, 1); pos += 4; /* PCRselect count */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    gCmd[pos++] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* paramSize(4) | TPM2B_ATTEST | sigAlg(2) | hashAlg(2) */
+    pos = TPM2_HEADER_SIZE + 4;
+    pos += 2 + GetU16BE(gRsp + pos);
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_ECDSA);
+    AssertIntEQ(GetU16BE(gRsp + pos + 2), TPM_ALG_SHA256);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tQuote(unrestricted sign) rejected:\tPassed\n");
+    fwtpm_pass("Quote(unrestricted sign):", 0);
 }
 
 /* A key that declares a signing scheme must not be downgraded by a wire
@@ -27402,7 +27418,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif /* !FWTPM_NO_ZGEN_2PHASE */
 #endif /* !FWTPM_NO_ECDH */
     test_fwtpm_quote_decrypt_key_returns_key();
-    test_fwtpm_quote_unrestricted_sign_returns_attributes();
+    test_fwtpm_quote_unrestricted_sign();
     test_fwtpm_sign_scheme_downgrade_rejected();
     test_fwtpm_quote_clockinfo_resetcount_nonzero();
     test_fwtpm_certify_decrypt_key_returns_key();
