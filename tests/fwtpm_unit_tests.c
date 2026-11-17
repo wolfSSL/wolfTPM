@@ -26266,6 +26266,61 @@ static void test_fwtpm_change_seed_evicts_persistent(void)
 }
 #endif /* !FWTPM_NO_NV && HAVE_ECC */
 
+/* SetPrimaryPolicy (pcrHandle 0) or PCR_SetAuthPolicy with a SHA-256 policy
+ * of policySz octets, platform authorized */
+static TPM_RC SendPlatformSetPolicy(FWTPM_CTX* ctx, UINT32 pcrHandle,
+    int policySz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, (pcrHandle == 0) ?
+        TPM_CC_SetPrimaryPolicy : TPM_CC_PCR_SetAuthPolicy);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)policySz); pos += 2;
+    memset(gCmd + pos, 0x3C, policySz); pos += policySz;
+    PutU16BE(gCmd + pos, (policySz > 0) ? TPM_ALG_SHA256 : TPM_ALG_NULL);
+    pos += 2;
+    if (pcrHandle != 0) {
+        PutU32BE(gCmd + pos, pcrHandle); pos += 4;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* ChangePPS returns platformPolicy and the PCR policies to their defaults */
+static void test_fwtpm_change_pps_resets_policies(void)
+{
+    FWTPM_CTX ctx;
+    int pcr = FW_TEST_PCR - PCR_FIRST;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    AssertIntEQ(SendPlatformSetPolicy(&ctx, FW_TEST_PCR, 32),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPlatformSetPolicy(&ctx, 0, 32), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.platformPolicy.size, 32);
+    AssertIntEQ(ctx.pcrPolicy[pcr].size, 32);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_ChangePPS, TPM_RH_PLATFORM),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.platformPolicy.size, 0);
+    AssertIntEQ(ctx.platformPolicyAlg, TPM_ALG_NULL);
+    AssertIntEQ(ctx.pcrPolicy[pcr].size, 0);
+    AssertIntEQ(ctx.pcrPolicyAlg[pcr], TPM_ALG_NULL);
+
+    /* The PCR policy reset is persistent */
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.pcrPolicy[pcr].size, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ChangePPS resets platform and PCR policy:", 0);
+}
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27033,6 +27088,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if !defined(FWTPM_NO_NV) && defined(HAVE_ECC)
     test_fwtpm_change_seed_evicts_persistent();
 #endif
+    test_fwtpm_change_pps_resets_policies();
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();

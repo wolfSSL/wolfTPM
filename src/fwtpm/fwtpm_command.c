@@ -7093,6 +7093,15 @@ static TPM_RC FwCmd_ChangePPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
 
+            /* platformPolicy and the PCR policies return to their defaults
+             * (Part 3 Sec.24.4) */
+            XMEMSET(&ctx->platformPolicy, 0, sizeof(ctx->platformPolicy));
+            ctx->platformPolicyAlg = TPM_ALG_NULL;
+            XMEMSET(ctx->pcrPolicy, 0, sizeof(ctx->pcrPolicy));
+            for (i = 0; i < IMPLEMENTATION_PCR; i++) {
+                ctx->pcrPolicyAlg[i] = TPM_ALG_NULL;
+            }
+
             /* Persistent platform objects are flushed with the seed
              * (Part 3 Sec.24.4). The compacting FWTPM_NV_Save in the
              * pendingClear path drops the freed slots. */
