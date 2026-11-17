@@ -28501,6 +28501,49 @@ static void test_fwtpm_ecc_sign_scheme(void)
     fwtpm_pass("Sign inScheme against the ECC key scheme:", 0);
 }
 
+/* An ECDSA signature does not verify under another ECC scheme label. */
+static void test_fwtpm_ecc_verify_scheme(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 keyH;
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    byte r[32], s[32];
+    int i, pos, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(digest, 0x5C, sizeof(digest));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_NULL,
+        TPM_ALG_NULL);
+    AssertIntEQ(SendEccSign(&ctx, keyH, TPM_ALG_ECDSA, TPM_ALG_SHA256,
+        digest, sizeof(digest), r, s), TPM_RC_SUCCESS);
+
+    for (i = 0; i < 2; i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_VerifySignature);
+        PutU32BE(gCmd + pos, keyH); pos += 4;
+        PutU16BE(gCmd + pos, (UINT16)sizeof(digest)); pos += 2;
+        memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+        PutU16BE(gCmd + pos, (i == 0) ? TPM_ALG_ECSCHNORR : TPM_ALG_ECDSA);
+        pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        PutU16BE(gCmd + pos, 32); pos += 2;
+        memcpy(gCmd + pos, r, 32); pos += 32;
+        PutU16BE(gCmd + pos, 32); pos += 2;
+        memcpy(gCmd + pos, s, 32); pos += 32;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), (i == 0) ? TPM_RC_SCHEME :
+            TPM_RC_SUCCESS);
+    }
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("VerifySignature ECC scheme label:", 0);
+}
+
 /* Quote FW_TEST_PCR of one bank. On success *pcrDigestSz is the size of the
  * pcrDigest inside the returned TPMS_ATTEST. */
 static TPM_RC SendQuoteScheme(FWTPM_CTX* ctx, UINT32 keyH, UINT16 sigScheme,
@@ -30094,6 +30137,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_quote_scheme_hash();
     test_fwtpm_ecc_sign_scheme();
+    test_fwtpm_ecc_verify_scheme();
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
     test_fwtpm_policy_session_needs_auth_policy();

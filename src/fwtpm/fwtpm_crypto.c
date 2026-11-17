@@ -4702,11 +4702,19 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
             FWTPM_ALLOC_VAR(eccKey, ecc_key);
             FWTPM_ALLOC_BUF(derSig, FWTPM_MAX_DER_SIG_BUF);
 
-            wcRc = FwImportEccKey(obj, eccKey);
-            if (wcRc != 0)
-                rc = TPM_RC_FAILURE;
-            else
-                eccInit = 1;
+            /* ECDSA is the only ECC signature scheme implemented, and the
+             * other schemes share its R/S encoding */
+            if (rc == 0 && sig->sigAlg != TPM_ALG_ECDSA) {
+                rc = TPM_RC_SCHEME;
+            }
+
+            if (rc == 0) {
+                wcRc = FwImportEccKey(obj, eccKey);
+                if (wcRc != 0)
+                    rc = TPM_RC_FAILURE;
+                else
+                    eccInit = 1;
+            }
 
             if (rc == 0) {
                 wcRc = wc_ecc_rs_raw_to_sig(
