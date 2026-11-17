@@ -22105,7 +22105,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_Shutdown,           FwCmd_Shutdown,            0, 0, 0, FW_CMD_MOD_NV },
     { TPM_CC_SelfTest,           FwCmd_SelfTest,            0, 0, 0, FW_CMD_MOD_NV },
     { TPM_CC_IncrementalSelfTest, FwCmd_IncrementalSelfTest, 0, 0, 0, FW_CMD_MOD_NV },
-    { TPM_CC_GetTestResult,      FwCmd_GetTestResult,       0, 0, 0, 0 },
+    { TPM_CC_GetTestResult,      FwCmd_GetTestResult,       0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_GetRandom,          FwCmd_GetRandom,           0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_StirRandom,         FwCmd_StirRandom,          0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
     { TPM_CC_GetCapability,      FwCmd_GetCapability,       0, 0, 0, 0 },
@@ -22152,7 +22152,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_RO_DENY },
     { TPM_CC_Load,               FwCmd_Load,                 1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Sign,               FwCmd_Sign,                 1, 1, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_VerifySignature,    FwCmd_VerifySignature,      1, 0, 0, 0 },
+    { TPM_CC_VerifySignature,    FwCmd_VerifySignature,      1, 0, 0, FW_CMD_FLAG_ENC },
 #ifndef NO_RSA
     { TPM_CC_RSA_Encrypt,        FwCmd_RSA_Encrypt,          1, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_RSA_Decrypt,        FwCmd_RSA_Decrypt,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
@@ -22194,7 +22194,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
 #endif
     /* --- Sessions --- */
-    { TPM_CC_StartAuthSession,   FwCmd_StartAuthSession,     2, 0, 1, 0 },
+    { TPM_CC_StartAuthSession,   FwCmd_StartAuthSession,     2, 0, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Unseal,             FwCmd_Unseal,               1, 1, 0, FW_CMD_FLAG_DEC },
     /* --- Policy --- */
 #ifndef FWTPM_NO_POLICY
@@ -22205,13 +22205,13 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_PolicyAuthValue,    FwCmd_PolicyAuthValue,      1, 0, 0, 0 },
     { TPM_CC_PolicyCommandCode,  FwCmd_PolicyCommandCode,    1, 0, 0, 0 },
     { TPM_CC_PolicyOR,           FwCmd_PolicyOR,             1, 0, 0, 0 },
-    { TPM_CC_PolicySecret,       FwCmd_PolicySecret,         2, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_PolicySecret,       FwCmd_PolicySecret,         2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_PolicyAuthorize,    FwCmd_PolicyAuthorize,      1, 0, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_PolicyLocality,     FwCmd_PolicyLocality,       1, 0, 0, 0 },
 #ifdef WOLFTPM_SPDM
     { TPM_CC_PolicyTransportSPDM, FwCmd_PolicyTransportSPDM, 1, 0, 0, FW_CMD_FLAG_ENC },
 #endif
-    { TPM_CC_PolicySigned,       FwCmd_PolicySigned,         2, 0, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_PolicySigned,       FwCmd_PolicySigned,         2, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_NV
     { TPM_CC_PolicyNV,           FwCmd_PolicyNV,             3, 1, 0, FW_CMD_FLAG_ENC },
 #endif
@@ -22235,8 +22235,8 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_LoadExternal,       FwCmd_LoadExternal,         0, 0, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_KEY_MIGRATION
     { TPM_CC_Import,             FwCmd_Import,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_DUP },
-    { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, 0 },
+    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_DUP },
+    { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif /* !FWTPM_NO_KEY_MIGRATION */
     { TPM_CC_CreateLoaded,       FwCmd_CreateLoaded,         1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_RO_DENY },
     /* --- Symmetric --- */
@@ -22272,18 +22272,18 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
     /* --- Attestation --- */
 #ifndef FWTPM_NO_ATTESTATION
-    { TPM_CC_Quote,              FwCmd_Quote,                1, 1, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
-    { TPM_CC_CertifyCreation,   FwCmd_CertifyCreation,      2, 1, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_GetTime,            FwCmd_GetTime,              2, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_Quote,              FwCmd_Quote,                1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
+    { TPM_CC_CertifyCreation,   FwCmd_CertifyCreation,      2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_GetTime,            FwCmd_GetTime,              2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_NV
-    { TPM_CC_NV_Certify,         FwCmd_NV_Certify,           3, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_NV_Certify,         FwCmd_NV_Certify,           3, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif
 #endif /* !FWTPM_NO_ATTESTATION */
     /* --- Credentials --- */
 #ifndef FWTPM_NO_CREDENTIAL
-    { TPM_CC_MakeCredential,     FwCmd_MakeCredential,       1, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
+    { TPM_CC_MakeCredential,     FwCmd_MakeCredential,       1, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
 #endif /* !FWTPM_NO_CREDENTIAL */
     /* --- Dictionary Attack --- */
 #ifndef FWTPM_NO_DA
