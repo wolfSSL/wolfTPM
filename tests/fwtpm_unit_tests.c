@@ -27280,6 +27280,98 @@ static void test_fwtpm_activate_credential_key_type(void)
 }
 #endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION && !FWTPM_NO_CREDENTIAL */
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(WOLFTPM_FWTPM_TIS)
+typedef struct CmdWipeIoCtx {
+    FWTPM_CTX* fwtpm;
+    byte input[16];
+    int inputSz;
+    int inputPos;
+    int waitCount;
+} CmdWipeIoCtx;
+
+static int cmd_wipe_io_send(void* userCtx, int type, const void* buf, int sz)
+{
+    (void)userCtx;
+    (void)type;
+    (void)buf;
+    (void)sz;
+    return TPM_RC_SUCCESS;
+}
+
+static int cmd_wipe_io_recv(void* userCtx, int type, void* buf, int sz)
+{
+    CmdWipeIoCtx* io = (CmdWipeIoCtx*)userCtx;
+
+    (void)type;
+    if (sz < 0)
+        return TPM_RC_FAILURE;
+    if (io->inputPos + sz > io->inputSz) {
+        /* a connection that drops part way through a read */
+        XMEMCPY(buf, io->input + io->inputPos,
+            (size_t)(io->inputSz - io->inputPos));
+        io->inputPos = io->inputSz;
+        return TPM_RC_FAILURE;
+    }
+    XMEMCPY(buf, io->input + io->inputPos, (size_t)sz);
+    io->inputPos += sz;
+    return TPM_RC_SUCCESS;
+}
+
+static int cmd_wipe_io_wait(void* userCtx, int timeoutMs)
+{
+    CmdWipeIoCtx* io = (CmdWipeIoCtx*)userCtx;
+
+    (void)timeoutMs;
+    if (++io->waitCount == 2) {
+        io->fwtpm->running = 0;
+        return 0;
+    }
+    return FWTPM_IO_READY_COMMAND;
+}
+
+/* The socket transport dispatches from ctx->cmdBuf, where password
+ * authorizations and decrypted parameters would otherwise outlive the
+ * command. */
+static void test_fwtpm_io_command_buffer_wiped(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_IO_HAL hal;
+    CmdWipeIoCtx io;
+    int i, truncated;
+
+    for (truncated = 0; truncated < 2; truncated++) {
+        XMEMSET(&ctx, 0, sizeof(ctx));
+        XMEMSET(&hal, 0, sizeof(hal));
+        XMEMSET(&io, 0, sizeof(io));
+        io.fwtpm = &ctx;
+        /* raw TPM2_GetRandom: refused before Startup, but still dispatched */
+        io.inputSz = BuildCmdHeader(io.input, TPM_ST_NO_SESSIONS, 12,
+            TPM_CC_GetRandom);
+        PutU16BE(io.input + io.inputSz, 8); io.inputSz += 2;
+        if (truncated) {
+            /* the connection drops before the last octet arrives */
+            io.inputSz--;
+        }
+        hal.send = cmd_wipe_io_send;
+        hal.recv = cmd_wipe_io_recv;
+        hal.wait = cmd_wipe_io_wait;
+        hal.ctx = &io;
+
+        AssertIntEQ(FWTPM_IO_SetHAL(&ctx, &hal), TPM_RC_SUCCESS);
+        AssertIntEQ(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
+        AssertIntEQ(FWTPM_IO_Init(&ctx), TPM_RC_SUCCESS);
+        AssertIntEQ(FWTPM_IO_ServerLoop(&ctx), TPM_RC_SUCCESS);
+        AssertIntEQ(io.inputPos, io.inputSz);
+        for (i = 0; i < io.inputSz; i++) {
+            AssertIntEQ(ctx.cmdBuf[i], 0);
+        }
+        FWTPM_IO_Cleanup(&ctx);
+        AssertIntEQ(FWTPM_Cleanup(&ctx), TPM_RC_SUCCESS);
+    }
+    fwtpm_pass("Socket command buffer wiped:", 0);
+}
+#endif /* WOLFTPM_FWTPM_UNIT_TEST && !WOLFTPM_FWTPM_TIS */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -28077,6 +28169,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_CREDENTIAL)
     test_fwtpm_activate_credential_key_type();
+#endif
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(WOLFTPM_FWTPM_TIS)
+    test_fwtpm_io_command_buffer_wiped();
 #endif
 
     /* Destructive tests last (Clear changes state) */
