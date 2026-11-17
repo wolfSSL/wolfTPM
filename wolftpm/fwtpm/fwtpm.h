@@ -1107,7 +1107,9 @@ typedef struct FWTPM_CTX {
     default file backend.
 
     \return 0 on success
-    \return TPM_RC_MEMORY if RNG initialization fails
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return the wolfCrypt or NV error code if wolfCrypt, RNG or NV
+        initialization fails
 
     \param ctx pointer to caller-allocated FWTPM_CTX (must be zeroed)
 
