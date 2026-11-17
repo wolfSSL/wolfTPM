@@ -3390,6 +3390,147 @@ static void test_fwtpm_rsassa_sha512_sign_verify(void)
 #endif /* WOLFSSL_SHA512 */
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN */
 
+/* CreatePrimary of a KEYEDHASH object holding caller-supplied data */
+static TPM_RC SendCreatePrimaryKeyedHash(FWTPM_CTX* ctx, UINT32 attributes,
+    UINT16 scheme)
+{
+    int pos, rspSize = 0, sensStart, pubStart;
+    TPM_RC rc;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_CreatePrimary);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4; /* authAreaSize */
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    sensStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* userAuth */
+    PutU16BE(gCmd + pos, 16); pos += 2; /* data */
+    memset(gCmd + pos, 0x6B, 16); pos += 16;
+    PutU16BE(gCmd + sensStart, (UINT16)(pos - sensStart - 2));
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_KEYEDHASH); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, scheme); pos += 2;
+    if (scheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU16BE(gCmd + pos, 0); pos += 2; /* outsideInfo */
+    PutU32BE(gCmd + pos, 0); pos += 4; /* creationPCR */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    rc = GetRspRC(gRsp);
+    if (rc == TPM_RC_SUCCESS) {
+        UINT32 handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+        rspSize = 0;
+        BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+        PutU32BE(gCmd + 10, handle);
+        FWTPM_ProcessCommand(ctx, gCmd, 14, gRsp, &rspSize, 0);
+    }
+    return rc;
+}
+
+/* The KEYEDHASH public area of SendCreatePrimaryKeyedHash with no unique,
+ * as the public-only inPublic of LoadExternal or, with a parent, as the
+ * objectPublic of Import */
+static TPM_RC SendKeyedHashPublic(FWTPM_CTX* ctx, UINT32 parentH,
+    UINT32 attributes, UINT16 scheme)
+{
+    int pos, rspSize = 0, pubStart;
+
+    if (parentH == 0) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_LoadExternal);
+        PutU16BE(gCmd + pos, 0); pos += 2; /* inPrivate */
+    }
+    else {
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Import);
+        PutU32BE(gCmd + pos, parentH); pos += 4;
+        PutU32BE(gCmd + pos, 9); pos += 4; /* authAreaSize */
+        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        gCmd[pos++] = 0;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU16BE(gCmd + pos, 0); pos += 2; /* encryptionKey */
+    }
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_KEYEDHASH); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, scheme); pos += 2;
+    if (scheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    if (parentH == 0) {
+        PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* hierarchy */
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A KEYEDHASH object with sign and decrypt both SET or both CLEAR has no
+ * scheme (Part 3 Sec.12.1.1). */
+static void test_fwtpm_create_keyedhash_scheme(void)
+{
+    FWTPM_CTX ctx;
+    /* fixedTPM | fixedParent | userWithAuth | noDA */
+    UINT32 attrs = 0x00000452;
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_KEY_MIGRATION)
+    UINT32 parentH;
+    int cmdSz, rspSize = 0;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    AssertIntEQ(SendCreatePrimaryKeyedHash(&ctx, attrs | TPMA_OBJECT_sign |
+        TPMA_OBJECT_decrypt, TPM_ALG_HMAC), TPM_RC_SCHEME | TPM_RC_P |
+        TPM_RC_2);
+    AssertIntEQ(SendCreatePrimaryKeyedHash(&ctx, attrs, TPM_ALG_HMAC),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendCreatePrimaryKeyedHash(&ctx, attrs, TPM_ALG_NULL),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendCreatePrimaryKeyedHash(&ctx, attrs | TPMA_OBJECT_sign,
+        TPM_ALG_HMAC), TPM_RC_SUCCESS);
+
+    /* A loaded or an imported object is held to the same rule */
+    AssertIntEQ(SendKeyedHashPublic(&ctx, 0, TPMA_OBJECT_userWithAuth,
+        TPM_ALG_HMAC), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendKeyedHashPublic(&ctx, 0, TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_decrypt, TPM_ALG_HMAC),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_KEY_MIGRATION)
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_ECC);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    parentH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendKeyedHashPublic(&ctx, parentH, TPMA_OBJECT_userWithAuth,
+        TPM_ALG_HMAC), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendKeyedHashPublic(&ctx, parentH, TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_decrypt, TPM_ALG_HMAC),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    rspSize = 0;
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, parentH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("CreatePrimary KEYEDHASH scheme:", 0);
+}
+
 #if defined(WOLFTPM_V185) && !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
 static void test_fwtpm_create_primary_limited_attrs(void)
 {
@@ -28448,6 +28589,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_rsassa_sha512_sign_verify();
 #endif
 #endif
+    test_fwtpm_create_keyedhash_scheme();
 #if defined(WOLFTPM_V185) && !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_create_primary_limited_attrs();
     test_fwtpm_limited_attrs_rejected_all_paths();

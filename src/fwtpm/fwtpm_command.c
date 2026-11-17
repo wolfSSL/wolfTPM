@@ -3221,6 +3221,22 @@ static TPM_RC FwValidatePublicTemplate(const TPMT_PUBLIC* pub,
     return rc;
 }
 
+/* Usage checks that hold however the object arrives: created, loaded or
+ * imported. */
+static TPM_RC FwValidateKeyUsage(const TPMT_PUBLIC* pub)
+{
+    int sign = (pub->objectAttributes & TPMA_OBJECT_sign) != 0;
+    int decrypt = (pub->objectAttributes & TPMA_OBJECT_decrypt) != 0;
+
+    /* Part 3 Sec.12.1.1: a keyedHash object with sign and decrypt both SET
+     * or both CLEAR has no scheme */
+    if (pub->type == TPM_ALG_KEYEDHASH && sign == decrypt &&
+            pub->parameters.keyedHashDetail.scheme.scheme != TPM_ALG_NULL) {
+        return TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 static TPM_RC FwValidateCreateAttributes(const TPMT_PUBLIC* pub,
     const FWTPM_Object* parent, UINT16 sensitiveDataSz)
 {
@@ -3306,8 +3322,7 @@ static TPM_RC FwValidateCreateAttributes(const TPMT_PUBLIC* pub,
         return TPM_RC_ATTRIBUTES;
     }
 #endif
-
-    return TPM_RC_SUCCESS;
+    return FwValidateKeyUsage(pub);
 }
 
 #ifdef WOLFTPM_V185
@@ -8720,6 +8735,10 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    if (rc == 0) {
+        rc = FwValidateKeyUsage(&inPublic.publicArea);
+    }
+
     /* Validate ML public parameters and the supplied public key size before
      * the object is created (Part 3 Sec.18.4). */
     if (rc == 0) {
@@ -9025,6 +9044,9 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         rc = FwValidatePublicTemplate(&objectPublic->publicArea, 0);
+    }
+    if (rc == 0) {
+        rc = FwValidateKeyUsage(&objectPublic->publicArea);
     }
     if (rc == 0 && (objectPublic->publicArea.objectAttributes &
             (TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent)) != 0) {
