@@ -741,6 +741,110 @@ static int TestTisFifoWiped(void)
     return failed;
 }
 
+static int TisEngineSame(const FWTPM_TIS_REGS* a, const FWTPM_TIS_REGS* b)
+{
+    return a->sts == b->sts && a->cmd_len == b->cmd_len &&
+        a->fifo_write_pos == b->fifo_write_pos &&
+        a->fifo_read_pos == b->fifo_read_pos && a->rsp_len == b->rsp_len &&
+        XMEMCMP(a->cmd_buf, b->cmd_buf, sizeof(a->cmd_buf)) == 0 &&
+        XMEMCMP(a->rsp_buf, b->rsp_buf, sizeof(a->rsp_buf)) == 0;
+}
+
+/* A locality that does not own the interface cannot ready, load, run or
+ * drain the FIFOs, and reads no status or data from them */
+static int TestTisNonOwnerLocality(void)
+{
+    static const int rspSize = 100;
+    static const UINT32 loc1 = 1U << 12;
+    FWTPM_CTX ctx;
+    FWTPM_TIS_REGS regs;
+    FWTPM_TIS_REGS before;
+    byte out[100];
+    int failed = 0;
+    int i;
+
+    TisGoSetup(&ctx, &regs);
+    gGoRc = TPM_RC_SUCCESS;
+    gGoRspSize = rspSize;
+    TisHandleRegAccess(&ctx, &regs);
+    XMEMSET(regs.cmd_buf, 0xC3, regs.cmd_len);
+    XMEMCPY(&before, &regs, sizeof(before));
+    gGoPrivateBufs = 0;
+
+    regs.reg_addr = loc1 | FWTPM_TIS_STS;
+    regs.reg_data[0] = FWTPM_STS_COMMAND_READY | FWTPM_STS_GO |
+        FWTPM_STS_RESP_RETRY;
+    TisHandleRegAccess(&ctx, &regs);
+    if (gGoPrivateBufs || !TisEngineSame(&regs, &before)) {
+        failed = 1;
+    }
+
+    regs.reg_addr = loc1 | FWTPM_TIS_DATA_FIFO;
+    regs.reg_len = 8;
+    XMEMSET(regs.reg_data, 0x5A, sizeof(regs.reg_data));
+    TisHandleRegAccess(&ctx, &regs);
+    if (!TisEngineSame(&regs, &before)) {
+        failed = 1;
+    }
+
+    regs.reg_is_write = 0;
+    regs.reg_len = 16;
+    XMEMSET(regs.reg_data, 0xEE, sizeof(regs.reg_data));
+    TisHandleRegAccess(&ctx, &regs);
+    if (!TisBufIsZero(regs.reg_data, sizeof(regs.reg_data)) ||
+            !TisEngineSame(&regs, &before)) {
+        failed = 1;
+    }
+
+    regs.reg_addr = loc1 | FWTPM_TIS_STS;
+    regs.reg_len = 4;
+    TisHandleRegAccess(&ctx, &regs);
+    if (regs.reg_data[0] != FWTPM_STS_VALID ||
+            !TisBufIsZero(regs.reg_data + 1, sizeof(regs.reg_data) - 1)) {
+        failed = 1;
+    }
+    regs.reg_addr = loc1 | FWTPM_TIS_BURST_COUNT_REG;
+    regs.reg_len = 2;
+    XMEMSET(regs.reg_data, 0xEE, sizeof(regs.reg_data));
+    TisHandleRegAccess(&ctx, &regs);
+    if (!TisBufIsZero(regs.reg_data, sizeof(regs.reg_data)) ||
+            !TisEngineSame(&regs, &before)) {
+        failed = 1;
+    }
+
+    /* the owner still finds its response */
+    regs.reg_addr = FWTPM_TIS_BURST_COUNT_REG;
+    TisHandleRegAccess(&ctx, &regs);
+    if (regs.reg_data[0] != FWTPM_TIS_BURST_COUNT) {
+        failed = 1;
+    }
+    if (TisDrainFifo(&ctx, &regs, out, sizeof(out)) != (UINT32)rspSize) {
+        failed = 1;
+    }
+    for (i = 0; i < rspSize; i++) {
+        if (out[i] != TestRspByte(i)) {
+            failed = 1;
+        }
+    }
+    gGoRegs = NULL;
+
+    /* with no owner, locality 0 is not one either */
+    ctx.tisLocality = -1;
+    XMEMCPY(&before, &regs, sizeof(before));
+    regs.reg_addr = FWTPM_TIS_DATA_FIFO;
+    regs.reg_is_write = 1;
+    regs.reg_len = 8;
+    XMEMSET(regs.reg_data, 0x5A, sizeof(regs.reg_data));
+    TisHandleRegAccess(&ctx, &regs);
+    if (!TisEngineSame(&regs, &before)) {
+        failed = 1;
+    }
+
+    printf("%s: TIS FIFOs are closed to a non-owning locality\n",
+        failed ? "FAIL" : "PASS");
+    return failed;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -782,6 +886,7 @@ int main(void)
     failures += TestTisGoFailure(TPM_RC_SUCCESS, FWTPM_TIS_FIFO_SIZE + 1,
         "an oversized response");
     failures += TestTisFifoWiped();
+    failures += TestTisNonOwnerLocality();
 
     CleanupEndpoint();
     printf("fwTPM HAL endpoint tests: %s\n",
