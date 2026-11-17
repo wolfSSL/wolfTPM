@@ -17238,6 +17238,52 @@ static void test_fwtpm_duplicate_encrypted_needs_new_parent(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Duplicate encryptedDuplication needs new parent:", 0);
 }
+/* The DUP role needs a policy bound to TPM_CC_Duplicate; a policy written
+ * for ordinary use of the object must not also authorize exporting it. */
+static void test_fwtpm_duplicate_needs_command_code(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj = NULL;
+    FWTPM_Session* sess = NULL;
+    UINT32 keyH, sessH;
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+        if (ctx.objects[i].used && ctx.objects[i].handle == keyH) {
+            obj = &ctx.objects[i];
+        }
+    }
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(obj);
+    AssertNotNull(sess);
+    obj->pub.objectAttributes &=
+        ~(TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent);
+    XMEMCPY(&obj->pub.authPolicy, &sess->policyDigest,
+        sizeof(obj->pub.authPolicy));
+
+    AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_NULL),
+        TPM_RC_POLICY_CC);
+
+    FlushHandle(&ctx, sessH);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Duplicate needs PolicyCommandCode:", 0);
+}
 #endif /* !FWTPM_NO_KEY_MIGRATION && !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -25534,6 +25580,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_rewrap_null_newparent_rejected();
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_duplicate_encrypted_needs_new_parent();
+    test_fwtpm_duplicate_needs_command_code();
 #endif
 #endif /* !FWTPM_NO_KEY_MIGRATION */
     test_fwtpm_evict_control();

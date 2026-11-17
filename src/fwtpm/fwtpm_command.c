@@ -23568,6 +23568,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
         return TPM_RC_SUCCESS;
     }
+    if ((entry->encDecFlags & FW_CMD_FLAG_AUTH_DUP) && cmdAuthCnt > 0 &&
+            cmdAuths[0].sess != NULL &&
+            cmdAuths[0].sess->commandCode != cmdCode) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: DUP role requires PolicyCommandCode (CC=0x%x)\n",
+            cmdCode);
+    #endif
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+            TPM_ST_NO_SESSIONS, TPM_RC_POLICY_CC);
+        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+        return TPM_RC_SUCCESS;
+    }
 
     /* ADMIN-role authorization requires a policy session when the object
      * sets adminWithPolicy, and always for an NV index. A policy used for
