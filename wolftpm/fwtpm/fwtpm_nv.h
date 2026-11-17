@@ -232,7 +232,8 @@ WOLFTPM_API int FWTPM_NV_SaveSeeds(FWTPM_CTX* ctx);
 
     \return 0 on success
     \return a nonzero error code on I/O error
-    \return BAD_FUNC_ARG for unknown hierarchy
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return TPM_RC_HIERARCHY for unknown hierarchy
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param hierarchy one of TPM_RH_OWNER, TPM_RH_ENDORSEMENT,
