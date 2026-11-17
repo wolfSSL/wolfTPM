@@ -16768,6 +16768,19 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* nvIndex and nameAlg are checked as the public area unmarshals, ahead
+     * of every check on what was unmarshaled */
+    if (rc == 0) {
+        UINT32 nvIdx = publicInfo.nvPublic.nvIndex;
+        if (nvIdx < NV_INDEX_FIRST || nvIdx > NV_INDEX_LAST) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        /* nameAlg is a TPMI_ALG_HASH, so TPM_ALG_NULL is not allowed */
+        else if (TPM2_GetHashDigestSize(publicInfo.nvPublic.nameAlg) <= 0) {
+            rc = TPM_RC_HASH | TPM_RC_P | TPM_RC_2;
+        }
+    }
+
     /* A platform NV index cannot be created while phEnableNV is clear, even
      * though the new index handle is not yet in the handle area for the
      * generic disabled-hierarchy gate (TPM 2.0 Part 3 Sec.31.3). */
@@ -16811,11 +16824,14 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Validate NV index handle range */
+    /* auth, less trailing zeros, must fit the nameAlg digest size */
     if (rc == 0) {
-        UINT32 nvIdx = publicInfo.nvPublic.nvIndex;
-        if (nvIdx < NV_INDEX_FIRST || nvIdx > NV_INDEX_LAST) {
-            rc = TPM_RC_NV_RANGE;
+        while (auth.size > 0 && auth.buffer[auth.size - 1] == 0) {
+            auth.size--;
+        }
+        if ((int)auth.size >
+                TPM2_GetHashDigestSize(publicInfo.nvPublic.nameAlg)) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -16838,6 +16854,24 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* TPM 2.0 Part 3 Sec.31.3: an index is defined unwritten and unlocked,
+     * with some way to read it and some way to write it. CLEAR_STCLEAR
+     * cannot be combined with a counter or with WRITEDEFINE. */
+    if (rc == 0) {
+        UINT32 attrs = publicInfo.nvPublic.attributes;
+        if ((attrs & (TPMA_NV_WRITTEN | TPMA_NV_WRITELOCKED |
+                TPMA_NV_READLOCKED)) != 0 ||
+            (attrs & (TPMA_NV_PPREAD | TPMA_NV_OWNERREAD |
+                TPMA_NV_AUTHREAD | TPMA_NV_POLICYREAD)) == 0 ||
+            (attrs & (TPMA_NV_PPWRITE | TPMA_NV_OWNERWRITE |
+                TPMA_NV_AUTHWRITE | TPMA_NV_POLICYWRITE)) == 0 ||
+            ((attrs & TPMA_NV_CLEAR_STCLEAR) != 0 &&
+                ((attrs & TPMA_NV_WRITEDEFINE) != 0 ||
+                 ((attrs & TPMA_NV_TPM_NT) >> 4) == TPM_NT_COUNTER))) {
+            rc = TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2;
+        }
+    }
+
     /* TPMA_NV_PLATFORMCREATE must be set under platform auth and clear under
      * any other hierarchy (TPM 2.0 Part 3, NV_DefineSpace). */
     if (rc == 0 && authHandle == TPM_RH_PLATFORM &&
@@ -16854,6 +16888,13 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && authHandle != TPM_RH_PLATFORM &&
         (publicInfo.nvPublic.attributes & TPMA_NV_POLICY_DELETE)) {
         rc = TPM_RC_ATTRIBUTES;
+    }
+
+    /* A WRITEALL index has to fit one NV_Write */
+    if (rc == 0 &&
+        (publicInfo.nvPublic.attributes & TPMA_NV_WRITEALL) != 0 &&
+        publicInfo.nvPublic.dataSize > MAX_NV_BUFFER_SIZE) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_2;
     }
 
     /* Check for duplicate */

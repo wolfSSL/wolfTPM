@@ -16281,6 +16281,118 @@ static void test_fwtpm_nv_bits_extend_unwritten(void)
     fwtpm_pass("NV bits and extend unwritten:", 0);
 }
 
+/* NV_DefineSpace consistency checks of Part 3 Sec.31.3 */
+static void test_fwtpm_nv_define_consistency(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A06;
+    const UINT32 base = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD |
+        TPMA_NV_NO_DA;
+    static const struct {
+        UINT32 attrs;
+        UINT16 dataSize;
+        UINT16 authSz;
+        TPM_RC expect;
+    } cases[] = {
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_WRITTEN, 8, 0,
+            TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_READLOCKED, 8, 0,
+            TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_WRITELOCKED, 8, 0,
+            TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERWRITE, 8, 0,
+            TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERREAD, 8, 0,
+            TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_CLEAR_STCLEAR |
+            ((UINT32)TPM_NT_COUNTER << 4), 8, 0,
+            TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_CLEAR_STCLEAR |
+            TPMA_NV_WRITEDEFINE, 8, 0,
+            TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_WRITEALL,
+            MAX_NV_BUFFER_SIZE + 1, 0, TPM_RC_SIZE | TPM_RC_P | TPM_RC_2 },
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD, 8,
+            WC_SHA256_DIGEST_SIZE + 1, TPM_RC_SIZE | TPM_RC_P | TPM_RC_1 },
+        { TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_WRITEALL,
+            MAX_NV_BUFFER_SIZE, WC_SHA256_DIGEST_SIZE, TPM_RC_SUCCESS }
+    };
+    byte auth[WC_SHA256_DIGEST_SIZE + 1];
+    int i, cmdSz, rspSize;
+    const int authEnd = TPM2_HEADER_SIZE + 4 + 13 + 2 + (int)sizeof(auth);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(auth, 0x11, sizeof(auth));
+
+    for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++) {
+        cmdSz = BuildNvDefineCmdEx(gCmd, nvIdx, cases[i].dataSize,
+            cases[i].attrs | TPMA_NV_NO_DA, auth, cases[i].authSz, NULL, 0);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), cases[i].expect);
+    }
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+
+    /* nvIndex and nameAlg are range-checked as the public area unmarshals;
+     * nameAlg follows authHandle, the auth area, auth, the TPM2B size and
+     * nvIndex. */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, base);
+    PutU16BE(gCmd + TPM2_HEADER_SIZE + 4 + 13 + 2 + 2 + 4, TPM_ALG_NULL);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HASH | TPM_RC_P | TPM_RC_2);
+
+    cmdSz = BuildNvDefineCmd(gCmd, HMAC_SESSION_FIRST, 8, base);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+
+    /* Both are reported ahead of an auth that is too large, nvIndex first */
+    cmdSz = BuildNvDefineCmdEx(gCmd, HMAC_SESSION_FIRST, 8, base, auth,
+        (UINT16)sizeof(auth), NULL, 0);
+    PutU16BE(gCmd + authEnd + 2 + 4, TPM_ALG_NULL);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    cmdSz = BuildNvDefineCmdEx(gCmd, nvIdx, 8, base, auth,
+        (UINT16)sizeof(auth), NULL, 0);
+    PutU16BE(gCmd + authEnd + 2 + 4, TPM_ALG_NULL);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HASH | TPM_RC_P | TPM_RC_2);
+
+    /* The WRITEALL size is the last check: here the owner asking for a
+     * platform index comes first */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, MAX_NV_BUFFER_SIZE + 1, base |
+        TPMA_NV_WRITEALL | TPMA_NV_PLATFORMCREATE);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    /* The auth is stored without its trailing zeros */
+    auth[2] = 0;
+    auth[3] = 0;
+    cmdSz = BuildNvDefineCmdEx(gCmd, nvIdx, 8, base, auth, 4, NULL, 0);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].inUse &&
+                ctx.nvIndices[i].nvPublic.nvIndex == nvIdx) {
+            break;
+        }
+    }
+    AssertIntNE(i, FWTPM_MAX_NV_INDICES);
+    AssertIntEQ(ctx.nvIndices[i].authValue.size, 2);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_DefineSpace consistency:", 0);
+}
+
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
 /* Only size 0 with offset 0 selects the digest form; size 0 at any other
  * offset certifies zero octets (Part 3 Sec.31.16). */
@@ -22869,8 +22981,7 @@ static void test_fwtpm_orderly_counter_recovery(void)
     FWTPM_CTX ctx, probe;
     UINT32 index = 0x01500003;
     UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
-        TPMA_NV_ORDERLY | TPMA_NV_CLEAR_STCLEAR |
-        ((UINT32)TPM_NT_COUNTER << 4);
+        TPMA_NV_ORDERLY | ((UINT32)TPM_NT_COUNTER << 4);
     int pos, rspSize = 0;
     int (*savedWrite)(void*, word32, const byte*, word32);
 
@@ -23627,8 +23738,9 @@ static void test_fwtpm_read_only_nv_conditional(void)
     }
 
     /* A counter carrying the same two attributes, plus WRITEDEFINE, and left
-     * written. Part 2 forbids CLEAR_STCLEAR on a counter, but NV_DefineSpace
-     * accepts it, so the gate cannot rely on the pair being impossible. */
+     * written. NV_DefineSpace refuses CLEAR_STCLEAR on a counter, so it is
+     * set on the stored index, as one persisted by an earlier build may
+     * have it; the gate cannot rely on the pair being impossible. */
     cmdSz = 0;
     PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
@@ -23644,7 +23756,7 @@ static void test_fwtpm_read_only_nv_conditional(void)
     PutU32BE(gCmd + cmdSz, cntIdx); cmdSz += 4;
     PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD |
-        TPMA_NV_ORDERLY | TPMA_NV_CLEAR_STCLEAR | TPMA_NV_WRITEDEFINE |
+        TPMA_NV_ORDERLY | TPMA_NV_WRITEDEFINE |
         ((UINT32)TPM_NT_COUNTER << 4)); cmdSz += 4;
     PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* authPolicy size */
     PutU16BE(gCmd + cmdSz, 8); cmdSz += 2;  /* dataSize */
@@ -23653,6 +23765,14 @@ static void test_fwtpm_read_only_nv_conditional(void)
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].inUse &&
+                ctx.nvIndices[i].nvPublic.nvIndex == cntIdx) {
+            ctx.nvIndices[i].nvPublic.attributes |= TPMA_NV_CLEAR_STCLEAR;
+            break;
+        }
+    }
+    AssertIntNE(i, FWTPM_MAX_NV_INDICES);
 
     cmdSz = 0;
     PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
@@ -26368,6 +26488,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_buffer_max();
     test_fwtpm_nv_extend_buffer_max();
     test_fwtpm_nv_bits_extend_unwritten();
+    test_fwtpm_nv_define_consistency();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_nv_certify_zero_size_offset();
 #endif
