@@ -8725,6 +8725,19 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwValidatePublicTemplate(&inPublic.publicArea, 1);
     }
+#ifdef HAVE_ECC
+    /* The coordinates of a public-only ECC key are curve sized */
+    if (rc == 0 && inPrivSize == 0 &&
+            inPublic.publicArea.type == TPM_ALG_ECC) {
+        int keySz = wc_ecc_get_curve_size_from_id(FwGetWcCurveId(
+            inPublic.publicArea.parameters.eccDetail.curveID));
+        if (keySz > 0 &&
+                ((int)inPublic.publicArea.unique.ecc.x.size != keySz ||
+                 (int)inPublic.publicArea.unique.ecc.y.size != keySz)) {
+            rc = TPM_RC_KEY | TPM_RC_P | TPM_RC_2;
+        }
+    }
+#endif
 
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
@@ -8770,19 +8783,18 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         if (rc == 0) {
-            rc = wc_ecc_import_unsigned(eccKey,
+            rc = FwEccImportUnsigned(eccKey,
                 inPublic.publicArea.unique.ecc.x.buffer,
+                inPublic.publicArea.unique.ecc.x.size,
                 inPublic.publicArea.unique.ecc.y.buffer,
-                qBuf, wcCurveExt);
+                inPublic.publicArea.unique.ecc.y.size,
+                qBuf, qSz, wcCurveExt);
             if (rc == 0) {
                 privKeyDerSz = wc_EccKeyToDer(eccKey, privKeyDer,
                     FWTPM_MAX_PRIVKEY_DER);
                 if (privKeyDerSz <= 0) {
                     rc = TPM_RC_FAILURE;
                 }
-            }
-            else {
-                rc = TPM_RC_FAILURE;
             }
             wc_ecc_free(eccKey);
         }
@@ -12432,12 +12444,10 @@ static TPM_RC FwCmd_ECDH_ZGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        rc = wc_ecc_import_unsigned(peerPub,
-            inPoint->point.x.buffer, inPoint->point.y.buffer,
-            NULL, wcCurve);
-        if (rc != 0) {
-            rc = TPM_RC_FAILURE;
-        }
+        rc = FwEccImportUnsigned(peerPub,
+            inPoint->point.x.buffer, inPoint->point.x.size,
+            inPoint->point.y.buffer, inPoint->point.y.size,
+            NULL, 0, wcCurve);
     }
     /* Validate peer point is on the expected curve (invalid curve attack) */
     if (rc == 0) {
@@ -20160,8 +20170,9 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) peerInit = 1;
     }
     if (rc == 0) {
-        rc = wc_ecc_import_unsigned(peerPub,
-            inQsB.point.x.buffer, inQsB.point.y.buffer, NULL, wcCurve);
+        rc = FwEccImportUnsigned(peerPub,
+            inQsB.point.x.buffer, inQsB.point.x.size,
+            inQsB.point.y.buffer, inQsB.point.y.size, NULL, 0, wcCurve);
     }
     if (rc == 0) {
         rc = wc_ecc_check_key(peerPub);
@@ -20196,8 +20207,9 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) peerInit = 1;
     }
     if (rc == 0) {
-        rc = wc_ecc_import_unsigned(peerPub,
-            inQeB.point.x.buffer, inQeB.point.y.buffer, NULL, wcCurve);
+        rc = FwEccImportUnsigned(peerPub,
+            inQeB.point.x.buffer, inQeB.point.x.size,
+            inQeB.point.y.buffer, inQeB.point.y.size, NULL, 0, wcCurve);
     }
     if (rc == 0) {
         rc = wc_ecc_check_key(peerPub);

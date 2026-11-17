@@ -17939,6 +17939,207 @@ static void test_fwtpm_rewrap_null_newparent_rejected(void)
 }
 #endif /* !FWTPM_NO_KEY_MIGRATION */
 
+#ifdef HAVE_ECC
+/* LoadExternal of a P-256 key, public only when d is NULL. */
+static TPM_RC SendLoadExternalEcc(FWTPM_CTX* ctx, UINT32 attributes,
+    const byte* x, UINT16 xSz, const byte* y, UINT16 ySz,
+    const byte* d, UINT16 dSz, UINT32* handle)
+{
+    int pos, privStart, pubStart, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_LoadExternal);
+    privStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    if (d != NULL) {
+        PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2; /* sensitiveType */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* authValue */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* seedValue */
+        PutU16BE(gCmd + pos, dSz); pos += 2;
+        memcpy(gCmd + pos, d, dSz); pos += dSz;
+        PutU16BE(gCmd + privStart, (UINT16)(pos - privStart - 2));
+    }
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* nameAlg */
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* scheme */
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* kdf */
+    PutU16BE(gCmd + pos, xSz); pos += 2;
+    memcpy(gCmd + pos, x, xSz); pos += xSz;
+    PutU16BE(gCmd + pos, ySz); pos += 2;
+    memcpy(gCmd + pos, y, ySz); pos += ySz;
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* hierarchy */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) == TPM_RC_SUCCESS && handle != NULL) {
+        *handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    }
+    return GetRspRC(gRsp);
+}
+
+/* Make a P-256 key whose x coordinate (wantX) or private scalar starts with
+ * a zero octet, and export its fixed-width values. */
+static void MakeEccKeyLeadingZero(WC_RNG* rng, ecc_key* key, int wantX,
+    byte* x, byte* y, byte* d)
+{
+    word32 xSz, ySz, dSz;
+    int i, found = 0;
+
+    for (i = 0; i < 20000 && !found; i++) {
+        AssertIntEQ(wc_ecc_init(key), 0);
+        AssertIntEQ(wc_ecc_make_key_ex(rng, 32, key, ECC_SECP256R1), 0);
+        xSz = ySz = dSz = 32;
+        AssertIntEQ(wc_ecc_export_private_raw(key, x, &xSz, y, &ySz, d,
+            &dSz), 0);
+        AssertIntEQ(xSz, 32);
+        AssertIntEQ(ySz, 32);
+        AssertIntEQ(dSz, 32);
+        found = wantX ? (x[0] == 0) : (d[0] == 0);
+        if (!found) {
+            wc_ecc_free(key);
+        }
+    }
+    AssertIntEQ(found, 1);
+}
+
+#ifndef FWTPM_NO_ECDH
+static TPM_RC SendEcdhZGen(FWTPM_CTX* ctx, UINT32 keyH, const byte* x,
+    UINT16 xSz, const byte* y, UINT16 ySz)
+{
+    int pos, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ECDH_ZGen);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)(4 + xSz + ySz)); pos += 2;
+    PutU16BE(gCmd + pos, xSz); pos += 2;
+    memcpy(gCmd + pos, x, xSz); pos += xSz;
+    PutU16BE(gCmd + pos, ySz); pos += 2;
+    memcpy(gCmd + pos, y, ySz); pos += ySz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A TPM2B coordinate or scalar is a number: one sent without its leading
+ * zero octet, or with an extra one, is the same value. */
+static void test_fwtpm_ecc_unpadded_values(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* obj;
+    ecc_key ours, peer, loaded;
+    UINT32 keyH = 0;
+    byte x[32], y[32], d[32];
+    byte px[33], py[32], pd[32];
+    byte z[32], gotD[32];
+    word32 zSz = sizeof(z), gotSz = sizeof(gotD);
+    TPM2B_PUBLIC pub;
+    byte der[FWTPM_MAX_PRIVKEY_DER];
+    int derSz = 0;
+#ifndef FWTPM_NO_ZGEN_2PHASE
+    int pos, rspSize = 0;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    MakeEccKeyLeadingZero(&ctx.rng, &ours, 0, x, y, d);
+    px[0] = 0;
+    MakeEccKeyLeadingZero(&ctx.rng, &peer, 1, px + 1, py, pd);
+    AssertIntEQ(wc_ecc_set_rng(&ours, &ctx.rng), 0);
+    AssertIntEQ(wc_ecc_shared_secret(&ours, &peer, z, &zSz), 0);
+    AssertIntEQ(zSz, 32);
+
+    /* userWithAuth | decrypt, private scalar without its leading zero */
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00020040, x, 32, y, 32,
+        d + 1, 31, &keyH), TPM_RC_SUCCESS);
+    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    AssertIntEQ(FwImportEccKeyFromDer(obj, &loaded), 0);
+    AssertIntEQ(wc_ecc_export_private_only(&loaded, gotD, &gotSz), 0);
+    AssertIntEQ(gotSz, 32);
+    AssertIntEQ(memcmp(gotD, d, 32), 0);
+    wc_ecc_free(&loaded);
+
+    /* peer x without its leading zero, then with a second one */
+    AssertIntEQ(SendEcdhZGen(&ctx, keyH, px + 2, 31, py, 32),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 6), 32);
+    AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 8, z, 32), 0);
+    AssertIntEQ(SendEcdhZGen(&ctx, keyH, px, 33, py, 32), TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 8, z, 32), 0);
+
+#ifndef FWTPM_NO_ZGEN_2PHASE
+    /* both ZGen_2Phase points, one short and one long */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_EC_Ephemeral);
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ZGen_2Phase);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 4 + 31 + 32); pos += 2; /* inQsB */
+    PutU16BE(gCmd + pos, 31); pos += 2;
+    memcpy(gCmd + pos, px + 2, 31); pos += 31;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memcpy(gCmd + pos, py, 32); pos += 32;
+    PutU16BE(gCmd + pos, 4 + 33 + 32); pos += 2; /* inQeB */
+    PutU16BE(gCmd + pos, 33); pos += 2;
+    memcpy(gCmd + pos, px, 33); pos += 33;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memcpy(gCmd + pos, py, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ALG_ECDH); pos += 2;
+    PutU16BE(gCmd + pos, ctx.ecEphemeralCounter); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 6), 32);
+    AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 8, z, 32), 0);
+#endif
+
+    /* an imported key: x, then the private scalar, without the leading
+     * zero */
+    memset(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_ECC;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    pub.publicArea.unique.ecc.x.size = 31;
+    memcpy(pub.publicArea.unique.ecc.x.buffer, px + 2, 31);
+    pub.publicArea.unique.ecc.y.size = 32;
+    memcpy(pub.publicArea.unique.ecc.y.buffer, py, 32);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, pd, 32, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_SUCCESS);
+    pub.publicArea.unique.ecc.x.size = 32;
+    memcpy(pub.publicArea.unique.ecc.x.buffer, x, 32);
+    memcpy(pub.publicArea.unique.ecc.y.buffer, y, 32);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, d + 1, 31, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_SUCCESS);
+    AssertIntEQ(derSz, obj->privKeySize);
+    AssertIntEQ(memcmp(der, obj->privKey, (size_t)derSz), 0);
+    FlushHandle(&ctx, keyH);
+
+    /* a public-only key is loaded with curve-sized coordinates only */
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00020040, px + 2, 31, py, 32,
+        NULL, 0, &keyH), TPM_RC_KEY | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00020040, px, 33, py, 32,
+        NULL, 0, &keyH), TPM_RC_KEY | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00020040, px + 1, 32, py, 32,
+        NULL, 0, &keyH), TPM_RC_SUCCESS);
+
+    wc_ecc_free(&ours);
+    wc_ecc_free(&peer);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ECC unpadded coordinates and scalar:", 0);
+}
+#endif /* !FWTPM_NO_ECDH */
+#endif /* HAVE_ECC */
+
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
     !defined(FWTPM_NO_CREDENTIAL)
 /* The RSA credential seed is OAEP-wrapped with the label "IDENTITY" and its
@@ -28312,6 +28513,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+    test_fwtpm_ecc_unpadded_values();
+#endif
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
     !defined(FWTPM_NO_CREDENTIAL)
     test_fwtpm_rsa_credential_oaep_label();

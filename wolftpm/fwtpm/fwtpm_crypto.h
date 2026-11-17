@@ -340,6 +340,8 @@ int FwGetRsaHashOid(UINT16 hashAlg);
 
 #ifdef HAVE_ECC
 int FwImportEccKeyFromDer(const FWTPM_Object* obj, ecc_key* key);
+TPM_RC FwEccImportUnsigned(ecc_key* key, const byte* x, word32 xSz,
+    const byte* y, word32 ySz, const byte* d, word32 dSz, int wcCurve);
 int FwImportEccPubFromPublic(const TPMT_PUBLIC* pub, ecc_key* key);
 int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key);
 #if !defined(FWTPM_NO_ZGEN_2PHASE) || !defined(FWTPM_NO_ECC_ENCRYPT)

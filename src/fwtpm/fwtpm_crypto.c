@@ -2889,8 +2889,8 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
             rc = wc_ecc_init(ephemPub);
             if (rc == 0) {
                 ephemPubInit = 1;
-                rc = wc_ecc_import_unsigned(ephemPub, xBuf, yBuf,
-                    NULL, wcCurve);
+                rc = (int)FwEccImportUnsigned(ephemPub, xBuf, xSz, yBuf, ySz,
+                    NULL, 0, wcCurve);
             }
             if (rc != 0) {
                 rc = TPM_RC_FAILURE;
@@ -3500,10 +3500,12 @@ TPM_RC FwImportReconstructKey(
             rc = wc_ecc_init(eccKey);
             if (rc == 0) {
                 eccKeyInit = 1;
-                rc = wc_ecc_import_unsigned(eccKey,
+                rc = FwEccImportUnsigned(eccKey,
                     objectPublic->publicArea.unique.ecc.x.buffer,
+                    objectPublic->publicArea.unique.ecc.x.size,
                     objectPublic->publicArea.unique.ecc.y.buffer,
-                    primeBuf, wcCurve);
+                    objectPublic->publicArea.unique.ecc.y.size,
+                    primeBuf, primeSz, wcCurve);
             }
             if (rc == 0) {
                 *privKeyDerSzOut = wc_EccKeyToDer(eccKey, privKeyDer,
@@ -3621,6 +3623,59 @@ int FwImportEccKeyFromDer(const FWTPM_Object* obj, ecc_key* key)
 }
 #endif /* HAVE_ECC */
 
+#ifdef HAVE_ECC
+/* Import TPM2B coordinates and an optional private scalar into an
+ * initialized key. wc_ecc_import_unsigned reads curve-width values and takes
+ * no lengths, so each value is right-aligned into the full width. */
+TPM_RC FwEccImportUnsigned(ecc_key* key, const byte* x, word32 xSz,
+    const byte* y, word32 ySz, const byte* d, word32 dSz, int wcCurve)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    byte xBuf[MAX_ECC_BYTES];
+    byte yBuf[MAX_ECC_BYTES];
+    byte dBuf[MAX_ECC_BYTES];
+    int keySz = wc_ecc_get_curve_size_from_id(wcCurve);
+
+    if (keySz <= 0 || keySz > MAX_ECC_BYTES) {
+        return TPM_RC_CURVE;
+    }
+    while (xSz > (word32)keySz && *x == 0) {
+        x++;
+        xSz--;
+    }
+    while (ySz > (word32)keySz && *y == 0) {
+        y++;
+        ySz--;
+    }
+    while (d != NULL && dSz > (word32)keySz && *d == 0) {
+        d++;
+        dSz--;
+    }
+    if (xSz > (word32)keySz || ySz > (word32)keySz) {
+        rc = TPM_RC_ECC_POINT;
+    }
+    else if (d != NULL && dSz > (word32)keySz) {
+        rc = TPM_RC_KEY_SIZE;
+    }
+    if (rc == 0) {
+        XMEMSET(xBuf, 0, sizeof(xBuf));
+        XMEMSET(yBuf, 0, sizeof(yBuf));
+        XMEMSET(dBuf, 0, sizeof(dBuf));
+        XMEMCPY(xBuf + keySz - xSz, x, xSz);
+        XMEMCPY(yBuf + keySz - ySz, y, ySz);
+        if (d != NULL) {
+            XMEMCPY(dBuf + keySz - dSz, d, dSz);
+        }
+        if (wc_ecc_import_unsigned(key, xBuf, yBuf,
+                (d != NULL) ? dBuf : NULL, wcCurve) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    TPM2_ForceZero(dBuf, sizeof(dBuf));
+    return rc;
+}
+#endif /* HAVE_ECC */
+
 #ifndef NO_RSA
 /* Import public-only RSA key from TPMT_PUBLIC */
 int FwImportRsaPubFromPublic(const TPMT_PUBLIC* pub, RsaKey* key)
@@ -3664,10 +3719,10 @@ int FwImportEccPubFromPublic(const TPMT_PUBLIC* pub, ecc_key* key)
     rc = wc_ecc_init(key);
     if (rc != 0)
         return rc;
-    rc = wc_ecc_import_unsigned(key,
-        (byte*)pub->unique.ecc.x.buffer,
-        (byte*)pub->unique.ecc.y.buffer,
-        NULL, wcCurve);
+    rc = (int)FwEccImportUnsigned(key,
+        pub->unique.ecc.x.buffer, pub->unique.ecc.x.size,
+        pub->unique.ecc.y.buffer, pub->unique.ecc.y.size,
+        NULL, 0, wcCurve);
     if (rc != 0) { wc_ecc_free(key); return rc; }
     return 0;
 }
