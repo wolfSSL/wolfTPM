@@ -1510,6 +1510,9 @@ static TPM_RC FwCmd_SelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         TPM2_Packet_ParseU8(cmd, &fullTest);
+        if (fullTest > 1) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+        }
 
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: SelfTest(fullTest=%d)\n", fullTest);
@@ -7064,6 +7067,9 @@ static TPM_RC FwCmd_ClearControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         TPM2_Packet_ParseU8(cmd, &disable);
+        if (disable > 1) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+        }
     }
 
     if (rc == 0 && authHandle != TPM_RH_PLATFORM &&

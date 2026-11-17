@@ -15727,6 +15727,36 @@ static void test_fwtpm_clear_control_nv_failure(void)
     fwtpm_pass("ClearControl NV failure rollback:", 0);
 }
 
+/* A TPMI_YES_NO other than 0 or 1 is TPM_RC_VALUE; lockout authorization
+ * must not be able to disable Clear by sending 2. */
+static void test_fwtpm_yes_no_range(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ClearControl);
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    gCmd[pos++] = 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(ctx.disableClear, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 11, TPM_CC_SelfTest);
+    gCmd[pos++] = 2;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("TPMI_YES_NO range:", 0);
+}
+
 /* State-changing handlers that persist to NV must report failure, not
  * success, when the journal write fails. Representative commands from the
  * clock, NV-index and hierarchy-auth families run on one context;
@@ -25636,6 +25666,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_setbits_truncated();
     test_fwtpm_nv_define_type_sizes();
     test_fwtpm_clear_control_nv_failure();
+    test_fwtpm_yes_no_range();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
     test_fwtpm_nv_compaction_commit();
