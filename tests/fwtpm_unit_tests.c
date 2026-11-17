@@ -2530,21 +2530,19 @@ static void test_fwtpm_pcr_allocate(void)
     AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 1);
 
     /* The restart performs the _TPM_Init and Startup(CLEAR) that apply it.
-     * Replace, not add: the bank left out of the selection is now gone.
-     * Without NV nothing survives the restart - the TPM comes back with the
-     * default banks - so the applied state is only observable with NV. */
+     * A bank left out of the selection keeps its allocation. */
 #ifndef FWTPM_NO_NV
     FWTPM_Cleanup(&ctx);
     memset(&ctx, 0, sizeof(ctx));
     rc = fwtpm_test_startup(&ctx);
     AssertIntEQ(rc, 0);
     AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
-    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 1);
 #endif
 
     /* An all-zero bitmap deallocates, but must not leave zero banks */
     algs[0] = TPM_ALG_SHA256;
-    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 0);
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 2, 0);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
@@ -2552,15 +2550,23 @@ static void test_fwtpm_pcr_allocate(void)
     AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 0); /* allocationSuccess = NO */
     AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1); /* unchanged */
 
-    /* Same trap: an unimplemented bank must not store "no banks" */
+    /* Same trap: an unimplemented bank must not store "no banks". With no
+     * implemented bank listed the allocation is kept as it is. */
     algs[0] = (UINT16)0x7FFF;
     cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 1);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 0);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 1);
     AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
+    cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 0, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE + 4], 1);
+    AssertIntEQ(ctx.pcrAllocatedBanksPending, ctx.pcrAllocatedBanks);
 
     /* Restore both banks, applied by the restart below */
     algs[0] = TPM_ALG_SHA256;
@@ -26113,6 +26119,64 @@ static void test_fwtpm_pcr_read_unallocated_bank(void)
 }
 #endif /* !NO_SHA */
 
+#ifdef WOLFSSL_SHA384
+static int SendPcrAllocateOne(FWTPM_CTX* ctx, UINT16 hashAlg, int selectAll)
+{
+    int rspSize = 0;
+    int cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, &hashAlg, 1,
+        selectAll);
+
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) {
+        return -1;
+    }
+    return gRsp[TPM2_HEADER_SIZE + 4]; /* allocationSuccess */
+}
+
+/* PCR_Allocate changes only the banks it lists: an unlisted bank keeps its
+ * allocation, and a bank goes away only when listed with an empty select. */
+static void test_fwtpm_pcr_allocate_unlisted_bank(void)
+{
+    FWTPM_CTX ctx;
+    byte both = (byte)((1 << FWTPM_PCR_BANK_SHA256) |
+        (1 << FWTPM_PCR_BANK_SHA384));
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.pcrAllocatedBanks, both);
+
+    AssertIntEQ(SendPcrAllocateOne(&ctx, TPM_ALG_SHA256, 1), 1);
+    AssertIntEQ(ctx.pcrAllocatedBanksPending, both);
+
+    AssertIntEQ(SendPcrAllocateOne(&ctx, TPM_ALG_SHA384, 0), 1);
+    AssertIntEQ(ctx.pcrAllocatedBanksPending, 1 << FWTPM_PCR_BANK_SHA256);
+    AssertIntEQ(ctx.pcrAllocatedBanks, both);
+
+#ifndef FWTPM_NO_NV
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA256), 1);
+    AssertIntEQ(fwtpm_bank_allocated(&ctx, TPM_ALG_SHA384), 0);
+
+    /* Unlisted and deallocated stays deallocated */
+    AssertIntEQ(SendPcrAllocateOne(&ctx, TPM_ALG_SHA256, 1), 1);
+    AssertIntEQ(ctx.pcrAllocatedBanksPending, 1 << FWTPM_PCR_BANK_SHA256);
+#endif
+
+    /* Restore the default banks for the tests that follow */
+    AssertIntEQ(SendPcrAllocateOne(&ctx, TPM_ALG_SHA384, 1), 1);
+    AssertIntEQ(ctx.pcrAllocatedBanksPending, both);
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.pcrAllocatedBanks, both);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Allocate keeps unlisted banks:", 0);
+}
+#endif /* WOLFSSL_SHA384 */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -26873,6 +26937,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #ifndef NO_SHA
     test_fwtpm_pcr_read_unallocated_bank();
+#endif
+#ifdef WOLFSSL_SHA384
+    test_fwtpm_pcr_allocate_unlisted_bank();
 #endif
 
     /* Destructive tests last (Clear changes state) */

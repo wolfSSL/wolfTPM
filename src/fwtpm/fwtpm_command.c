@@ -3934,6 +3934,9 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidatePcrSelection(cmd, cmdSize);
     }
     if (rc == 0) {
+        /* Only the listed banks change; the others keep their current
+         * allocation (Part 3 Sec.22.5). */
+        newBanks = ctx->pcrAllocatedBanks;
         TPM2_Packet_ParseU32(cmd, &count);
         if (count > FWTPM_PCR_BANKS * 4) {
             rc = TPM_RC_SIZE;
@@ -3960,10 +3963,13 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
 
             bank = FwGetPcrBankIndex(hashAlg);
-            if (bank >= 0 && anySelected) {
-                newBanks |= (UINT8)(1 << bank);
-                sizeNeeded += (UINT32)(IMPLEMENTATION_PCR *
-                    TPM2_GetHashDigestSize(hashAlg));
+            if (bank >= 0) {
+                if (anySelected) {
+                    newBanks |= (UINT8)(1 << bank);
+                }
+                else {
+                    newBanks &= (UINT8)~(1 << bank);
+                }
             }
             /* Unsupported hash algorithms are silently ignored per spec */
         }
@@ -3975,6 +3981,12 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #endif
         sizeAvailable = (UINT32)(IMPLEMENTATION_PCR * FWTPM_PCR_BANKS *
             TPM_MAX_DIGEST_SIZE);
+        for (b = 0; b < FWTPM_PCR_BANKS; b++) {
+            if (newBanks & (1u << b)) {
+                sizeNeeded += (UINT32)(IMPLEMENTATION_PCR *
+                    TPM2_GetHashDigestSize(FwGetPcrBankAlg(b)));
+            }
+        }
 
         /* Storing an empty result would persist "no banks at all" to NV */
         if (newBanks == 0) {
