@@ -481,7 +481,7 @@
     #endif
 #endif
 
-/* Max digest size we track (SHA-384 = 48 bytes) */
+/* Max digest size we track (SHA-512 = 64 bytes) */
 #ifndef TPM_MAX_DIGEST_SIZE
 #define TPM_MAX_DIGEST_SIZE    64
 #endif
