@@ -12405,6 +12405,46 @@ static void test_fwtpm_policy_name_hash_repeat(void)
     fwtpm_pass("PolicyNameHash repeat:", 0);
 }
 
+static TPM_RC SendPolicyCounterTimer(FWTPM_CTX* ctx, UINT32 sessH,
+    UINT16 operandSz, UINT16 offset)
+{
+    int rspSize = 0;
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_PolicyCounterTimer);
+
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, operandSz); pos += 2;
+    memset(gCmd + pos, 0, operandSz); pos += operandSz;
+    PutU16BE(gCmd + pos, offset); pos += 2;
+    PutU16BE(gCmd + pos, TPM_EO_EQ); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* An offset past the marshaled TPMS_TIME_INFO is TPM_RC_VALUE; an operand
+ * that runs off its end is TPM_RC_RANGE (Part 3 Sec.23.10). */
+static void test_fwtpm_policy_counter_timer_offset(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+
+    AssertIntEQ(SendPolicyCounterTimer(&ctx, sessH, 0, 26),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendPolicyCounterTimer(&ctx, sessH, 8, 20), TPM_RC_RANGE);
+    AssertIntEQ(SendPolicyCounterTimer(&ctx, sessH, 0, 25), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyCounterTimer offset:", 0);
+}
+
 #ifndef FWTPM_NO_NV
 /* PolicyNV and PolicyAuthorizeNV must verify the caller is authorized to
  * read the NV index. An OWNER authHandle against an index without
@@ -25944,6 +25984,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_or_count();
     test_fwtpm_policy_or_mixed_sizes();
     test_fwtpm_policy_name_hash_repeat();
+    test_fwtpm_policy_counter_timer_offset();
 #ifndef FWTPM_NO_NV
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();

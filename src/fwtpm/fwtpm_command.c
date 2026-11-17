@@ -15703,7 +15703,10 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwStoreU32BE(timeInfo + p, ctx->restartCount); p += 4;
         timeInfo[p++] = (byte)ctx->clockSafe;
 
-        if ((UINT32)offset + operandBSz > (UINT32)p) {
+        if ((UINT32)offset > (UINT32)p) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if ((UINT32)offset + operandBSz > (UINT32)p) {
             rc = TPM_RC_RANGE;
         }
     }
