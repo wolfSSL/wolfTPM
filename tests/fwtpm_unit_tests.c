@@ -12153,7 +12153,7 @@ static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, pos, oi;
-    UINT32 keyHandle, sessH;
+    UINT32 keyHandle, sessH, sessH2;
     UINT16 rSz, sSz, ticketTag, hmacSz, keyNameSz;
     UINT32 ticketHier;
     byte approvedPolicy[32];
@@ -12260,6 +12260,8 @@ static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
     /* PolicyAuthorize on a fresh policy session must accept the ticket. */
     sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
     AssertIntNE(sessH, 0);
+    sessH2 = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH2, 0);
 
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
@@ -12282,6 +12284,25 @@ static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
+    /* The ticket still verifies, but the session policyDigest has moved on
+     * from approvedPolicy. */
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    /* A ticket with a modified HMAC is rejected on a session whose
+     * policyDigest matches approvedPolicy. */
+    PutU32BE(gCmd + TPM2_HEADER_SIZE, sessH2);
+    gCmd[pos - 1] ^= 0x01;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+    gCmd[pos - 1] ^= 0x01;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH2);
     FlushHandle(&ctx, sessH);
     FlushHandle(&ctx, keyHandle);
     FWTPM_Cleanup(&ctx);
