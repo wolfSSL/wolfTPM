@@ -3508,6 +3508,9 @@ TPM_RC FwImportReconstructKey(
                     primeBuf, primeSz, wcCurve);
             }
             if (rc == 0) {
+                rc = FwEccCheckBinding(eccKey, rng);
+            }
+            if (rc == 0) {
                 *privKeyDerSzOut = wc_EccKeyToDer(eccKey, privKeyDer,
                     privKeyDerBufSz);
                 if (*privKeyDerSzOut <= 0) {
@@ -3517,7 +3520,8 @@ TPM_RC FwImportReconstructKey(
             if (eccKeyInit) {
                 wc_ecc_free(eccKey);
             }
-            if (rc != 0) {
+            if (rc != 0 && rc != TPM_RC_BINDING && rc != TPM_RC_KEY_SIZE &&
+                    rc != TPM_RC_ECC_POINT && rc != TPM_RC_MEMORY) {
                 rc = TPM_RC_FAILURE;
             }
         }
@@ -3634,6 +3638,11 @@ TPM_RC FwEccImportUnsigned(ecc_key* key, const byte* x, word32 xSz,
     byte xBuf[MAX_ECC_BYTES];
     byte yBuf[MAX_ECC_BYTES];
     byte dBuf[MAX_ECC_BYTES];
+    byte order[MAX_ECC_BYTES];
+    byte nonZero = 0;
+    int orderBits = 0;
+    int i;
+    int wcRc;
     int keySz = wc_ecc_get_curve_size_from_id(wcCurve);
 
     if (keySz <= 0 || keySz > MAX_ECC_BYTES) {
@@ -3665,13 +3674,57 @@ TPM_RC FwEccImportUnsigned(ecc_key* key, const byte* x, word32 xSz,
         XMEMCPY(yBuf + keySz - ySz, y, ySz);
         if (d != NULL) {
             XMEMCPY(dBuf + keySz - dSz, d, dSz);
+            rc = FwEccGetCurveOrder(wcCurve, order, keySz, &orderBits);
         }
-        if (wc_ecc_import_unsigned(key, xBuf, yBuf,
-                (d != NULL) ? dBuf : NULL, wcCurve) != 0) {
+    }
+    /* A private scalar is in [1, n-1] */
+    if (rc == 0 && d != NULL) {
+        for (i = 0; i < keySz; i++) {
+            nonZero |= dBuf[i];
+        }
+        if (nonZero == 0 || !FwCtLessBE(dBuf, order, keySz)) {
+            rc = TPM_RC_KEY_SIZE;
+        }
+    }
+    if (rc == 0) {
+        wcRc = wc_ecc_import_unsigned(key, xBuf, yBuf,
+            (d != NULL) ? dBuf : NULL, wcCurve);
+        /* wolfCrypt checks the scalar against the point itself when built
+         * with WOLFSSL_VALIDATE_ECC_IMPORT */
+        if (wcRc == ECC_PRIV_KEY_E) {
+            rc = TPM_RC_BINDING;
+        }
+        else if (wcRc != 0) {
             rc = TPM_RC_FAILURE;
         }
     }
     TPM2_ForceZero(dBuf, sizeof(dBuf));
+    return rc;
+}
+#endif /* HAVE_ECC */
+
+#ifdef HAVE_ECC
+/* The private scalar of a loaded key has to generate its public point, else
+ * the Name would describe a key the TPM does not hold (Part 3 Sec.12.3.1). */
+TPM_RC FwEccCheckBinding(ecc_key* key, WC_RNG* rng)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int wcRc;
+    ecc_point* pub = wc_ecc_new_point();
+
+    if (pub == NULL) {
+        return TPM_RC_MEMORY;
+    }
+#ifdef ECC_TIMING_RESISTANT
+    wcRc = wc_ecc_make_pub_ex(key, pub, rng);
+#else
+    (void)rng;
+    wcRc = wc_ecc_make_pub(key, pub);
+#endif
+    if (wcRc != 0 || wc_ecc_cmp_point(pub, &key->pubkey) != MP_EQ) {
+        rc = TPM_RC_BINDING;
+    }
+    wc_ecc_del_point(pub);
     return rc;
 }
 #endif /* HAVE_ECC */

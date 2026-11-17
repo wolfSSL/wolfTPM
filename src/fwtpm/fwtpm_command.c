@@ -8790,6 +8790,9 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 inPublic.publicArea.unique.ecc.y.size,
                 qBuf, qSz, wcCurveExt);
             if (rc == 0) {
+                rc = FwEccCheckBinding(eccKey, &ctx->rng);
+            }
+            if (rc == 0) {
                 privKeyDerSz = wc_EccKeyToDer(eccKey, privKeyDer,
                     FWTPM_MAX_PRIVKEY_DER);
                 if (privKeyDerSz <= 0) {

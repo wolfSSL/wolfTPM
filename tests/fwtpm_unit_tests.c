@@ -18007,6 +18007,62 @@ static void MakeEccKeyLeadingZero(WC_RNG* rng, ecc_key* key, int wantX,
     AssertIntEQ(found, 1);
 }
 
+/* A private scalar is loaded or imported only with the public point it
+ * generates (Part 3 Sec.12.3.1). */
+static void test_fwtpm_ecc_private_binding(void)
+{
+    FWTPM_CTX ctx;
+    ecc_key a, b;
+    TPM2B_PUBLIC pub;
+    UINT32 keyH = 0;
+    byte ax[32], ay[32], ad[32];
+    byte bx[32], by[32], bd[32];
+    byte zero[32];
+    byte der[FWTPM_MAX_PRIVKEY_DER];
+    int derSz = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    MakeEccKeyLeadingZero(&ctx.rng, &a, 0, ax, ay, ad);
+    MakeEccKeyLeadingZero(&ctx.rng, &b, 0, bx, by, bd);
+    wc_ecc_free(&a);
+    wc_ecc_free(&b);
+    memset(zero, 0, sizeof(zero));
+
+    /* userWithAuth | sign */
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00040040, ax, 32, ay, 32,
+        bd, 32, &keyH), TPM_RC_BINDING);
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00040040, ax, 32, ay, 32,
+        zero, 32, &keyH), TPM_RC_KEY_SIZE);
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00040040, ax, 32, ay, 32,
+        ad, 32, &keyH), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, keyH);
+
+    memset(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_ECC;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    pub.publicArea.unique.ecc.x.size = 32;
+    memcpy(pub.publicArea.unique.ecc.x.buffer, ax, 32);
+    pub.publicArea.unique.ecc.y.size = 32;
+    memcpy(pub.publicArea.unique.ecc.y.buffer, ay, 32);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, bd, 32, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_BINDING);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, ad, 32, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_SUCCESS);
+    AssertIntGT(derSz, 0);
+
+    /* A coordinate wider than the curve is not a point on it */
+    pub.publicArea.unique.ecc.x.size = 33;
+    pub.publicArea.unique.ecc.x.buffer[0] = 1;
+    memcpy(pub.publicArea.unique.ecc.x.buffer + 1, ax, 32);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, ad, 32, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_ECC_POINT);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ECC private scalar bound to public point:", 0);
+}
+
 #ifndef FWTPM_NO_ECDH
 static TPM_RC SendEcdhZGen(FWTPM_CTX* ctx, UINT32 keyH, const byte* x,
     UINT16 xSz, const byte* y, UINT16 ySz)
@@ -20023,6 +20079,7 @@ static void test_fwtpm_hashcheck_ticket_generated_prefix(void)
 static wolfSSL_Malloc_cb gFwtpmTestMalloc;
 static int gFwtpmTestAllocCount;
 static int gFwtpmTestFailAllocAt;
+static size_t gFwtpmTestFailAllocSize;
 
 static void* test_fwtpm_fail_malloc(size_t size
 #ifdef WOLFSSL_STATIC_MEMORY
@@ -20037,6 +20094,12 @@ static void* test_fwtpm_fail_malloc(size_t size
     if (gFwtpmTestFailAllocAt > 0 &&
             gFwtpmTestAllocCount >= gFwtpmTestFailAllocAt) {
         return NULL;
+    }
+    if (gFwtpmTestFailAllocSize != 0 && size == gFwtpmTestFailAllocSize) {
+        return NULL;
+    }
+    if (gFwtpmTestMalloc == NULL) {
+        return malloc(size);
     }
 #ifdef WOLFSSL_STATIC_MEMORY
     #ifdef WOLFSSL_DEBUG_MEMORY
@@ -20140,6 +20203,58 @@ static void test_fwtpm_command_crypto_allocation_failure(void)
 
     fwtpm_pass("Command crypto allocation failures:", 0);
 }
+
+#ifdef HAVE_ECC
+/* An ECC import that cannot allocate the point of its binding check reports
+ * the allocation failure. */
+static void test_fwtpm_import_ecc_binding_alloc_failure(void)
+{
+    wolfSSL_Malloc_cb oldMalloc;
+    wolfSSL_Free_cb oldFree;
+    wolfSSL_Realloc_cb oldRealloc;
+    FWTPM_CTX ctx;
+    ecc_key key;
+    TPM2B_PUBLIC pub;
+    byte x[32], y[32], d[32];
+    word32 xSz = sizeof(x), ySz = sizeof(y), dSz = sizeof(d);
+    byte der[FWTPM_MAX_PRIVKEY_DER];
+    int derSz = 0;
+    TPM_RC rc;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(wc_ecc_init(&key), 0);
+    AssertIntEQ(wc_ecc_make_key_ex(&ctx.rng, 32, &key, ECC_SECP256R1), 0);
+    AssertIntEQ(wc_ecc_export_private_raw(&key, x, &xSz, y, &ySz, d, &dSz),
+        0);
+    wc_ecc_free(&key);
+
+    memset(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_ECC;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    pub.publicArea.unique.ecc.x.size = (UINT16)xSz;
+    memcpy(pub.publicArea.unique.ecc.x.buffer, x, xSz);
+    pub.publicArea.unique.ecc.y.size = (UINT16)ySz;
+    memcpy(pub.publicArea.unique.ecc.y.buffer, y, ySz);
+
+    AssertIntEQ(wolfSSL_GetAllocators(&oldMalloc, &oldFree, &oldRealloc), 0);
+    gFwtpmTestMalloc = oldMalloc;
+    gFwtpmTestAllocCount = 0;
+    gFwtpmTestFailAllocAt = 0;
+    gFwtpmTestFailAllocSize = sizeof(ecc_point);
+    AssertIntEQ(wolfSSL_SetAllocators(test_fwtpm_fail_malloc, oldFree,
+        oldRealloc), 0);
+    rc = FwImportReconstructKey(&pub, TPM_ALG_ECC, d, (UINT16)dSz, der,
+        (int)sizeof(der), &derSz, &ctx.rng);
+    gFwtpmTestFailAllocSize = 0;
+    AssertIntEQ(wolfSSL_SetAllocators(oldMalloc, oldFree, oldRealloc), 0);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ECC import binding allocation failure:", 0);
+}
+#endif /* HAVE_ECC */
 #endif /* WOLFTPM_FWTPM_UNIT_TEST && WOLFTPM_SMALL_STACK */
 
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
@@ -28516,6 +28631,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_unpadded_values();
 #endif
+#ifdef HAVE_ECC
+    test_fwtpm_ecc_private_binding();
+#endif
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
     !defined(FWTPM_NO_CREDENTIAL)
     test_fwtpm_rsa_credential_oaep_label();
@@ -28570,6 +28688,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif /* !FWTPM_NO_HASH_CMDS */
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
     test_fwtpm_command_crypto_allocation_failure();
+#ifdef HAVE_ECC
+    test_fwtpm_import_ecc_binding_alloc_failure();
+#endif
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_parameters();
