@@ -1350,6 +1350,22 @@ static int FwNvFindOrAllocCacheSlot(FWTPM_CTX* ctx, UINT32 hierarchy,
     return freeSlot;
 }
 
+#ifndef FWTPM_NO_NV
+/* Write-lock every NV index that has TPMA_NV_GLOBALLOCK */
+static void FwNvApplyGlobalLock(FWTPM_CTX* ctx)
+{
+    int i;
+
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx->nvIndices[i].inUse &&
+                (ctx->nvIndices[i].nvPublic.attributes &
+                    TPMA_NV_GLOBALLOCK) != 0) {
+            ctx->nvIndices[i].nvPublic.attributes |= TPMA_NV_WRITELOCKED;
+        }
+    }
+}
+#endif /* !FWTPM_NO_NV */
+
 /* Process a single TLV entry during journal scan */
 static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
     const byte* value, UINT16 valueLen)
@@ -1833,6 +1849,15 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             }
             break;
         }
+
+        case FWTPM_NV_TAG_NV_GLOBAL_LOCK:
+            if (valueLen != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                FwNvApplyGlobalLock(ctx);
+            }
+            break;
     #endif /* !FWTPM_NO_NV */
 
         case FWTPM_NV_TAG_PERSISTENT: {
@@ -3248,6 +3273,37 @@ int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle)
     ctx->nvDeleteHandle = nvHandle;
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_NV_INDEX_DEL, buf, (UINT16)pos);
     ctx->nvDeleteHandle = 0;
+    return rc;
+#endif /* FWTPM_NO_NV */
+}
+
+int FWTPM_NV_GlobalWriteLock(FWTPM_CTX* ctx)
+{
+#ifdef FWTPM_NO_NV
+    (void)ctx;
+    return NOT_COMPILED_IN;
+#else
+    int rc;
+    int compacted = 0;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = FwNvAppendEntryEx(ctx, FWTPM_NV_TAG_NV_GLOBAL_LOCK, NULL, 0,
+        &compacted);
+    /* A compaction rewrote the indexes as they are and left the record out,
+     * so the lock is still to be committed. */
+    if (rc == TPM_RC_SUCCESS && compacted) {
+        rc = FwNvAppendEntryEx(ctx, FWTPM_NV_TAG_NV_GLOBAL_LOCK, NULL, 0,
+            &compacted);
+        if (rc == TPM_RC_SUCCESS && compacted) {
+            rc = TPM_RC_NV_SPACE;
+        }
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        FwNvApplyGlobalLock(ctx);
+    }
     return rc;
 #endif /* FWTPM_NO_NV */
 }

@@ -129,6 +129,10 @@ typedef struct FWTPM_NV_HEADER {
 /* NV indices (value starts with UINT32 nvHandle) */
 #define FWTPM_NV_TAG_NV_INDEX          0x0040
 #define FWTPM_NV_TAG_NV_INDEX_DEL      0x0041
+/* TPM2_NV_GlobalWriteLock (no value): sets TPMA_NV_WRITELOCKED on every
+ * TPMA_NV_GLOBALLOCK index replayed before it. One record, so the lock is
+ * committed for all of them or for none. */
+#define FWTPM_NV_TAG_NV_GLOBAL_LOCK    0x0042
 
 /* Persistent objects (value starts with UINT32 handle) */
 #define FWTPM_NV_TAG_PERSISTENT        0x0050
@@ -313,6 +317,19 @@ WOLFTPM_API int FWTPM_NV_SaveNvIndex(FWTPM_CTX* ctx, int slot);
     \param nvHandle NV index handle (0x01xxxxxx)
 */
 WOLFTPM_API int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle);
+
+/*!
+    \ingroup wolfTPM_fwTPM_NV
+    \brief Set TPMA_NV_WRITELOCKED on every NV index that has
+    TPMA_NV_GLOBALLOCK. The change is appended to the NV journal as one
+    record and applied to ctx->nvIndices only once that record is committed,
+    so on error no index is locked.
+
+    \return 0 on success; a nonzero error code on I/O error
+
+    \param ctx pointer to an initialized FWTPM_CTX
+*/
+WOLFTPM_API int FWTPM_NV_GlobalWriteLock(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV

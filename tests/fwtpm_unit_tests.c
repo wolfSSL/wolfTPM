@@ -15984,10 +15984,15 @@ static void test_fwtpm_global_write_lock_nv_failure(void)
 {
     FWTPM_CTX ctx;
     FWTPM_NV_HAL oldHal, failHal;
+    const UINT32 nvIdx = 0x01500A18;
+    int cmdSz, rspSize = 0;
 
     XMEMSET(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
-    AssertIntEQ(ctx.globalNvWriteLock, 0);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, TPMA_NV_OWNERWRITE |
+        TPMA_NV_OWNERREAD | TPMA_NV_GLOBALLOCK);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     oldHal = ctx.nvHal;
     failHal = oldHal;
@@ -15996,9 +16001,12 @@ static void test_fwtpm_global_write_lock_nv_failure(void)
 
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_NV_GlobalWriteLock,
         TPM_RH_OWNER), TPM_RC_FAILURE);
-    AssertIntEQ(ctx.globalNvWriteLock, 0);
 
     AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GlobalWriteLock NV failure rollback:", 0);
 }
@@ -26376,6 +26384,246 @@ static void test_fwtpm_clear_resets_lockout_auth(void)
     fwtpm_pass("Clear resets lockoutAuth:", 0);
 }
 
+#ifndef FWTPM_NO_NV
+static UINT32 NvReadPublicAttributes(FWTPM_CTX* ctx, UINT32 nvIndex)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_NV_ReadPublic);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* TPM2B_NV_PUBLIC: size(2) | nvIndex(4) | nameAlg(2) | attributes(4) */
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE + 2 + 4 + 2);
+}
+
+/* NV_GlobalWriteLock sets TPMA_NV_WRITELOCKED on the GLOBALLOCK indexes that
+ * exist when it runs. Startup(CLEAR) then clears the lock unless the index
+ * is WRITEDEFINE and written. */
+static void test_fwtpm_nv_global_write_lock_attribute(void)
+{
+    FWTPM_CTX ctx;
+    const UINT32 lockIdx = 0x01500A10;
+    const UINT32 defineIdx = 0x01500A11;
+    const UINT32 plainIdx = 0x01500A12;
+    const UINT32 lateIdx = 0x01500A13;
+    const UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD;
+    int cmdSz, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, lockIdx, 8, attrs | TPMA_NV_GLOBALLOCK);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cmdSz = BuildNvDefineCmd(gCmd, defineIdx, 8, attrs | TPMA_NV_GLOBALLOCK |
+        TPMA_NV_WRITEDEFINE);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cmdSz = BuildNvDefineCmd(gCmd, plainIdx, 8, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, defineIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_NV_GlobalWriteLock,
+        TPM_RH_OWNER), TPM_RC_SUCCESS);
+    AssertIntNE(NvReadPublicAttributes(&ctx, lockIdx) &
+        TPMA_NV_WRITELOCKED, 0);
+    AssertIntNE(NvReadPublicAttributes(&ctx, defineIdx) &
+        TPMA_NV_WRITELOCKED, 0);
+    AssertIntEQ(NvReadPublicAttributes(&ctx, plainIdx) &
+        TPMA_NV_WRITELOCKED, 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, lockIdx, NULL, 8, 0),
+        TPM_RC_NV_LOCKED);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, plainIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+
+    /* An index defined after the command is not locked by it */
+    cmdSz = BuildNvDefineCmd(gCmd, lateIdx, 8, attrs | TPMA_NV_GLOBALLOCK);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, lateIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, lockIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, defineIdx, NULL, 8, 0),
+        TPM_RC_NV_LOCKED);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, lockIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, defineIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, plainIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, lateIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_GlobalWriteLock sets WRITELOCKED:", 0);
+}
+
+static FWTPM_NV_HAL gNvFailAfterHal;
+static int gNvFailAfterWrites;
+
+/* Pass gNvFailAfterWrites writes on to gNvFailAfterHal, then fail */
+static int fail_after_nv_write(void* ctx, word32 offset, const byte* buf,
+    word32 size)
+{
+    if (gNvFailAfterWrites <= 0) {
+        return TPM_RC_FAILURE;
+    }
+    gNvFailAfterWrites--;
+    return gNvFailAfterHal.write(ctx, offset, buf, size);
+}
+
+/* NV_GlobalWriteLock locks every GLOBALLOCK index or none. Whichever NV
+ * write fails, no index is locked, neither in the context nor in the journal
+ * a restart loads; the indexes are written WRITEDEFINE ones, which stay
+ * locked across Startup(CLEAR). */
+static void test_fwtpm_nv_global_write_lock_all_or_none(void)
+{
+    static FWTPM_CTX reload;
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL failHal;
+    const UINT32 idx[2] = { 0x01500A14, 0x01500A15 };
+    const UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD |
+        TPMA_NV_GLOBALLOCK | TPMA_NV_WRITEDEFINE;
+    TPM_RC rc = TPM_RC_FAILURE;
+    int n, i, locked, found, cmdSz, rspSize = 0;
+
+    for (n = 0; rc != TPM_RC_SUCCESS; n++) {
+        AssertIntLE(n, 16);
+        memset(&ctx, 0, sizeof(ctx));
+        AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+        for (i = 0; i < 2; i++) {
+            cmdSz = BuildNvDefineCmd(gCmd, idx[i], 8, attrs);
+            FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+            AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, idx[i], NULL,
+                8, 0), TPM_RC_SUCCESS);
+        }
+
+        gNvFailAfterHal = ctx.nvHal;
+        gNvFailAfterWrites = n;
+        failHal = ctx.nvHal;
+        failHal.write = fail_after_nv_write;
+        AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &failHal), TPM_RC_SUCCESS);
+        rc = SendSimpleSessionCmd(&ctx, TPM_CC_NV_GlobalWriteLock,
+            TPM_RH_OWNER);
+        AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &gNvFailAfterHal), TPM_RC_SUCCESS);
+
+        locked = (rc == TPM_RC_SUCCESS);
+        for (i = 0; i < 2; i++) {
+            AssertIntEQ((NvReadPublicAttributes(&ctx, idx[i]) &
+                TPMA_NV_WRITELOCKED) != 0, locked);
+        }
+
+        /* A later save commits whatever the failed command left in the
+         * journal. Replay it before FWTPM_Cleanup rewrites it from ctx. */
+        AssertIntEQ(FWTPM_NV_SaveFlags(&ctx), TPM_RC_SUCCESS);
+        memset(&reload, 0, sizeof(reload));
+        AssertIntEQ(FWTPM_Init(&reload), TPM_RC_SUCCESS);
+        found = 0;
+        for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+            if (reload.nvIndices[i].inUse &&
+                    (reload.nvIndices[i].nvPublic.nvIndex == idx[0] ||
+                     reload.nvIndices[i].nvPublic.nvIndex == idx[1])) {
+                AssertIntEQ((reload.nvIndices[i].nvPublic.attributes &
+                    TPMA_NV_WRITELOCKED) != 0, locked);
+                found++;
+            }
+        }
+        AssertIntEQ(found, 2);
+        FWTPM_Cleanup(&reload);
+
+        for (i = 0; i < 2; i++) {
+            AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, idx[i]),
+                TPM_RC_SUCCESS);
+        }
+        FWTPM_Cleanup(&ctx);
+    }
+    /* at least one failed save was exercised */
+    AssertIntGT(n, 1);
+    fwtpm_pass("NV_GlobalWriteLock all or none:", 0);
+}
+
+/* A full journal is compacted and the lock record appended after it. With no
+ * room for the record even then, no index is locked. */
+static void test_fwtpm_nv_global_write_lock_at_capacity(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    const UINT32 nvIdx = 0x01500A16;
+    word32 maxSize;
+    int i, found, baseErases, cmdSz, rspSize = 0;
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    gMockNvFailHeader = 0;
+    gMockNvFailAfterCompact = 0;
+    gMockNvCompactSeen = 0;
+    gMockNvCtx = NULL;
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, TPMA_NV_OWNERWRITE |
+        TPMA_NV_OWNERREAD | TPMA_NV_GLOBALLOCK);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* One octet short of the record and the journal seal */
+    AssertIntEQ(FWTPM_NV_Save(&ctx), 0);
+    ctx.nvHal.maxSize = ctx.nvWritePos + WC_SHA256_DIGEST_SIZE + 3;
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_NV_GlobalWriteLock,
+        TPM_RH_OWNER), TPM_RC_NV_SPACE);
+    AssertIntEQ(NvReadPublicAttributes(&ctx, nvIdx) & TPMA_NV_WRITELOCKED,
+        0);
+
+    /* The same once the superseded flags records are compacted away */
+    ctx.nvHal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SaveFlags(&ctx), 0);
+    AssertIntEQ(FWTPM_NV_SaveFlags(&ctx), 0);
+    maxSize = ctx.nvWritePos + WC_SHA256_DIGEST_SIZE + 3;
+    ctx.nvHal.maxSize = maxSize;
+    baseErases = gMockNvErases;
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_NV_GlobalWriteLock,
+        TPM_RH_OWNER), TPM_RC_SUCCESS);
+    AssertIntGT(gMockNvErases, baseErases);
+    AssertIntNE(NvReadPublicAttributes(&ctx, nvIdx) & TPMA_NV_WRITELOCKED,
+        0);
+
+    /* Unclean restart on the same store: the index is locked. */
+    wc_FreeRng(&ctx.rng);
+    memset(&ctx, 0, sizeof(ctx));
+    hal.maxSize = maxSize;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    found = 0;
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx.nvIndices[i].inUse &&
+                ctx.nvIndices[i].nvPublic.nvIndex == nvIdx) {
+            AssertIntNE(ctx.nvIndices[i].nvPublic.attributes &
+                TPMA_NV_WRITELOCKED, 0);
+            found = 1;
+        }
+    }
+    AssertIntEQ(found, 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_GlobalWriteLock at capacity:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -26600,6 +26848,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_NV
     if (argc == 2 && XSTRCMP(argv[1], "global-write-lock-failure") == 0) {
         test_fwtpm_global_write_lock_nv_failure();
+        test_fwtpm_nv_global_write_lock_all_or_none();
+        test_fwtpm_nv_global_write_lock_at_capacity();
         return 0;
     }
     if (argc == 2 && XSTRCMP(argv[1], "nv-setbits-truncated") == 0) {
@@ -27145,6 +27395,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_change_pps_resets_policies();
     test_fwtpm_clear_resets_lockout_auth();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_nv_global_write_lock_attribute();
+    test_fwtpm_nv_global_write_lock_all_or_none();
+    test_fwtpm_nv_global_write_lock_at_capacity();
+#endif
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();
