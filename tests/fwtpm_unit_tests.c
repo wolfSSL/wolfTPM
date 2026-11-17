@@ -11430,11 +11430,10 @@ static void test_fwtpm_bound_session_auth_change(void)
 static TPM_RC SendPolicyCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 sessHandle)
 {
     int pos = 0, rspSize = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, cc); pos += 4;
     PutU32BE(gCmd + pos, sessHandle); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
@@ -11842,11 +11841,10 @@ static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
     AssertIntNE(sessH, 0);
 
     pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorize); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, sizeof(approvedPolicy)); pos += 2;
     memcpy(gCmd + pos, approvedPolicy, sizeof(approvedPolicy));
     pos += sizeof(approvedPolicy);
@@ -11982,11 +11980,10 @@ static void test_fwtpm_policy_command_code(void)
     AssertIntNE(sessH, 0);
     /* PolicyCommandCode(sessHandle, CC_GetRandom) */
     pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyCommandCode); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU32BE(gCmd + pos, TPM_CC_GetRandom); pos += 4;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
@@ -12008,11 +12005,10 @@ static void test_fwtpm_policy_locality(void)
     AssertIntNE(sessH, 0);
     /* PolicyLocality(sessHandle, locality=1) */
     pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyLocality); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     gCmd[pos++] = 1; /* locality = 1 */
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
@@ -12029,9 +12025,8 @@ static TPM_RC SendPolicyTemplate(FWTPM_CTX* ctx, UINT32 sessH,
     const byte* templateHash)
 {
     int pos = 0, rspSize = 0;
-    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyTemplate);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_PolicyTemplate);
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
     memcpy(gCmd + pos, templateHash, WC_SHA256_DIGEST_SIZE);
     pos += WC_SHA256_DIGEST_SIZE;
@@ -12068,9 +12063,9 @@ static void test_fwtpm_policy_template_create_only(void)
         TPM_RC_SUCCESS);
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
         TPM_RC_SUCCESS);
-    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
     AssertIntEQ(dSz, 32);
-    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 2, dSz);
     FlushHandle(&ctx, sessH);
 
     /* ownerPolicy = PolicyTemplate(templateHash) */
@@ -12132,11 +12127,10 @@ static void test_fwtpm_policy_pcr(void)
     AssertIntNE(sessH, 0);
     /* PolicyPCR(sessHandle, pcrDigest=empty, pcrSelect=count 0) */
     pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyPCR); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, 0); pos += 2; /* pcrDigest size = 0 */
     PutU32BE(gCmd + pos, 0); pos += 4; /* pcrSelect count = 0 */
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -12173,11 +12167,10 @@ static void test_fwtpm_policy_ticket_zero_digest_rejected(void)
     memset(fakeAuthName + 2, 0xAB, 32);
 
     pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyTicket); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, 8); pos += 2; /* timeout TPM2B */
     memset(gCmd + pos, 0, 8); pos += 8;
     PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA TPM2B size = 0 */
@@ -12211,11 +12204,10 @@ static int BuildPolicyAuthorizeNullTicketCmd(UINT32 sessH)
     PutU16BE(fakeKeyName, TPM_ALG_SHA256);
     memset(fakeKeyName + 2, 0xAB, 32);
 
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorize); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;        /* policySession handle */
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, 32); pos += 2;           /* approvedPolicy size */
     memset(gCmd + pos, 0x00, 32); pos += 32;      /* approvedPolicy = zeros */
     PutU16BE(gCmd + pos, 0); pos += 2;            /* policyRef size = 0 */
@@ -12290,9 +12282,9 @@ static void test_fwtpm_policy_password_digest(void)
             TPM_CC_PolicyAuthValue, sessH), TPM_RC_SUCCESS);
         AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
             TPM_RC_SUCCESS);
-        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4),
+        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE),
             WC_SHA256_DIGEST_SIZE);
-        memcpy(digest[i], gRsp + TPM2_HEADER_SIZE + 6, WC_SHA256_DIGEST_SIZE);
+        memcpy(digest[i], gRsp + TPM2_HEADER_SIZE + 2, WC_SHA256_DIGEST_SIZE);
         FlushHandle(&ctx, sessH);
     }
     AssertIntEQ(memcmp(digest[0], digest[1], WC_SHA256_DIGEST_SIZE), 0);
@@ -12305,10 +12297,9 @@ static TPM_RC SendPolicyOR(FWTPM_CTX* ctx, UINT32 sessH, UINT32 count,
     const byte* list, int listSz)
 {
     int rspSize = 0;
-    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyOR);
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_PolicyOR);
 
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU32BE(gCmd + pos, count); pos += 4;
     memcpy(gCmd + pos, list, listSz); pos += listSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -12381,9 +12372,9 @@ static void test_fwtpm_policy_or_mixed_sizes(void)
             TPM_RC_SUCCESS);
         AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
             TPM_RC_SUCCESS);
-        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4),
+        AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE),
             WC_SHA256_DIGEST_SIZE);
-        AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 6, expect,
+        AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 2, expect,
             WC_SHA256_DIGEST_SIZE), 0);
         FlushHandle(&ctx, sessH);
     }
@@ -12416,9 +12407,9 @@ static void test_fwtpm_policy_name_hash_repeat(void)
     AssertIntNE(sessH, 0);
 
     for (i = 0; i < 2; i++) {
-        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyNameHash);
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_PolicyNameHash);
         PutU32BE(gCmd + pos, sessH); pos += 4;
-        pos = AppendPwAuth(gCmd, pos, NULL, 0);
         PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
         memset(gCmd + pos, 0x33, WC_SHA256_DIGEST_SIZE);
         pos += WC_SHA256_DIGEST_SIZE;
@@ -12438,11 +12429,10 @@ static TPM_RC SendPolicyCounterTimer(FWTPM_CTX* ctx, UINT32 sessH,
     UINT16 operandSz, UINT16 offset)
 {
     int rspSize = 0;
-    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
         TPM_CC_PolicyCounterTimer);
 
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, operandSz); pos += 2;
     memset(gCmd + pos, 0, operandSz); pos += operandSz;
     PutU16BE(gCmd + pos, offset); pos += 2;
@@ -12820,11 +12810,10 @@ static void test_fwtpm_policy_locality_enforced(void)
 
     /* PolicyLocality(bit 4 = locality 4 only) */
     pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyLocality); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     gCmd[pos++] = 0x10;
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
@@ -12833,9 +12822,9 @@ static void test_fwtpm_policy_locality_enforced(void)
     /* Read back the resulting policyDigest */
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
         TPM_RC_SUCCESS);
-    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
     AssertIntEQ(dSz, 32);
-    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 2, dSz);
 
     /* Bind that policy to the owner hierarchy */
     pos = 0;
@@ -12871,11 +12860,10 @@ static TPM_RC SendPolicyTransportSPDM(FWTPM_CTX* ctx, UINT32 sessH,
     const byte* req, UINT16 reqSz, const byte* tpm, UINT16 tpmSz)
 {
     int pos = 0, rspSize = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyTransportSPDM); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, reqSz); pos += 2;
     if (reqSz > 0) { memcpy(gCmd + pos, req, reqSz); pos += reqSz; }
     PutU16BE(gCmd + pos, tpmSz); pos += 2;
@@ -12890,9 +12878,9 @@ static void ReadPolicyDigest(FWTPM_CTX* ctx, UINT32 sessH, byte* digest,
 {
     AssertIntEQ(SendPolicyCmd(ctx, TPM_CC_PolicyGetDigest, sessH),
         TPM_RC_SUCCESS);
-    *dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    *dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
     AssertIntEQ(*dSz, 32);
-    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, *dSz);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 2, *dSz);
 }
 
 /* Vectors: SHA-256 of (zeros[32] || 0x000001A1 || scKeyNameHash) where
@@ -12975,11 +12963,10 @@ static void test_fwtpm_policy_transport_spdm(void)
     /* Truncated command with no name fields is rejected, not read as empty */
     tpos = 0;
     trspSize = 0;
-    PutU16BE(gCmd + tpos, TPM_ST_SESSIONS); tpos += 2;
+    PutU16BE(gCmd + tpos, TPM_ST_NO_SESSIONS); tpos += 2;
     PutU32BE(gCmd + tpos, 0); tpos += 4;
     PutU32BE(gCmd + tpos, TPM_CC_PolicyTransportSPDM); tpos += 4;
     PutU32BE(gCmd + tpos, sessH); tpos += 4;
-    tpos = AppendPwAuth(gCmd, tpos, NULL, 0);
     PutU32BE(gCmd + 2, (UINT32)tpos);
     FWTPM_ProcessCommand(&ctx, gCmd, tpos, gRsp, &trspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
@@ -13184,9 +13171,9 @@ static void test_fwtpm_policy_cphash_enforced(void)
 
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
         TPM_RC_SUCCESS);
-    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
     AssertIntEQ(dSz, 32);
-    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 2, dSz);
 
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
@@ -13461,11 +13448,10 @@ static TPM_RC SendPolicyPcrCmd(FWTPM_CTX* ctx, UINT32 sessH,
     const byte* digest, UINT16 digestSz)
 {
     int pos = 0, rspSize = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
     PutU32BE(gCmd + pos, TPM_CC_PolicyPCR); pos += 4;
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, digestSz); pos += 2;
     if (digestSz > 0) {
         memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
@@ -13541,9 +13527,9 @@ static void test_fwtpm_policy_pcr_change_invalidates(void)
 
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
         TPM_RC_SUCCESS);
-    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
     AssertIntEQ(dSz, 32);
-    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 2, dSz);
 
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
@@ -13659,10 +13645,9 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
 
-    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
         TPM_CC_PolicyCommandCode);
     PutU32BE(gCmd + pos, policySessHandle); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU32BE(gCmd + pos, TPM_CC_ObjectChangeAuth); pos += 4;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
@@ -17986,9 +17971,8 @@ static void test_fwtpm_duplicate_encrypted_needs_new_parent(void)
     sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
     AssertIntNE(sessH, 0);
 
-    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyCommandCode);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_PolicyCommandCode);
     PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU32BE(gCmd + pos, TPM_CC_Duplicate); pos += 4;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
@@ -18725,7 +18709,9 @@ static void SweepSessionHmac(FWTPM_CTX* ctx, FWTPM_Session* sess, UINT32 cc,
  * in its authorization area (Part 1 Sec.19.6), whether the session is the
  * only one or follows a password authorization. A wrong HMAC fails with
  * TPM_RC_BAD_AUTH and leaves the session nonce unchanged, and the correct
- * HMAC passes. The listed commands reject the owner-handle authorization
+ * HMAC passes. A password authorization on a command with no handle to
+ * authorize fails with TPM_RC_HANDLE (Part 1 Sec.19.4). The listed commands
+ * reject the owner-handle authorization
  * area before any HMAC is checked: the context commands take no sessions,
  * two authorized handles need two sessions, and a hierarchy in the ADMIN or
  * DUP role needs a policy session. The ADMIN-role commands are swept again
@@ -18762,6 +18748,28 @@ static void test_fwtpm_session_hmac_sweep(void)
         { TPM_CC_ObjectChangeAuth,   TPM_RC_BAD_AUTH },
         { TPM_CC_Certify,            TPM_RC_AUTH_MISSING },
         { TPM_CC_ActivateCredential, TPM_RC_AUTH_MISSING },
+    };
+    /* commands whose handles need no authorization */
+    static const UINT32 noAuth[] = {
+        TPM_CC_ReadPublic, TPM_CC_VerifySignature, TPM_CC_RSA_Encrypt,
+        TPM_CC_ECDH_KeyGen, TPM_CC_ECC_Encrypt, TPM_CC_StartAuthSession,
+        TPM_CC_PolicyGetDigest, TPM_CC_PolicyRestart, TPM_CC_PolicyPCR,
+        TPM_CC_PolicyPassword, TPM_CC_PolicyAuthValue,
+        TPM_CC_PolicyCommandCode, TPM_CC_PolicyOR, TPM_CC_PolicyAuthorize,
+        TPM_CC_PolicyLocality, TPM_CC_PolicySigned,
+        TPM_CC_PolicyPhysicalPresence, TPM_CC_PolicyCpHash,
+        TPM_CC_PolicyParameters, TPM_CC_PolicyCapability,
+        TPM_CC_PolicyNameHash, TPM_CC_PolicyDuplicationSelect,
+        TPM_CC_PolicyNvWritten, TPM_CC_PolicyTemplate,
+        TPM_CC_PolicyCounterTimer, TPM_CC_PolicyTicket, TPM_CC_NV_ReadPublic,
+        TPM_CC_NV_ReadPublic2, TPM_CC_MakeCredential,
+    #ifdef WOLFTPM_SPDM
+        TPM_CC_PolicyTransportSPDM,
+    #endif
+    #ifdef WOLFTPM_PQC
+        TPM_CC_Encapsulate, TPM_CC_SignSequenceStart,
+        TPM_CC_VerifySequenceStart, TPM_CC_VerifyDigestSignature,
+    #endif
     };
     FWTPM_CTX ctx;
     FWTPM_Session* sess;
@@ -18819,6 +18827,15 @@ static void test_fwtpm_session_hmac_sweep(void)
         nHandles = (int)TpmaCcHandles(tpmaList[i]);
         for (withPw = 0; withPw <= 1; withPw++) {
             expectRc = TPM_RC_BAD_AUTH;
+            if (withPw && nHandles == 0) {
+                expectRc = TPM_RC_HANDLE;
+            }
+            for (j = 0; withPw && j < sizeof(noAuth) / sizeof(noAuth[0]);
+                    j++) {
+                if (noAuth[j] == cc) {
+                    expectRc = TPM_RC_HANDLE;
+                }
+            }
             for (j = 0; j < sizeof(early) / sizeof(early[0]); j++) {
                 if (early[j].cc == cc) {
                     expectRc = withPw ? early[j].rcPw : early[j].rc;
@@ -19312,10 +19329,19 @@ static void test_fwtpm_session_attribute_rules(void)
         AssertIntEQ(GetRspRC(gRsp), cases[i].rc);
     }
 
-    /* a password session cannot decrypt, encrypt or audit */
+    /* a password session needs a handle to authorize (Part 1 Sec.19.4) */
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_GetRandom);
-    pos = AppendAuth(gCmd, pos, TPM_RS_PW, TPMA_SESSION_encrypt, NULL, 0);
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, 16); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+
+    /* and cannot decrypt, encrypt or audit */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Clear);
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    pos = AppendAuth(gCmd, pos, TPM_RS_PW, TPMA_SESSION_audit, NULL, 0);
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
@@ -24346,15 +24372,19 @@ static int fwtpm_build_ecc_crypt(UINT32 cc, UINT32 keyHandle,
 {
     int cmdSz = 0;
 
-    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    /* ECC_Encrypt has no authorization handle, so it carries no session. */
+    PutU16BE(gCmd + cmdSz, (cc == TPM_CC_ECC_Encrypt) ?
+        TPM_ST_NO_SESSIONS : TPM_ST_SESSIONS); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, cc); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, keyHandle); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
-    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
-    gCmd[cmdSz++] = 0;
-    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    if (cc != TPM_CC_ECC_Encrypt) {
+        PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+        gCmd[cmdSz++] = 0;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    }
     if (bodyIsTpm2b) {
         PutU16BE(gCmd + cmdSz, (UINT16)bodySz); cmdSz += 2;
     }
@@ -24444,8 +24474,8 @@ static void test_fwtpm_ecc_encrypt(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    /* Response: parameterSize(4) then C1 || C2 || C3 */
-    pos = TPM2_HEADER_SIZE + 4;
+    /* Response: C1 || C2 || C3 */
+    pos = TPM2_HEADER_SIZE;
     c1Outer = GetU16BE(gRsp + pos);
     cipherSz = 2 + c1Outer;                   /* C1 with its outer size */
     c2Sz = GetU16BE(gRsp + pos + cipherSz);
@@ -25849,9 +25879,9 @@ static void test_fwtpm_policy_parameters_enforced(void)
     AssertIntNE(sessH, 0);
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
         TPM_RC_SUCCESS);
-    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
     AssertIntEQ(dSz, WC_SHA256_DIGEST_SIZE);
-    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 2, dSz);
     FlushHandle(&ctx, sessH);
 
     pos = 0;

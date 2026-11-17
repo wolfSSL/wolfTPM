@@ -22846,8 +22846,8 @@ static int FwAllowPreStartupSpdmProbe(FWTPM_CTX* ctx, TPM_CC cmdCode)
  * password session carries no use attribute, auditExclusive and auditReset
  * need audit, only one session audits, decrypt and encrypt need a sized
  * first command or response parameter, and a session that authorizes no
- * handle must be there to decrypt, encrypt or audit. An extra password
- * session holds no state and is tolerated. */
+ * handle must be there to decrypt, encrypt or audit. A password session
+ * always authorizes a handle (Part 1 Sec.19.4). */
 static TPM_RC FwCheckSessionAttributes(const FWTPM_CMD_ENTRY* entry,
     UINT32 sessHandle, UINT8 attribs, int sessIdx, int* auditCnt)
 {
@@ -22859,6 +22859,9 @@ static TPM_RC FwCheckSessionAttributes(const FWTPM_CMD_ENTRY* entry,
     flags &= (UINT16)~(FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC);
 #endif
     if (sessHandle == TPM_RS_PW) {
+        if (sessIdx >= (int)entry->authHandleCnt) {
+            return TPM_RC_HANDLE;
+        }
         if (use != 0 || (attribs & (TPMA_SESSION_auditExclusive |
                 TPMA_SESSION_auditReset)) != 0) {
             return TPM_RC_ATTRIBUTES;
@@ -22882,8 +22885,7 @@ static TPM_RC FwCheckSessionAttributes(const FWTPM_CMD_ENTRY* entry,
             return TPM_RC_ATTRIBUTES;
         }
     }
-    if (sessHandle != TPM_RS_PW && sessIdx >= (int)entry->authHandleCnt &&
-            use == 0) {
+    if (sessIdx >= (int)entry->authHandleCnt && use == 0) {
         return TPM_RC_ATTRIBUTES;
     }
     return TPM_RC_SUCCESS;
