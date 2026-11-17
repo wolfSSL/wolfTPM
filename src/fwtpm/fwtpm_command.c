@@ -2003,6 +2003,11 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             (property & HR_RANGE_MASK) != HR_PERMANENT) {
         return TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
     }
+    /* TPM_CAP_PCRS always reports every bank, so property has to be zero
+     * (Part 3 Sec.30.2) */
+    if (capability == TPM_CAP_PCRS && property != 0) {
+        return TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+    }
 
     paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
@@ -2832,6 +2837,12 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #endif /* WOLFTPM_SPDM */
 
         default:
+            /* A TPM_CAP with nothing to report here is an empty list; a
+             * value outside TPM_CAP does not unmarshal (Part 2 Sec.6.12)
+             * and there are no vendor properties. */
+            if (capability > TPM_CAP_LAST) {
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+            }
             TPM2_Packet_AppendU32(rsp, 0);
             break;
     }

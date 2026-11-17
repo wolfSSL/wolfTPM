@@ -27472,6 +27472,35 @@ static void test_fwtpm_getcap_auth_policies(void)
     fwtpm_pass("GetCapability auth policies:", 0);
 }
 
+/* TPM_CAP_PCRS takes no property, and a capability outside TPM_CAP does not
+ * unmarshal. */
+static void test_fwtpm_getcap_input_validation(void)
+{
+    FWTPM_CTX ctx;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_PCRS, 0, HASH_COUNT),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_PCRS, 1, HASH_COUNT),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_PCRS, TPM_ALG_SHA256,
+        HASH_COUNT), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_LAST + 1, 0, 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_VENDOR_PROPERTY - 1, 0, 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_VENDOR_PROPERTY, 0, 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendGetCapability(&ctx, 0xFFFFFFFFu, 0, 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability input validation:", 0);
+}
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -28274,6 +28303,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_io_command_buffer_wiped();
 #endif
     test_fwtpm_getcap_auth_policies();
+    test_fwtpm_getcap_input_validation();
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();
