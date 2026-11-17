@@ -12726,6 +12726,79 @@ static void test_fwtpm_policy_nv_trial_no_validation(void)
     fwtpm_pass("Policy NV trial session:", 0);
 }
 
+/* PolicyAuthorizeNV reads a TPMT_HA from the index: a hash algorithm that
+ * must be the session's, then the approved digest, with any trailing octets
+ * ignored (Part 3 Sec.23.22). */
+static void test_fwtpm_policy_authorize_nv_tpmt_ha(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A08;
+    UINT32 shortIdx = 0x01500A09;
+    UINT32 sessH;
+    byte data[2 + TPM_SHA384_DIGEST_SIZE];
+    int i, cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < 2; i++) {
+        cmdSz = BuildNvDefineCmd(gCmd, (i == 0) ? nvIdx : shortIdx,
+            (UINT16)((i == 0) ? sizeof(data) : 2 + WC_SHA256_DIGEST_SIZE - 1),
+            TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+
+    /* A new policy session has an all-zero policyDigest */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    memset(data, 0, sizeof(data));
+    PutU16BE(data, TPM_ALG_SHA256);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, shortIdx, data,
+        2 + WC_SHA256_DIGEST_SIZE - 1, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, shortIdx,
+        sessH, 0, 0), TPM_RC_INSUFFICIENT);
+
+    /* A bare digest starts with what parses as an unknown algorithm */
+    PutU16BE(data, 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, data,
+        (UINT16)sizeof(data), 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_HASH);
+
+    PutU16BE(data, TPM_ALG_SHA384);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, data,
+        (UINT16)sizeof(data), 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_HASH);
+
+    PutU16BE(data, TPM_ALG_SHA256);
+    data[2] = 1;
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, data,
+        (UINT16)sizeof(data), 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_VALUE);
+
+    /* Matching digest, followed by octets that are not part of the TPMT_HA */
+    data[2] = 0;
+    memset(data + 2 + WC_SHA256_DIGEST_SIZE, 0xEE,
+        sizeof(data) - 2 - WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, data,
+        (UINT16)sizeof(data), 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, shortIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyAuthorizeNV TPMT_HA:", 0);
+}
+
 /* PolicyLocality must bind a locality constraint that is enforced when the
  * policy session authorizes an entity. A session satisfying a locality-4
  * policy must not authorize a command issued at locality 0. */
@@ -26511,6 +26584,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policyauthorizenv_owner_read_denied();
     test_fwtpm_policy_nv_read_locked();
     test_fwtpm_policy_nv_trial_no_validation();
+    test_fwtpm_policy_authorize_nv_tpmt_ha();
     test_fwtpm_policy_locality_enforced();
     test_fwtpm_policy_cphash_enforced();
 #ifdef WOLFTPM_SPDM

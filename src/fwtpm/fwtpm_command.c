@@ -16456,10 +16456,8 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte ccBuf[4];
     UINT32 cc = TPM_CC_PolicyAuthorizeNV;
     int hashInit = 0;
-    int nvSizeMismatch;
-    int sessSizeMismatch;
-    int policyDiff;
-    word32 policyCmpSz;
+    UINT16 nvHashAlg;
+    int nvHashSz;
 
     (void)cmdSize;
 
@@ -16506,20 +16504,30 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* For policy sessions (not trial): verify policyDigest == NV data.
-     * Always run TPM2_ConstantCompare over min(sizes) so timing doesn't
-     * leak size match. */
+    /* For policy sessions (not trial): the index holds a TPMT_HA, the
+     * session hash algorithm then the approved policyDigest. Octets after
+     * it are ignored (Part 3 Sec.23.22). */
     if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
-        nvSizeMismatch = ((int)nv->nvPublic.dataSize != dSz);
-        sessSizeMismatch = ((int)sess->policyDigest.size != dSz);
-        policyCmpSz = (sess->policyDigest.size < nv->nvPublic.dataSize) ?
-            sess->policyDigest.size : nv->nvPublic.dataSize;
-        if (policyCmpSz > (word32)dSz)
-            policyCmpSz = (word32)dSz;
-        policyDiff = TPM2_ConstantCompare(sess->policyDigest.buffer,
-            nv->data, policyCmpSz);
-        if (nvSizeMismatch | sessSizeMismatch | policyDiff) {
-            rc = TPM_RC_POLICY_FAIL;
+        if (nv->nvPublic.dataSize < sizeof(UINT16)) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+    }
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        nvHashAlg = FwLoadU16BE(nv->data);
+        nvHashSz = TPM2_GetHashDigestSize(nvHashAlg);
+        if (nvHashSz <= 0) {
+            rc = TPM_RC_HASH;
+        }
+        else if ((int)nv->nvPublic.dataSize < (int)sizeof(UINT16) + nvHashSz) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+        else if (nvHashAlg != sess->authHash) {
+            rc = TPM_RC_HASH;
+        }
+        else if ((int)sess->policyDigest.size != dSz ||
+                TPM2_ConstantCompare(sess->policyDigest.buffer,
+                    nv->data + sizeof(UINT16), (word32)dSz) != 0) {
+            rc = TPM_RC_VALUE;
         }
     }
 
