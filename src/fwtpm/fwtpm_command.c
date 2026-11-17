@@ -10624,6 +10624,26 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Part 3 Sec.20.2: an inScheme has to agree with the scheme and hash
+     * of a key that has them */
+    if (rc == 0 && sigScheme != TPM_ALG_NULL) {
+        UINT16 keyScheme = TPM_ALG_NULL;
+        UINT16 keyHashAlg = TPM_ALG_NULL;
+        if (obj->pub.type == TPM_ALG_RSA) {
+            keyScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
+            keyHashAlg = obj->pub.parameters.rsaDetail.scheme.details
+                .anySig.hashAlg;
+        }
+        else if (obj->pub.type == TPM_ALG_ECC) {
+            keyScheme = obj->pub.parameters.eccDetail.scheme.scheme;
+            keyHashAlg = obj->pub.parameters.eccDetail.scheme.details
+                .any.hashAlg;
+        }
+        if (keyScheme != TPM_ALG_NULL &&
+                (sigScheme != keyScheme || sigHashAlg != keyHashAlg)) {
+            rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+        }
+    }
     if (rc == 0) {
         /* Use key's scheme if command scheme is NULL */
         FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);

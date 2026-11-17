@@ -14610,17 +14610,13 @@ static void test_fwtpm_nv_counter(void)
  * PCR selection (count=1) verifies that subsequent PCRselect parsing
  * is not desynchronized. With the bug, pcrSelectionsCount reads as 0
  * because the count field is interpreted as the high 16 bits of the
- * PCR-selection count. ECC-only because the RSA sign path rejects
- * TPM_ALG_ECDAA with TPM_RC_SCHEME. */
+ * PCR-selection count, so the undersized selection goes unseen and the
+ * command gets as far as the ECDAA signature, which is not implemented. */
 static void test_fwtpm_quote_ecdaa_scheme(void)
 {
     FWTPM_CTX ctx;
     int pos, rspSize;
     UINT32 keyH;
-    UINT16 nameSz;
-    UINT16 extraSz;
-    UINT32 pcrSelCount;
-    int pcrSelOffset;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -14641,31 +14637,22 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
     PutU16BE(gCmd + pos, TPM_ALG_ECDAA); pos += 2;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
     PutU16BE(gCmd + pos, 0); pos += 2; /* ECDAA count */
-    /* PCRselect: count=1, hashAlg=SHA256, no PCRs */
+    /* PCRselect: count=1, hashAlg=SHA256, sizeofSelect below the minimum */
     PutU32BE(gCmd + pos, 1); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    gCmd[pos++] = (byte)PCR_SELECT_MAX;
-    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
+    gCmd[pos++] = 0;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
 
-    /* Walk response: header(10) + paramSize(4) + TPM2B_ATTEST.size(2)
-     * + magic(4) + type(2) + qualifiedSigner.size(2) reads N at offset 22 */
-    AssertIntGT(rspSize, 24);
-    nameSz = GetU16BE(gRsp + 22);
-    AssertIntGT(nameSz, 0);
-    /* Then qualifiedSigner.name(nameSz) + extraData.size(2) */
-    extraSz = GetU16BE(gRsp + 24 + nameSz);
-    /* Then extraData(extraSz) + clockInfo(17) + firmwareVersion(8) */
-    pcrSelOffset = 24 + nameSz + 2 + extraSz + 17 + 8;
-    AssertIntGT(rspSize, pcrSelOffset + 4);
-    pcrSelCount = GetU32BE(gRsp + pcrSelOffset);
-    /* With the ECDAA count consumed correctly, pcrSelCount reflects the
-     * caller-supplied value of 1. With the bug, the count field is read
-     * as the high 16 bits of pcrSelCount, yielding 0. */
-    AssertIntEQ(pcrSelCount, 1);
+    /* A well-formed selection reaches the signature */
+    PutU32BE(gCmd + 2, (UINT32)(pos + PCR_SELECT_MAX));
+    gCmd[pos - 1] = (byte)PCR_SELECT_MAX;
+    XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
@@ -14767,7 +14754,9 @@ static void test_fwtpm_sign_ecdaa_scheme(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* The ticket parsed, so the command got as far as the ECDAA signature,
+     * which is not implemented */
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
@@ -15008,8 +14997,8 @@ static void test_fwtpm_quote_unrestricted_sign(void)
 }
 
 /* A key that declares a signing scheme must not be downgraded by a wire
- * inScheme: signing with ECDSA-SHA1 against an ECDSA-SHA256 key must emit a
- * SHA-256 signature, not SHA-1. */
+ * inScheme: signing with ECDSA-SHA1 against an ECDSA-SHA256 key is refused
+ * (Part 3 Sec.20.2). */
 static void test_fwtpm_sign_scheme_downgrade_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -15074,9 +15063,7 @@ static void test_fwtpm_sign_scheme_downgrade_rejected(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    /* TPMT_SIGNATURE: sigAlg(2) then hashAlg(2) after paramSize */
-    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4 + 2), TPM_ALG_SHA256);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
@@ -28421,6 +28408,99 @@ static UINT32 CreateEccSignPrimaryScheme(FWTPM_CTX* ctx, UINT32 attributes,
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+/* TPM2_Sign with an ECC key. On success r and s (32 octets each) are
+ * copied out when r is not NULL. */
+static TPM_RC SendEccSign(FWTPM_CTX* ctx, UINT32 keyH, UINT16 sigScheme,
+    UINT16 sigHashAlg, const byte* digest, UINT16 digestSz, byte* r, byte* s)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Sign);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, digestSz); pos += 2;
+    memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
+    PutU16BE(gCmd + pos, sigScheme); pos += 2;
+    if (sigScheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, sigHashAlg); pos += 2;
+    }
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) == TPM_RC_SUCCESS && r != NULL) {
+        pos = TPM2_HEADER_SIZE + 4;
+        AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_ECDSA);
+        pos += 4;
+        AssertIntEQ(GetU16BE(gRsp + pos), 32);
+        memcpy(r, gRsp + pos + 2, 32); pos += 34;
+        AssertIntEQ(GetU16BE(gRsp + pos), 32);
+        memcpy(s, gRsp + pos + 2, 32);
+    }
+    return GetRspRC(gRsp);
+}
+
+/* TPM2_Sign takes an inScheme that agrees with the scheme of the key, and
+ * an ECC key signs with ECDSA only (Part 3 Sec.20.2). */
+static void test_fwtpm_ecc_sign_scheme(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 openH, fixedH;
+    byte digest[TPM_SHA384_DIGEST_SIZE];
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    UINT32 rsaH;
+    int cmdSz, rspSize = 0;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(digest, 0x5C, sizeof(digest));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|noDA|sign */
+    openH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_NULL,
+        TPM_ALG_NULL);
+    AssertIntEQ(SendEccSign(&ctx, openH, TPM_ALG_ECSCHNORR, TPM_ALG_SHA256,
+        digest, WC_SHA256_DIGEST_SIZE, NULL, NULL), TPM_RC_SCHEME);
+    AssertIntEQ(SendEccSign(&ctx, openH, TPM_ALG_ECDSA, TPM_ALG_SHA256,
+        digest, WC_SHA256_DIGEST_SIZE, NULL, NULL), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, openH);
+
+    fixedH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    AssertIntEQ(SendEccSign(&ctx, fixedH, TPM_ALG_ECSCHNORR, TPM_ALG_SHA256,
+        digest, WC_SHA256_DIGEST_SIZE, NULL, NULL),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendEccSign(&ctx, fixedH, TPM_ALG_ECDSA, TPM_ALG_SHA384,
+        digest, TPM_SHA384_DIGEST_SIZE, NULL, NULL),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendEccSign(&ctx, fixedH, TPM_ALG_ECDSA, TPM_ALG_SHA256,
+        digest, WC_SHA256_DIGEST_SIZE, NULL, NULL), TPM_RC_SUCCESS);
+    AssertIntEQ(SendEccSign(&ctx, fixedH, TPM_ALG_NULL, TPM_ALG_NULL,
+        digest, WC_SHA256_DIGEST_SIZE, NULL, NULL), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, fixedH);
+
+#if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
+    /* The same holds for the scheme and hash of an RSA key */
+    cmdSz = BuildRsa2048SignPrimary(gCmd, TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    rsaH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendEccSign(&ctx, rsaH, TPM_ALG_RSAPSS, TPM_ALG_SHA256,
+        digest, WC_SHA256_DIGEST_SIZE, NULL, NULL),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendEccSign(&ctx, rsaH, TPM_ALG_RSASSA, TPM_ALG_SHA384,
+        digest, TPM_SHA384_DIGEST_SIZE, NULL, NULL),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendEccSign(&ctx, rsaH, TPM_ALG_RSASSA, TPM_ALG_SHA256,
+        digest, WC_SHA256_DIGEST_SIZE, NULL, NULL), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, rsaH);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Sign inScheme against the ECC key scheme:", 0);
+}
+
 /* Quote FW_TEST_PCR of one bank. On success *pcrDigestSz is the size of the
  * pcrDigest inside the returned TPMS_ATTEST. */
 static TPM_RC SendQuoteScheme(FWTPM_CTX* ctx, UINT32 keyH, UINT16 sigScheme,
@@ -30013,6 +30093,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_quote_scheme_hash();
+    test_fwtpm_ecc_sign_scheme();
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
     test_fwtpm_policy_session_needs_auth_policy();

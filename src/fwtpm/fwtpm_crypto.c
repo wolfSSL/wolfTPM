@@ -4501,11 +4501,18 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
             FWTPM_ALLOC_VAR(eccKey, ecc_key);
             FWTPM_ALLOC_BUF(derSig, FWTPM_MAX_DER_SIG_BUF);
 
-            wcRc = FwImportEccKeyFromDer(obj, eccKey);
-            if (wcRc != 0)
-                rc = TPM_RC_FAILURE;
-            else
-                eccInit = 1;
+            /* ECDSA is the only ECC signing scheme implemented */
+            if (rc == 0 && sigScheme != TPM_ALG_ECDSA) {
+                rc = TPM_RC_SCHEME;
+            }
+
+            if (rc == 0) {
+                wcRc = FwImportEccKeyFromDer(obj, eccKey);
+                if (wcRc != 0)
+                    rc = TPM_RC_FAILURE;
+                else
+                    eccInit = 1;
+            }
 
             if (rc == 0) {
                 wcRc = wc_ecc_sign_hash(digest, digestSz,
