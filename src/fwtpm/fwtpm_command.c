@@ -23575,8 +23575,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         printf("fwTPM: DUP role requires PolicyCommandCode (CC=0x%x)\n",
             cmdCode);
     #endif
-        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-            TPM_ST_NO_SESSIONS, TPM_RC_POLICY_CC);
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
+            (cmdAuths[0].sess->commandCode == 0) ?
+                TPM_RC_POLICY_FAIL : TPM_RC_POLICY_CC);
         TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
         return TPM_RC_SUCCESS;
     }
@@ -23631,8 +23632,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             printf("fwTPM: ADMIN role requires PolicyCommandCode (CC=0x%x)\n",
                 cmdCode);
         #endif
-            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                TPM_ST_NO_SESSIONS, TPM_RC_POLICY_CC);
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
+                (adminSess->commandCode == 0) ?
+                    TPM_RC_POLICY_FAIL : TPM_RC_POLICY_CC);
             TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         }

@@ -13245,7 +13245,7 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_CC);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
 
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
         TPM_CC_PolicyCommandCode);
@@ -17277,7 +17277,7 @@ static void test_fwtpm_duplicate_needs_command_code(void)
         sizeof(obj->pub.authPolicy));
 
     AssertIntEQ(SendDuplicateToNullCmd(&ctx, keyH, sessH, TPM_ALG_NULL),
-        TPM_RC_POLICY_CC);
+        TPM_RC_POLICY_FAIL);
 
     FlushHandle(&ctx, sessH);
     FlushHandle(&ctx, keyH);
