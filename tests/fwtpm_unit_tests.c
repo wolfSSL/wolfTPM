@@ -20411,6 +20411,101 @@ static void test_fwtpm_duplicate_rewrap_alloc_failure(void)
 #endif /* WOLFTPM_FWTPM_UNIT_TEST && WOLFTPM_SMALL_STACK */
 #endif /* !FWTPM_NO_KEY_MIGRATION && !FWTPM_NO_POLICY */
 
+#ifndef FWTPM_NO_KEY_MIGRATION
+/* Build integrity || encSens for FwImportVerifyAndDecrypt: integritySz
+ * octets of HMAC-SHA256(hmacKey, encSens || name) and encSens =
+ * AES-CFB(aesKey, IV 0, plain). Returns the size. */
+static UINT16 BuildImportDuplicate(byte* dup, const byte* hmacKey,
+    const byte* aesKey, const byte* name, int nameSz, const byte* plain,
+    int plainSz, UINT16 integritySz)
+{
+    Aes aes;
+    Hmac hmac;
+    byte iv[AES_BLOCK_SIZE];
+    byte mac[WC_SHA256_DIGEST_SIZE];
+    byte* encSens = dup + 2 + integritySz;
+
+    memset(iv, 0, sizeof(iv));
+    AssertIntEQ(wc_AesInit(&aes, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_AesSetKey(&aes, aesKey, AES_128_KEY_SIZE, iv,
+        AES_ENCRYPTION), 0);
+    AssertIntEQ(wc_AesCfbEncrypt(&aes, encSens, plain, (word32)plainSz), 0);
+    wc_AesFree(&aes);
+
+    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, hmacKey,
+        WC_SHA256_DIGEST_SIZE), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, encSens, (word32)plainSz), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, name, (word32)nameSz), 0);
+    AssertIntEQ(wc_HmacFinal(&hmac, mac), 0);
+    wc_HmacFree(&hmac);
+
+    PutU16BE(dup, integritySz);
+    memcpy(dup + 2, mac, integritySz);
+    return (UINT16)(2 + integritySz + plainSz);
+}
+
+/* The outer wrap of an imported duplicate is released only when its
+ * integrity HMAC over encSens and the object Name verifies (Part 1
+ * Sec.23.3). */
+static void test_fwtpm_import_outer_integrity(void)
+{
+    byte hmacKey[WC_SHA256_DIGEST_SIZE];
+    byte aesKey[AES_128_KEY_SIZE];
+    byte name[2 + WC_SHA256_DIGEST_SIZE];
+    byte plain[40];
+    byte zero[sizeof(plain)];
+    byte out[sizeof(plain)];
+    byte dup[2 + WC_SHA256_DIGEST_SIZE + sizeof(plain)];
+    UINT16 dupSz;
+    int outSz = 0;
+    int i;
+
+    memset(hmacKey, 0x11, sizeof(hmacKey));
+    memset(aesKey, 0x22, sizeof(aesKey));
+    memset(name, 0x33, sizeof(name));
+    memset(zero, 0, sizeof(zero));
+    PutU16BE(name, TPM_ALG_SHA256);
+    for (i = 0; i < (int)sizeof(plain); i++) {
+        plain[i] = (byte)(i + 1);
+    }
+
+    dupSz = BuildImportDuplicate(dup, hmacKey, aesKey, name, sizeof(name),
+        plain, sizeof(plain), WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(dupSz, sizeof(dup));
+    AssertIntEQ(FwImportVerifyAndDecrypt(TPM_ALG_SHA256, hmacKey,
+        sizeof(hmacKey), aesKey, sizeof(aesKey), name, sizeof(name),
+        dup, dupSz, out, sizeof(out), &outSz), TPM_RC_SUCCESS);
+    AssertIntEQ(outSz, sizeof(plain));
+    AssertIntEQ(memcmp(out, plain, sizeof(plain)), 0);
+
+    /* a changed encSens, integrity or Name octet */
+    for (i = 0; i < 3; i++) {
+        byte* target = (i == 0) ? &dup[dupSz - 1] : (i == 1) ? &dup[2] :
+            &name[sizeof(name) - 1];
+        *target ^= 0x01;
+        memset(out, 0xEE, sizeof(out));
+        AssertIntEQ(FwImportVerifyAndDecrypt(TPM_ALG_SHA256, hmacKey,
+            sizeof(hmacKey), aesKey, sizeof(aesKey), name, sizeof(name),
+            dup, dupSz, out, sizeof(out), &outSz), TPM_RC_INTEGRITY);
+        AssertIntEQ(memcmp(out, zero, sizeof(out)), 0);
+        *target ^= 0x01;
+    }
+
+    /* an integrity value shorter than the digest, although its octets
+     * match */
+    dupSz = BuildImportDuplicate(dup, hmacKey, aesKey, name, sizeof(name),
+        plain, sizeof(plain), WC_SHA256_DIGEST_SIZE / 2);
+    memset(out, 0xEE, sizeof(out));
+    AssertIntEQ(FwImportVerifyAndDecrypt(TPM_ALG_SHA256, hmacKey,
+        sizeof(hmacKey), aesKey, sizeof(aesKey), name, sizeof(name),
+        dup, dupSz, out, sizeof(out), &outSz), TPM_RC_INTEGRITY);
+    AssertIntEQ(memcmp(out, zero, sizeof(out)), 0);
+
+    fwtpm_pass("Import outer integrity:", 0);
+}
+#endif /* !FWTPM_NO_KEY_MIGRATION */
+
 /* ================================================================== */
 /* Group D: Hash/HMAC Sequences                                        */
 /* ================================================================== */
@@ -30939,6 +31034,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #ifndef FWTPM_NO_KEY_MIGRATION
     test_fwtpm_rewrap_null_newparent_rejected();
+    test_fwtpm_import_outer_integrity();
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_duplicate_encrypted_needs_new_parent();
     test_fwtpm_duplicate_needs_command_code();
