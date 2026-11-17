@@ -19029,9 +19029,6 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             digestMode = 1;
             readSize = nv->nvPublic.dataSize;
         }
-        else if (readSize == 0) {
-            readSize = nv->nvPublic.dataSize - readOffset;
-        }
         if ((UINT32)(readOffset + readSize) > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }

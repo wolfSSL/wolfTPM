@@ -16180,6 +16180,49 @@ static void test_fwtpm_nv_buffer_max(void)
     fwtpm_pass("NV buffer maximum:", 0);
 }
 
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+/* Only size 0 with offset 0 selects the digest form; size 0 at any other
+ * offset certifies zero octets (Part 3 Sec.31.16). */
+static void test_fwtpm_nv_certify_zero_size_offset(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A03;
+    UINT32 keyH;
+    int cmdSz, rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 32,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL, 32, 0),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvCertifyCmd(&ctx, keyH, nvIdx, 0, 4), TPM_RC_SUCCESS);
+    /* header, parameterSize, TPM2B_ATTEST size, magic */
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 4;
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ST_ATTEST_NV);
+    pos += 2;
+    pos += 2 + GetU16BE(gRsp + pos); /* qualifiedSigner */
+    pos += 2 + GetU16BE(gRsp + pos); /* extraData */
+    pos += 17 + 8;                   /* clockInfo, firmwareVersion */
+    pos += 2 + GetU16BE(gRsp + pos); /* indexName */
+    AssertIntEQ(GetU16BE(gRsp + pos), 4); /* offset */
+    AssertIntEQ(GetU16BE(gRsp + pos + 2), 0); /* nvContents size */
+
+    FlushHandle(&ctx, keyH);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_Certify zero size at offset:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
+
 /* State-changing handlers that persist to NV must report failure, not
  * success, when the journal write fails. Representative commands from the
  * clock, NV-index and hierarchy-auth families run on one context;
@@ -26222,6 +26265,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_owner_access_platform_index();
     test_fwtpm_nv_read_zero_size();
     test_fwtpm_nv_buffer_max();
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    test_fwtpm_nv_certify_zero_size_offset();
+#endif
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
     test_fwtpm_nv_compaction_commit();
