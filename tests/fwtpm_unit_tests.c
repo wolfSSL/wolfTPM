@@ -12477,14 +12477,18 @@ static void test_fwtpm_policy_counter_timer_offset(void)
 #ifndef FWTPM_NO_NV
 /* PolicyNV and PolicyAuthorizeNV must verify the caller is authorized to
  * read the NV index. An OWNER authHandle against an index without
- * TPMA_NV_OWNERREAD must be rejected with TPM_RC_NV_AUTHORIZATION. */
+ * TPMA_NV_OWNERREAD must be rejected with TPM_RC_NV_AUTHORIZATION by a
+ * policy session. A trial session skips the read access checks. */
 static void test_fwtpm_policynv_owner_read_denied(void)
 {
     FWTPM_CTX ctx;
     int pos, cmdSz, rspSize = 0;
+    int i;
     UINT32 sessH;
     UINT32 nvIdx = 0x01500051;
     UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA;
+    UINT8 sessTypes[2] = { TPM_SE_POLICY, TPM_SE_TRIAL };
+    TPM_RC expected[2] = { TPM_RC_NV_AUTHORIZATION, TPM_RC_SUCCESS };
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -12493,26 +12497,31 @@ static void test_fwtpm_policynv_owner_read_denied(void)
     FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
-    AssertIntNE(sessH, 0);
+    for (i = 0; i < 2; i++) {
+        sessH = StartSessionHelper(&ctx, sessTypes[i]);
+        AssertIntNE(sessH, 0);
 
-    pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
-    PutU32BE(gCmd + pos, 0); pos += 4;
-    PutU32BE(gCmd + pos, TPM_CC_PolicyNV); pos += 4;
-    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* authHandle */
-    PutU32BE(gCmd + pos, nvIdx); pos += 4;
-    PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU16BE(gCmd + pos, 0); pos += 2; /* operandB */
-    PutU16BE(gCmd + pos, 0); pos += 2; /* offset */
-    PutU16BE(gCmd + pos, 0); pos += 2; /* operation */
-    PutU32BE(gCmd + 2, (UINT32)pos);
-    rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_AUTHORIZATION);
+        pos = 0;
+        PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + pos, TPM_CC_PolicyNV); pos += 4;
+        PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* authHandle */
+        PutU32BE(gCmd + pos, nvIdx); pos += 4;
+        PutU32BE(gCmd + pos, sessH); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU16BE(gCmd + pos, 0); pos += 2; /* operandB */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* offset */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* operation */
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), expected[i]);
 
-    FlushHandle(&ctx, sessH);
+        FlushHandle(&ctx, sessH);
+    }
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tPolicyNV OWNER read denied:\tPassed\n");
 }
@@ -12521,9 +12530,12 @@ static void test_fwtpm_policyauthorizenv_owner_read_denied(void)
 {
     FWTPM_CTX ctx;
     int pos, cmdSz, rspSize = 0;
+    int i;
     UINT32 sessH;
     UINT32 nvIdx = 0x01500052;
     UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA;
+    UINT8 sessTypes[2] = { TPM_SE_POLICY, TPM_SE_TRIAL };
+    TPM_RC expected[2] = { TPM_RC_NV_AUTHORIZATION, TPM_RC_SUCCESS };
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -12532,23 +12544,28 @@ static void test_fwtpm_policyauthorizenv_owner_read_denied(void)
     FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
-    AssertIntNE(sessH, 0);
+    for (i = 0; i < 2; i++) {
+        sessH = StartSessionHelper(&ctx, sessTypes[i]);
+        AssertIntNE(sessH, 0);
 
-    pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
-    PutU32BE(gCmd + pos, 0); pos += 4;
-    PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorizeNV); pos += 4;
-    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* authHandle */
-    PutU32BE(gCmd + pos, nvIdx); pos += 4;
-    PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU32BE(gCmd + 2, (UINT32)pos);
-    rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_NV_AUTHORIZATION);
+        pos = 0;
+        PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorizeNV); pos += 4;
+        PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* authHandle */
+        PutU32BE(gCmd + pos, nvIdx); pos += 4;
+        PutU32BE(gCmd + pos, sessH); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), expected[i]);
 
-    FlushHandle(&ctx, sessH);
+        FlushHandle(&ctx, sessH);
+    }
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tPolicyAuthorizeNV OWNER read denied:\tPassed\n");
 }
@@ -12617,6 +12634,96 @@ static void test_fwtpm_policy_nv_read_locked(void)
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Policy NV read lock:", 0);
+}
+
+/* Owner-authorized PolicyNV (zero operandB, TPM_EO_EQ) or
+ * PolicyAuthorizeNV */
+static TPM_RC SendPolicyNvCmd(FWTPM_CTX* ctx, UINT32 commandCode,
+    UINT32 nvIndex, UINT32 sessH, UINT16 operandSz, UINT16 offset)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, commandCode);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    if (commandCode == TPM_CC_PolicyNV) {
+        PutU16BE(gCmd + pos, operandSz); pos += 2;
+        memset(gCmd + pos, 0, operandSz); pos += operandSz;
+        PutU16BE(gCmd + pos, offset); pos += 2;
+        PutU16BE(gCmd + pos, TPM_EO_EQ); pos += 2;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A trial session only updates policyDigest: PolicyNV and PolicyAuthorizeNV
+ * do not validate the index state or range (Part 3 Sec.23.9, Sec.23.22). */
+static void test_fwtpm_policy_nv_trial_no_validation(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A07;
+    UINT32 sessH, polH;
+    int cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, TPMA_NV_OWNERWRITE |
+        TPMA_NV_OWNERREAD | TPMA_NV_READ_STCLEAR | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Unwritten index, then an operand past its end, then read locked */
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, sessH, 2, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, sessH, 2, 8),
+        TPM_RC_SUCCESS);
+
+    /* A policy session checks the index state, then the offset and the
+     * operand against the index size */
+    polH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(polH, 0);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, polH, 2, 8),
+        TPM_RC_NV_UNINITIALIZED);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, polH, 2, 9),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, polH, 2, 7),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, polH, 0, 8),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, polH);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_ReadLock, nvIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, sessH, 2, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    /* A policy session still validates */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, sessH, 2, 0),
+        TPM_RC_NV_LOCKED);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_NV_LOCKED);
+    FlushHandle(&ctx, sessH);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Policy NV trial session:", 0);
 }
 
 /* PolicyLocality must bind a locality constraint that is enforced when the
@@ -26403,6 +26510,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();
     test_fwtpm_policy_nv_read_locked();
+    test_fwtpm_policy_nv_trial_no_validation();
     test_fwtpm_policy_locality_enforced();
     test_fwtpm_policy_cphash_enforced();
 #ifdef WOLFTPM_SPDM

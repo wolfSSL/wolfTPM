@@ -14925,15 +14925,6 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Verify caller is authorized to read the NV index */
-    if (rc == 0) {
-        rc = FwNvCheckAccess(authHandle, nvIndex,
-            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
-    }
-    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
-
     /* Find policy session */
     if (rc == 0) {
         sess = FwFindSession(ctx, sessHandle);
@@ -14955,17 +14946,24 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Validate range */
-    if (rc == 0) {
-        if ((UINT32)offset + operandBSz > nv->nvPublic.dataSize) {
-            rc = TPM_RC_NV_RANGE;
-        }
+    /* A trial session only updates policyDigest, so read access, the index
+     * state and the range are not validated for it (Part 3 Sec.23.9) */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        rc = FwNvCheckAccess(authHandle, nvIndex,
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
-
-    /* NV must have been written */
-    if (rc == 0) {
-        if (!nv->written) {
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        if (nv->nvPublic.attributes & TPMA_NV_READLOCKED) {
+            rc = TPM_RC_NV_LOCKED;
+        }
+        else if (!nv->written) {
             rc = TPM_RC_NV_UNINITIALIZED;
+        }
+        else if (offset > nv->nvPublic.dataSize) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if (operandBSz > nv->nvPublic.dataSize - offset) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -16478,19 +16476,6 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FW_NV_HANDLE_ERR_2;
     }
 
-    /* Verify caller is authorized to read the NV index */
-    if (rc == 0) {
-        rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
-    }
-    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
-
-    if (rc == 0 && !nv->written) {
-        rc = TPM_RC_NV_UNINITIALIZED;
-    }
-
     sess = FwFindSession(ctx, sessHandle);
     if (sess == NULL) {
         rc = TPM_RC_VALUE;
@@ -16504,6 +16489,21 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         dSz = TPM2_GetHashDigestSize(sess->authHash);
         if (dSz <= 0)
             rc = TPM_RC_HASH;
+    }
+
+    /* A trial session only updates policyDigest, so read access and the
+     * index state are not validated for it (Part 3 Sec.23.22) */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        rc = FwNvCheckAccess(authHandle, nvHandle,
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
+    }
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        if (nv->nvPublic.attributes & TPMA_NV_READLOCKED) {
+            rc = TPM_RC_NV_LOCKED;
+        }
+        else if (!nv->written) {
+            rc = TPM_RC_NV_UNINITIALIZED;
+        }
     }
 
     /* For policy sessions (not trial): verify policyDigest == NV data.
