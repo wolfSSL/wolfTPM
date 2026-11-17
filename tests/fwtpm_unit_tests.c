@@ -11554,6 +11554,64 @@ static void test_fwtpm_create_primary_creation_data(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("CreatePrimary creationData:", 0);
 }
+
+/* Create creationData carries the nameAlg and Name of the parent object
+ * (Part 2 Sec.15.1). */
+static void test_fwtpm_create_creation_data(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* parent;
+    UINT32 parentH;
+    int pos, cmdSz, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, FW_TEST_CREATE_ALG);
+    AssertIntNE(parentH, 0);
+    parent = &ctx.objects[parentH - TRANSIENT_FIRST];
+    AssertIntEQ(parent->name.size, 2 + WC_SHA256_DIGEST_SIZE);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, FW_TEST_CREATE_ALG);
+    PutU32BE(gCmd + 6, TPM_CC_Create);
+    PutU32BE(gCmd + 10, parentH);
+    cmdSz = SetCreationInputs(gCmd, cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4;
+    pos += 2 + GetU16BE(gRsp + pos); /* outPrivate */
+    pos += 2 + GetU16BE(gRsp + pos); /* outPublic */
+    CheckCreationData(&ctx, pos, TPM_ALG_SHA256, parent->name.name,
+        parent->name.size);
+
+    /* outsideInfo larger than a TPM2B_DATA */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, FW_TEST_CREATE_ALG);
+    PutU32BE(gCmd + 6, TPM_CC_Create);
+    PutU32BE(gCmd + 10, parentH);
+    pos = cmdSz - 6;
+    PutU16BE(gCmd + pos, sizeof(TPMT_HA) + 1); pos += 2;
+    memset(gCmd + pos, 0, sizeof(TPMT_HA) + 1); pos += sizeof(TPMT_HA) + 1;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE | TPM_RC_P | TPM_RC_3);
+
+    /* creationPCR is checked as a TPML_PCR_SELECTION */
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_Create, parentH, HASH_COUNT + 1,
+        TPM_ALG_SHA256, PCR_SELECT_MAX), TPM_RC_SIZE | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_Create, parentH, 1,
+        TPM_ALG_NULL, PCR_SELECT_MAX), TPM_RC_HASH | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_Create, parentH, 1,
+        TPM_ALG_SHA256, PCR_SELECT_MIN - 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendCreationPcr(&ctx, TPM_CC_Create, parentH, 1,
+        TPM_ALG_SHA256, PCR_SELECT_MAX + 1),
+        TPM_RC_VALUE | TPM_RC_P | TPM_RC_4);
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Create creationData:", 0);
+}
 #endif /* HAVE_ECC || (!NO_RSA && WOLFSSL_KEY_GEN) */
 
 /* Helper: build StartAuthSession command. Returns cmd size. */
@@ -30002,6 +30060,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if defined(HAVE_ECC) || (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN))
     test_fwtpm_create_primary_creation_data();
+    test_fwtpm_create_creation_data();
 #endif
 #ifdef WOLFTPM_V185
     test_fwtpm_create_primary_mlkem();

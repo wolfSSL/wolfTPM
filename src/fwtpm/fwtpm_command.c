@@ -8113,6 +8113,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_VAR(outPub, TPM2B_PUBLIC);
     int cdMarkPos = 0;
     int cdStart2;
+    int outsideInfoPos = 0, creationPcrPos = 0;
     UINT32 s;
     UINT8 selectSize = 0;
 
@@ -8173,7 +8174,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidateLimitedAttributes(&inPublic->publicArea);
     }
 #endif /* WOLFTPM_V185 */
-    /* Skip outsideInfo */
+    /* Parse outsideInfo (TPM2B_DATA) */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -8184,26 +8185,43 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (cmd->pos + outsideInfoSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
+        else if (outsideInfoSize > sizeof(((TPM2B_DATA*)0)->buffer)) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
         else {
+            outsideInfoPos = cmd->pos;
             cmd->pos += outsideInfoSize;
         }
     }
 
-    /* Parse creationPCR (TPML_PCR_SELECTION) - skip */
+    /* Parse creationPCR (TPML_PCR_SELECTION) */
     if (rc == 0) {
         if (cmd->pos + 4 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
     }
     if (rc == 0) {
+        creationPcrPos = cmd->pos;
         TPM2_Packet_ParseU32(cmd, &creationPcrCount);
+        if (creationPcrCount > HASH_COUNT) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_4;
+        }
         for (s = 0; s < creationPcrCount && rc == 0; s++) {
+            UINT16 pcrHashAlg;
             if (cmd->pos + 3 > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
             }
-            cmd->pos += 2; /* hashAlg */
+            TPM2_Packet_ParseU16(cmd, &pcrHashAlg);
             TPM2_Packet_ParseU8(cmd, &selectSize);
+            if (FwGetWcHashType(pcrHashAlg) == WC_HASH_TYPE_NONE) {
+                rc = TPM_RC_HASH | TPM_RC_P | TPM_RC_4;
+                break;
+            }
+            if (selectSize < PCR_SELECT_MIN || selectSize > PCR_SELECT_MAX) {
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_4;
+                break;
+            }
             if (cmd->pos + selectSize > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
@@ -8426,15 +8444,9 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* creationData (TPM2B_CREATION_DATA) */
         TPM2_Packet_MarkU16(rsp, &cdMarkPos);
         cdStart2 = rsp->pos;
-        TPM2_Packet_AppendU32(rsp, 0); /* pcrSelect count = 0 */
-        TPM2_Packet_AppendU16(rsp, 0); /* pcrDigest size = 0 */
-        TPM2_Packet_AppendU8(rsp, 0);  /* locality */
-        TPM2_Packet_AppendU16(rsp, inPublic->publicArea.nameAlg);
-        TPM2_Packet_AppendU16(rsp, 4); /* parentName */
-        TPM2_Packet_AppendU32(rsp, parentHandle);
-        TPM2_Packet_AppendU16(rsp, 4); /* parentQualifiedName */
-        TPM2_Packet_AppendU32(rsp, parentHandle);
-        TPM2_Packet_AppendU16(rsp, 0); /* outsideInfo */
+        rc = FwAppendCreationData(ctx, rsp, parentHandle, parent,
+            inPublic->publicArea.nameAlg, cmd->buf + creationPcrPos,
+            cmd->buf + outsideInfoPos, outsideInfoSize);
         TPM2_Packet_PlaceU16(rsp, cdMarkPos);
 
         /* Compute object name from public area for creation ticket */
@@ -8454,8 +8466,8 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 if (hashRc == 0)
                     objNameSz = 2 + nameDigSz;
             }
-            FWTPM_FREE_BUF(pubBuf2);
         }
+        FWTPM_FREE_BUF(pubBuf2);
 
         /* Creation ticket hierarchy = parent's hierarchy per Part 2
          * Sec.10.6.5 Table 112. */
