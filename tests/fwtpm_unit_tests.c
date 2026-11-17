@@ -27372,6 +27372,106 @@ static void test_fwtpm_io_command_buffer_wiped(void)
 }
 #endif /* WOLFTPM_FWTPM_UNIT_TEST && !WOLFTPM_FWTPM_TIS */
 
+/* GetCapability(capability, property, count); returns the response code and
+ * leaves the reply in gRsp: moreData(1) | capability(4) | count(4) | data */
+static TPM_RC SendGetCapability(FWTPM_CTX* ctx, UINT32 capability,
+    UINT32 property, UINT32 count)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_GetCapability);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, capability); pos += 4;
+    PutU32BE(gCmd + pos, property); pos += 4;
+    PutU32BE(gCmd + pos, count); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* TPM_CAP_AUTH_POLICIES lists the hierarchy policies in handle order, with
+ * TPM_ALG_NULL and no digest for one that is not set. TPM_PT_PCR_POLICY and
+ * TPM_PT_PCR_AUTH report the PCRs that take a policy or an authValue. */
+static void test_fwtpm_getcap_auth_policies(void)
+{
+    FWTPM_CTX ctx;
+    static const UINT32 handles[] = {
+        TPM_RH_OWNER, TPM_RH_LOCKOUT, TPM_RH_ENDORSEMENT, TPM_RH_PLATFORM
+    };
+    const TPM2B_DIGEST* pol[4];
+    const int dataPos = TPM2_HEADER_SIZE + 1 + 4 + 4;
+    int pos, i, p;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(SendPlatformSetPolicy(&ctx, 0, 32), TPM_RC_SUCCESS);
+    pol[0] = &ctx.ownerPolicy;
+    pol[1] = &ctx.lockoutPolicy;
+    pol[2] = &ctx.endorsementPolicy;
+    pol[3] = &ctx.platformPolicy;
+
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_AUTH_POLICIES,
+        PERMANENT_FIRST, 8), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 0);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 1),
+        TPM_CAP_AUTH_POLICIES);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 4);
+    pos = dataPos;
+    for (i = 0; i < 4; i++) {
+        AssertIntEQ(GetU32BE(gRsp + pos), handles[i]); pos += 4;
+        if (pol[i]->size == 0) {
+            AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_NULL); pos += 2;
+        }
+        else {
+            AssertIntEQ(TPM2_GetHashDigestSize(GetU16BE(gRsp + pos)),
+                pol[i]->size);
+            pos += 2;
+            AssertIntEQ(memcmp(gRsp + pos, pol[i]->buffer, pol[i]->size), 0);
+            pos += pol[i]->size;
+        }
+    }
+    AssertIntEQ(GetU32BE(gRsp + 2), pos);
+    AssertIntEQ(ctx.platformPolicy.size, 32);
+
+    /* Paging starts at the first handle at or after property */
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_AUTH_POLICIES,
+        TPM_RH_LOCKOUT, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 1);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1);
+    AssertIntEQ(GetU32BE(gRsp + dataPos), TPM_RH_LOCKOUT);
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_AUTH_POLICIES,
+        TPM_RH_PLATFORM, 4), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 0);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1);
+    AssertIntEQ(GetU32BE(gRsp + dataPos), TPM_RH_PLATFORM);
+    AssertIntEQ(GetU16BE(gRsp + dataPos + 4), TPM_ALG_SHA256);
+
+    /* property has to be a permanent handle */
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_AUTH_POLICIES,
+        TRANSIENT_FIRST, 4), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendPlatformSetPolicy(&ctx, 0, 0), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendGetCapability(&ctx, TPM_CAP_PCR_PROPERTIES,
+        TPM_PT_PCR_POLICY, 4), TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 0);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 2);
+    pos = dataPos;
+    for (i = 0; i < 2; i++) {
+        AssertIntEQ(GetU32BE(gRsp + pos), (i == 0) ? TPM_PT_PCR_POLICY :
+            TPM_PT_PCR_AUTH);
+        pos += 4;
+        AssertIntEQ(gRsp[pos], PCR_SELECT_MAX); pos++;
+        for (p = 0; p < PCR_SELECT_MAX * 8; p++) {
+            AssertIntEQ((gRsp[pos + p / 8] >> (p % 8)) & 1,
+                p < IMPLEMENTATION_PCR);
+        }
+        pos += PCR_SELECT_MAX;
+    }
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability auth policies:", 0);
+}
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -28173,6 +28273,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(WOLFTPM_FWTPM_TIS)
     test_fwtpm_io_command_buffer_wiped();
 #endif
+    test_fwtpm_getcap_auth_policies();
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();

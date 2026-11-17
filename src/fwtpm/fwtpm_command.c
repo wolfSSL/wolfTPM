@@ -1772,6 +1772,7 @@ static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset);
 #define FW_PCR_KIND_RESET       1  /* reset allowed at loc */
 #define FW_PCR_KIND_SAVE        2  /* saved across power cycles (PCR 0-15) */
 #define FW_PCR_KIND_DRTM_RESET  3  /* reset allowed at locality 4 */
+#define FW_PCR_KIND_AUTH        4  /* takes a policy or authValue (every PCR) */
 
 /* Overwrite a big-endian UINT32 already appended at buf[pos]. Used to
  * back-patch a TPML count with the number of entries actually emitted, so a
@@ -1998,6 +1999,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         return TPM_RC_VALUE;
     }
 #endif
+    if (capability == TPM_CAP_AUTH_POLICIES &&
+            (property & HR_RANGE_MASK) != HR_PERMANENT) {
+        return TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+    }
 
     paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
@@ -2572,7 +2577,9 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_PCR_RESET_L3,   FW_PCR_KIND_RESET,      3 },
                 { TPM_PT_PCR_EXTEND_L4,  FW_PCR_KIND_EXTEND,     4 },
                 { TPM_PT_PCR_RESET_L4,   FW_PCR_KIND_RESET,      4 },
-                { TPM_PT_PCR_DRTM_RESET, FW_PCR_KIND_DRTM_RESET, 4 }
+                { TPM_PT_PCR_DRTM_RESET, FW_PCR_KIND_DRTM_RESET, 4 },
+                { TPM_PT_PCR_POLICY,     FW_PCR_KIND_AUTH,       0 },
+                { TPM_PT_PCR_AUTH,       FW_PCR_KIND_AUTH,       0 }
             };
             int totalProps = (int)(sizeof(pcrProps) / sizeof(pcrProps[0]));
             int startIdx = 0;
@@ -2607,6 +2614,8 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         set = (p < FWTPM_PCR_SAVE_COUNT);
                     else if (kind == FW_PCR_KIND_DRTM_RESET)
                         set = FwPcrLocalityAllowed(p, WOLFTPM_LOCALITY_MAX, 1);
+                    else if (kind == FW_PCR_KIND_AUTH)
+                        set = 1;
                     else
                         set = FwPcrLocalityAllowed(p, (int)loc, (int)kind);
                     if (set)
@@ -2718,6 +2727,59 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         case TPM_CAP_AUDIT_COMMANDS:
             TPM2_Packet_AppendU32(rsp, 0);
             break;
+
+        /* TPML_TAGGED_POLICY: the hierarchy policies in handle order. One
+         * that is not set is reported as TPM_ALG_NULL with no digest. */
+        case TPM_CAP_AUTH_POLICIES: {
+            static const UINT32 policyHandles[] = {
+                TPM_RH_OWNER, TPM_RH_LOCKOUT, TPM_RH_ENDORSEMENT,
+                TPM_RH_PLATFORM
+            };
+            TPM2B_DIGEST* pol;
+            TPMI_ALG_HASH polAlg;
+            int countPos = rsp->pos;
+            UINT32 emitted = 0;
+            int h;
+
+            TPM2_Packet_AppendU32(rsp, 0); /* back-patched below */
+            for (h = 0; h < (int)(sizeof(policyHandles) /
+                    sizeof(policyHandles[0])); h++) {
+                if (policyHandles[h] < property) {
+                    continue;
+                }
+                if (emitted >= propertyCount) {
+                    FwPatchMoreData(rsp, moreDataPos, 1);
+                    break;
+                }
+                if (policyHandles[h] == TPM_RH_OWNER) {
+                    pol = &ctx->ownerPolicy;
+                    polAlg = ctx->ownerPolicyAlg;
+                }
+                else if (policyHandles[h] == TPM_RH_LOCKOUT) {
+                    pol = &ctx->lockoutPolicy;
+                    polAlg = ctx->lockoutPolicyAlg;
+                }
+                else if (policyHandles[h] == TPM_RH_ENDORSEMENT) {
+                    pol = &ctx->endorsementPolicy;
+                    polAlg = ctx->endorsementPolicyAlg;
+                }
+                else {
+                    pol = &ctx->platformPolicy;
+                    polAlg = ctx->platformPolicyAlg;
+                }
+                TPM2_Packet_AppendU32(rsp, policyHandles[h]);
+                if (pol->size == 0) {
+                    TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL);
+                }
+                else {
+                    TPM2_Packet_AppendU16(rsp, polAlg);
+                    TPM2_Packet_AppendBytes(rsp, pol->buffer, pol->size);
+                }
+                emitted++;
+            }
+            FwPatchU32BE(rsp, countPos, emitted);
+            break;
+        }
 
         /* Settable feature configuration written by TPM2_SetCapability.
          * TPML_TAGGED_CONFIG: count then configuration/enable/lock triples,
