@@ -7997,6 +7997,21 @@ static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
+    /* A ticket with a modified HMAC is rejected. */
+    gCmd[pos - 1] ^= 0x01;
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
+    gCmd[pos - 1] ^= 0x01;
+
+    /* So is the genuine ticket presented with another digest. */
+    gCmd[pos - ticketHmacSz - 8 - 1] ^= 0x01;
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
+
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest restricted+valid ticket (success):", 1);
 }
