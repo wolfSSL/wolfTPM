@@ -25925,6 +25925,59 @@ static void test_fwtpm_policy_parameters_enforced(void)
 #endif /* !FWTPM_NO_NV */
 #endif /* !FWTPM_NO_POLICY */
 
+static TPM_RC SendPcrSetAuthValue(FWTPM_CTX* ctx, UINT32 pcrHandle,
+    const byte* oldAuth, int oldAuthSz, const byte* newAuth, int newAuthSz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_PCR_SetAuthValue);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, pcrHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, oldAuth, oldAuthSz);
+    PutU16BE(gCmd + pos, (UINT16)newAuthSz); pos += 2;
+    if (newAuthSz > 0) {
+        memcpy(gCmd + pos, newAuth, newAuthSz);
+        pos += newAuthSz;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* PCR authValues are state-clear data: kept by Startup(STATE), reset to the
+ * Empty Auth by Startup(CLEAR). */
+static void test_fwtpm_pcr_auth_startup_clear(void)
+{
+    FWTPM_CTX ctx;
+    static const byte pcrAuth[] = "pcr-auth";
+    const int pcrAuthSz = (int)sizeof(pcrAuth) - 1;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(SendPcrSetAuthValue(&ctx, FW_TEST_PCR, NULL, 0, pcrAuth,
+        pcrAuthSz), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0), TPM_RC_BAD_AUTH);
+
+#ifndef FWTPM_NO_NV
+    AssertIntEQ(fwtpm_test_cycle(&ctx, TPM_SU_STATE, TPM_SU_STATE), 0);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0), TPM_RC_BAD_AUTH);
+
+    AssertIntEQ(fwtpm_test_cycle(&ctx, TPM_SU_STATE, TPM_SU_CLEAR), 0);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrSetAuthValue(&ctx, FW_TEST_PCR, NULL, 0, pcrAuth,
+        pcrAuthSz), TPM_RC_SUCCESS);
+#endif
+
+    /* A power cycle without Shutdown */
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR authValue reset by Startup(CLEAR):", 0);
+}
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -26678,6 +26731,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_incremental_selftest();
     test_fwtpm_incremental_selftest_truncated_returns_cmd_size();
     test_fwtpm_gettestresult_needs_test_then_success();
+    test_fwtpm_pcr_auth_startup_clear();
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();

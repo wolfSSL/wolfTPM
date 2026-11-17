@@ -1164,6 +1164,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     FWTPM_DECLARE_BUF(oldNvData, FWTPM_MAX_NV_DATA);
     int oldNvDataAllocated = 0;
 #endif
+    FWTPM_DECLARE_BUF(oldPcrAuth, sizeof(ctx->pcrAuth));
 
     int wasOrderly = ctx->nvOrderly;
 
@@ -1418,6 +1419,29 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
             TPM2_ForceZero(&oldPlatformAuth, sizeof(oldPlatformAuth));
             TPM2_ForceZero(&oldPlatformPolicy, sizeof(oldPlatformPolicy));
+        }
+
+        /* PCR authValues are state-clear data (Part 3 Sec.22.7): kept by
+         * Startup(STATE), reset to the Empty Auth by Startup(CLEAR). */
+        if (rc == 0 && startupType == TPM_SU_CLEAR) {
+            for (i = 0; i < IMPLEMENTATION_PCR; i++) {
+                if (ctx->pcrAuth[i].size > 0)
+                    break;
+            }
+            if (i < IMPLEMENTATION_PCR) {
+                FWTPM_ALLOC_BUF(oldPcrAuth, sizeof(ctx->pcrAuth));
+                if (rc == 0) {
+                    XMEMCPY(oldPcrAuth, ctx->pcrAuth, sizeof(ctx->pcrAuth));
+                    TPM2_ForceZero(ctx->pcrAuth, sizeof(ctx->pcrAuth));
+                    rc = FWTPM_NV_SavePcrAuth(ctx);
+                    if (rc != 0) {
+                        XMEMCPY(ctx->pcrAuth, oldPcrAuth,
+                            sizeof(ctx->pcrAuth));
+                    }
+                    TPM2_ForceZero(oldPcrAuth, sizeof(ctx->pcrAuth));
+                }
+                FWTPM_FREE_BUF(oldPcrAuth);
+            }
         }
 
         /* phEnable is SET on every _TPM_Init/Startup (TPM 2.0 Part 2
