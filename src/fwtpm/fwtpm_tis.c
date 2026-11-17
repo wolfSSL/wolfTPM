@@ -341,7 +341,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
             case FWTPM_TIS_BURST_COUNT_REG:
                 /* Burst count is at offset 0x0019, which is bytes [1..2]
                  * of the 4-byte STS register. Return just the burst count
-                 * portion (upper 16 bits shifted down). A non-owner cannot
+                 * portion (bits 8-23 shifted down). A non-owner cannot
                  * transfer, so it reads a zero burst count. */
                 val = isOwner ? ((regs->sts >> 8) & 0xFFFFu) : 0;
                 break;

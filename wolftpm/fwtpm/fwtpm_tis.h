@@ -142,7 +142,7 @@ typedef struct FWTPM_TIS_REGS {
                                  * FWTPM_TIS_HandleRegAccess). Kept for
                                  * shared-memory ABI layout stability. */
     UINT32 sts;                 /* TPM_STS register (low byte = status,
-                                 * upper 16 bits = burst count) */
+                                 * bits 8-23 = burst count) */
     UINT32 int_enable;          /* TPM_INT_ENABLE register */
     UINT32 int_status;          /* TPM_INT_STATUS register */
     UINT32 intf_caps;           /* TPM_INTF_CAPS register */
