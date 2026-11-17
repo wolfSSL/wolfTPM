@@ -3381,7 +3381,16 @@ static void test_fwtpm_rsassa_sha512_sign_verify(void)
     rc = FWTPM_ProcessCommand(&ctx, gCmd, (int)GetU32BE(gCmd + 2), gRsp,
         &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIGNATURE);
+
+    /* So must changing the last signature byte. */
+    gCmd[pos] ^= 0x01;
+    pos = (int)GetU32BE(gCmd + 2);
+    gCmd[pos - 1] ^= 0x01;
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIGNATURE);
 
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(sig);
@@ -28971,6 +28980,25 @@ static void test_fwtpm_ecc_verify_scheme(void)
         AssertIntEQ(GetRspRC(gRsp), (i == 0) ? TPM_RC_SCHEME :
             TPM_RC_SUCCESS);
     }
+
+    /* A changed digest, r or s does not verify. */
+    for (i = 0; i < 3; i++) {
+        int off = TPM2_HEADER_SIZE + 4 + 2 + (int)sizeof(digest) - 1;
+        if (i == 1) {
+            off = pos - 32 - 2 - 1;
+        }
+        else if (i == 2) {
+            off = pos - 1;
+        }
+        gCmd[off] ^= 0x01;
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIGNATURE);
+        gCmd[off] ^= 0x01;
+    }
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
