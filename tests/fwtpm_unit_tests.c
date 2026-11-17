@@ -16180,6 +16180,45 @@ static void test_fwtpm_nv_buffer_max(void)
     fwtpm_pass("NV buffer maximum:", 0);
 }
 
+/* NV_Extend data is a TPM2B_MAX_NV_BUFFER, not bounded by the digest size
+ * of the index (Part 3 Sec.31.9). */
+static void test_fwtpm_nv_extend_buffer_max(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A04;
+    byte hashSrc[WC_SHA256_DIGEST_SIZE + MAX_NV_BUFFER_SIZE];
+    byte expect[WC_SHA256_DIGEST_SIZE];
+    int cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, WC_SHA256_DIGEST_SIZE,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        ((UINT32)TPM_NT_EXTEND << 4));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Extend, nvIdx, NULL,
+        MAX_NV_BUFFER_SIZE, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Extend, nvIdx, NULL,
+        MAX_NV_BUFFER_SIZE + 1, 0), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+
+    memset(hashSrc, 0, WC_SHA256_DIGEST_SIZE);
+    memset(hashSrc + WC_SHA256_DIGEST_SIZE, 0xA5, MAX_NV_BUFFER_SIZE);
+    AssertIntEQ(wc_Sha256Hash(hashSrc, (word32)sizeof(hashSrc), expect), 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL,
+        WC_SHA256_DIGEST_SIZE, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 6, expect,
+        WC_SHA256_DIGEST_SIZE), 0);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_Extend buffer maximum:", 0);
+}
+
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
 /* Only size 0 with offset 0 selects the digest form; size 0 at any other
  * offset certifies zero octets (Part 3 Sec.31.16). */
@@ -26265,6 +26304,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_owner_access_platform_index();
     test_fwtpm_nv_read_zero_size();
     test_fwtpm_nv_buffer_max();
+    test_fwtpm_nv_extend_buffer_max();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_nv_certify_zero_size_offset();
 #endif

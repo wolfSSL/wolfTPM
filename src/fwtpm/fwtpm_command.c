@@ -17321,7 +17321,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPMI_RH_NV_INDEX nvHandle;
     FWTPM_NvIndex* nv;
     UINT16 dataSize = 0;
-    byte dataBuf[TPM_MAX_DIGEST_SIZE * 2]; /* input data */
+    const byte* data = NULL;
     int hSz = 0;
     FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
     enum wc_HashType wcHash;
@@ -17366,15 +17366,16 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &dataSize);
-        if (dataSize > sizeof(dataBuf)) {
-            rc = TPM_RC_SIZE;
+        if (dataSize > MAX_NV_BUFFER_SIZE) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
         else if (cmd->pos + dataSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
     }
     if (rc == 0) {
-        TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
+        data = cmd->buf + cmd->pos;
+        cmd->pos += dataSize;
 
         hSz = TPM2_GetHashDigestSize(nv->nvPublic.nameAlg);
         if (hSz <= 0 || hSz > FWTPM_MAX_NV_DATA) {
@@ -17400,7 +17401,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(oldData, nv->data, hSz);
         hashRc = wc_HashUpdate(hashCtx, wcHash, nv->data, hSz);
         if (hashRc == 0) {
-            hashRc = wc_HashUpdate(hashCtx, wcHash, dataBuf, dataSize);
+            hashRc = wc_HashUpdate(hashCtx, wcHash, data, dataSize);
         }
         if (hashRc == 0) {
             hashRc = wc_HashFinal(hashCtx, wcHash, newVal);
