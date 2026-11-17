@@ -18128,6 +18128,144 @@ static void test_fwtpm_rewrap_null_newparent_rejected(void)
 }
 #endif /* !FWTPM_NO_KEY_MIGRATION */
 
+/* LoadExternal of a KEYEDHASH object with its seedValue and unique. scheme
+ * is TPM_ALG_HMAC or TPM_ALG_XOR with SHA-256, or has no details. */
+static TPM_RC SendLoadExternalKeyedHash(FWTPM_CTX* ctx, UINT32 attributes,
+    UINT16 scheme, const byte* seed, UINT16 seedSz, const byte* key,
+    UINT16 keySz, const byte* unique, UINT32* handle)
+{
+    int pos, privStart, pubStart, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_LoadExternal);
+    privStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_KEYEDHASH); pos += 2; /* sensitiveType */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authValue */
+    PutU16BE(gCmd + pos, seedSz); pos += 2;
+    memcpy(gCmd + pos, seed, seedSz); pos += seedSz;
+    PutU16BE(gCmd + pos, keySz); pos += 2;
+    memcpy(gCmd + pos, key, keySz); pos += keySz;
+    PutU16BE(gCmd + privStart, (UINT16)(pos - privStart - 2));
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_KEYEDHASH); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* nameAlg */
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, scheme); pos += 2;
+    if (scheme == TPM_ALG_HMAC || scheme == TPM_ALG_XOR) {
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    }
+    if (scheme == TPM_ALG_XOR) {
+        PutU16BE(gCmd + pos, TPM_ALG_KDF1_SP800_108); pos += 2;
+    }
+    PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+    memcpy(gCmd + pos, unique, WC_SHA256_DIGEST_SIZE);
+    pos += WC_SHA256_DIGEST_SIZE;
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* hierarchy */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) == TPM_RC_SUCCESS) {
+        *handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    }
+    return GetRspRC(gRsp);
+}
+
+/* LoadExternal of an HMAC-SHA256 signing key */
+static TPM_RC SendLoadExternalHmacKey(FWTPM_CTX* ctx, const byte* seed,
+    UINT16 seedSz, const byte* key, UINT16 keySz, const byte* unique,
+    UINT32* handle)
+{
+    /* userWithAuth | sign */
+    return SendLoadExternalKeyedHash(ctx, 0x00040040, TPM_ALG_HMAC, seed,
+        seedSz, key, keySz, unique, handle);
+}
+
+/* An external HMAC key loads with its sensitive area and is usable; its
+ * unique is checked against seedValue || key (Part 3 Sec.12.3.1). */
+static void test_fwtpm_loadexternal_keyedhash(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 keyH = 0;
+    byte seed[WC_SHA256_DIGEST_SIZE];
+    byte key[MAX_SYM_DATA + 1];
+    byte hashSrc[sizeof(seed) + 20];
+    byte unique[WC_SHA256_DIGEST_SIZE];
+#ifndef FWTPM_NO_HASH_CMDS
+    Hmac hmac;
+    byte expect[WC_SHA256_DIGEST_SIZE];
+    int pos, rspSize = 0;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(seed, 0x11, sizeof(seed));
+    memset(key, 0x22, sizeof(key));
+    memcpy(hashSrc, seed, sizeof(seed));
+    memcpy(hashSrc + sizeof(seed), key, 20);
+    AssertIntEQ(wc_Sha256Hash(hashSrc, (word32)sizeof(hashSrc), unique), 0);
+
+    AssertIntEQ(SendLoadExternalHmacKey(&ctx, seed, sizeof(seed), key,
+        WC_SHA256_BLOCK_SIZE + 1, unique, &keyH),
+        TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendLoadExternalHmacKey(&ctx, seed, sizeof(seed) - 1, key,
+        20, unique, &keyH), TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendLoadExternalHmacKey(&ctx, seed, sizeof(seed), key, 19,
+        unique, &keyH), TPM_RC_BINDING);
+    AssertIntEQ(SendLoadExternalHmacKey(&ctx, seed, sizeof(seed), key, 20,
+        unique, &keyH), TPM_RC_SUCCESS);
+
+#ifndef FWTPM_NO_HASH_CMDS
+    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, key, 20), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, (const byte*)"abc", 3), 0);
+    AssertIntEQ(wc_HmacFinal(&hmac, expect), 0);
+    wc_HmacFree(&hmac);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_HMAC);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 3); pos += 2;
+    memcpy(gCmd + pos, "abc", 3); pos += 3;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4),
+        WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(memcmp(gRsp + TPM2_HEADER_SIZE + 6, expect, sizeof(expect)),
+        0);
+#endif
+    FlushHandle(&ctx, keyH);
+
+    /* A scheme that is not a keyedHash scheme (userWithAuth | sign) */
+    AssertIntEQ(SendLoadExternalKeyedHash(&ctx, 0x00040040, TPM_ALG_RSASSA,
+        seed, sizeof(seed), key, 20, unique, &keyH),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+
+    /* Sealed data has no scheme and is bounded by MAX_SYM_DATA
+     * (userWithAuth) */
+    AssertIntEQ(SendLoadExternalKeyedHash(&ctx, 0x00000040, TPM_ALG_NULL,
+        seed, sizeof(seed), key, MAX_SYM_DATA + 1, unique, &keyH),
+        TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendLoadExternalKeyedHash(&ctx, 0x00000040, TPM_ALG_NULL,
+        seed, sizeof(seed), key, 20, unique, &keyH), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, keyH);
+
+    /* An XOR key is bounded by the block size of its hash
+     * (userWithAuth | decrypt) */
+    AssertIntEQ(SendLoadExternalKeyedHash(&ctx, 0x00020040, TPM_ALG_XOR,
+        seed, sizeof(seed), key, WC_SHA256_BLOCK_SIZE + 1, unique, &keyH),
+        TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendLoadExternalKeyedHash(&ctx, 0x00020040, TPM_ALG_XOR,
+        seed, sizeof(seed), key, 20, unique, &keyH), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("LoadExternal KEYEDHASH sensitive area:", 0);
+}
+
 #ifdef HAVE_ECC
 /* LoadExternal of a P-256 key, public only when d is NULL. */
 static TPM_RC SendLoadExternalEcc(FWTPM_CTX* ctx, UINT32 attributes,
@@ -29886,6 +30024,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
+    test_fwtpm_loadexternal_keyedhash();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_unpadded_values();
 #endif

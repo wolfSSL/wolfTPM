@@ -8594,6 +8594,48 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+/* Part 3 Sec.12.3.1 checks on an external KEYEDHASH sensitive area: the key
+ * fits its scheme, and unique is the nameAlg digest of seedValue || key. */
+static TPM_RC FwCheckExternalKeyedHash(const TPMT_PUBLIC* pub,
+    const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 scheme = pub->parameters.keyedHashDetail.scheme.scheme;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int maxSz = 128;
+    byte unique[TPM_MAX_DIGEST_SIZE];
+
+    if (scheme == TPM_ALG_HMAC) {
+        maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+            pub->parameters.keyedHashDetail.scheme.details.hmac.hashAlg));
+    }
+    else if (scheme == TPM_ALG_XOR) {
+        maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+            pub->parameters.keyedHashDetail.scheme.details.xorr.hashAlg));
+    }
+    else if (scheme != TPM_ALG_NULL) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
+    if (rc == 0 && (maxSz <= 0 || (int)keySz > maxSz)) {
+        rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
+    }
+    if (rc == 0 && pub->nameAlg != TPM_ALG_NULL) {
+        if (digestSz <= 0 || (int)seedSz != digestSz) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+        else if (FwComputeHashUnique(pub->nameAlg, seed, seedSz, key, keySz,
+                unique) != digestSz) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if ((int)pub->unique.keyedHash.size != digestSz ||
+                TPM2_ConstantCompare(pub->unique.keyedHash.buffer, unique,
+                    (word32)digestSz) != 0) {
+            rc = TPM_RC_BINDING;
+        }
+    }
+    return rc;
+}
+
 /* --- TPM2_LoadExternal (CC 0x167) ---
  * Load an external key (public-only or public+private) without a parent.
  * Response: objectHandle | [paramSz] | name */
@@ -8607,6 +8649,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_BUF(qBuf, FWTPM_MAX_DER_SIG_BUF);
     UINT16 qSz = 0;
     UINT16 seedSz = 0;
+    int seedPos = 0;
     TPM2B_PUBLIC inPublic;
     UINT32 hierarchy = 0;
     FWTPM_Object* obj = NULL;
@@ -8682,6 +8725,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         if (rc == 0) {
+            seedPos = cmd->pos;
             cmd->pos += seedSz;
         }
         /* sensitive.any (prime q for RSA) */
@@ -8790,6 +8834,17 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (qSz != 16 && qSz != 24 && qSz != 32) {
             rc = TPM_RC_SIZE;
         }
+        if (rc == 0) {
+            XMEMCPY(privKeyDer, qBuf, qSz);
+            privKeyDerSz = (int)qSz;
+        }
+    }
+    else if (rc == 0 && inPrivSize > 0 &&
+            sensitiveType == TPM_ALG_KEYEDHASH &&
+            inPublic.publicArea.type == TPM_ALG_KEYEDHASH && qSz > 0) {
+        /* For KEYEDHASH, qBuf is the HMAC key or the data */
+        rc = FwCheckExternalKeyedHash(&inPublic.publicArea,
+            cmd->buf + seedPos, seedSz, qBuf, qSz);
         if (rc == 0) {
             XMEMCPY(privKeyDer, qBuf, qSz);
             privKeyDerSz = (int)qSz;
