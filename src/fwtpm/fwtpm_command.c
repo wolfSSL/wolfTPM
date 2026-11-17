@@ -3228,6 +3228,19 @@ static TPM_RC FwValidateKeyUsage(const TPMT_PUBLIC* pub)
     int sign = (pub->objectAttributes & TPMA_OBJECT_sign) != 0;
     int decrypt = (pub->objectAttributes & TPMA_OBJECT_decrypt) != 0;
 
+#ifdef WOLFTPM_MLDSA
+    /* Part 2 Sec.12.2.3.7: an ML-DSA key is a signing key only */
+    if ((pub->type == TPM_ALG_MLDSA || pub->type == TPM_ALG_HASH_MLDSA) &&
+            decrypt) {
+        return TPM_RC_ATTRIBUTES;
+    }
+#endif
+#ifdef WOLFTPM_MLKEM
+    /* Part 2 Sec.12.2.3.7: an ML-KEM key is a decryption key only */
+    if (pub->type == TPM_ALG_MLKEM && sign) {
+        return TPM_RC_ATTRIBUTES;
+    }
+#endif
     /* Part 3 Sec.12.1.1: a keyedHash object with sign and decrypt both SET
      * or both CLEAR has no scheme */
     if (pub->type == TPM_ALG_KEYEDHASH && sign == decrypt &&

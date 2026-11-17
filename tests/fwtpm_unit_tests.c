@@ -3562,6 +3562,67 @@ static void test_fwtpm_create_primary_limited_attrs(void)
 }
 #endif /* WOLFTPM_V185 && !NO_RSA && WOLFSSL_KEY_GEN */
 
+#if defined(WOLFTPM_V185) && defined(WOLFTPM_MLDSA) && \
+    defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLKEM)
+/* An ML-DSA key may only be a signing key and an ML-KEM key only a
+ * decryption key (Part 2 Sec.12.2.3.7). */
+static void test_fwtpm_create_primary_pqc_usage_attrs(void)
+{
+    static const struct {
+        TPM_ALG_ID alg;
+        UINT32 attrs;
+    } bad[] = {
+        { TPM_ALG_MLDSA, 0x00020072 },      /* decrypt */
+        { TPM_ALG_MLDSA, 0x00060072 },      /* sign and decrypt */
+        { TPM_ALG_HASH_MLDSA, 0x00020072 },
+        { TPM_ALG_HASH_MLDSA, 0x00060072 },
+        { TPM_ALG_MLKEM, 0x00040072 },      /* sign */
+        { TPM_ALG_MLKEM, 0x00060072 }
+    };
+    FWTPM_CTX ctx;
+    int i, rspSize, cmdSz, pos, pubSz;
+    /* inPublic follows the header, the handle, the auth area and an empty
+     * inSensitive */
+    const int pubPos = TPM2_HEADER_SIZE + 4 + 13 + 6;
+    byte ext[TPM2_HEADER_SIZE + 2 + 64 + 4];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < (int)(sizeof(bad) / sizeof(bad[0])); i++) {
+        cmdSz = BuildCreatePrimaryCmdEx(gCmd, bad[i].alg, bad[i].attrs);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+        /* The same public area as a public-only LoadExternal */
+        cmdSz = BuildCreatePrimaryCmdEx(gCmd, bad[i].alg, bad[i].attrs);
+        pubSz = 2 + GetU16BE(gCmd + pubPos);
+        AssertIntLE(pubSz, 2 + 64);
+        pos = BuildCmdHeader(ext, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_LoadExternal);
+        PutU16BE(ext + pos, 0); pos += 2; /* inPrivate */
+        memcpy(ext + pos, gCmd + pubPos, (size_t)pubSz); pos += pubSz;
+        PutU32BE(ext + pos, TPM_RH_NULL); pos += 4;
+        PutU32BE(ext + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, ext, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+    }
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLDSA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLKEM);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("CreatePrimary ML-DSA/ML-KEM usage attributes:", 0);
+}
+#endif
+
 #ifdef HAVE_ECC
 static void test_fwtpm_create_primary_ecc(void)
 {
@@ -28593,6 +28654,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(WOLFTPM_V185) && !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_create_primary_limited_attrs();
     test_fwtpm_limited_attrs_rejected_all_paths();
+#endif
+#if defined(WOLFTPM_V185) && defined(WOLFTPM_MLDSA) && \
+    defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLKEM)
+    test_fwtpm_create_primary_pqc_usage_attrs();
 #endif
 #ifdef HAVE_ECC
     test_fwtpm_create_primary_ecc();
