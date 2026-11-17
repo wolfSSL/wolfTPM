@@ -2919,6 +2919,17 @@ static void test_fwtpm_readclock_counters(void)
 /* 8. CreatePrimary (RSA and ECC)                                      */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_MLKEM_768
+    #define FWTPM_TEST_MLKEM_PS     TPM_MLKEM_768
+    #define FWTPM_TEST_MLKEM_CT_SZ  1088
+#elif !defined(FWTPM_NO_MLKEM_1024)
+    #define FWTPM_TEST_MLKEM_PS     TPM_MLKEM_1024
+    #define FWTPM_TEST_MLKEM_CT_SZ  1568
+#else
+    #define FWTPM_TEST_MLKEM_PS     TPM_MLKEM_512
+    #define FWTPM_TEST_MLKEM_CT_SZ  768
+#endif
+
 /* Build a minimal CreatePrimary command for RSA-2048 or ECC-256.
  * Uses password auth with empty password on owner hierarchy. An attributes
  * value of zero selects the default attributes for the requested key type. */
@@ -2998,7 +3009,7 @@ static int BuildCreatePrimaryCmdEx(byte* buf, TPM_ALG_ID algType,
     }
 #ifdef WOLFTPM_V185
     else if (algType == TPM_ALG_MLKEM) {
-        /* MLKEM-768 decrypt primary. Default attributes:
+        /* MLKEM decrypt primary (FWTPM_TEST_MLKEM_PS). Default attributes:
          * fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|decrypt */
         int mlkemRestricted;
         PutU16BE(buf + pos, TPM_ALG_MLKEM); pos += 2;
@@ -3021,7 +3032,7 @@ static int BuildCreatePrimaryCmdEx(byte* buf, TPM_ALG_ID algType,
         else {
             PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2;
         }
-        PutU16BE(buf + pos, TPM_MLKEM_768); pos += 2;
+        PutU16BE(buf + pos, FWTPM_TEST_MLKEM_PS); pos += 2;
         /* unique.mlkem (TPM2B): size=0 — TPM derives */
         PutU16BE(buf + pos, 0); pos += 2;
     }
@@ -3462,7 +3473,7 @@ static void test_fwtpm_create_primary_mlkem(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("CreatePrimary(MLKEM-768):", 1);
+    fwtpm_pass("CreatePrimary(MLKEM):", 1);
 }
 
 static void test_fwtpm_create_primary_mldsa(void)
@@ -3696,7 +3707,7 @@ static void test_fwtpm_create_loaded_mlkem(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("CreateLoaded(MLKEM-768):", 1);
+    fwtpm_pass("CreateLoaded(MLKEM):", 1);
 }
 #endif /* WOLFTPM_V185 */
 
@@ -3721,7 +3732,7 @@ static void test_fwtpm_mlkem_roundtrip(void)
     rc = fwtpm_test_startup(&ctx);
     AssertIntEQ(rc, 0);
 
-    /* CreatePrimary(MLKEM-768) */
+    /* CreatePrimary(MLKEM, parameter set from FWTPM_TEST_MLKEM_PS) */
     cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLKEM);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
@@ -3745,7 +3756,7 @@ static void test_fwtpm_mlkem_roundtrip(void)
     AssertIntEQ(ss1Sz, 32);
     memcpy(ss1, gRsp + pos, ss1Sz); pos += ss1Sz;
     ct1Sz = GetU16BE(gRsp + pos); pos += 2;
-    AssertIntEQ(ct1Sz, 1088); /* MLKEM-768 ct size per Table 204 */
+    AssertIntEQ(ct1Sz, FWTPM_TEST_MLKEM_CT_SZ); /* ct size per Table 204 */
     memcpy(ct1, gRsp + pos, ct1Sz);
 
     /* Decapsulate — USER auth required.
@@ -4148,7 +4159,7 @@ static int BuildMlkemActivateCredentialCmd(UINT32 ekHandle,
     return pos;
 }
 
-/* Create a restricted ML-KEM-768 Storage Key (a valid credential key per
+/* Create a restricted ML-KEM Storage Key (a valid credential key per
  * Part 3 Sec.24) and capture its Name. The EK is also the activate object, so
  * ActivateCredential recomputes the same Name. */
 static UINT32 CreateMlkemEkWithName(FWTPM_CTX* ctx, byte* name, UINT16* nameSzOut)
@@ -4304,6 +4315,7 @@ static void test_fwtpm_mlkem_activatecredential_unrestricted_rejected(void)
 }
 
 #ifdef WOLFSSL_SHA384
+#ifndef FWTPM_NO_MLKEM_768
 /* The EK Credential Profile defines the ML-KEM-768 EK as SHA-384/AES-256-CFB.
  * The credential path derives the HMAC under the key's nameAlg (SHA-384) and
  * the symmetric key at its declared AES-256 size, so a full round trip
@@ -4394,6 +4406,7 @@ static void test_fwtpm_mlkem_credential_sha384_aes256_roundtrip(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("MLKEM SHA-384/AES-256 credential roundtrip:", 1);
 }
+#endif /* !FWTPM_NO_MLKEM_768 */
 #endif /* WOLFSSL_SHA384 */
 #endif /* WOLFTPM_MLKEM && !FWTPM_NO_CREDENTIAL */
 
@@ -6408,6 +6421,7 @@ static void test_fwtpm_mldsa_wolfssl_keygen_kat(void)
     fwtpm_pass("MLDSA wolfSSL keygen KAT:", 1);
 }
 
+#ifndef FWTPM_NO_MLKEM_512
 /* Layer A: MLKEM-512 encap with pinned randomness against NIST expected (c,k). */
 static void test_fwtpm_mlkem_nist_kat_encap(void)
 {
@@ -6452,6 +6466,7 @@ static void test_fwtpm_mlkem_wolfssl_keygen_kat(void)
     wc_MlKemKey_Free(&key);
     fwtpm_pass("MLKEM wolfSSL keygen KAT:", 1);
 }
+#endif /* !FWTPM_NO_MLKEM_512 */
 
 /* Layer C: Load NIST MLDSA-44 pub into fwTPM via LoadExternal, then
  * VerifyDigestSignature — proves fwTPM's verify handler is spec-correct. */
@@ -6836,7 +6851,7 @@ static void test_fwtpm_loadexternal_ml_validation(void)
     AssertIntEQ(rc, TPM_RC_PARMS);
 
     /* ML-KEM invalid symmetric (AES with bogus keyBits). */
-    rc = tmp_load_mlkem(&ctx, TPM_MLKEM_512, TPM_ALG_AES, 7, 8);
+    rc = tmp_load_mlkem(&ctx, FWTPM_TEST_MLKEM_PS, TPM_ALG_AES, 7, 8);
     printf("  MLKEM bad symmetric rc=0x%x\n", rc);
     /* Field-specific error from FwTestSymDef (bad AES key size). */
     AssertIntEQ(rc, TPM_RC_KEY_SIZE);
@@ -6855,7 +6870,7 @@ static int AppendPwAuth(byte* buf, int pos, const byte* pw, int pwSz);
  * test_mlkem.c) translated to TPM command-level errors. Every assertion
  * cites Part 3 / Part 2 text that mandates the returned code. */
 
-/* Helper: create a valid MLKEM-768 primary and return its handle. */
+/* Helper: create a valid MLKEM primary and return its handle. */
 static UINT32 fwtpm_neg_mk_mlkem_primary(FWTPM_CTX* ctx)
 {
     int rc, rspSize, cmdSz;
@@ -9637,7 +9652,8 @@ static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
 
 #ifdef WOLFTPM_V185
 /* Extended CreatePrimary builder that overrides the default MLDSA/MLKEM
- * parameter set (BuildCreatePrimaryCmd uses 65/768). Used by max-buffer
+ * parameter set (BuildCreatePrimaryCmd uses ML-DSA-65 and
+ * FWTPM_TEST_MLKEM_PS). Used by max-buffer
  * tests to exercise MLDSA-87 (sig=4627) and MLKEM-1024 (ct=1568). */
 static int BuildCreatePrimaryCmdParamHash(byte* buf, TPM_ALG_ID algType,
     UINT16 paramSet, TPMI_ALG_HASH preHash)
@@ -10304,6 +10320,7 @@ static void test_fwtpm_hash_mldsa_weak_prehash(void)
 #endif /* WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH */
 #endif /* WOLFTPM_HASH_MLDSA */
 
+#ifndef FWTPM_NO_MLKEM_1024
 static void test_fwtpm_mlkem1024_maxbuf(void)
 {
     FWTPM_CTX ctx;
@@ -10344,6 +10361,7 @@ static void test_fwtpm_mlkem1024_maxbuf(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("MLKEM-1024 max-buffer roundtrip:", 1);
 }
+#endif /* !FWTPM_NO_MLKEM_1024 */
 #endif /* WOLFTPM_V185 */
 
 /* ---- Sign-seq slot exhaustion ----------------------------------------
@@ -10576,12 +10594,30 @@ static void test_fwtpm_getcap_pqc(void)
      * cannot deliver. wolfCrypt has no μ-direct sign API yet, so SignDigest
      * / VerifyDigestSignature return TPM_RC_SCHEME when allowExternalMu
      * would otherwise be exercised. The bit is intentionally dropped. */
-    UINT32 expected = TPMA_ML_PARAMETER_SET_mlKem_512 |
-                      TPMA_ML_PARAMETER_SET_mlKem_768 |
-                      TPMA_ML_PARAMETER_SET_mlKem_1024 |
-                      TPMA_ML_PARAMETER_SET_mlDsa_44 |
-                      TPMA_ML_PARAMETER_SET_mlDsa_65 |
-                      TPMA_ML_PARAMETER_SET_mlDsa_87;
+    UINT32 expected = 0
+    #ifdef WOLFTPM_MLKEM
+        #ifndef FWTPM_NO_MLKEM_512
+                      | TPMA_ML_PARAMETER_SET_mlKem_512
+        #endif
+        #ifndef FWTPM_NO_MLKEM_768
+                      | TPMA_ML_PARAMETER_SET_mlKem_768
+        #endif
+        #ifndef FWTPM_NO_MLKEM_1024
+                      | TPMA_ML_PARAMETER_SET_mlKem_1024
+        #endif
+    #endif
+    #ifdef WOLFTPM_MLDSA
+        #ifndef WOLFSSL_NO_ML_DSA_44
+                      | TPMA_ML_PARAMETER_SET_mlDsa_44
+        #endif
+        #ifndef WOLFSSL_NO_ML_DSA_65
+                      | TPMA_ML_PARAMETER_SET_mlDsa_65
+        #endif
+        #ifndef WOLFSSL_NO_ML_DSA_87
+                      | TPMA_ML_PARAMETER_SET_mlDsa_87
+        #endif
+    #endif
+                      ;
     UINT32 got, count, prop;
     UINT32 foundMlkem = 0, foundMldsa = 0, foundHashMldsa = 0;
     UINT32 i;
@@ -10657,6 +10693,56 @@ static void test_fwtpm_getcap_pqc(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GetCapability PQC (ML params + algs):", 1);
 }
+
+#ifdef WOLFTPM_MLKEM
+/* TestParms accepts exactly the ML-KEM parameter sets wolfCrypt provides and
+ * rejects the rest with TPM_RC_PARMS (Part 2 Sec.11.2.6.1 Table 204). */
+static void test_fwtpm_testparms_mlkem(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, i;
+    static const struct {
+        UINT16 ps;
+        int supported;
+    } sets[] = {
+    #ifndef FWTPM_NO_MLKEM_512
+        { TPM_MLKEM_512, 1 },
+    #else
+        { TPM_MLKEM_512, 0 },
+    #endif
+    #ifndef FWTPM_NO_MLKEM_768
+        { TPM_MLKEM_768, 1 },
+    #else
+        { TPM_MLKEM_768, 0 },
+    #endif
+    #ifndef FWTPM_NO_MLKEM_1024
+        { TPM_MLKEM_1024, 1 },
+    #else
+        { TPM_MLKEM_1024, 0 },
+    #endif
+        { 0x0099, 0 }
+    };
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    for (i = 0; i < (int)(sizeof(sets) / sizeof(sets[0])); i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+        PutU16BE(gCmd + pos, TPM_ALG_MLKEM); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+        PutU16BE(gCmd + pos, sets[i].ps); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), sets[i].supported ? TPM_RC_SUCCESS :
+            (TPM_RC_PARMS | TPM_RC_P | TPM_RC_1));
+    }
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("TestParms ML-KEM parameter sets:", 1);
+}
+#endif /* WOLFTPM_MLKEM */
 
 static void test_fwtpm_mldsa_primary_determinism(void)
 {
@@ -13598,7 +13684,7 @@ static void test_fwtpm_createloaded_ml_validation(void)
 #endif /* WOLFTPM_HASH_MLDSA */
 
     /* ML-KEM invalid symmetric (AES bogus keyBits). */
-    rc = tmp_cl_ml(&ctx, srk, TPM_ALG_MLKEM, TPM_MLKEM_512, 0, 0,
+    rc = tmp_cl_ml(&ctx, srk, TPM_ALG_MLKEM, FWTPM_TEST_MLKEM_PS, 0, 0,
         TPM_ALG_AES, 7);
     printf("  MLKEM bad symmetric CL rc=0x%x\n", rc);
     AssertIntNE(rc, TPM_RC_SUCCESS);
@@ -25106,7 +25192,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mlkem_activatecredential_tampered_rejected();
     test_fwtpm_mlkem_activatecredential_unrestricted_rejected();
 #ifdef WOLFSSL_SHA384
+#ifndef FWTPM_NO_MLKEM_768
     test_fwtpm_mlkem_credential_sha384_aes256_roundtrip();
+#endif
 #endif
 #endif
 #if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
@@ -25158,14 +25246,19 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* NIST / wolfSSL KAT validation */
     test_fwtpm_mldsa_nist_kat_verify();
     test_fwtpm_mldsa_wolfssl_keygen_kat();
+#ifndef FWTPM_NO_MLKEM_512
     test_fwtpm_mlkem_nist_kat_encap();
     test_fwtpm_mlkem_wolfssl_keygen_kat();
+#endif
     test_fwtpm_mldsa_loadexternal_verify();
     test_fwtpm_loadexternal_ml_validation();
     test_fwtpm_createloaded_ml_validation();
     test_fwtpm_mldsa_primary_determinism();
     test_fwtpm_mlkem_primary_determinism();
     test_fwtpm_getcap_pqc();
+#ifdef WOLFTPM_MLKEM
+    test_fwtpm_testparms_mlkem();
+#endif
     test_fwtpm_encapsulate_neg();
     test_fwtpm_decapsulate_neg();
     test_fwtpm_signseqstart_neg();
@@ -25234,7 +25327,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signseq_longmsg_streaming();
     test_fwtpm_mldsa87_maxbuf();
     test_fwtpm_response_buffer_capacity();
+#ifndef FWTPM_NO_MLKEM_1024
     test_fwtpm_mlkem1024_maxbuf();
+#endif
 #ifdef WOLFTPM_HASH_MLDSA
     test_fwtpm_hash_mldsa_seq_all_params();
     test_fwtpm_hash_mldsa_weak_prehash();

@@ -136,7 +136,7 @@ All macros are compile-time overridable (for example `-DFWTPM_MAX_OBJECTS=8`).
 
 ### v1.85 Embedded RAM Impact
 
-Enabling `--enable-pqc` (or `--enable-v185`) lifts several internal buffers to accommodate PQC key and signature sizes. The defaults shrink automatically at compile time based on which ML-DSA and ML-KEM parameter sets wolfCrypt was built with (`WOLFSSL_NO_ML_DSA_44/65/87`, `WOLFSSL_NO_KYBER512/768/1024`). Boards that only enable the smaller parameter sets get smaller buffers with no per-board override.
+Enabling `--enable-pqc` (or `--enable-v185`) lifts several internal buffers to accommodate PQC key and signature sizes. The defaults shrink automatically at compile time based on which ML-DSA and ML-KEM parameter sets wolfCrypt was built with (`WOLFSSL_NO_ML_DSA_44/65/87`; `WOLFSSL_NO_ML_KEM` and `WOLFSSL_NO_ML_KEM_512/768/1024`; and, when `WOLFSSL_MLKEM_KYBER` is enabled, `WOLFSSL_NO_KYBER512/768/1024`). Boards that only enable the smaller parameter sets get smaller buffers with no per-board override.
 
 **Buffer sizes by enabled parameter set:**
 
