@@ -22623,6 +22623,12 @@ static void FwDaSelfHeal(FWTPM_CTX* ctx)
     UINT64 now;
     UINT64 elapsedSec, heals;
 
+    /* A daRecoveryTime of zero disables DA protection (Part 3 Sec.25.3):
+     * failures are not counted and those already counted are forgotten. */
+    if (ctx->daRecoveryTime == 0) {
+        ctx->daFailedTries = 0;
+    }
+
     /* Only after Startup, which seeds the baselines: running before then would
      * measure elapsed time from an unseeded (zero) baseline and wrongly heal.
      * No clock HAL means reboot/LockReset-only recovery. */
@@ -22686,7 +22692,8 @@ static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
          * noDA primary handle with a DA-protected secondary auth) cannot grow
          * the counter or append NV entries without bound while already
          * locked. */
-        if (ctx->daFailedTries < ctx->daMaxTries) {
+        if (ctx->daRecoveryTime != 0 &&
+                ctx->daFailedTries < ctx->daMaxTries) {
             ctx->daFailedTries++;
             ctx->orderly = 0;
             (void)FWTPM_NV_SaveFlags(ctx);

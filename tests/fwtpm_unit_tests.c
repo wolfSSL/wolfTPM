@@ -17196,7 +17196,7 @@ static void test_fwtpm_da_lockout_and_reset(void)
     int rspSize = 0, cmdSz;
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
-    AssertIntEQ(DaSetParams(&ctx, 2, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(DaSetParams(&ctx, 2, 1000, 0), TPM_RC_SUCCESS);
 
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
@@ -17237,7 +17237,7 @@ static void test_fwtpm_da_noda_usable_during_lockout(void)
     UINT32 daKey, noDaKey;
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
-    AssertIntEQ(DaSetParams(&ctx, 2, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(DaSetParams(&ctx, 2, 1000, 0), TPM_RC_SUCCESS);
 
     noDaKey = DaMakeEccSignKey(&ctx, 0x00040472); /* noDA set */
     daKey = DaMakeEccSignKey(&ctx, 0x00040072);   /* noDA clear */
@@ -17308,7 +17308,7 @@ static void test_fwtpm_da_persist_failedtries(void)
     /* Boot 1: two failures, then a clean Shutdown (orderly). */
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
-    AssertIntEQ(DaSetParams(&ctx, 100, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(DaSetParams(&ctx, 100, 1000, 0), TPM_RC_SUCCESS);
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
     AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
@@ -17364,7 +17364,7 @@ static void test_fwtpm_da_nonorderly_penalty(void)
     PutU32BE(gCmd + 2, (UINT32)cmdSz);
     FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertIntEQ(DaSetParams(&ctx, 100, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(DaSetParams(&ctx, 100, 1000, 0), TPM_RC_SUCCESS);
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
     AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
@@ -17399,7 +17399,7 @@ static void test_fwtpm_da_reboot_in_lockout_recovers(void)
     /* Boot 1: drive into lockout (maxTries=2), then drop power (non-orderly). */
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
-    AssertIntEQ(DaSetParams(&ctx, 2, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(DaSetParams(&ctx, 2, 1000, 0), TPM_RC_SUCCESS);
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
     AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
@@ -26624,6 +26624,46 @@ static void test_fwtpm_nv_global_write_lock_at_capacity(void)
 }
 #endif /* !FWTPM_NO_NV */
 
+#if !defined(FWTPM_NO_DA) && defined(HAVE_ECC)
+/* A newRecoveryTime of zero disables DA protection: an authorization failure
+ * is still reported, but it is not counted and never causes lockout. */
+static void test_fwtpm_da_recovery_zero_disables(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+    int i;
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 2, 0, 0), TPM_RC_SUCCESS);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+
+    for (i = 0; i < 4; i++) {
+        AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+        AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 0);
+    }
+    AssertIntEQ(DaGetCapProp(&ctx, TPM_PT_PERMANENT) &
+        TPMA_PERMANENT_inLockout, 0);
+
+    /* Failures counted earlier are forgotten at once */
+    ctx.daFailedTries = 2;
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+
+    /* A non-zero recovery time counts failures again */
+    AssertIntEQ(DaSetParams(&ctx, 2, 1000, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 2);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA disabled by recoveryTime 0:", 0);
+}
+#endif /* !FWTPM_NO_DA && HAVE_ECC */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27399,6 +27439,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_global_write_lock_attribute();
     test_fwtpm_nv_global_write_lock_all_or_none();
     test_fwtpm_nv_global_write_lock_at_capacity();
+#endif
+#if !defined(FWTPM_NO_DA) && defined(HAVE_ECC)
+    test_fwtpm_da_recovery_zero_disables();
 #endif
 
     /* Destructive tests last (Clear changes state) */

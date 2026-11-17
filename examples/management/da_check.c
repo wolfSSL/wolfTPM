@@ -169,7 +169,7 @@ int TPM2_DA_Check_Example(void* userCtx, int argc, char *argv[])
         daSaved = 1;
 
         wolfTPM2_SetAuthPassword(&dev, 0, NULL);
-        rc = wolfTPM2_DictionaryAttackParameters(&dev, 3, 0, 0);
+        rc = wolfTPM2_DictionaryAttackParameters(&dev, 3, 1000, 0);
         if (rc != 0) goto exit;
 
         /* Bad auth until lockout. */
