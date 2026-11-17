@@ -77,6 +77,16 @@ fall back to a random key in its own secure storage object. Secure storage is
 itself hardware-unique-key encrypted and TA bound, so the journal MAC is
 defense in depth.
 
+Neither the journal MAC nor the encryption detects an older copy of the whole
+NV object being put back, which would rewind NV counters, dictionary attack
+state and the clock. Rollback protection is a property of the OP-TEE storage
+that backs `TEE_STORAGE_PRIVATE`: build OP-TEE so that it is the RPMB file
+system (`CFG_RPMB_FS=y` with `CFG_REE_FS=n`), or the REE file system with its
+integrity anchored in RPMB (`CFG_REE_FS_INTEGRITY_RPMB=y`, which also needs
+`CFG_RPMB_FS=y`). The plain REE file
+system does not provide it against an attacker who controls the normal world
+file system.
+
 The key is resolved once, when the trusted application starts, and the choice
 between the two is made only while the journal is empty. The fallback object
 existing is the record of that choice. Once a journal exists, failing to
