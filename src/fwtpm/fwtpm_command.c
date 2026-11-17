@@ -17191,8 +17191,8 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse: TPM2B data + offset */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &dataSize);
-        if (dataSize > FWTPM_MAX_NV_DATA) {
-            rc = TPM_RC_SIZE;
+        if (dataSize > MAX_NV_BUFFER_SIZE || dataSize > FWTPM_MAX_NV_DATA) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
         else if (cmd->pos + dataSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -17202,7 +17202,10 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
         TPM2_Packet_ParseU16(cmd, &offset);
 
-        if ((UINT32)offset + dataSize > nv->nvPublic.dataSize) {
+        if (offset > nv->nvPublic.dataSize) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if ((UINT32)offset + dataSize > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }
     }
@@ -17288,7 +17291,13 @@ static TPM_RC FwCmd_NV_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &readSize);
         TPM2_Packet_ParseU16(cmd, &offset);
 
-        if ((UINT32)offset + readSize > nv->nvPublic.dataSize) {
+        if (readSize > MAX_NV_BUFFER_SIZE) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+        }
+        else if (offset > nv->nvPublic.dataSize) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if ((UINT32)offset + readSize > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }
     }
@@ -19026,8 +19035,8 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if ((UINT32)(readOffset + readSize) > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }
-        if (rc == 0 && !digestMode && readSize > FWTPM_MAX_NV_DATA) {
-            rc = TPM_RC_SIZE;
+        if (rc == 0 && !digestMode && readSize > MAX_NV_BUFFER_SIZE) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_3;
         }
     }
 

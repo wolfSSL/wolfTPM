@@ -14804,6 +14804,36 @@ static void test_fwtpm_nv_certify_digest_mode(void)
     printf("Test fwTPM:\tNV_Certify (digest mode):\tPassed\n");
 }
 
+#ifdef HAVE_ECC
+/* NV_Certify with password authorization for signHandle and ownerAuth */
+static TPM_RC SendNvCertifyCmd(FWTPM_CTX* ctx, UINT32 keyH, UINT32 nvIndex,
+    UINT16 size, UINT16 offset)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_NV_Certify);
+    int rspSize = 0;
+    int i;
+
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4; /* two password sessions */
+    for (i = 0; i < 2; i++) {
+        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2; /* nonce */
+        gCmd[pos++] = 0;                   /* attributes */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* hmac */
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, size); pos += 2;
+    PutU16BE(gCmd + pos, offset); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+#endif /* HAVE_ECC */
+
 #if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* TPM2_NV_Certify signed by a Pure ML-DSA key, verified with the wolfCrypt
  * ML-DSA verifier. Exercises the same FwSignAttest path as Quote/Certify. */
@@ -16091,6 +16121,63 @@ static void test_fwtpm_nv_read_zero_size(void)
         TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("NV_Read zero size:", 0);
+}
+
+/* One NV_Write, NV_Read or NV_Certify moves at most MAX_NV_BUFFER_SIZE
+ * octets, the advertised TPM_PT_NV_BUFFER_MAX. */
+static void test_fwtpm_nv_buffer_max(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 nvIdx = 0x01500A02;
+    int cmdSz, rspSize;
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    UINT32 keyH;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, MAX_NV_BUFFER_SIZE + 8,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL,
+        MAX_NV_BUFFER_SIZE + 1, 0), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL,
+        MAX_NV_BUFFER_SIZE, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL, 8,
+        MAX_NV_BUFFER_SIZE), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL,
+        MAX_NV_BUFFER_SIZE + 1, 0), TPM_RC_VALUE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL,
+        MAX_NV_BUFFER_SIZE, 8), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4), MAX_NV_BUFFER_SIZE);
+
+    /* An offset past the index is a bad offset, not a bad range */
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL, 1,
+        MAX_NV_BUFFER_SIZE + 8), TPM_RC_NV_RANGE);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, nvIdx, NULL, 1,
+        MAX_NV_BUFFER_SIZE + 9), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL, 1,
+        MAX_NV_BUFFER_SIZE + 8), TPM_RC_NV_RANGE);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Read, nvIdx, NULL, 1,
+        MAX_NV_BUFFER_SIZE + 9), TPM_RC_VALUE | TPM_RC_P | TPM_RC_2);
+
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+    AssertIntEQ(SendNvCertifyCmd(&ctx, keyH, nvIdx, MAX_NV_BUFFER_SIZE + 1,
+        0), TPM_RC_VALUE | TPM_RC_P | TPM_RC_3);
+    FlushHandle(&ctx, keyH);
+#endif
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV buffer maximum:", 0);
 }
 
 /* State-changing handlers that persist to NV must report failure, not
@@ -26134,6 +26221,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_yes_no_range();
     test_fwtpm_nv_owner_access_platform_index();
     test_fwtpm_nv_read_zero_size();
+    test_fwtpm_nv_buffer_max();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
     test_fwtpm_nv_compaction_commit();
