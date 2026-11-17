@@ -16903,6 +16903,49 @@ static void test_fwtpm_yes_no_range(void)
     fwtpm_pass("TPMI_YES_NO range:", 0);
 }
 
+static TPM_RC SendClearControl(FWTPM_CTX* ctx, UINT32 authHandle,
+    byte disable)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ClearControl);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, authHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    gCmd[pos++] = disable;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* While disableClear is set, Clear fails with TPM_RC_DISABLED for both of
+ * its authorizations and changes nothing (Part 3 Sec.24.6). */
+static void test_fwtpm_clear_disabled(void)
+{
+    FWTPM_CTX ctx;
+    byte ownerSeed[FWTPM_SEED_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memcpy(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed));
+
+    AssertIntEQ(SendClearControl(&ctx, TPM_RH_PLATFORM, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.disableClear, 1);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_DISABLED);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
+        TPM_RC_DISABLED);
+    AssertIntEQ(memcmp(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed)), 0);
+
+    AssertIntEQ(SendClearControl(&ctx, TPM_RH_PLATFORM, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.disableClear, 0);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_SUCCESS);
+    AssertIntNE(memcmp(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed)), 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear while disableClear is set:", 0);
+}
+
 static TPM_RC SendNvHandleAccessCmd(FWTPM_CTX* ctx, UINT32 authHandle,
     UINT32 nvIndex, int isWrite)
 {
@@ -31032,6 +31075,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_define_type_sizes();
     test_fwtpm_clear_control_nv_failure();
     test_fwtpm_yes_no_range();
+    test_fwtpm_clear_disabled();
     test_fwtpm_nv_owner_access_platform_index();
     test_fwtpm_nv_read_zero_size();
     test_fwtpm_nv_buffer_max();
