@@ -13059,7 +13059,7 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* A session-tagged command with no auth handles still carries an auth
      * area between the handles and parameters; skip it before parsing */
-    if (cmdTag == TPM_ST_SESSIONS) {
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
         rc = FwSkipAuthArea(cmd, cmdSize);
     }
 
@@ -13477,7 +13477,7 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &sessHandle);
 
     /* Skip auth area if present */
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse pcrDigest (TPM2B) */
     if (rc == 0) {
@@ -13924,7 +13924,7 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
     TPM2_Packet_ParseU32(cmd, &sessHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &digestCount);
@@ -15054,7 +15054,7 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &sessHandle);
 
     /* Skip auth area */
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse operandB (TPM2B) */
     TPM2_Packet_ParseU16(cmd, &operandBSz);
@@ -16628,7 +16628,7 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &authHandle);
     TPM2_Packet_ParseU32(cmd, &nvHandle);
     TPM2_Packet_ParseU32(cmd, &sessHandle);
-    if (cmdTag == TPM_ST_SESSIONS)
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS)
         rc = FwSkipAuthArea(cmd, cmdSize);
 
     nv = FwFindNvIndex(ctx, nvHandle);
@@ -16698,10 +16698,6 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         printf("fwTPM: PolicyAuthorizeNV(auth=0x%x, nv=0x%x, sess=0x%x)\n",
             authHandle, nvHandle, sessHandle);
     #endif
-        /* Step 1: Reset policyDigest to zero */
-        XMEMSET(sess->policyDigest.buffer, 0, dSz);
-        sess->policyDigest.size = (UINT16)dSz;
-
         /* Compute nvIndexName */
         FwComputeNvName(nv, nvName, &nvNameSz);
 
@@ -16714,6 +16710,10 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             hashInit = 1;
         }
         if (rc == 0) {
+            /* Step 1: Reset policyDigest to zero */
+            XMEMSET(sess->policyDigest.buffer, 0, dSz);
+            sess->policyDigest.size = (UINT16)dSz;
+
             wc_HashUpdate(hashCtx, wcHash,
                 sess->policyDigest.buffer, sess->policyDigest.size);
             FwStoreU32BE(ccBuf, cc);
@@ -17540,7 +17540,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     TPM2_Packet_ParseU32(cmd, &authHandle);
     TPM2_Packet_ParseU32(cmd, &nvHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     nv = FwFindNvIndex(ctx, nvHandle);
     if (nv == NULL) {
@@ -20042,7 +20042,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Parse keyA handle */
     TPM2_Packet_ParseU32(cmd, &keyAHandle);
-    if (cmdTag == TPM_ST_SESSIONS)
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS)
         rc = FwSkipAuthArea(cmd, cmdSize);
 
     keyA = FwFindObject(ctx, keyAHandle);

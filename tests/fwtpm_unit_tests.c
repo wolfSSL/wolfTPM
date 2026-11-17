@@ -12728,6 +12728,67 @@ static void test_fwtpm_policy_nv_trial_no_validation(void)
     fwtpm_pass("Policy NV trial session:", 0);
 }
 
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+/* A failed small-stack allocation is reported as TPM_RC_MEMORY and leaves
+ * the session policyDigest as it was. */
+static void test_fwtpm_policy_nv_alloc_failure(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    UINT32 nvIdx = 0x01500A0A;
+    UINT32 sessH;
+    byte before[WC_SHA256_DIGEST_SIZE];
+    int i, cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, WC_SHA256_DIGEST_SIZE,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA |
+        ((UINT32)TPM_NT_EXTEND << 4));
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    fwtpm_test_fail_next_alloc();
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Extend, nvIdx, NULL, 8, 0),
+        TPM_RC_MEMORY);
+    AssertIntEQ(gFwTpmAllocFailCount, 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Extend, nvIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, sessH, 2, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(sess->policyDigest.size, WC_SHA256_DIGEST_SIZE);
+    memcpy(before, sess->policyDigest.buffer, sizeof(before));
+
+    fwtpm_test_fail_next_alloc();
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyNV, nvIdx, sessH, 2, 0),
+        TPM_RC_MEMORY);
+    AssertIntEQ(gFwTpmAllocFailCount, 0);
+    fwtpm_test_fail_next_alloc();
+    AssertIntEQ(SendPolicyNvCmd(&ctx, TPM_CC_PolicyAuthorizeNV, nvIdx, sessH,
+        0, 0), TPM_RC_MEMORY);
+    AssertIntEQ(gFwTpmAllocFailCount, 0);
+    AssertIntEQ(memcmp(before, sess->policyDigest.buffer, sizeof(before)),
+        0);
+    FlushHandle(&ctx, sessH);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Policy NV allocation failure:", 0);
+}
+#endif /* WOLFTPM_FWTPM_UNIT_TEST && WOLFTPM_SMALL_STACK */
+
 /* PolicyAuthorizeNV reads a TPMT_HA from the index: a hash algorithm that
  * must be the session's, then the approved digest, with any trailing octets
  * ignored (Part 3 Sec.23.22). */
@@ -28282,6 +28343,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policyauthorizenv_owner_read_denied();
     test_fwtpm_policy_nv_read_locked();
     test_fwtpm_policy_nv_trial_no_validation();
+#if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
+    test_fwtpm_policy_nv_alloc_failure();
+#endif
     test_fwtpm_policy_authorize_nv_tpmt_ha();
     test_fwtpm_policy_locality_enforced();
     test_fwtpm_policy_cphash_enforced();
