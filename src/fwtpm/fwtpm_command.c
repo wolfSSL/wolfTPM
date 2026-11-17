@@ -6165,6 +6165,7 @@ static TPM_RC FwSerializeObjectContext(FWTPM_CTX* ctx, FWTPM_Object* obj,
     TPM2_Packet_AppendBytes(&packet, obj->authValue.buffer, obj->authValue.size);
     TPM2_Packet_AppendU16(&packet, (UINT16)obj->privKeySize);
     TPM2_Packet_AppendBytes(&packet, obj->privKey, obj->privKeySize);
+    TPM2_Packet_AppendU8(&packet, (UINT8)(obj->publicOnly != 0));
     if (packet.overflow) {
         rc = TPM_RC_SIZE;
     }
@@ -6185,6 +6186,7 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
     byte proof[WC_SHA256_DIGEST_SIZE];
     UINT16 pubSz, authSz = 0, privateSz = 0;
     int authPos = 0, privatePos = 0, publicEnd;
+    int flagPos = 0;
     UINT32 expectedMarker;
 
     /* hierarchy + proof + public/auth/private size fields */
@@ -6243,7 +6245,15 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         TPM2_Packet_ParseU16(&packet, &privateSz);
         privatePos = packet.pos;
         if (privateSz > FWTPM_MAX_PRIVKEY_DER ||
-                privatePos + privateSz != plainSz) {
+                privatePos + privateSz > plainSz) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    /* The public-only flag trails the private data; a blob saved without it
+     * ends there */
+    if (rc == 0 && privatePos + privateSz != plainSz) {
+        flagPos = privatePos + privateSz;
+        if (flagPos + 1 != plainSz) {
             rc = TPM_RC_INTEGRITY;
         }
     }
@@ -6260,6 +6270,10 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         XMEMCPY(obj->authValue.buffer, plain + authPos, authSz);
         obj->privKeySize = privateSz;
         XMEMCPY(obj->privKey, plain + privatePos, privateSz);
+        /* Without the flag only an object that has no private data is taken
+         * to be public-only */
+        obj->publicOnly = (flagPos != 0) ? (plain[flagPos] != 0) :
+            (privateSz == 0);
         rc = FwComputePublicName(&obj->pub, &obj->name);
         if (rc != 0) {
             wc_ForceZero(obj, sizeof(*obj));
@@ -7790,7 +7804,7 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         if (rc == 0 && (obj->hierarchy == TPM_RH_NULL ||
-                obj->privKeySize == 0 ||
+                obj->publicOnly ||
                 (obj->pub.objectAttributes & TPMA_OBJECT_stClear) != 0)) {
             rc = TPM_RC_ATTRIBUTES;
         }
@@ -8778,6 +8792,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             XMEMCPY(obj->privKey, privKeyDer, (size_t)privKeyDerSz);
         }
         obj->privKeySize = privKeyDerSz;
+        obj->publicOnly = (inPrivSize == 0);
         /* Per Part 3 Sec.12.3.1, the supplied hierarchy field controls which
          * proofValue (if any) signs tickets produced by this key; default
          * to TPM_RH_NULL when caller passed 0 so the resulting object
@@ -23435,6 +23450,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             int policyDiff;
             word32 cmpSz;
 
+            /* An object loaded without its sensitive area has no authPolicy
+             * to authorize with (Part 3 Sec.18.2). */
+            if ((entityH & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000)) {
+                FWTPM_Object* pubObj = FwFindObject(ctx, entityH);
+                if (pubObj != NULL && pubObj->publicOnly) {
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                        TPM_ST_NO_SESSIONS, TPM_RC_AUTH_UNAVAILABLE);
+                    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                    return TPM_RC_SUCCESS;
+                }
+            }
+
             /* Find entity's authPolicy by handle type */
 #ifndef FWTPM_NO_NV
             if ((entityH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
@@ -23835,7 +23862,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* userWithAuth enforcement: per TPM 2.0 spec Part 1, Section 19.7.1,
      * if an object has authPolicy set and userWithAuth is CLEAR, only a
      * policy session can authorize the object. Reject password and HMAC
-     * sessions for such objects. */
+     * sessions for such objects. An object loaded without its sensitive area
+     * has no authValue to authorize with either (Part 3 Sec.18.2). */
     for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
         if (cmdAuths[pj].handle == TPM_RS_PW ||
             (cmdAuths[pj].sess != NULL &&
@@ -23846,8 +23874,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 (entityH & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000)) {
                 uwObj = FwFindObject(ctx, entityH);
             }
-            if (uwObj != NULL && uwObj->pub.authPolicy.size > 0 &&
-                !(uwObj->pub.objectAttributes & TPMA_OBJECT_userWithAuth)) {
+            if (uwObj != NULL && (uwObj->publicOnly ||
+                (uwObj->pub.authPolicy.size > 0 &&
+                 !(uwObj->pub.objectAttributes & TPMA_OBJECT_userWithAuth)))) {
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: Password/HMAC auth rejected for handle "
                     "0x%x — policy required (userWithAuth clear)\n", entityH);

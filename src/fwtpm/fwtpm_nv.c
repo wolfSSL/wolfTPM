@@ -671,6 +671,9 @@ static int FwNvMarshalObject(byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvMarshalU32(buf, pos, maxSz, obj->hierarchy);
     }
+    if (rc == 0) {
+        rc = FwNvMarshalU8(buf, pos, maxSz, (UINT8)(obj->publicOnly != 0));
+    }
     return rc;
 }
 
@@ -680,6 +683,7 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     int rc;
     int skipEntry = 0;
     UINT16 privSz;
+    UINT8 publicOnly = 0;
 
     XMEMSET(obj, 0, sizeof(FWTPM_Object));
 
@@ -721,6 +725,15 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     else if (rc == 0 && obj->handle >= PLATFORM_PERSISTENT) {
         obj->hierarchy = TPM_RH_PLATFORM;
+    }
+    /* Optional trailing public-only flag. A record written without it holds
+     * a public-only object when it has no private data. */
+    if (rc == 0 && *pos + 1 <= maxSz) {
+        rc = FwNvUnmarshalU8(buf, pos, maxSz, &publicOnly);
+        obj->publicOnly = (publicOnly != 0);
+    }
+    else if (rc == 0) {
+        obj->publicOnly = (obj->privKeySize == 0);
     }
     if (rc == 0) {
         /* Validate the handle after consuming the complete record so a
@@ -2809,7 +2822,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             word32 needed;
             pos = 0;
             needed = 4 + FWTPM_NV_PUBAREA_EST + FWTPM_NV_NAME_EST + 2 +
-                     ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST;
+                     ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST + 1;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -3326,7 +3339,7 @@ int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
     }
 
     bufSz = 4 + FWTPM_NV_PUBAREA_EST + 2 + FWTPM_NV_NAME_EST + 2 +
-            obj->privKeySize + 2 + FWTPM_NV_AUTH_EST;
+            obj->privKeySize + 2 + FWTPM_NV_AUTH_EST + 1;
 
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {

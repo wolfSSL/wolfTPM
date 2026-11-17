@@ -6544,8 +6544,8 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
     !defined(FWTPM_NO_ATTESTATION)
 /* A public-only ML-DSA key (loaded via TPM2_LoadExternal, no private seed)
  * must not be usable for attestation: signing from its all-zero seed would
- * derive a universally reproducible key unrelated to the public key. Quote
- * must return TPM_RC_KEY. */
+ * derive a universally reproducible key unrelated to the public key. It has
+ * no authValue to authorize with, so Quote returns TPM_RC_AUTH_UNAVAILABLE. */
 static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
 {
     FWTPM_CTX ctx;
@@ -6602,7 +6602,7 @@ static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
 
     FlushHandle(&ctx, handle);
     FWTPM_Cleanup(&ctx);
@@ -6645,8 +6645,9 @@ static UINT32 LoadPublicOnlyMldsa(FWTPM_CTX* ctx, UINT16 algType)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
-/* A public-only ML-DSA key has no private seed. SignSequenceComplete and
- * SignDigest must return TPM_RC_KEY rather than sign from an all-zero seed. */
+/* A public-only ML-DSA key has no private seed and no authValue.
+ * SignSequenceComplete and SignDigest must return TPM_RC_AUTH_UNAVAILABLE
+ * rather than sign from an all-zero seed. */
 static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
 {
     FWTPM_CTX ctx;
@@ -6693,7 +6694,7 @@ static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
 
     FlushHandle(&ctx, seqHandle);
     FlushHandle(&ctx, handle);
@@ -6721,7 +6722,7 @@ static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
 
     FlushHandle(&ctx, handle);
 #endif /* WOLFTPM_HASH_MLDSA */
@@ -26883,6 +26884,286 @@ static void test_fwtpm_policy_session_needs_auth_policy(void)
 }
 #endif /* !FWTPM_NO_POLICY && !FWTPM_NO_NV */
 
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+/* Certify objectHandle with signHandle. A zero sessH authorizes the object
+ * with the Empty Auth password, otherwise with that session. */
+static TPM_RC SendCertify(FWTPM_CTX* ctx, UINT32 objectHandle,
+    UINT32 signHandle, UINT32 sessH)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Certify);
+    int rspSize = 0;
+    int authStart;
+
+    PutU32BE(gCmd + pos, objectHandle); pos += 4;
+    PutU32BE(gCmd + pos, signHandle); pos += 4;
+    authStart = pos;
+    pos = AppendAuth(gCmd, pos, (sessH != 0) ? sessH : (TPM_HANDLE)TPM_RS_PW,
+        (sessH != 0) ? TPMA_SESSION_continueSession : 0, NULL, 0);
+    /* second entry in the same authorization area */
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+#ifndef FWTPM_NO_CONTEXT
+/* Save the context of objH to saved and take the trailing public-only flag,
+ * which has the value flag, off its protected area. Returns the size. */
+static int SaveContextWithoutFlag(FWTPM_CTX* ctx, UINT32 objH, byte* saved,
+    int savedMax, byte flag)
+{
+    const int wrapOff = 8 + 4 + 4 + 2 + 4 + 4;
+    byte plain[MAX_CONTEXT_SIZE];
+    int rspSize = 0, ctxSz, plainSz = 0, wrappedSz = 0;
+    UINT64 seq;
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, objH);
+    FWTPM_ProcessCommand(ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSz, wrapOff);
+    AssertIntLE(ctxSz, savedMax);
+    memcpy(saved, gRsp + TPM2_HEADER_SIZE, (size_t)ctxSz);
+
+    seq = ((UINT64)GetU32BE(saved) << 32) | GetU32BE(saved + 4);
+    AssertIntEQ(FwUnwrapContextBlob(ctx, seq, FWTPM_CTX_TYPE_OBJECT,
+        saved + wrapOff, ctxSz - wrapOff, plain, (int)sizeof(plain),
+        &plainSz), 0);
+    AssertIntGT(plainSz, 1);
+    plainSz--;
+    AssertIntEQ(plain[plainSz], flag);
+    AssertIntEQ(FwWrapContextBlob(ctx, seq, FWTPM_CTX_TYPE_OBJECT, plain,
+        plainSz, saved + wrapOff, savedMax - wrapOff, &wrappedSz), 0);
+    PutU16BE(saved + 16, (UINT16)(8 + wrappedSz));
+    wc_ForceZero(plain, sizeof(plain));
+    return wrapOff + wrappedSz;
+}
+#endif /* !FWTPM_NO_CONTEXT */
+
+/* An object loaded without its sensitive area has no authValue or authPolicy
+ * to authorize with, so it cannot be the certified object. */
+static void test_fwtpm_public_only_object_auth_unavailable(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 signH, pubOnlyH;
+#ifndef FWTPM_NO_POLICY
+    UINT32 sessH;
+#endif
+    byte pub[sizeof(TPM2B_PUBLIC)];
+#ifndef FWTPM_NO_CONTEXT
+    UINT32 loadedH;
+    byte saved[sizeof(TPMS_CONTEXT)];
+    int ctxSz;
+#endif
+    int pubSz, pos, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    signH = CreateEccSignPrimaryScheme(&ctx, 0x00050472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    AssertIntEQ(SendCertify(&ctx, signH, signH, 0), TPM_RC_SUCCESS);
+
+    /* Reload the same public area on its own */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ReadPublic);
+    PutU32BE(gCmd + pos, signH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pubSz = 2 + GetU16BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntLE(pubSz, (int)sizeof(pub));
+    memcpy(pub, gRsp + TPM2_HEADER_SIZE, pubSz);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_LoadExternal);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* inPrivate */
+    memcpy(gCmd + pos, pub, pubSz); pos += pubSz;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pubOnlyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    AssertIntEQ(SendCertify(&ctx, pubOnlyH, signH, 0),
+        TPM_RC_AUTH_UNAVAILABLE);
+#ifndef FWTPM_NO_POLICY
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendCertify(&ctx, pubOnlyH, signH, sessH),
+        TPM_RC_AUTH_UNAVAILABLE);
+    FlushHandle(&ctx, sessH);
+#endif
+
+#ifndef FWTPM_NO_CONTEXT
+    /* A saved context does not gain a sensitive area */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, pubOnlyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntLE(ctxSz, (int)sizeof(saved));
+    memcpy(saved, gRsp + TPM2_HEADER_SIZE, (size_t)ctxSz);
+    FlushHandle(&ctx, pubOnlyH);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, saved, (size_t)ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pubOnlyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendCertify(&ctx, pubOnlyH, signH, 0),
+        TPM_RC_AUTH_UNAVAILABLE);
+
+    /* A context saved without the flag is public-only when it holds no
+     * private data */
+    ctxSz = SaveContextWithoutFlag(&ctx, pubOnlyH, saved, (int)sizeof(saved),
+        1);
+    FlushHandle(&ctx, pubOnlyH);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, saved, (size_t)ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pubOnlyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendCertify(&ctx, pubOnlyH, signH, 0),
+        TPM_RC_AUTH_UNAVAILABLE);
+    ctxSz = SaveContextWithoutFlag(&ctx, signH, saved, (int)sizeof(saved),
+        0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, saved, (size_t)ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendCertify(&ctx, loadedH, signH, 0), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, loadedH);
+#endif
+
+    FlushHandle(&ctx, pubOnlyH);
+    FlushHandle(&ctx, signH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Public-only object cannot authorize:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
+
+#ifndef FWTPM_NO_NV
+/* Take the trailing public-only flag off the last journal record, a
+ * persistent object appended at recPos, and restart on that journal. Returns
+ * the object. */
+static FWTPM_Object* NvReloadPersistentWithoutFlag(FWTPM_CTX* ctx,
+    word32 recPos, UINT32 persH)
+{
+    FWTPM_NV_HAL hal = ctx->nvHal;
+    word32 writePos = ctx->nvWritePos;
+    word32 len = (word32)gMockNvStore[recPos + 2] |
+        ((word32)gMockNvStore[recPos + 3] << 8);
+    int i;
+
+    AssertIntEQ(gMockNvStore[recPos], FWTPM_NV_TAG_PERSISTENT & 0xFF);
+    AssertIntEQ(gMockNvStore[recPos + 1], FWTPM_NV_TAG_PERSISTENT >> 8);
+    AssertIntEQ(recPos + 4 + len, writePos);
+    AssertIntEQ(gMockNvStore[writePos - 1], 0);
+    len--;
+    writePos--;
+    gMockNvStore[recPos + 2] = (byte)len;
+    gMockNvStore[recPos + 3] = (byte)(len >> 8);
+    gMockNvStore[8] = (byte)writePos;
+    gMockNvStore[9] = (byte)(writePos >> 8);
+    gMockNvStore[10] = (byte)(writePos >> 16);
+    gMockNvStore[11] = (byte)(writePos >> 24);
+
+    wc_FreeRng(&ctx->rng);
+    memset(ctx, 0, sizeof(*ctx));
+    AssertIntEQ(FWTPM_NV_SetHAL(ctx, &hal), 0);
+    AssertIntEQ(FWTPM_Init(ctx), 0);
+    for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+        if (ctx->persistent[i].used && ctx->persistent[i].handle == persH) {
+            return &ctx->persistent[i];
+        }
+    }
+    return NULL;
+}
+
+/* A persistent object record written before the public-only flag was kept
+ * holds a public-only object when it has no private data. */
+static void test_fwtpm_nv_persistent_without_public_only_flag(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    FWTPM_Object* obj;
+    const UINT32 persH = 0x81000A21;
+    UINT32 keyH;
+    word32 recPos;
+    int i, slot = -1, pos, rspSize = 0;
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    gMockNvFailHeader = 0;
+    gMockNvFailAfterCompact = 0;
+    gMockNvCompactSeen = 0;
+    gMockNvCtx = NULL;
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&hal, 0, sizeof(hal));
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    recPos = ctx.nvWritePos;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_EvictControl);
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    obj = NvReloadPersistentWithoutFlag(&ctx, recPos, persH);
+    AssertNotNull(obj);
+    AssertIntGT(obj->privKeySize, 0);
+    AssertIntEQ(obj->publicOnly, 0);
+
+    /* The same object as an earlier EvictControl stored it from a
+     * LoadExternal with no private area */
+    for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+        if (&ctx.persistent[i] == obj) {
+            slot = i;
+        }
+    }
+    obj->privKeySize = 0;
+    recPos = ctx.nvWritePos;
+    AssertIntEQ(FWTPM_NV_SavePersistent(&ctx, slot), 0);
+    obj = NvReloadPersistentWithoutFlag(&ctx, recPos, persH);
+    AssertNotNull(obj);
+    AssertIntEQ(obj->privKeySize, 0);
+    AssertIntEQ(obj->publicOnly, 1);
+
+    /* Saved again with the flag it stays public-only */
+    AssertIntEQ(FWTPM_NV_Save(&ctx), 0);
+    wc_FreeRng(&ctx.rng);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &hal), 0);
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    AssertIntEQ(ctx.persistent[slot].handle, persH);
+    AssertIntEQ(ctx.persistent[slot].publicOnly, 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV persistent object without flag:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27667,6 +27948,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
     test_fwtpm_policy_session_needs_auth_policy();
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    test_fwtpm_public_only_object_auth_unavailable();
+#endif
+#ifndef FWTPM_NO_NV
+    test_fwtpm_nv_persistent_without_public_only_flag();
 #endif
 
     /* Destructive tests last (Clear changes state) */
