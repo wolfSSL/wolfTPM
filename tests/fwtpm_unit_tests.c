@@ -17854,7 +17854,7 @@ static int BuildHmacSessionCmd(UINT32 cc, int nHandles, UINT32 handle,
     if (withPw) {
         PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
         PutU16BE(gCmd + pos, 0); pos += 2;
-        gCmd[pos++] = attrs;
+        gCmd[pos++] = (UINT8)(attrs & TPMA_SESSION_continueSession);
         PutU16BE(gCmd + pos, 0); pos += 2;
     }
     PutU32BE(gCmd + pos, sessionH); pos += 4;
@@ -17883,7 +17883,7 @@ static void SweepSessionHmac(FWTPM_CTX* ctx, FWTPM_Session* sess, UINT32 cc,
     byte pHash[TPM_SHA256_DIGEST_SIZE];
     byte authHmac[TPM_SHA256_DIGEST_SIZE];
     UINT16 nonceSz = sess->nonceTPM.size;
-    UINT8 attrs = TPMA_SESSION_continueSession;
+    UINT8 attrs = TPMA_SESSION_continueSession | TPMA_SESSION_audit;
     int pos, rspSize, h, bad, rejected, cpSz = 0;
     TPM_RC rc;
 
@@ -18071,7 +18071,7 @@ static void test_fwtpm_session_params_after_auth(void)
     byte pHash[TPM_SHA256_DIGEST_SIZE];
     byte authHmac[TPM_SHA256_DIGEST_SIZE];
     UINT16 nonceSz;
-    UINT8 attrs = TPMA_SESSION_continueSession;
+    UINT8 attrs = TPMA_SESSION_continueSession | TPMA_SESSION_audit;
     UINT32 sessionH;
     int i, pos, rspSize;
 
@@ -18429,14 +18429,14 @@ static void test_fwtpm_param_enc_session_no_handle(void)
     for (withNonce = 0; withNonce <= 1; withNonce++) {
         ComputeAuthHmac(noKey, 0, pHash, nonceCaller,
             (UINT16)sizeof(nonceCaller), nonceH, nonceHSz, nonceE,
-            withNonce ? nonceESz : 0, attrs, authHmac);
+            withNonce ? nonceESz : 0, attrs | TPMA_SESSION_audit, authHmac);
         pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_GetRandom);
         authStart = pos; pos += 4;
         PutU32BE(gCmd + pos, hmacSess); pos += 4;
         PutU16BE(gCmd + pos, (UINT16)sizeof(nonceCaller)); pos += 2;
         XMEMCPY(gCmd + pos, nonceCaller, sizeof(nonceCaller));
         pos += sizeof(nonceCaller);
-        gCmd[pos++] = attrs;
+        gCmd[pos++] = attrs | TPMA_SESSION_audit;
         PutU16BE(gCmd + pos, (UINT16)sizeof(authHmac)); pos += 2;
         XMEMCPY(gCmd + pos, authHmac, sizeof(authHmac));
         pos += sizeof(authHmac);
@@ -18459,6 +18459,82 @@ static void test_fwtpm_param_enc_session_no_handle(void)
     FlushHandle(&ctx, encSess);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("No-handle HMAC covers encrypt session nonce:", 0);
+}
+
+/* Session attribute rules of Part 3 Sec.5.5 on GetRandom, which authorizes
+ * nothing and has a sized response but no sized command parameter. */
+static void test_fwtpm_session_attribute_rules(void)
+{
+    static const struct {
+        UINT8 attrs;
+        TPM_RC rc;
+    } cases[] = {
+        { TPMA_SESSION_continueSession, TPM_RC_ATTRIBUTES },
+        { TPMA_SESSION_continueSession | TPMA_SESSION_audit, TPM_RC_SUCCESS },
+        { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt,
+            TPM_RC_SUCCESS },
+        { TPMA_SESSION_continueSession | TPMA_SESSION_decrypt,
+            TPM_RC_ATTRIBUTES },
+        { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt |
+            TPMA_SESSION_decrypt, TPM_RC_ATTRIBUTES },
+        { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt |
+            TPMA_SESSION_auditExclusive, TPM_RC_ATTRIBUTES },
+        { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt |
+            TPMA_SESSION_auditReset, TPM_RC_ATTRIBUTES }
+    };
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    UINT32 sessH;
+    byte nonceTPM[TPM_MAX_DIGEST_SIZE];
+    UINT16 nonceSz = 0;
+    byte nonceCaller[16];
+    byte noKey[1] = {0};
+    byte cpBuf[6];
+    byte pHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+    int pos, rspSize;
+    size_t i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartParamEncSessionHelper(&ctx, TPM_SE_HMAC, TPM_ALG_XOR,
+        nonceTPM, &nonceSz);
+    AssertIntNE(sessH, 0);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+
+    memset(nonceCaller, 0x5C, sizeof(nonceCaller));
+    PutU32BE(cpBuf, TPM_CC_GetRandom);
+    PutU16BE(cpBuf + 4, 16);
+    AssertIntEQ(wc_Sha256Hash(cpBuf, sizeof(cpBuf), pHash), 0);
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        ComputeAuthHmac(noKey, 0, pHash, nonceCaller,
+            (UINT16)sizeof(nonceCaller), sess->nonceTPM.buffer,
+            sess->nonceTPM.size, NULL, 0, cases[i].attrs, authHmac);
+        pos = BuildHmacSessionCmd(TPM_CC_GetRandom, 0, 0, 0, sessH,
+            nonceCaller, sizeof(nonceCaller), cases[i].attrs, authHmac,
+            sizeof(authHmac));
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), cases[i].rc);
+    }
+
+    /* a password session cannot decrypt, encrypt or audit */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_GetRandom);
+    pos = AppendAuth(gCmd, pos, TPM_RS_PW, TPMA_SESSION_encrypt, NULL, 0);
+    PutU16BE(gCmd + pos, 16); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Session attribute rules:", 0);
 }
 
 /* With an HMAC authorization first, its HMAC must also cover the nonceTPM
@@ -18812,7 +18888,7 @@ static void test_fwtpm_command_crypto_allocation_failure(void)
     PutU32BE(gCmd + pos, sessH); pos += 4;
     PutU16BE(gCmd + pos, (UINT16)sizeof(data)); pos += 2;
     XMEMCPY(gCmd + pos, data, sizeof(data)); pos += sizeof(data);
-    gCmd[pos++] = TPMA_SESSION_continueSession;
+    gCmd[pos++] = TPMA_SESSION_continueSession | TPMA_SESSION_audit;
     PutU16BE(gCmd + pos, 0); pos += 2;
     PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -25615,6 +25691,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_session_params_after_auth();
     test_fwtpm_param_enc_session_bound_to_auth();
     test_fwtpm_param_enc_session_no_handle();
+    test_fwtpm_session_attribute_rules();
     test_fwtpm_bound_auth_change_response_hmac();
     test_fwtpm_sequence_complete_response_hmac();
 #endif

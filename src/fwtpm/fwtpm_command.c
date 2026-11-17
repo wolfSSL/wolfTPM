@@ -22800,6 +22800,53 @@ static int FwAllowPreStartupSpdmProbe(FWTPM_CTX* ctx, TPM_CC cmdCode)
 #endif
 }
 
+/* TPMA_SESSION consistency rules for one session (Part 3 Sec.5.5): a
+ * password session carries no use attribute, auditExclusive and auditReset
+ * need audit, only one session audits, decrypt and encrypt need a sized
+ * first command or response parameter, and a session that authorizes no
+ * handle must be there to decrypt, encrypt or audit. An extra password
+ * session holds no state and is tolerated. */
+static TPM_RC FwCheckSessionAttributes(const FWTPM_CMD_ENTRY* entry,
+    UINT32 sessHandle, UINT8 attribs, int sessIdx, int* auditCnt)
+{
+    UINT8 use = attribs & (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+        TPMA_SESSION_audit);
+    UINT16 flags = entry->encDecFlags;
+
+#ifdef FWTPM_NO_PARAM_ENC
+    flags &= (UINT16)~(FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC);
+#endif
+    if (sessHandle == TPM_RS_PW) {
+        if (use != 0 || (attribs & (TPMA_SESSION_auditExclusive |
+                TPMA_SESSION_auditReset)) != 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+    }
+    else {
+        if ((attribs & (TPMA_SESSION_auditExclusive |
+                TPMA_SESSION_auditReset)) != 0 &&
+                (attribs & TPMA_SESSION_audit) == 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+        if ((attribs & TPMA_SESSION_decrypt) != 0 &&
+                (flags & FW_CMD_FLAG_ENC) == 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+        if ((attribs & TPMA_SESSION_encrypt) != 0 &&
+                (flags & FW_CMD_FLAG_DEC) == 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+        if ((attribs & TPMA_SESSION_audit) != 0 && ++(*auditCnt) > 1) {
+            return TPM_RC_ATTRIBUTES;
+        }
+    }
+    if (sessHandle != TPM_RS_PW && sessIdx >= (int)entry->authHandleCnt &&
+            use == 0) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     const byte* cmdBuf, int cmdSize,
     byte* rspBuf, int* rspSize, int locality)
@@ -22818,6 +22865,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int doEncCmd = 0;               /* Decrypt incoming encrypted param */
     int doEncRsp = 0;               /* Encrypt outgoing response param */
 #endif
+    int auditCnt = 0;
     int pj, hj;                     /* Loop indices for auth validation */
     int transientIdx;
     TPM_HANDLE transientHandle;
@@ -23114,6 +23162,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                          * as that would leave cmdHmacSize=0 and bypass
                          * session HMAC verification */
                         rc = TPM_RC_AUTHSIZE;
+                        break;
+                    }
+
+                    rc = FwCheckSessionAttributes(entry, sessHandle, attribs,
+                        cmdAuthCnt, &auditCnt);
+                    if (rc != 0) {
                         break;
                     }
 
