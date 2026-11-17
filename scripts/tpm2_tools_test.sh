@@ -28,16 +28,33 @@ TCTI_TYPE="${TCTI_TYPE:-mssim}"
 export TPM2TOOLS_TCTI="${TCTI_TYPE}:host=localhost,port=${TPM2_SWTPM_PORT:-2321}"
 FWTPM_DEFAULT_PORT=2321
 FWTPM_PORT="${TPM2_SWTPM_PORT:-$FWTPM_DEFAULT_PORT}"
+case $FWTPM_PORT in
+    ''|*[!0-9]*)
+        echo "ERROR: port must be numeric: $FWTPM_PORT" >&2; exit 1 ;;
+esac
+if [ "$FWTPM_PORT" -lt 1 ] || [ "$FWTPM_PORT" -gt 65535 ]; then
+    echo "ERROR: port must be 1-65535: $FWTPM_PORT" >&2
+    exit 1
+fi
 FWTPM_PLAT_PORT=$((FWTPM_PORT + 1))
-# Two runs on one machine must not share context files or a server log, and the
-# port already distinguishes them.
-TEST_TMPDIR=/tmp/fwtpm_tpm2tools.$FWTPM_PORT
+# Two runs on one machine must not share context files or a server log. The
+# directory is unique per invocation, not merely per port, because the journal
+# now lives inside it and the cleanup below removes it: two invocations sharing
+# one path would let the second delete a running server's NV state. The port
+# stays in the name so a stray directory is still identifiable.
+TEST_TMPDIR=$(mktemp -d "/tmp/fwtpm_tpm2tools.$FWTPM_PORT.XXXXXX") || exit 1
+# Registered now so an early exit, such as the tpm2-tools preflight, removes
+# this invocation's directory and nothing else.
+trap 'rm -rf "$TEST_TMPDIR"' EXIT
 VERBOSE=0
 NO_START=0
 PASS=0; FAIL=0; SKIP=0
 SERVER_PID=""
 SERVER_BIN="$WOLFTPM_ROOT/src/fwtpm/fwtpm_server"
-NV_FILE="$WOLFTPM_ROOT/fwtpm_nv.bin"
+# The server writes FWTPM_NV_FILE relative to its working directory, so
+# starting it from the per-run directory scopes the journal and its key file to
+# this port without needing a server option.
+NV_FILE="$TEST_TMPDIR/fwtpm_nv.bin"
 SRV_LOG=/tmp/fwtpm_tpm2tools_srv.$FWTPM_PORT.log
 
 # ----------------------------------------------------------------
@@ -163,6 +180,11 @@ listener_pid_from_proc() {
 # including ones other checkouts and concurrent runs are using.
 kill_server_on_port() {
     local pid
+    if ! command -v ss >/dev/null 2>&1 && [ ! -r /proc/net/tcp ]; then
+        echo "[fwtpm] NOTE: no iproute2 and no /proc; cannot clear a stale" \
+            "server on port $FWTPM_PORT" >&2
+        return 0
+    fi
     pid=$(ss -ltnpH "sport = :$FWTPM_PORT" 2>/dev/null |
         grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)
     [ -n "$pid" ] || pid=$(listener_pid_from_proc)
@@ -173,6 +195,12 @@ kill_server_on_port() {
 }
 
 server_start() {
+    # Only a server we launch needs the platform port, which is one higher, so
+    # bound the command port here rather than for every mode.
+    if [ "$FWTPM_PORT" -gt 65534 ]; then
+        echo "ERROR: port must be 1-65534 to start a server: $FWTPM_PORT" >&2
+        exit 1
+    fi
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
         kill "$SERVER_PID" 2>/dev/null
         wait "$SERVER_PID" 2>/dev/null || true
@@ -180,10 +208,10 @@ server_start() {
     fi
     kill_server_on_port
     sleep 0.2
-    rm -f "$NV_FILE"
+    rm -f "$NV_FILE" "$NV_FILE.key"
 
-    "$SERVER_BIN" --port "$FWTPM_PORT" \
-        --platform-port "$FWTPM_PLAT_PORT" > "$SRV_LOG" 2>&1 &
+    ( cd "$TEST_TMPDIR" && exec "$SERVER_BIN" --port "$FWTPM_PORT" \
+        --platform-port "$FWTPM_PLAT_PORT" ) > "$SRV_LOG" 2>&1 &
     SERVER_PID=$!
     disown "$SERVER_PID" 2>/dev/null || true
 
@@ -224,8 +252,8 @@ server_restart() {
     kill_server_on_port
     sleep 0.3
 
-    "$SERVER_BIN" --port "$FWTPM_PORT" \
-        --platform-port "$FWTPM_PLAT_PORT" >> "$SRV_LOG" 2>&1 &
+    ( cd "$TEST_TMPDIR" && exec "$SERVER_BIN" --port "$FWTPM_PORT" \
+        --platform-port "$FWTPM_PLAT_PORT" ) >> "$SRV_LOG" 2>&1 &
     SERVER_PID=$!
     sleep 1
     if ! kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -270,8 +298,6 @@ done
 # ----------------------------------------------------------------
 # Start server
 # ----------------------------------------------------------------
-mkdir -p "$TEST_TMPDIR"
-
 if [ $NO_START -eq 0 ]; then
     [ -x "$SERVER_BIN" ] || { echo "ERROR: $SERVER_BIN not found"; exit 1; }
     server_start
