@@ -13770,7 +13770,7 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_COMMAND_SIZE;
         }
         else if (digestCount < 2 || digestCount > 8) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
     if (rc == 0) {

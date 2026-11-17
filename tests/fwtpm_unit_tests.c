@@ -12272,6 +12272,51 @@ static void test_fwtpm_policy_password_digest(void)
     fwtpm_pass("PolicyPassword digest:", 0);
 }
 
+static TPM_RC SendPolicyOR(FWTPM_CTX* ctx, UINT32 sessH, UINT32 count,
+    const byte* list, int listSz)
+{
+    int rspSize = 0;
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicyOR);
+
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, count); pos += 4;
+    memcpy(gCmd + pos, list, listSz); pos += listSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A TPML_DIGEST count outside 2..8 is TPM_RC_SIZE (Part 2 Table 125). */
+static void test_fwtpm_policy_or_count(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    byte list[9 * (2 + WC_SHA256_DIGEST_SIZE)];
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+
+    memset(list, 0, sizeof(list));
+    for (i = 0; i < 9; i++) {
+        PutU16BE(list + i * (2 + WC_SHA256_DIGEST_SIZE),
+            WC_SHA256_DIGEST_SIZE);
+    }
+    AssertIntEQ(SendPolicyOR(&ctx, sessH, 1, list,
+        2 + WC_SHA256_DIGEST_SIZE), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendPolicyOR(&ctx, sessH, 9, list, (int)sizeof(list)),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendPolicyOR(&ctx, sessH, 2, list,
+        2 * (2 + WC_SHA256_DIGEST_SIZE)), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyOR digest count:", 0);
+}
+
 #ifndef FWTPM_NO_NV
 /* PolicyNV and PolicyAuthorizeNV must verify the caller is authorized to
  * read the NV index. An OWNER authHandle against an index without
@@ -25808,6 +25853,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_ticket_zero_digest_rejected();
     test_fwtpm_policyauthorize_null_ticket_rejected();
     test_fwtpm_policy_password_digest();
+    test_fwtpm_policy_or_count();
 #ifndef FWTPM_NO_NV
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();
