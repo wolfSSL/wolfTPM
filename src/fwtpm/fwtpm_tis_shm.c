@@ -230,6 +230,8 @@ static void TisShmCleanup(void* ctx)
         FWTPM_TIS_ATOMIC_STORE(shm->regs->magic, 0U);
         TPM2_ForceZero(shm->regs->reg_data,
             sizeof(shm->regs->reg_data));
+        TPM2_ForceZero(shm->regs->cmd_buf, sizeof(shm->regs->cmd_buf));
+        TPM2_ForceZero(shm->regs->rsp_buf, sizeof(shm->regs->rsp_buf));
         if (shm->semRsp != NULL && shm->semRsp != SEM_FAILED) {
             (void)sem_post(shm->semRsp);
         }

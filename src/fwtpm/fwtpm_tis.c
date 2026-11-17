@@ -73,6 +73,14 @@ static UINT32 TisBuildSts(BYTE stsFlags, UINT16 burstCount)
     return ((UINT32)burstCount << 8) | (UINT32)stsFlags;
 }
 
+/* The FIFOs hold whole commands and responses in what may be shared memory,
+ * so they are wiped once consumed. */
+static void TisWipeFifos(FWTPM_TIS_REGS* regs)
+{
+    TPM2_ForceZero(regs->cmd_buf, sizeof(regs->cmd_buf));
+    TPM2_ForceZero(regs->rsp_buf, sizeof(regs->rsp_buf));
+}
+
 /* Handle a single TIS register access */
 static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 {
@@ -111,6 +119,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                              * owner cannot drain the previous locality's bytes
                              * without first writing COMMAND_READY. */
                             if (ctx->tisLocality < 0) {
+                                TisWipeFifos(regs);
                                 regs->cmd_len = 0;
                                 regs->fifo_write_pos = 0;
                                 regs->fifo_read_pos = 0;
@@ -125,6 +134,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                     if (val & FWTPM_ACCESS_ACTIVE_LOCALITY) {
                         /* Release only if it is the current owner */
                         if (ctx->tisLocality == loc) {
+                            TisWipeFifos(regs);
                             ctx->tisLocality = -1;
                             regs->sts = TisBuildSts(0, 0);
                         }
@@ -143,6 +153,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                 }
                 if (val & FWTPM_STS_COMMAND_READY) {
                     /* Reset FIFO for new command */
+                    TisWipeFifos(regs);
                     regs->cmd_len = 0;
                     regs->fifo_write_pos = 0;
                     regs->fifo_read_pos = 0;
@@ -160,6 +171,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                     int procRc = TPM_RC_FAILURE;
                     TPM_RC rc = TPM_RC_SUCCESS; /* FWTPM_ALLOC_BUF sets on OOM */
 
+                    TPM2_ForceZero(regs->rsp_buf, sizeof(regs->rsp_buf));
                     FWTPM_ALLOC_BUF(localCmd, FWTPM_TIS_FIFO_SIZE);
                     if (rc == TPM_RC_SUCCESS) {
                         FWTPM_ALLOC_BUF(localRsp, FWTPM_TIS_FIFO_SIZE);
@@ -195,6 +207,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                         FWTPM_SIZEOF_BUF(localCmd, FWTPM_TIS_FIFO_SIZE));
                     FWTPM_FREE_BUF(localRsp);
                     FWTPM_FREE_BUF(localCmd);
+                    TPM2_ForceZero(regs->cmd_buf, sizeof(regs->cmd_buf));
                     if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
                         /* Build minimal error response
                          * TPM_ST_NO_SESSIONS = 0x8001 (big-endian) */
@@ -239,6 +252,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                     break;
                 }
                 if (wpos >= FWTPM_TIS_FIFO_SIZE) {
+                    TPM2_ForceZero(regs->cmd_buf, sizeof(regs->cmd_buf));
                     regs->fifo_write_pos = 0;
                     break;
                 }
@@ -270,6 +284,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                     if (cmdTotalSz < TPM2_HEADER_SIZE ||
                         cmdTotalSz > FWTPM_TIS_FIFO_SIZE) {
                         /* Invalid command size, reset FIFO */
+                        TPM2_ForceZero(regs->cmd_buf, sizeof(regs->cmd_buf));
                         regs->cmd_len = 0;
                         regs->fifo_write_pos = 0;
                         regs->sts = TisBuildSts(
