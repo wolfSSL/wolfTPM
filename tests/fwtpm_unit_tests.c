@@ -15757,6 +15757,76 @@ static void test_fwtpm_yes_no_range(void)
     fwtpm_pass("TPMI_YES_NO range:", 0);
 }
 
+static TPM_RC SendNvOwnerAccessCmd(FWTPM_CTX* ctx, UINT32 nvIndex,
+    int isWrite)
+{
+    int rspSize = 0;
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        isWrite ? TPM_CC_NV_Write : TPM_CC_NV_Read);
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* authHandle */
+    PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 1); pos += 2;
+    if (isWrite) {
+        gCmd[pos++] = 0x5A;
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* OWNERREAD and OWNERWRITE alone decide whether ownerAuth may access an
+ * index; TPMA_NV_PLATFORMCREATE only governs who defines and undefines it. */
+static void test_fwtpm_nv_owner_access_platform_index(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 ownerIdx = 0x01400081;
+    UINT32 ppIdx = 0x01400082;
+    int i, pos, cmdSz, rspSize;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmdEx(gCmd, ownerIdx, 1, TPMA_NV_PLATFORMCREATE |
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA,
+        NULL, 0, NULL, 0);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE, TPM_RH_PLATFORM);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerAccessCmd(&ctx, ownerIdx, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerAccessCmd(&ctx, ownerIdx, 0), TPM_RC_SUCCESS);
+
+    cmdSz = BuildNvDefineCmdEx(gCmd, ppIdx, 1, TPMA_NV_PLATFORMCREATE |
+        TPMA_NV_PPWRITE | TPMA_NV_PPREAD | TPMA_NV_NO_DA,
+        NULL, 0, NULL, 0);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE, TPM_RH_PLATFORM);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerAccessCmd(&ctx, ppIdx, 1),
+        TPM_RC_NV_AUTHORIZATION);
+    AssertIntEQ(SendNvOwnerAccessCmd(&ctx, ppIdx, 0),
+        TPM_RC_NV_AUTHORIZATION);
+
+    for (i = 0; i < 2; i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+            TPM_CC_NV_UndefineSpace);
+        PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
+        PutU32BE(gCmd + pos, (i == 0) ? ownerIdx : ppIdx); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV owner access to platform index:", 0);
+}
+
 /* State-changing handlers that persist to NV must report failure, not
  * success, when the journal write fails. Representative commands from the
  * clock, NV-index and hierarchy-auth families run on one context;
@@ -25667,6 +25737,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_define_type_sizes();
     test_fwtpm_clear_control_nv_failure();
     test_fwtpm_yes_no_range();
+    test_fwtpm_nv_owner_access_platform_index();
     test_fwtpm_state_change_nv_failure();
     test_fwtpm_nv_append_atomic();
     test_fwtpm_nv_compaction_commit();

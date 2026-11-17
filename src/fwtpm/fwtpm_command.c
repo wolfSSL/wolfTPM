@@ -16651,8 +16651,6 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
         else if (authHandle == TPM_RH_OWNER) {
             if (!(attributes & TPMA_NV_OWNERWRITE))
                 return TPM_RC_NV_AUTHORIZATION;
-            if (attributes & TPMA_NV_PLATFORMCREATE)
-                return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
             UINT32 requiredAttr = authIsPolicy ?
@@ -16671,8 +16669,6 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
         }
         else if (authHandle == TPM_RH_OWNER) {
             if (!(attributes & TPMA_NV_OWNERREAD))
-                return TPM_RC_NV_AUTHORIZATION;
-            if (attributes & TPMA_NV_PLATFORMCREATE)
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
