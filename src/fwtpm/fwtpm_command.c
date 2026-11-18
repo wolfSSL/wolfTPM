@@ -4453,6 +4453,52 @@ static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle)
     return NULL;
 }
 
+/* Qualified Name of an object whose Name is set (Part 1 Sec.16):
+ * nameAlg || H(parent QN || Name). The parent QN of a primary object is the
+ * handle of its hierarchy. An external object has no parent and its
+ * Qualified Name is its Name. */
+static TPM_RC FwComputeQualifiedName(const FWTPM_Object* obj,
+    const FWTPM_Object* parent, TPM_HANDLE hierarchy, int external,
+    TPM2B_NAME* qualifiedName)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    enum wc_HashType wcHash = FwGetWcHashType(obj->pub.nameAlg);
+    int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+    byte data[2 * sizeof(obj->name.name)];
+    word32 dataSz = 0;
+
+    if (external) {
+        *qualifiedName = obj->name;
+        return TPM_RC_SUCCESS;
+    }
+    if (wcHash == WC_HASH_TYPE_NONE || digestSz <= 0 ||
+            digestSz + 2 > (int)sizeof(qualifiedName->name) ||
+            obj->name.size > sizeof(obj->name.name) ||
+            (parent != NULL &&
+             parent->qualifiedName.size > sizeof(obj->name.name))) {
+        return TPM_RC_HASH;
+    }
+    if (parent != NULL) {
+        XMEMCPY(data, parent->qualifiedName.name, parent->qualifiedName.size);
+        dataSz = parent->qualifiedName.size;
+    }
+    else {
+        FwStoreU32BE(data, hierarchy);
+        dataSz = 4;
+    }
+    XMEMCPY(data + dataSz, obj->name.name, obj->name.size);
+    dataSz += obj->name.size;
+    if (wc_Hash(wcHash, data, dataSz, qualifiedName->name + 2,
+            (word32)digestSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        FwStoreU16BE(qualifiedName->name, obj->pub.nameAlg);
+        qualifiedName->size = (UINT16)(digestSz + 2);
+    }
+    return rc;
+}
+
 /** \brief Free an object slot, securely zeroing all key material. */
 static void FwFreeObject(FWTPM_Object* obj)
 {
@@ -4749,10 +4795,9 @@ static TPM_RC FwAppendCreationData(FWTPM_CTX* ctx, TPM2_Packet* rsp,
             TPM2_Packet_AppendU16(rsp, parent->name.size);
             TPM2_Packet_AppendBytes(rsp, (byte*)parent->name.name,
                 parent->name.size);
-            /* Qualified Names are not tracked: the Name stands in */
-            TPM2_Packet_AppendU16(rsp, parent->name.size);
-            TPM2_Packet_AppendBytes(rsp, (byte*)parent->name.name,
-                parent->name.size);
+            TPM2_Packet_AppendU16(rsp, parent->qualifiedName.size);
+            TPM2_Packet_AppendBytes(rsp, (byte*)parent->qualifiedName.name,
+                parent->qualifiedName.size);
         }
         TPM2_Packet_AppendU16(rsp, outsideInfoSz);
         TPM2_Packet_AppendBytes(rsp, (byte*)outsideInfo, outsideInfoSz);
@@ -5243,6 +5288,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Compute object name */
     if (rc == 0) {
         rc = FwComputeObjectName(obj);
+    }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, NULL, primaryHandle, 0,
+            &obj->qualifiedName);
     }
 
     /* --- Build response --- */
@@ -6384,6 +6433,9 @@ static TPM_RC FwSerializeObjectContext(FWTPM_CTX* ctx, FWTPM_Object* obj,
     TPM2_Packet_AppendBytes(&packet, obj->authValue.buffer, obj->authValue.size);
     TPM2_Packet_AppendU16(&packet, (UINT16)obj->privKeySize);
     TPM2_Packet_AppendBytes(&packet, obj->privKey, obj->privKeySize);
+    TPM2_Packet_AppendU16(&packet, obj->qualifiedName.size);
+    TPM2_Packet_AppendBytes(&packet, (byte*)obj->qualifiedName.name,
+        obj->qualifiedName.size);
     TPM2_Packet_AppendU8(&packet, (UINT8)(obj->publicOnly != 0));
     if (packet.overflow) {
         rc = TPM_RC_SIZE;
@@ -6403,13 +6455,13 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
     FWTPM_DECLARE_VAR(pub, TPM2B_PUBLIC);
     FWTPM_Object* obj = NULL;
     byte proof[WC_SHA256_DIGEST_SIZE];
-    UINT16 pubSz, authSz = 0, privateSz = 0;
-    int authPos = 0, privatePos = 0, publicEnd;
+    UINT16 pubSz, authSz = 0, privateSz = 0, qnSz = 0;
+    int authPos = 0, privatePos = 0, qnPos = 0, publicEnd;
     int flagPos = 0;
     UINT32 expectedMarker;
 
-    /* hierarchy + proof + public/auth/private size fields */
-    if (plainSz < 4 + (int)sizeof(proof) + 6 ||
+    /* hierarchy + proof + public/auth/private/qualifiedName size fields */
+    if (plainSz < 4 + (int)sizeof(proof) + 8 ||
             FwLoadU32BE(plain) != hierarchy) {
         return TPM_RC_INTEGRITY;
     }
@@ -6431,7 +6483,7 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         packet.pos = 4 + sizeof(proof);
         pubSz = FwLoadU16BE(plain + packet.pos);
         publicEnd = packet.pos + 2 + pubSz;
-        if (publicEnd > plainSz - 4) {
+        if (publicEnd > plainSz - 6) {
             rc = TPM_RC_INTEGRITY;
         }
         else {
@@ -6455,7 +6507,7 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         TPM2_Packet_ParseU16(&packet, &authSz);
         authPos = packet.pos;
         if (authSz > sizeof(((FWTPM_Object*)0)->authValue.buffer) ||
-                authPos + authSz > plainSz - 2) {
+                authPos + authSz > plainSz - 4) {
             rc = TPM_RC_INTEGRITY;
         }
     }
@@ -6464,14 +6516,23 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         TPM2_Packet_ParseU16(&packet, &privateSz);
         privatePos = packet.pos;
         if (privateSz > FWTPM_MAX_PRIVKEY_DER ||
-                privatePos + privateSz > plainSz) {
+                privatePos + privateSz > plainSz - 2) {
             rc = TPM_RC_INTEGRITY;
         }
     }
-    /* The public-only flag trails the private data; a blob saved without it
+    if (rc == 0) {
+        packet.pos += privateSz;
+        TPM2_Packet_ParseU16(&packet, &qnSz);
+        qnPos = packet.pos;
+        if (qnSz > sizeof(((FWTPM_Object*)0)->qualifiedName.name) ||
+                qnPos + qnSz > plainSz) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    /* The public-only flag trails the Qualified Name; a blob saved without it
      * ends there */
-    if (rc == 0 && privatePos + privateSz != plainSz) {
-        flagPos = privatePos + privateSz;
+    if (rc == 0 && qnPos + qnSz != plainSz) {
+        flagPos = qnPos + qnSz;
         if (flagPos + 1 != plainSz) {
             rc = TPM_RC_INTEGRITY;
         }
@@ -6489,6 +6550,8 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         XMEMCPY(obj->authValue.buffer, plain + authPos, authSz);
         obj->privKeySize = privateSz;
         XMEMCPY(obj->privKey, plain + privatePos, privateSz);
+        obj->qualifiedName.size = qnSz;
+        XMEMCPY(obj->qualifiedName.name, plain + qnPos, qnSz);
         /* Without the flag only an object that has no private data is taken
          * to be public-only */
         obj->publicOnly = (flagPos != 0) ? (plain[flagPos] != 0) :
@@ -7006,9 +7069,10 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_AppendU16(rsp, obj->name.size);
         TPM2_Packet_AppendBytes(rsp, obj->name.name, obj->name.size);
 
-        /* qualifiedName - same as name for primary keys */
-        TPM2_Packet_AppendU16(rsp, obj->name.size);
-        TPM2_Packet_AppendBytes(rsp, obj->name.name, obj->name.size);
+        /* qualifiedName */
+        TPM2_Packet_AppendU16(rsp, obj->qualifiedName.size);
+        TPM2_Packet_AppendBytes(rsp, obj->qualifiedName.name,
+            obj->qualifiedName.size);
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
@@ -8505,6 +8569,7 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Object* obj = NULL;
     FWTPM_Object* parent = NULL;
     TPM2B_PRIVATE outPrivate;
+    TPM2B_NAME parentCheck;
     int paramSzPos = 0, paramStart = 0;
 
     XMEMSET(&newAuth, 0, sizeof(newAuth));
@@ -8563,6 +8628,17 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (digestSz > 0 && (int)newAuth.size > digestSz) {
             rc = TPM_RC_SIZE;
         }
+    }
+
+    /* parentHandle has to be the parent of the object: its Qualified Name
+     * gives the Qualified Name of the object */
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, parent, 0, 0, &parentCheck);
+    }
+    if (rc == 0 && (parentCheck.size != obj->qualifiedName.size ||
+            XMEMCMP(parentCheck.name, obj->qualifiedName.name,
+                parentCheck.size) != 0)) {
+        rc = TPM_RC_TYPE | TPM_RC_H | TPM_RC_2;
     }
 
     /* Re-wrap the private key; the loaded object keeps its current auth. */
@@ -8684,6 +8760,10 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(&obj->pub, &inPublic.publicArea, sizeof(TPMT_PUBLIC));
         obj->hierarchy = parent->hierarchy;
         rc = FwComputeObjectName(obj);
+    }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, parent, 0, 0,
+            &obj->qualifiedName);
     }
 
     /* Unwrap private */
@@ -9111,6 +9191,9 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         rc = FwComputeObjectName(obj);
+    }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, NULL, 0, 1, &obj->qualifiedName);
     }
 
     /* --- Build response --- */
@@ -10667,6 +10750,10 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         obj->hierarchy = parent->hierarchy;
 
         rc = FwComputeObjectName(obj);
+    }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, parent, 0, 0,
+            &obj->qualifiedName);
     }
 
     /* --- Build response --- */
@@ -19071,7 +19158,8 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_QUOTE, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_QUOTE, sigObj, &sigObj->qualifiedName,
+            &qualifyingData);
 
         /* attested.quote: pcrSelect (TPML_PCR_SELECTION) +
          * pcrDigest (TPM2B_DIGEST) */
@@ -19207,16 +19295,17 @@ static TPM_RC FwCmd_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_CERTIFY, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_CERTIFY, sigObj, &sigObj->qualifiedName,
+            &qualifyingData);
 
         /* attested.certify: name + qualifiedName */
         TPM2_Packet_AppendU16(&attestPkt, objToSign->name.size);
         TPM2_Packet_AppendBytes(&attestPkt, (byte*)objToSign->name.name,
             objToSign->name.size);
-        /* qualifiedName = same as name in our simple hierarchy */
-        TPM2_Packet_AppendU16(&attestPkt, objToSign->name.size);
-        TPM2_Packet_AppendBytes(&attestPkt, (byte*)objToSign->name.name,
-            objToSign->name.size);
+        TPM2_Packet_AppendU16(&attestPkt, objToSign->qualifiedName.size);
+        TPM2_Packet_AppendBytes(&attestPkt,
+            (byte*)objToSign->qualifiedName.name,
+            objToSign->qualifiedName.size);
 
         /* Build response */
         if (rc == 0) {
@@ -19414,7 +19503,8 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_CREATION, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_CREATION, sigObj, &sigObj->qualifiedName,
+            &qualifyingData);
 
         /* attested.creation: objectName (TPM2B_NAME) +
          * creationHash (TPM2B_DIGEST) */
@@ -19483,7 +19573,8 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_PUB_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_TIME, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_TIME, sigObj, &sigObj->qualifiedName,
+            &qualifyingData);
 
         /* attested.time: TPMS_TIME_INFO (time + clockInfo) +
          * firmwareVersion */
@@ -19628,7 +19719,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt, attestType,
-            sigObj, &sigObj->name, &qualifyingData);
+            sigObj, &sigObj->qualifiedName, &qualifyingData);
 
         if (digestMode) {
             /* attested.nvDigest: indexName + nvDigest

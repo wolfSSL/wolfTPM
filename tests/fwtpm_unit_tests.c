@@ -11482,7 +11482,8 @@ static TPM_RC SendCreationPcr(FWTPM_CTX* ctx, UINT32 cc, UINT32 parentH,
 /* Check the TPM2B_CREATION_DATA at gRsp + pos, made from SetCreationInputs,
  * and the creationHash after it. */
 static void CheckCreationData(FWTPM_CTX* ctx, int pos, UINT16 parentNameAlg,
-    const byte* parentName, UINT16 parentNameSz)
+    const byte* parentName, UINT16 parentNameSz, const byte* parentQn,
+    UINT16 parentQnSz)
 {
     byte pcrs[2 * WC_SHA256_DIGEST_SIZE];
     byte digest[WC_SHA256_DIGEST_SIZE];
@@ -11514,9 +11515,9 @@ static void CheckCreationData(FWTPM_CTX* ctx, int pos, UINT16 parentNameAlg,
     AssertIntEQ(memcmp(gRsp + pos, parentName, parentNameSz), 0);
     pos += parentNameSz;
     /* parentQualifiedName */
-    AssertIntEQ(GetU16BE(gRsp + pos), parentNameSz); pos += 2;
-    AssertIntEQ(memcmp(gRsp + pos, parentName, parentNameSz), 0);
-    pos += parentNameSz;
+    AssertIntEQ(GetU16BE(gRsp + pos), parentQnSz); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, parentQn, parentQnSz), 0);
+    pos += parentQnSz;
     AssertIntEQ(GetU16BE(gRsp + pos), 5); pos += 2; /* outsideInfo */
     AssertIntEQ(memcmp(gRsp + pos, "abcde", 5), 0); pos += 5;
     AssertIntEQ(pos, cdStart + cdSz);
@@ -11548,7 +11549,8 @@ static void test_fwtpm_create_primary_creation_data(void)
     keyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
     pos = TPM2_HEADER_SIZE + 4 + 4;
     pos += 2 + GetU16BE(gRsp + pos); /* outPublic */
-    CheckCreationData(&ctx, pos, TPM_ALG_NULL, owner, sizeof(owner));
+    CheckCreationData(&ctx, pos, TPM_ALG_NULL, owner, sizeof(owner), owner,
+        sizeof(owner));
     FlushHandle(&ctx, keyH);
 
     /* outsideInfo larger than a TPM2B_DATA */
@@ -11579,8 +11581,8 @@ static void test_fwtpm_create_primary_creation_data(void)
     fwtpm_pass("CreatePrimary creationData:", 0);
 }
 
-/* Create creationData carries the nameAlg and Name of the parent object
- * (Part 2 Sec.15.1). */
+/* Create creationData carries the nameAlg, Name and Qualified Name of the
+ * parent object (Part 2 Sec.15.1). */
 static void test_fwtpm_create_creation_data(void)
 {
     FWTPM_CTX ctx;
@@ -11594,6 +11596,9 @@ static void test_fwtpm_create_creation_data(void)
     AssertIntNE(parentH, 0);
     parent = &ctx.objects[parentH - TRANSIENT_FIRST];
     AssertIntEQ(parent->name.size, 2 + WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(parent->qualifiedName.size, 2 + WC_SHA256_DIGEST_SIZE);
+    AssertIntNE(memcmp(parent->qualifiedName.name, parent->name.name,
+        parent->name.size), 0);
 
     cmdSz = BuildCreatePrimaryCmd(gCmd, FW_TEST_CREATE_ALG);
     PutU32BE(gCmd + 6, TPM_CC_Create);
@@ -11605,7 +11610,8 @@ static void test_fwtpm_create_creation_data(void)
     pos += 2 + GetU16BE(gRsp + pos); /* outPrivate */
     pos += 2 + GetU16BE(gRsp + pos); /* outPublic */
     CheckCreationData(&ctx, pos, TPM_ALG_SHA256, parent->name.name,
-        parent->name.size);
+        parent->name.size, parent->qualifiedName.name,
+        parent->qualifiedName.size);
 
     /* outsideInfo larger than a TPM2B_DATA */
     cmdSz = BuildCreatePrimaryCmd(gCmd, FW_TEST_CREATE_ALG);
@@ -14098,8 +14104,11 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
     FWTPM_CTX ctx;
     FWTPM_Object* obj = NULL;
     FWTPM_Session* policySess = NULL;
-    UINT32 keyHandle;
+    UINT32 keyHandle, parentHandle;
     UINT32 policySessHandle;
+    byte priv[sizeof(TPM2B_PRIVATE)];
+    byte pub[sizeof(TPM2B_PUBLIC)];
+    UINT16 privSz, pubSz;
     int pos, rspSize, oi;
 #ifndef FWTPM_NO_NV
     UINT32 nvIdx = 0x01500073;
@@ -14108,8 +14117,12 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
 
     XMEMSET(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
-    keyHandle = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
-    AssertIntNE(keyHandle, 0);
+    parentHandle = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+    AssertIntNE(parentHandle, 0);
+    CreateChildBlobs(&ctx, parentHandle, priv, &privSz, pub, &pubSz);
+    AssertIntEQ(SendLoadCmd(&ctx, parentHandle, priv, privSz, pub, pubSz),
+        TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
 
     for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
         if (ctx.objects[oi].handle == keyHandle) {
@@ -14122,7 +14135,7 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
 
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ObjectChangeAuth);
     PutU32BE(gCmd + pos, keyHandle); pos += 4;
-    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, parentHandle); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
     PutU16BE(gCmd + pos, 0); pos += 2;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -14164,7 +14177,7 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
 
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ObjectChangeAuth);
     PutU32BE(gCmd + pos, keyHandle); pos += 4;
-    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, parentHandle); pos += 4;
     pos = AppendAuth(gCmd, pos, policySessHandle, 0, NULL, 0);
     PutU16BE(gCmd + pos, 0); pos += 2;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -14185,7 +14198,7 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
 
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ObjectChangeAuth);
     PutU32BE(gCmd + pos, keyHandle); pos += 4;
-    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, parentHandle); pos += 4;
     pos = AppendAuth(gCmd, pos, policySessHandle, 0, NULL, 0);
     PutU16BE(gCmd + pos, 0); pos += 2;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -14195,6 +14208,7 @@ static void test_fwtpm_admin_authorization_requires_policy(void)
 
     FlushHandle(&ctx, policySessHandle);
     FlushHandle(&ctx, keyHandle);
+    FlushHandle(&ctx, parentHandle);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ADMIN authorization requires policy:", 0);
 }
@@ -30500,6 +30514,392 @@ static void test_fwtpm_gettime_privacy_admin_handle(void)
 }
 #endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
 
+#ifdef HAVE_ECC
+/* ReadPublic: copy out the Name and the Qualified Name */
+static void ReadNames(FWTPM_CTX* ctx, UINT32 handle, TPM2B_NAME* name,
+    TPM2B_NAME* qn)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ReadPublic);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE;
+    pos += 2 + GetU16BE(gRsp + pos); /* outPublic */
+    name->size = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(name->size, sizeof(name->name));
+    memcpy(name->name, gRsp + pos, name->size); pos += name->size;
+    qn->size = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(qn->size, sizeof(qn->name));
+    memcpy(qn->name, gRsp + pos, qn->size); pos += qn->size;
+    AssertIntEQ(pos, rspSize);
+}
+
+/* TPM_ALG_SHA256 || SHA-256(parentQn || name) */
+static void CalcQualifiedName(const byte* parentQn, int parentQnSz,
+    const TPM2B_NAME* name, TPM2B_NAME* qn)
+{
+    byte data[2 * sizeof(name->name)];
+
+    AssertIntLE(parentQnSz, (int)sizeof(name->name));
+    memcpy(data, parentQn, parentQnSz);
+    memcpy(data + parentQnSz, name->name, name->size);
+    PutU16BE(qn->name, TPM_ALG_SHA256);
+    AssertIntEQ(wc_Sha256Hash(data, (word32)(parentQnSz + name->size),
+        qn->name + 2), 0);
+    qn->size = 2 + WC_SHA256_DIGEST_SIZE;
+}
+
+/* The Qualified Name of handle is that of a child of parentQn */
+static void CheckQualifiedName(FWTPM_CTX* ctx, UINT32 handle,
+    const byte* parentQn, int parentQnSz, TPM2B_NAME* qn)
+{
+    TPM2B_NAME name, expect;
+
+    ReadNames(ctx, handle, &name, qn);
+    CalcQualifiedName(parentQn, parentQnSz, &name, &expect);
+    AssertIntEQ(qn->size, expect.size);
+    AssertIntEQ(memcmp(qn->name, expect.name, expect.size), 0);
+    AssertIntNE(memcmp(qn->name, name.name, name.size), 0);
+}
+
+/* Create an ECC storage key under parentH and Load it */
+static UINT32 CreateLoadStorageChild(FWTPM_CTX* ctx, UINT32 parentH)
+{
+    byte blobs[sizeof(TPM2B_PRIVATE) + sizeof(TPM2B_PUBLIC)];
+    int cmdSz, pos, blobSz, rspSize = 0;
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_ECC);
+    PutU32BE(gCmd + 6, TPM_CC_Create);
+    PutU32BE(gCmd + 10, parentH);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4;
+    blobSz = 2 + GetU16BE(gRsp + pos); /* outPrivate */
+    blobSz += 2 + GetU16BE(gRsp + pos + blobSz); /* outPublic */
+    AssertIntLE(blobSz, (int)sizeof(blobs));
+    memcpy(blobs, gRsp + pos, blobSz);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
+    PutU32BE(gCmd + pos, parentH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    memcpy(gCmd + pos, blobs, blobSz); pos += blobSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+static TPM_RC SendObjectChangeAuth(FWTPM_CTX* ctx, UINT32 objectH,
+    UINT32 parentH)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0,
+        TPM_CC_ObjectChangeAuth);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, objectH); pos += 4;
+    PutU32BE(gCmd + pos, parentH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* newAuth */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* The Qualified Name of an object is nameAlg || H(parent Qualified Name ||
+ * Name), starting from the handle of the hierarchy (Part 1 Sec.16). An
+ * external object has no parent: its Qualified Name is its Name. */
+static void test_fwtpm_qualified_name_chain(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 primaryH, childH, grandH, h;
+    TPM2B_NAME name, qn, primaryQn, childQn, grandQn;
+    byte owner[4];
+    byte pub[sizeof(TPM2B_PUBLIC)];
+    int i, pos, pubSz, cmdSz, rspSize = 0;
+#ifndef FWTPM_NO_CONTEXT
+    byte saved[MAX_CONTEXT_SIZE];
+    int savedSz;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    PutU32BE(owner, TPM_RH_OWNER);
+
+    primaryH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    AssertIntNE(primaryH, 0);
+    CheckQualifiedName(&ctx, primaryH, owner, sizeof(owner), &primaryQn);
+    childH = CreateLoadStorageChild(&ctx, primaryH);
+    CheckQualifiedName(&ctx, childH, primaryQn.name, primaryQn.size,
+        &childQn);
+
+    /* CreateLoaded */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_ECC);
+    PutU32BE(gCmd + 6, TPM_CC_CreateLoaded);
+    PutU32BE(gCmd + 10, childH);
+    cmdSz -= 6; /* no outsideInfo or creationPCR */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    h = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    CheckQualifiedName(&ctx, h, childQn.name, childQn.size, &qn);
+    FlushHandle(&ctx, h);
+
+    /* Create under a non-primary parent: creationData has its Name and its
+     * Qualified Name */
+    ReadNames(&ctx, childH, &name, &qn);
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_ECC);
+    PutU32BE(gCmd + 6, TPM_CC_Create);
+    PutU32BE(gCmd + 10, childH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4;
+    pos += 2 + GetU16BE(gRsp + pos); /* outPrivate */
+    pos += 2 + GetU16BE(gRsp + pos); /* outPublic */
+    pos += 2 + 4; /* creationData size, empty pcrSelect */
+    pos += 2 + GetU16BE(gRsp + pos); /* pcrDigest */
+    pos += 1; /* locality */
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ALG_SHA256); pos += 2;
+    AssertIntEQ(GetU16BE(gRsp + pos), name.size); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, name.name, name.size), 0);
+    pos += name.size;
+    AssertIntEQ(GetU16BE(gRsp + pos), childQn.size); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, childQn.name, childQn.size), 0);
+
+    /* LoadExternal of the public area, in a hierarchy and in none */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ReadPublic);
+    PutU32BE(gCmd + pos, childH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pubSz = 2 + GetU16BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntLE(pubSz, (int)sizeof(pub));
+    memcpy(pub, gRsp + TPM2_HEADER_SIZE, pubSz);
+    for (i = 0; i < 2; i++) {
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+            TPM_CC_LoadExternal);
+        PutU16BE(gCmd + pos, 0); pos += 2; /* inPrivate */
+        memcpy(gCmd + pos, pub, pubSz); pos += pubSz;
+        PutU32BE(gCmd + pos, (i == 0) ? TPM_RH_OWNER : TPM_RH_NULL);
+        pos += 4;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        h = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+        ReadNames(&ctx, h, &name, &qn);
+        AssertIntEQ(qn.size, name.size);
+        AssertIntEQ(memcmp(qn.name, name.name, name.size), 0);
+        FlushHandle(&ctx, h);
+    }
+
+    grandH = CreateLoadStorageChild(&ctx, childH);
+    CheckQualifiedName(&ctx, grandH, childQn.name, childQn.size, &grandQn);
+
+    /* ObjectChangeAuth takes the parent the object was loaded under */
+    AssertIntEQ(SendObjectChangeAuth(&ctx, grandH, primaryH),
+        TPM_RC_TYPE | TPM_RC_H | TPM_RC_2);
+    AssertIntEQ(SendObjectChangeAuth(&ctx, grandH, grandH),
+        TPM_RC_TYPE | TPM_RC_H | TPM_RC_2);
+    AssertIntEQ(SendObjectChangeAuth(&ctx, primaryH, childH),
+        TPM_RC_TYPE | TPM_RC_H | TPM_RC_2);
+    AssertIntEQ(SendObjectChangeAuth(&ctx, grandH, childH), TPM_RC_SUCCESS);
+
+#ifndef FWTPM_NO_CONTEXT
+    /* A saved context carries the Qualified Name: the parent may be gone
+     * when it is loaded */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, grandH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    savedSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntLE(savedSz, (int)sizeof(saved));
+    memcpy(saved, gRsp + TPM2_HEADER_SIZE, savedSz);
+    FlushHandle(&ctx, grandH);
+    FlushHandle(&ctx, childH);
+    childH = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, saved, savedSz); pos += savedSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    grandH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    ReadNames(&ctx, grandH, &name, &qn);
+    AssertIntEQ(qn.size, grandQn.size);
+    AssertIntEQ(memcmp(qn.name, grandQn.name, grandQn.size), 0);
+#endif
+
+    FlushHandle(&ctx, grandH);
+    if (childH != 0) {
+        FlushHandle(&ctx, childH);
+    }
+    FlushHandle(&ctx, primaryH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Qualified Name chain:", 0);
+}
+
+#ifndef FWTPM_NO_ATTESTATION
+/* Certify reports the Qualified Name of the certified object and, as
+ * qualifiedSigner, that of the signing key (Part 2 Sec.10.12.3, 10.12.12) */
+static void test_fwtpm_qualified_name_certify(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 primaryH, childH, signH;
+    TPM2B_NAME name, primaryQn, childQn, signQn;
+    byte owner[4];
+    int pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    PutU32BE(owner, TPM_RH_OWNER);
+
+    primaryH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    AssertIntNE(primaryH, 0);
+    CheckQualifiedName(&ctx, primaryH, owner, sizeof(owner), &primaryQn);
+    childH = CreateLoadStorageChild(&ctx, primaryH);
+    CheckQualifiedName(&ctx, childH, primaryQn.name, primaryQn.size,
+        &childQn);
+    signH = CreateEccSignPrimaryScheme(&ctx, 0x00050472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    CheckQualifiedName(&ctx, signH, owner, sizeof(owner), &signQn);
+    ReadNames(&ctx, childH, &name, &childQn);
+
+    AssertIntEQ(SendCertify(&ctx, childH, signH, 0), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2;
+    AssertIntEQ(GetU32BE(gRsp + pos), TPM_GENERATED_VALUE); pos += 4;
+    AssertIntEQ(GetU16BE(gRsp + pos), TPM_ST_ATTEST_CERTIFY); pos += 2;
+    AssertIntEQ(GetU16BE(gRsp + pos), signQn.size); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, signQn.name, signQn.size), 0);
+    pos += signQn.size;
+    pos += 2 + GetU16BE(gRsp + pos); /* extraData */
+    pos += 17 + 8; /* clockInfo, firmwareVersion */
+    AssertIntEQ(GetU16BE(gRsp + pos), name.size); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, name.name, name.size), 0);
+    pos += name.size;
+    AssertIntEQ(GetU16BE(gRsp + pos), childQn.size); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, childQn.name, childQn.size), 0);
+    pos += childQn.size;
+    AssertIntEQ(pos, TPM2_HEADER_SIZE + 4 + 2 +
+        GetU16BE(gRsp + TPM2_HEADER_SIZE + 4));
+
+    FlushHandle(&ctx, signH);
+    FlushHandle(&ctx, childH);
+    FlushHandle(&ctx, primaryH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Qualified Name in Certify:", 0);
+}
+#endif /* !FWTPM_NO_ATTESTATION */
+
+#ifndef FWTPM_NO_NV
+/* A persistent object keeps its Qualified Name across a restart, and a
+ * record written without one loads with the Name in its place. */
+static void test_fwtpm_qualified_name_persistent(void)
+{
+    FWTPM_CTX ctx;
+    const UINT32 persistH = PERSISTENT_FIRST + 0x20;
+    UINT32 primaryH, childH, grandH;
+    TPM2B_NAME name, qn, primaryQn, childQn;
+    byte owner[4];
+    byte hdr[4];
+    byte record[1024];
+    word32 off;
+    UINT16 tag, len, recordSz = 0;
+    int i, found = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    PutU32BE(owner, TPM_RH_OWNER);
+
+    primaryH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    AssertIntNE(primaryH, 0);
+    CheckQualifiedName(&ctx, primaryH, owner, sizeof(owner), &primaryQn);
+    childH = CreateLoadStorageChild(&ctx, primaryH);
+    CheckQualifiedName(&ctx, childH, primaryQn.name, primaryQn.size,
+        &childQn);
+    AssertIntEQ(SendEvictControl(&ctx, TPM_RH_OWNER, childH, persistH),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, childH);
+    FlushHandle(&ctx, primaryH);
+
+    /* Copy the journal record of the persistent object */
+    off = (word32)sizeof(FWTPM_NV_HEADER);
+    while (off + sizeof(hdr) <= ctx.nvWritePos) {
+        AssertIntEQ(ctx.nvHal.read(ctx.nvHal.ctx, off, hdr, sizeof(hdr)), 0);
+        tag = (UINT16)(hdr[0] | (hdr[1] << 8));
+        len = (UINT16)(hdr[2] | (hdr[3] << 8));
+        off += (word32)sizeof(hdr);
+        if (tag == FWTPM_NV_TAG_PERSISTENT) {
+            AssertIntLE(len, (int)sizeof(record));
+            AssertIntEQ(ctx.nvHal.read(ctx.nvHal.ctx, off, record, len), 0);
+            recordSz = len;
+        }
+        off += len;
+    }
+    AssertIntGT(recordSz, 2 + childQn.size + 1);
+    AssertIntEQ(record[0] | (record[1] << 8) | (record[2] << 16) |
+        ((UINT32)record[3] << 24), persistH);
+    /* the Qualified Name and the public-only flag end the record */
+    off = (word32)(recordSz - 1 - childQn.size - 2);
+    AssertIntEQ(record[off] | (record[off + 1] << 8), childQn.size);
+    AssertIntEQ(memcmp(record + off + 2, childQn.name, childQn.size), 0);
+
+    /* Restart from the NV file */
+    FWTPM_Cleanup(&ctx);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    ReadNames(&ctx, persistH, &name, &qn);
+    AssertIntEQ(qn.size, childQn.size);
+    AssertIntEQ(memcmp(qn.name, childQn.name, childQn.size), 0);
+    grandH = CreateLoadStorageChild(&ctx, persistH);
+    CheckQualifiedName(&ctx, grandH, childQn.name, childQn.size, &qn);
+    FlushHandle(&ctx, grandH);
+    AssertIntEQ(SendEvictControl(&ctx, TPM_RH_OWNER, persistH, persistH),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    /* The record as written, then without its trailing Qualified Name and
+     * public-only flag */
+    for (i = 0; i < 2; i++) {
+        int slot;
+
+        AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_PERSISTENT, record,
+            (UINT16)((i == 0) ? recordSz : off)), TPM_RC_SUCCESS);
+        found = 0;
+        for (slot = 0; slot < FWTPM_MAX_PERSISTENT; slot++) {
+            FWTPM_Object* obj = &ctx.persistent[slot];
+
+            if (!obj->used || obj->handle != persistH) {
+                continue;
+            }
+            found = 1;
+            AssertIntEQ(obj->hierarchy, TPM_RH_OWNER);
+            AssertIntEQ(obj->name.size, name.size);
+            AssertIntEQ(memcmp(obj->name.name, name.name, name.size), 0);
+            if (i == 0) {
+                AssertIntEQ(obj->qualifiedName.size, childQn.size);
+                AssertIntEQ(memcmp(obj->qualifiedName.name, childQn.name,
+                    childQn.size), 0);
+            }
+            else {
+                AssertIntEQ(obj->qualifiedName.size, name.size);
+                AssertIntEQ(memcmp(obj->qualifiedName.name, name.name,
+                    name.size), 0);
+            }
+        }
+        AssertIntEQ(found, 1);
+    }
+    TPM2_ForceZero(&ctx, sizeof(ctx));
+
+    fwtpm_pass("Qualified Name of a persistent object:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+#endif /* HAVE_ECC */
+
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_CREDENTIAL)
 /* keyHandle has to be a Storage Key: anything else is TPM_RC_TYPE for the
@@ -31624,6 +32024,15 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_gettime_privacy_admin_handle();
+#endif
+#ifdef HAVE_ECC
+    test_fwtpm_qualified_name_chain();
+#ifndef FWTPM_NO_ATTESTATION
+    test_fwtpm_qualified_name_certify();
+#endif
+#ifndef FWTPM_NO_NV
+    test_fwtpm_qualified_name_persistent();
+#endif
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_CREDENTIAL)
