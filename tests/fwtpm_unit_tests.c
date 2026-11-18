@@ -24587,6 +24587,7 @@ static int  gFlashFailRead;   /* when set, reads fail (used to fail a checkpoint
                                * MAC computation without touching the log) */
 
 static int  gFlashFailReadInCompact; /* fail reads only while compacting */
+static int  gFlashFailErase;
 static FWTPM_CTX* gFlashCtx;
 
 static int flash_read(void* c, word32 off, byte* buf, word32 sz)
@@ -24606,6 +24607,9 @@ static int flash_read(void* c, word32 off, byte* buf, word32 sz)
 static int flash_erase(void* c, word32 off, word32 sz)
 {
     (void)c;
+    if (gFlashFailErase) {
+        return -1;
+    }
     if ((off % FNV_SECTOR) != 0 || (sz % FNV_SECTOR) != 0 || sz == 0 ||
             (size_t)off + sz > FNV_SIZE) {
         return -1;
@@ -25039,6 +25043,62 @@ static void test_fwtpm_nv_append_rebuild_probe(void)
 #else
     printf("Test fwTPM: %-6s %-42s Skipped\n", "",
         "NV append-only unavailable after checkpoint failure:");
+#endif
+}
+
+/* Append-only: a compaction whose erase fails has not touched the log, so the
+ * pending program granule is kept and a later compaction can retry. */
+static void test_fwtpm_nv_append_erase_failure(void)
+{
+#if defined(WOLFTPM_FWTPM_NV_APPEND_ONLY) && !defined(FWTPM_NO_NV)
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    word32 base;
+    word32 fill;
+    int rc;
+
+    XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+    gFlashEraseCnt = 0;
+    gFlashProgCnt = 0;
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+
+    gFlashFailRead = 1;
+    ctx.disableClear = 1;
+    rc = FWTPM_NV_SaveFlags(&ctx);                 /* checkpoint fails */
+    gFlashFailRead = 0;
+    AssertIntNE(rc, 0);
+    base = ctx.nvGranuleBase;
+    fill = ctx.nvGranuleFill;
+    AssertIntGT((int)fill, 0);
+
+    gFlashFailErase = 1;
+    rc = FWTPM_NV_Save(&ctx);
+    gFlashFailErase = 0;
+    AssertIntNE(rc, 0);
+    AssertIntEQ((int)ctx.nvGranuleBase, (int)base);
+    AssertIntEQ((int)ctx.nvGranuleFill, (int)fill);
+    rc = FWTPM_NV_SaveFlags(&ctx);
+    AssertIntEQ(rc, TPM_RC_NV_UNAVAILABLE);
+
+    rc = FWTPM_NV_Save(&ctx);
+    AssertIntEQ(rc, 0);
+    ctx.ownerAuth.size = 4;
+    XMEMSET(ctx.ownerAuth.buffer, 0xA1, 4);
+    rc = FWTPM_NV_SaveAuth(&ctx, TPM_RH_OWNER);
+    AssertIntEQ(rc, 0);
+    wc_FreeRng(&ctx.rng);                          /* drop ctx without a save */
+
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)ctx.disableClear, 1);
+    AssertIntEQ((int)ctx.ownerAuth.size, 4);
+    FWTPM_Cleanup(&ctx);
+
+    fwtpm_pass("NV append-only erase failure:", 0);
+#else
+    printf("Test fwTPM: %-6s %-42s Skipped\n", "",
+        "NV append-only erase failure:");
 #endif
 }
 
@@ -32426,6 +32486,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_append_checkpoint_failure();
     test_fwtpm_nv_append_compaction_failure();
     test_fwtpm_nv_append_rebuild_probe();
+    test_fwtpm_nv_append_erase_failure();
     (void)remove(FWTPM_NV_FILE);
 
     /* Key operations */

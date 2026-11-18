@@ -2600,8 +2600,10 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
 
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
     /* Freshly erased: reset the pending granule so the rewrite streams from 0. */
-    ctx->nvGranuleBase = 0;
-    ctx->nvGranuleFill = 0;
+    if (rc == 0) {
+        ctx->nvGranuleBase = 0;
+        ctx->nvGranuleFill = 0;
+    }
 #endif
 
     /* Reset write position to after header (only if erase succeeded) */
