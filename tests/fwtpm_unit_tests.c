@@ -50,6 +50,9 @@
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
 #include <wolfssl/wolfcrypt/memory.h>
 #endif
+#ifdef WOLF_CRYPTO_CB
+#include <wolfssl/wolfcrypt/cryptocb.h>
+#endif
 
 #include <limits.h>
 #include <stdio.h>
@@ -22762,6 +22765,58 @@ static void test_fwtpm_hashcheck_ticket_generated_prefix(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("HASHCHECK ticket withheld for generated data:", 0);
 }
+
+#if defined(WOLF_CRYPTO_CB) && !defined(FWTPM_NO_PARAM_ENC) && \
+    FWTPM_MAX_SESSIONS >= 2
+static int gSeqCryptoCbHmacCnt;
+
+static int SeqCryptoCb(int devId, wc_CryptoInfo* info, void* cbCtx)
+{
+    (void)devId;
+    (void)cbCtx;
+    if (info->algo_type == WC_ALGO_TYPE_HMAC) {
+        gSeqCryptoCbHmacCnt++;
+    }
+    return CRYPTOCB_UNAVAILABLE;
+}
+
+/* An HMAC sequence runs in software and is not handed to a crypto callback
+ * device the TPM was never given. */
+static void test_fwtpm_hmac_start_no_crypto_dev(void)
+{
+    static const byte data[] = { 1, 2, 3, 4 };
+    FWTPM_CTX ctx;
+    UINT32 keyH, seqH;
+    int pos, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    keyH = CreateHmacKeyHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    AssertIntEQ(wc_CryptoCb_RegisterDevice(0, SeqCryptoCb, NULL), 0);
+    gSeqCryptoCbHmacCnt = 0;
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_HMAC_Start);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* auth */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(SendSeqDataCmd(&ctx, TPM_CC_SequenceUpdate, seqH, data,
+        sizeof(data)), TPM_RC_SUCCESS);
+    AssertIntEQ(SendSeqDataCmd(&ctx, TPM_CC_SequenceComplete, seqH, data,
+        sizeof(data)), TPM_RC_SUCCESS);
+    wc_CryptoCb_UnRegisterDevice(0);
+    AssertIntEQ(gSeqCryptoCbHmacCnt, 0);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("HMAC sequence uses no crypto device:", 0);
+}
+#endif
 #endif /* !FWTPM_NO_HASH_CMDS */
 
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
@@ -32850,6 +32905,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_read_public_sequence();
     test_fwtpm_hashcheck_ticket_generated_prefix();
 #if !defined(FWTPM_NO_PARAM_ENC) && FWTPM_MAX_SESSIONS >= 2
+#ifdef WOLF_CRYPTO_CB
+    test_fwtpm_hmac_start_no_crypto_dev();
+#endif
     test_fwtpm_param_enc_session_selection();
     test_fwtpm_param_enc_entity_auth();
     test_fwtpm_param_enc_pcr_zero();

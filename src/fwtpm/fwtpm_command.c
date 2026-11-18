@@ -11978,8 +11978,11 @@ static TPM_RC FwCmd_HMAC_Start(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Initialize HMAC with the KEYEDHASH key material */
         if (rc == 0) {
-            rc = wc_HmacSetKey(&seq->ctx.hmac, wcHashType,
-                seq->hmacKey, seq->hmacKeySz);
+            rc = wc_HmacInit(&seq->ctx.hmac, NULL, INVALID_DEVID);
+            if (rc == 0) {
+                rc = wc_HmacSetKey(&seq->ctx.hmac, wcHashType,
+                    seq->hmacKey, seq->hmacKeySz);
+            }
             if (rc != 0) {
                 rc = TPM_RC_FAILURE;
             }
