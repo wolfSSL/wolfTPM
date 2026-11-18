@@ -402,7 +402,7 @@ TPM_RC FwCredentialWrap(
     TPMI_ALG_HASH nameAlg,
     const byte* credential, UINT16 credSz,
     const byte* name, int nameSz,
-    byte* encCred, word32* encCredSz,
+    byte* encCred, int encCredBufSz, word32* encCredSz,
     byte* outerHmac);
 
 TPM_RC FwCredentialUnwrap(

@@ -20052,7 +20052,8 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             hmacKey, hmacKeySz, keyObj->pub.nameAlg,
             credential.buffer, credential.size,
             objectName.name, objectName.size,
-            encCred, &encCredSz, outerHmac);
+            encCred, (int)FWTPM_SIZEOF_BUF(encCred, FWTPM_MAX_NV_DATA + 2),
+            &encCredSz, outerHmac);
     }
 
     /* Build response */

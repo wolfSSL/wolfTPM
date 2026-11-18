@@ -5103,13 +5103,17 @@ TPM_RC FwCredentialWrap(
     TPMI_ALG_HASH nameAlg,
     const byte* credential, UINT16 credSz,
     const byte* name, int nameSz,
-    byte* encCred, word32* encCredSz,
+    byte* encCred, int encCredBufSz, word32* encCredSz,
     byte* outerHmac)
 {
     TPM_RC rc;
     byte iv[AES_BLOCK_SIZE];
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
+
+    if (encCredBufSz < 2 + (int)credSz) {
+        return TPM_RC_SIZE;
+    }
 
     FWTPM_ALLOC_VAR(aes, Aes);
     FWTPM_ALLOC_VAR(hmac, Hmac);

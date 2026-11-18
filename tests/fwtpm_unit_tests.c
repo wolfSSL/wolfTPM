@@ -31574,6 +31574,40 @@ static void test_fwtpm_attest_null_signer(void)
 }
 #endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
 
+#ifndef FWTPM_NO_CREDENTIAL
+/* The credential wrap output is the credential and its 2-octet size. */
+static void test_fwtpm_credential_wrap_output_size(void)
+{
+    byte symKey[AES_128_KEY_SIZE];
+    byte hmacKey[WC_SHA256_DIGEST_SIZE];
+    byte credential[32];
+    byte name[2 + WC_SHA256_DIGEST_SIZE];
+    byte encCred[2 + sizeof(credential) + 1];
+    byte outerHmac[TPM_MAX_DIGEST_SIZE];
+    word32 encCredSz = 0;
+
+    memset(symKey, 0x11, sizeof(symKey));
+    memset(hmacKey, 0x22, sizeof(hmacKey));
+    memset(credential, 0x33, sizeof(credential));
+    memset(name, 0x44, sizeof(name));
+    memset(encCred, 0xEE, sizeof(encCred));
+
+    AssertIntEQ(FwCredentialWrap(symKey, sizeof(symKey), hmacKey,
+        sizeof(hmacKey), TPM_ALG_SHA256, credential, sizeof(credential),
+        name, sizeof(name), encCred, 2 + sizeof(credential) - 1, &encCredSz,
+        outerHmac), TPM_RC_SIZE);
+    AssertIntEQ(encCred[0], 0xEE);
+    AssertIntEQ(FwCredentialWrap(symKey, sizeof(symKey), hmacKey,
+        sizeof(hmacKey), TPM_ALG_SHA256, credential, sizeof(credential),
+        name, sizeof(name), encCred, 2 + sizeof(credential), &encCredSz,
+        outerHmac), TPM_RC_SUCCESS);
+    AssertIntEQ(encCredSz, 2 + sizeof(credential));
+    AssertIntEQ(encCred[sizeof(encCred) - 1], 0xEE);
+
+    fwtpm_pass("Credential wrap output size:", 0);
+}
+#endif /* !FWTPM_NO_CREDENTIAL */
+
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_CREDENTIAL)
 /* keyHandle has to be a Storage Key: anything else is TPM_RC_TYPE for the
@@ -32723,6 +32757,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_CREDENTIAL)
     test_fwtpm_activate_credential_key_type();
+#endif
+#ifndef FWTPM_NO_CREDENTIAL
+    test_fwtpm_credential_wrap_output_size();
 #endif
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && !defined(WOLFTPM_FWTPM_TIS)
     test_fwtpm_io_command_buffer_wiped();
