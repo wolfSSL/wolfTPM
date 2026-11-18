@@ -11630,6 +11630,7 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int digestSz = 0;
     FWTPM_Object* obj;
     FWTPM_DECLARE_VAR(hmac, Hmac);
+    int hmacInit = 0;
     int wcHashType = WC_HASH_TYPE_NONE;
     int paramSzPos, paramStart;
     enum wc_HashType ht;
@@ -11724,6 +11725,12 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* For KEYEDHASH objects the HMAC key is in privKey. */
     if (rc == 0) {
+        rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            hmacInit = 1;
+        }
+    }
+    if (rc == 0) {
         rc = wc_HmacSetKey(hmac, wcHashType,
             obj->privKey, (word32)obj->privKeySize);
     }
@@ -11751,6 +11758,9 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
+    if (hmacInit) {
+        wc_HmacFree(hmac);
+    }
     TPM2_ForceZero(digest, sizeof(digest));
     FWTPM_FREE_BUF(dataBuf);
     FWTPM_FREE_VAR(hmac);

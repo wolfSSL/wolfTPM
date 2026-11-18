@@ -2615,6 +2615,7 @@ int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
     int aesInit = 0;
+    int hmacInit = 0;
     int totalSz = AES_BLOCK_SIZE + plainSz + WC_SHA256_DIGEST_SIZE;
 
     *outSz = 0;
@@ -2649,6 +2650,9 @@ int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     /* HMAC-SHA256 over iv || ciphertext */
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            hmacInit = 1;
+        }
     }
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, WC_SHA256,
@@ -2666,7 +2670,9 @@ int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, out + AES_BLOCK_SIZE + plainSz);
     }
-    wc_HmacFree(hmac);
+    if (hmacInit) {
+        wc_HmacFree(hmac);
+    }
 
     if (rc == 0) {
         *outSz = totalSz;
@@ -2692,6 +2698,7 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
     int aesInit = 0;
+    int hmacInit = 0;
     int cipherSz;
 
     *outSz = 0;
@@ -2712,6 +2719,9 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     /* Verify HMAC over iv || ciphertext */
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            hmacInit = 1;
+        }
     }
     if (rc == 0) {
         rc = wc_HmacSetKey(hmac, WC_SHA256,
@@ -2729,7 +2739,9 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, computedHmac);
     }
-    wc_HmacFree(hmac);
+    if (hmacInit) {
+        wc_HmacFree(hmac);
+    }
 
     if (rc == 0) {
         if (TPM2_ConstantCompare(computedHmac,
