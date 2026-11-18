@@ -17135,6 +17135,24 @@ static void test_fwtpm_hierarchy_control(void)
     ctx.objects[1].handle = TRANSIENT_FIRST + 1;
     ctx.objects[1].hierarchy = TPM_RH_ENDORSEMENT;
 
+    /* enabling a hierarchy that is enabled changes nothing */
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_OWNER, 1),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_ENDORSEMENT,
+        TPM_RH_ENDORSEMENT, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_ENDORSEMENT,
+        1), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_ENDORSEMENT, TPM_RH_OWNER,
+        1), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_PLATFORM, 1),
+        TPM_RC_AUTH_TYPE);
+    AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_PLATFORM_NV,
+        1), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(ctx.shDisabled | ctx.ehDisabled | ctx.phDisabled |
+        ctx.phNvDisabled, 0);
+    AssertIntEQ(ctx.objects[0].used, 1);
+    AssertIntEQ(ctx.objects[1].used, 1);
+
     AssertIntEQ(SendHierarchyControl(&ctx, TPM_RH_OWNER, TPM_RH_OWNER, 0),
         TPM_RC_SUCCESS);
     AssertIntEQ(ctx.shDisabled, 1);

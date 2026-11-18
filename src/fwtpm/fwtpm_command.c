@@ -7452,18 +7452,20 @@ static TPM_RC FwCmd_HierarchyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * this handler, so a set request can only be an idempotent no-op. */
 
     /* Authorization (TPM 2.0 Part 3 Sec.24.3): platformAuth may set or clear
-     * any hierarchy; ownerAuth/endorsementAuth may only CLEAR their own
-     * hierarchy. Platform enables can only be changed by the platform. */
+     * any hierarchy; ownerAuth/endorsementAuth may only select their own
+     * hierarchy and cannot enable it once it is disabled. Platform enables
+     * can only be changed by the platform. */
     if (rc == 0) {
         if (authHandle == TPM_RH_PLATFORM) {
             /* allowed for all combinations */
         }
         else if (authHandle == TPM_RH_OWNER && enable == TPM_RH_OWNER &&
-                 state == 0) {
+                 (state == 0 || !ctx->shDisabled)) {
             /* owner may disable itself */
         }
         else if (authHandle == TPM_RH_ENDORSEMENT &&
-                 enable == TPM_RH_ENDORSEMENT && state == 0) {
+                 enable == TPM_RH_ENDORSEMENT &&
+                 (state == 0 || !ctx->ehDisabled)) {
             /* endorsement may disable itself */
         }
         else {
