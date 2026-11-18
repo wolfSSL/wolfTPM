@@ -2642,7 +2642,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
         if (hasPcrAuth || ctx->pcrAllocPending ||
                 ctx->pcrAllocatedBanks != FWTPM_PCR_ALLOC_DEFAULT) {
-            word32 needed = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2);
+            word32 needed = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2) +
+                2;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -3040,7 +3041,7 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
     int i;
     byte* buf;
     word32 pos = 0;
-    word32 bufSz = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2);
+    word32 bufSz = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2) + 2;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -3051,17 +3052,27 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
         return TPM_RC_MEMORY;
     }
 
-    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
-    for (i = 0; i < IMPLEMENTATION_PCR; i++) {
-        FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
-        FwNvMarshalDigest(buf, &pos, bufSz, &ctx->pcrPolicy[i]);
-        FwNvMarshalU16(buf, &pos, bufSz, ctx->pcrPolicyAlg[i]);
+    rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
+    for (i = 0; i < IMPLEMENTATION_PCR && rc == 0; i++) {
+        rc = FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
+        if (rc == 0) {
+            rc = FwNvMarshalDigest(buf, &pos, bufSz, &ctx->pcrPolicy[i]);
+        }
+        if (rc == 0) {
+            rc = FwNvMarshalU16(buf, &pos, bufSz, ctx->pcrPolicyAlg[i]);
+        }
     }
     /* Appended last so an older record still parses */
-    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
-    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanksPending);
+    if (rc == 0) {
+        rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
+    }
+    if (rc == 0) {
+        rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanksPending);
+    }
 
-    rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH, buf, (UINT16)pos);
+    if (rc == 0) {
+        rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH, buf, (UINT16)pos);
+    }
 
     TPM2_ForceZero(buf, bufSz);
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);

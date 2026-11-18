@@ -24091,6 +24091,42 @@ static void test_fwtpm_nv_pcr_auth_truncated(void)
     fwtpm_pass("NV truncated PCR auth rejected:", 0);
 }
 
+/* The PCR auth record has room for the staged allocation after the largest
+ * authValue and policy on every PCR. It is read back before any full save
+ * rewrites it. */
+static void test_fwtpm_nv_pcr_auth_full_record(void)
+{
+    static FWTPM_CTX reload;
+    FWTPM_CTX ctx;
+    int i;
+
+    memset(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    for (i = 0; i < IMPLEMENTATION_PCR; i++) {
+        ctx.pcrAuth[i].size = (UINT16)sizeof(ctx.pcrAuth[i].buffer);
+        memset(ctx.pcrAuth[i].buffer, 0x11, sizeof(ctx.pcrAuth[i].buffer));
+        ctx.pcrPolicy[i].size = (UINT16)sizeof(ctx.pcrPolicy[i].buffer);
+        memset(ctx.pcrPolicy[i].buffer, 0x22,
+            sizeof(ctx.pcrPolicy[i].buffer));
+        ctx.pcrPolicyAlg[i] = TPM_ALG_SHA256;
+    }
+    ctx.pcrAllocPending = 1;
+    ctx.pcrAllocatedBanksPending = FWTPM_PCR_ALLOC_DEFAULT;
+    AssertIntEQ(FWTPM_NV_SavePcrAuth(&ctx), TPM_RC_SUCCESS);
+
+    TnvSetHal(&reload);
+    AssertIntEQ(FWTPM_Init(&reload), TPM_RC_SUCCESS);
+    AssertIntEQ((int)reload.pcrAllocPending, 1);
+    AssertIntEQ((int)reload.pcrAllocatedBanksPending,
+        FWTPM_PCR_ALLOC_DEFAULT);
+    AssertIntEQ(reload.pcrAuth[IMPLEMENTATION_PCR - 1].size,
+        sizeof(reload.pcrAuth[0].buffer));
+    FWTPM_Cleanup(&reload);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV full PCR auth record:", 0);
+}
+
 static void test_fwtpm_nv_reserved_attributes_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -32572,6 +32608,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_nv_malformed_entry_rejected();
     test_fwtpm_nv_pcr_auth_truncated();
+    test_fwtpm_nv_pcr_auth_full_record();
     test_fwtpm_nv_reserved_attributes_rejected();
     test_fwtpm_nv_semantic_entry_skipped();
     test_fwtpm_nv_counter();
