@@ -95,7 +95,7 @@ FWTPM_NV_SetHAL(&ctx, &hal);           /* before FWTPM_Init() */
 
 In append-only mode the journal buffers a pending program granule internally and flushes full, aligned granules through `write()`. A programmed cell is never rewritten, and a whole sector is erased only on compaction. The header sector is therefore not erased on every append, and a torn final commit (for example from power loss) is ignored on the next load while all previously committed state survives.
 
-A `get_integrity_key` callback is strongly recommended on flash, so the MAC checkpoints authenticate the journal and reject a torn or tampered tail. Setting `writeAlign <= 1` selects no buffering, so byte-writable NV (EEPROM or FRAM) works with a plain `write()`.
+A `get_integrity_key` callback is strongly recommended on flash, so the MAC checkpoints authenticate the journal and reject a torn or tampered tail. When the callback returns an error or a zero-length key, `FWTPM_Init()` and NV saves fail instead of running without the MAC. Setting `writeAlign <= 1` selects no buffering, so byte-writable NV (EEPROM or FRAM) works with a plain `write()`.
 
 !!! warning
     Compaction still erases the whole region before rewriting, so a power loss during compaction itself remains a vulnerable window. A future two-region ping-pong layout would close it.

@@ -15143,10 +15143,14 @@ static int TnvWrite(void* c, word32 off, const byte* buf, word32 sz)
     memcpy(gTnvBuf + off, buf, sz);
     return TPM_RC_SUCCESS;
 }
+static int gTnvKeyFail;
 static int TnvKey(void* c, byte* key, word32* keySz)
 {
     (void)c;
     memset(key, 0x5A, 32);
+    if (gTnvKeyFail) {
+        return TPM_RC_FAILURE;
+    }
     *keySz = 32;
     return 0;
 }
@@ -15211,6 +15215,59 @@ static void test_fwtpm_nv_read_error_keeps_journal(void)
     FWTPM_Cleanup(&ctx);
     TPM2_ForceZero(seed, sizeof(seed));
     fwtpm_pass("NV read error keeps journal:", 0);
+}
+
+/* A HAL that supplies the journal integrity key but fails to produce it
+ * must not get its journal loaded unverified or rewritten without a MAC. */
+static void test_fwtpm_nv_integrity_key_failure(void)
+{
+    FWTPM_CTX ctx;
+    byte seed[FWTPM_SEED_SIZE];
+    static byte snap[TNV_SIZE];
+
+    memset(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(FWTPM_NV_Save(&ctx), TPM_RC_SUCCESS);
+    memcpy(seed, ctx.ownerSeed, sizeof(seed));
+    memcpy(snap, gTnvBuf, sizeof(snap));
+
+    /* Save: the journal stays as it was */
+    gTnvKeyFail = 1;
+    AssertIntNE(FWTPM_NV_Save(&ctx), TPM_RC_SUCCESS);
+    gTnvKeyFail = 0;
+    AssertIntEQ(memcmp(snap, gTnvBuf, sizeof(snap)), 0);
+
+    /* Incremental save: the entry would land on the journal MAC */
+    gTnvKeyFail = 1;
+    AssertIntNE(FWTPM_NV_SaveFlags(&ctx), TPM_RC_SUCCESS);
+    gTnvKeyFail = 0;
+    AssertIntEQ(memcmp(snap, gTnvBuf, sizeof(snap)), 0);
+    FWTPM_Cleanup(&ctx);
+    memcpy(snap, gTnvBuf, sizeof(snap));
+
+    /* Load: neither replayed nor regenerated */
+    TnvSetHal(&ctx);
+    gTnvKeyFail = 1;
+    AssertIntNE(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
+    gTnvKeyFail = 0;
+    AssertIntEQ(memcmp(snap, gTnvBuf, sizeof(snap)), 0);
+
+    /* First boot on empty storage */
+    memset(gTnvBuf, 0, sizeof(gTnvBuf));
+    TnvSetHal(&ctx);
+    gTnvKeyFail = 1;
+    AssertIntNE(FWTPM_Init(&ctx), TPM_RC_SUCCESS);
+    gTnvKeyFail = 0;
+
+    /* Once the key is back, the same seeds load */
+    memcpy(gTnvBuf, snap, sizeof(snap));
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(memcmp(seed, ctx.ownerSeed, sizeof(seed)), 0);
+    FWTPM_Cleanup(&ctx);
+    TPM2_ForceZero(seed, sizeof(seed));
+    fwtpm_pass("NV integrity key failure:", 0);
 }
 
 static void test_fwtpm_nv_journal_tamper_rejected(void)
@@ -32685,6 +32742,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_journal_tamper_rejected();
     test_fwtpm_nv_read_error_keeps_journal();
+    test_fwtpm_nv_integrity_key_failure();
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
     test_fwtpm_nv_journal_mac_alloc_failure();
 #endif

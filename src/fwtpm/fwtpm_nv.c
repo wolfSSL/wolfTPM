@@ -933,7 +933,10 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
 #endif /* !NO_FILESYSTEM */
 
 /* Resolve the journal integrity key: a platform-provided device secret if
- * the HAL supplies one, else the default file backend's key file. */
+ * the HAL supplies one, else the default file backend's key file. Returns 1
+ * with a key and 0 when there is none. A HAL key callback that fails returns
+ * a negative value: the journal it authenticates must then be neither loaded
+ * nor written. */
 static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
 {
     *keySz = 0;
@@ -944,7 +947,7 @@ static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
         }
         TPM2_ForceZero(key, FWTPM_NV_KEY_SIZE);
         *keySz = 0;
-        return 0;
+        return -1;
     }
 #if !defined(NO_FILESYSTEM)
     if (ctx->nvHal.read == FwNvFileRead) {
@@ -1081,15 +1084,14 @@ static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
 /* Journal Operations                                                        */
 /* ========================================================================= */
 
-/* Write NV header at offset 0 */
-static int FwNvWriteHeader(FWTPM_CTX* ctx)
+/* Write NV header at offset 0. The caller resolves the integrity key, as it
+ * has to be there before the journal is touched; keySz is 0 without one. */
+static int FwNvWriteHeader(FWTPM_CTX* ctx, const byte* key, word32 keySz)
 {
     byte hdr[sizeof(FWTPM_NV_HEADER)]; /* 4 x UINT32 = 16 bytes */
     FWTPM_NV_HAL* hal = &ctx->nvHal;
 
-    byte key[FWTPM_NV_KEY_SIZE];
     byte mac[FWTPM_NV_MAC_SIZE];
-    word32 keySz = 0;
     int rc;
 
     FwStoreU32LE(hdr + 0,  FWTPM_NV_MAGIC);
@@ -1101,13 +1103,11 @@ static int FwNvWriteHeader(FWTPM_CTX* ctx)
 
     /* Rewrite the trailing MAC in place (byte-addressable only; append-only
      * commits integrity via FwNvAppendCheckpoint instead). */
-    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) &&
-            FwNvGetIntegrityKey(ctx, key, &keySz)) {
+    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) && keySz > 0) {
         rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
         if (rc == TPM_RC_SUCCESS) {
             rc = FwNvHalWrite(ctx, ctx->nvWritePos, mac, sizeof(mac));
         }
-        TPM2_ForceZero(key, sizeof(key));
     }
     return rc;
 }
@@ -1139,6 +1139,9 @@ static int FwNvAppendCheckpoint(FWTPM_CTX* ctx)
 
     /* MAC over [header .. current writePos) (this entry not included). */
     haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
     if (haveKey) {
         rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
         TPM2_ForceZero(key, sizeof(key));
@@ -1205,6 +1208,8 @@ static int FwNvAppendEntryEx(FWTPM_CTX* ctx, UINT16 tag,
     word32 entrySize = TLV_HDR_SIZE + valueLen;
     word32 reserve = FWTPM_NV_MAC_SIZE;
     byte tlvHdr[TLV_HDR_SIZE];
+    byte key[FWTPM_NV_KEY_SIZE];
+    word32 keySz = 0;
     word32 savedWritePos;
     int rc;
 
@@ -1264,6 +1269,13 @@ static int FwNvAppendEntryEx(FWTPM_CTX* ctx, UINT16 tag,
         }
     }
 
+    /* The entry overwrites the journal MAC of a byte-addressable backend, so
+     * the key for the new MAC has to be there first */
+    if (!FW_NV_APPEND_ONLY(hal) &&
+            FwNvGetIntegrityKey(ctx, key, &keySz) < 0) {
+        return TPM_RC_FAILURE;
+    }
+
     /* Write TLV header */
     FwStoreU16LE(tlvHdr, tag);
     FwStoreU16LE(tlvHdr + 2, valueLen);
@@ -1292,9 +1304,11 @@ static int FwNvAppendEntryEx(FWTPM_CTX* ctx, UINT16 tag,
         else
 #endif
         {
-            rc = FwNvWriteHeader(ctx); /* byte-addressable: header + MAC */
+            /* byte-addressable: header + MAC */
+            rc = FwNvWriteHeader(ctx, key, keySz);
         }
     }
+    TPM2_ForceZero(key, sizeof(key));
     if (rc != TPM_RC_SUCCESS) {
         /* A failed append must leave no committable remnant. On a byte-
          * addressable backend roll the write cursor back so the partial entry
@@ -2167,6 +2181,9 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
     int rc = TPM_RC_SUCCESS;
 
     haveKey = FwNvGetIntegrityKey(ctx, vKey, &vKeySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
 
     /* Pass 1: locate the last authenticated MAC checkpoint. */
     scanPos = (word32)sizeof(FWTPM_NV_HEADER);
@@ -2311,6 +2328,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
     word32 valueBufSz = FWTPM_NV_MAX_ENTRY;
     byte vKey[FWTPM_NV_KEY_SIZE];
     word32 vKeySz = 0;
+    int haveKey;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -2391,7 +2409,11 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         hdr.magic == FWTPM_NV_MAGIC &&
         hdr.version == FWTPM_NV_VERSION) {
         ctx->nvWritePos = hdr.writePos;
-        if (FwNvGetIntegrityKey(ctx, vKey, &vKeySz)) {
+        haveKey = FwNvGetIntegrityKey(ctx, vKey, &vKeySz);
+        if (haveKey < 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (haveKey) {
             byte storedMac[FWTPM_NV_MAC_SIZE];
             byte calcMac[FWTPM_NV_MAC_SIZE];
             if (ctx->nvWritePos + FWTPM_NV_MAC_SIZE > hal->maxSize) {
@@ -2536,6 +2558,9 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     byte* buf = NULL;
     word32 bufSz = FWTPM_NV_MAX_ENTRY;
     word32 pos;
+    byte key[FWTPM_NV_KEY_SIZE];
+    word32 keySz = 0;
+    int haveKey;
     UINT64 clockValue = 0;
     int clockSafe;
 
@@ -2553,9 +2578,16 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         return TPM_RC_FAILURE;
     }
 
+    /* Keep the journal when the new one could not be authenticated */
+    haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
+
     /* Allocate marshal buffer for largest single entry */
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {
+        TPM2_ForceZero(key, sizeof(key));
         return TPM_RC_MEMORY;
     }
 
@@ -2579,8 +2611,9 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
 
     /* Write header (will be updated at end with final writePos) */
     if (rc == 0) {
-        rc = FwNvWriteHeader(ctx);
+        rc = FwNvWriteHeader(ctx, key, keySz);
     }
+    TPM2_ForceZero(key, sizeof(key));
 
     /* --- Seeds --- */
     if (rc == 0) {
