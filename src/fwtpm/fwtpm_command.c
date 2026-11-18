@@ -24248,11 +24248,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * daLockoutRecovery seconds, so lockoutAuth cannot be brute-forced
      * (Part 1 Sec.19.8.2). Reject any authorization slot that uses
      * lockoutAuth, directly or through a bound session, but not Clear via
-     * platformAuth, which is the recovery path. */
+     * platformAuth, which is the recovery path. A session that authorizes
+     * no handle still uses the authValue it is bound to. */
     if (ctx->lockoutAuthFailed) {
-        for (pj = 0; pj < cmdAuthCnt &&
-                pj < (int)entry->authHandleCnt; pj++) {
-            if ((FwAuthSlotDAUse(ctx, cmdHandles[pj],
+        for (pj = 0; pj < cmdAuthCnt; pj++) {
+            if ((FwAuthSlotDAUse(ctx,
+                    pj < (int)entry->authHandleCnt ?
+                        cmdHandles[pj] : (TPM_HANDLE)TPM_RH_NULL,
                     cmdAuths[pj].handle == TPM_RS_PW,
                     cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize,
                     NULL) & FW_AUTH_USES_LOCKOUT) != 0) {
@@ -24266,16 +24268,31 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
     if (ctx->daFailedTries >= ctx->daMaxTries && ctx->daMaxTries > 0) {
         int hasDaAuth = 0;
+        int hasDaSess = 0;
 
-        for (pj = 0; pj < cmdAuthCnt &&
-                pj < (int)entry->authHandleCnt; pj++) {
-            if ((FwAuthSlotDAUse(ctx, cmdHandles[pj],
+        for (pj = 0; pj < cmdAuthCnt; pj++) {
+            int authSlot = pj < (int)entry->authHandleCnt;
+            if ((FwAuthSlotDAUse(ctx,
+                    authSlot ? cmdHandles[pj] : (TPM_HANDLE)TPM_RH_NULL,
                     cmdAuths[pj].handle == TPM_RS_PW,
                     cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize, NULL) &
                     (FW_AUTH_USES_ENTITY_DA | FW_AUTH_USES_BIND_DA)) != 0) {
-                hasDaAuth = 1;
-                break;
+                if (authSlot) {
+                    hasDaAuth = 1;
+                }
+                else {
+                    hasDaSess = 1;
+                }
             }
+        }
+        /* A session that authorizes no handle and is bound to a DA protected
+         * entity is refused for every command, or its HMAC would keep testing
+         * guesses of the bind authValue. */
+        if (hasDaSess) {
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+            return TPM_RC_SUCCESS;
         }
         /* Startup/Shutdown are lifecycle commands and must never be DA-gated:
          * with failedTries persisted, gating Startup would brick a TPM that
@@ -24309,9 +24326,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * regardless of the macro. */
     if (!ctx->daUsed) {
         int armDa = 0;
-        for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
+        for (pj = 0; pj < cmdAuthCnt; pj++) {
             int daUse;
-            TPM_HANDLE entityH = cmdHandles[pj];
+            TPM_HANDLE entityH = pj < (int)entry->authHandleCnt ?
+                cmdHandles[pj] : (TPM_HANDLE)TPM_RH_NULL;
             TPM_HANDLE bindH = cmdAuths[pj].sess != NULL ?
                 cmdAuths[pj].sess->bindHandle : 0;
             int entityIsObj =
@@ -24664,7 +24682,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                if (isAuthSess && FwAuthSlotDAUse(ctx, entityH, 0, hSess,
+                if (FwAuthSlotDAUse(ctx, entityH, 0, hSess,
                         cmdAuths[hj].cmdHmacSize, &daHandle) != 0) {
                     authRc = TPM_RC_AUTH_FAIL;
                     if (FwDaRegisterFailure(ctx, daHandle)) {

@@ -18879,6 +18879,98 @@ static void test_fwtpm_da_hmac_arms_daused(void)
     (void)remove(FWTPM_NV_FILE);
     fwtpm_pass("DA HMAC session arms daUsed:", 0);
 }
+
+/* Start an unsalted HMAC session bound to the given entity. */
+static UINT32 DaStartBoundSession(FWTPM_CTX* ctx, UINT32 bind)
+{
+    int cmdSz, rspSize = 0;
+
+    cmdSz = BuildStartAuthSessionCmd(gCmd, TPM_SE_HMAC, TPM_ALG_SHA256);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 4, bind);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* GetRandom with an audit session that authorizes no handle and carries an
+ * HMAC that cannot verify. */
+static TPM_RC DaGetRandomBadHmac(FWTPM_CTX* ctx, UINT32 sessH)
+{
+    int pos, authStart, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_GetRandom);
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, 16); pos += 2;
+    memset(gCmd + pos, 0xAA, 16); pos += 16;
+    gCmd[pos++] = TPMA_SESSION_audit | TPMA_SESSION_continueSession;
+    PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+    memset(gCmd + pos, 0xCC, WC_SHA256_DIGEST_SIZE);
+    pos += WC_SHA256_DIGEST_SIZE;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, 8); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* The HMAC of a bound session depends on the bind authValue in every session
+ * slot, so a failure counts toward lockout even when the session authorizes
+ * no handle, and the session is refused once the TPM is locked out
+ * (Part 1 Sec.19.8.4). */
+static void test_fwtpm_da_bound_session_no_auth_slot(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 daKey, noDaKey, sessH;
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 2, 1000, 1000), TPM_RC_SUCCESS);
+    daKey = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(daKey, 0);
+    noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
+    AssertIntNE(noDaKey, 0);
+
+    /* Unbound, and bound to a noDA object: not counted */
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_BAD_AUTH);
+    FlushHandle(&ctx, sessH);
+    sessH = DaStartBoundSession(&ctx, noDaKey);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_BAD_AUTH);
+    FlushHandle(&ctx, sessH);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    AssertIntEQ(ctx.daUsed, 0);
+
+    /* Bound to a DA protected object: counted, then locked out */
+    sessH = DaStartBoundSession(&ctx, daKey);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 1);
+    AssertIntEQ(ctx.daUsed, 1);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_LOCKOUT);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_LOCKOUT);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+    FlushHandle(&ctx, sessH);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        TPM_RH_LOCKOUT), TPM_RC_SUCCESS);
+
+    /* Bound to lockout: locks lockoutAuth without counting a try */
+    sessH = DaStartBoundSession(&ctx, TPM_RH_LOCKOUT);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(ctx.lockoutAuthFailed, 1);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_LOCKOUT);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA bound session in a non-auth slot:", 0);
+}
 #endif /* HAVE_ECC */
 #endif /* !FWTPM_NO_DA */
 
@@ -32286,6 +32378,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_da_selfheal();
     test_fwtpm_da_selfheal_partial();
     test_fwtpm_da_hmac_arms_daused();
+    test_fwtpm_da_bound_session_no_auth_slot();
     test_fwtpm_da_lockoutauth_failure();
     test_fwtpm_da_clear_resets();
     test_fwtpm_da_permanent_bits();
