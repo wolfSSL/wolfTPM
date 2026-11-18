@@ -19233,6 +19233,109 @@ static void test_fwtpm_da_bound_session_no_auth_slot(void)
     (void)remove(FWTPM_NV_FILE);
     fwtpm_pass("DA bound session in a non-auth slot:", 0);
 }
+
+/* Send cc authorized for a permanent handle with empty auth by an HMAC
+ * session; the HMAC is correct unless bad is set. */
+static TPM_RC DaSendHierarchyHmacCmd(FWTPM_CTX* ctx, UINT32 cc,
+    UINT32 handle, UINT32 sessH, int bad)
+{
+    FWTPM_Session* sess = NULL;
+    byte nonceCaller[16];
+    byte cpBuf[8];
+    byte pHash[WC_SHA256_DIGEST_SIZE];
+    byte authHmac[WC_SHA256_DIGEST_SIZE];
+    UINT8 attrs = TPMA_SESSION_continueSession;
+    int i, pos, authStart, rspSize = 0;
+
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx->sessions[i].used && ctx->sessions[i].handle == sessH) {
+            sess = &ctx->sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+    memset(nonceCaller, 0x5C, sizeof(nonceCaller));
+    PutU32BE(cpBuf, cc);
+    PutU32BE(cpBuf + 4, handle);
+    AssertIntEQ(wc_Sha256Hash(cpBuf, sizeof(cpBuf), pHash), 0);
+    ComputeAuthHmac(sess->sessionKey.buffer, sess->sessionKey.size, pHash,
+        nonceCaller, sizeof(nonceCaller), sess->nonceTPM.buffer,
+        sess->nonceTPM.size, NULL, 0, attrs, authHmac);
+    authHmac[0] ^= (byte)bad;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, cc);
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, sizeof(nonceCaller)); pos += 2;
+    memcpy(gCmd + pos, nonceCaller, sizeof(nonceCaller));
+    pos += (int)sizeof(nonceCaller);
+    gCmd[pos++] = attrs;
+    PutU16BE(gCmd + pos, sizeof(authHmac)); pos += 2;
+    memcpy(gCmd + pos, authHmac, sizeof(authHmac));
+    pos += (int)sizeof(authHmac);
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A session bound to a DA protected entity is refused while the TPM is
+ * locked out whatever it authorizes and whether or not its HMAC verifies;
+ * a session bound to a noDA entity and a password are not
+ * (Part 1 Sec.19.8.4). */
+static void test_fwtpm_da_bound_session_locked_out(void)
+{
+    static const struct {
+        UINT32 cc;
+        UINT32 handle;
+    } cmds[] = {
+        { TPM_CC_Clear, TPM_RH_PLATFORM },
+        { TPM_CC_DictionaryAttackLockReset, TPM_RH_LOCKOUT }
+    };
+    FWTPM_CTX ctx;
+    UINT32 daKey, noDaKey, sessH;
+    int i;
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    for (i = 0; i < (int)(sizeof(cmds) / sizeof(cmds[0])); i++) {
+        AssertIntEQ(DaSetParams(&ctx, 2, 1000, 1000), TPM_RC_SUCCESS);
+        daKey = DaMakeEccSignKey(&ctx, 0x00040072);
+        AssertIntNE(daKey, 0);
+        noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
+        AssertIntNE(noDaKey, 0);
+        AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+        AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
+        AssertIntEQ((int)ctx.daFailedTries, 2);
+
+        sessH = DaStartBoundSession(&ctx, daKey);
+        AssertIntNE(sessH, 0);
+        AssertIntEQ(DaSendHierarchyHmacCmd(&ctx, cmds[i].cc, cmds[i].handle,
+            sessH, 1), TPM_RC_LOCKOUT);
+        AssertIntEQ(DaSendHierarchyHmacCmd(&ctx, cmds[i].cc, cmds[i].handle,
+            sessH, 0), TPM_RC_LOCKOUT);
+        AssertIntEQ((int)ctx.daFailedTries, 2);
+        FlushHandle(&ctx, sessH);
+
+        sessH = DaStartBoundSession(&ctx, noDaKey);
+        AssertIntNE(sessH, 0);
+        AssertIntEQ(DaSendHierarchyHmacCmd(&ctx, cmds[i].cc, cmds[i].handle,
+            sessH, 0), TPM_RC_SUCCESS);
+        AssertIntEQ((int)ctx.daFailedTries, 0);
+        FlushHandle(&ctx, sessH);
+        if (cmds[i].cc != TPM_CC_Clear) {
+            FlushHandle(&ctx, daKey);
+            FlushHandle(&ctx, noDaKey);
+        }
+    }
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA bound session while locked out:", 0);
+}
 #endif /* HAVE_ECC */
 #endif /* !FWTPM_NO_DA */
 
@@ -32808,6 +32911,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_da_selfheal_partial();
     test_fwtpm_da_hmac_arms_daused();
     test_fwtpm_da_bound_session_no_auth_slot();
+    test_fwtpm_da_bound_session_locked_out();
     test_fwtpm_da_lockoutauth_failure();
     test_fwtpm_da_clear_resets();
     test_fwtpm_da_permanent_bits();

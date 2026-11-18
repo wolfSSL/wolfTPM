@@ -24345,22 +24345,20 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
         for (pj = 0; pj < cmdAuthCnt; pj++) {
             int authSlot = pj < (int)entry->authHandleCnt;
-            if ((FwAuthSlotDAUse(ctx,
+            int daUse = FwAuthSlotDAUse(ctx,
                     authSlot ? cmdHandles[pj] : (TPM_HANDLE)TPM_RH_NULL,
                     cmdAuths[pj].handle == TPM_RS_PW,
-                    cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize, NULL) &
-                    (FW_AUTH_USES_ENTITY_DA | FW_AUTH_USES_BIND_DA)) != 0) {
-                if (authSlot) {
-                    hasDaAuth = 1;
-                }
-                else {
-                    hasDaSess = 1;
-                }
+                    cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize, NULL);
+            if ((daUse & FW_AUTH_USES_BIND_DA) != 0) {
+                hasDaSess = 1;
+            }
+            else if ((daUse & FW_AUTH_USES_ENTITY_DA) != 0) {
+                hasDaAuth = 1;
             }
         }
-        /* A session that authorizes no handle and is bound to a DA protected
-         * entity is refused for every command, or its HMAC would keep testing
-         * guesses of the bind authValue. */
+        /* A session bound to a DA protected entity is refused for every
+         * command and in every slot, or its HMAC would keep testing guesses
+         * of the bind authValue. */
         if (hasDaSess) {
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
