@@ -5114,7 +5114,7 @@ TPM_RC FwCredentialWrap(
     byte* encCred, int encCredBufSz, word32* encCredSz,
     byte* outerHmac)
 {
-    TPM_RC rc;
+    TPM_RC rc = TPM_RC_SUCCESS;
     byte iv[AES_BLOCK_SIZE];
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
@@ -5125,6 +5125,11 @@ TPM_RC FwCredentialWrap(
 
     FWTPM_ALLOC_VAR(aes, Aes);
     FWTPM_ALLOC_VAR(hmac, Hmac);
+    if (rc != 0) {
+        FWTPM_FREE_VAR(aes);
+        FWTPM_FREE_VAR(hmac);
+        return rc;
+    }
 
     /* Prepend size(2) to credential, then AES-CFB encrypt */
     FwStoreU16BE(encCred, credSz);

@@ -676,6 +676,12 @@ static void test_fwtpm_crypto_alloc_failure(void)
     UINT16 sensitiveType = 0;
     byte aesKey[WC_SHA256_DIGEST_SIZE];
     byte macKey[WC_SHA256_DIGEST_SIZE];
+#ifndef FWTPM_NO_CREDENTIAL
+    byte encCred[2 + WC_SHA256_DIGEST_SIZE];
+    byte outerHmac[WC_SHA256_DIGEST_SIZE];
+    word32 encCredSz = 0;
+    int i;
+#endif
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     TPM2B_PUBLIC_KEY_RSA rsaPub;
     byte seed[FWTPM_SEED_SIZE];
@@ -756,6 +762,16 @@ static void test_fwtpm_crypto_alloc_failure(void)
         TPM_ST_HASHCHECK, hash, sizeof(hash), NULL, 0, aesKey, &derSz);
     AssertIntEQ(rc, TPM_RC_MEMORY);
     AssertIntEQ(derSz, 0);
+
+#ifndef FWTPM_NO_CREDENTIAL
+    for (i = 1; i <= 2; i++) {
+        fwtpm_test_fail_alloc_at(i);
+        rc = FwCredentialWrap(aesKey, AES_128_KEY_SIZE, macKey,
+            sizeof(macKey), TPM_ALG_SHA256, hash, sizeof(hash), name.name,
+            name.size, encCred, sizeof(encCred), &encCredSz, outerHmac);
+        AssertIntEQ(rc, TPM_RC_MEMORY);
+    }
+#endif
 
     fwtpm_pass("Crypto allocation failures preserved:", 0);
 }
