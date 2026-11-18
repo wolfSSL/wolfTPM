@@ -19339,6 +19339,98 @@ static void test_fwtpm_da_bound_session_locked_out(void)
     (void)remove(FWTPM_NV_FILE);
     fwtpm_pass("DA bound session while locked out:", 0);
 }
+
+/* Send cc with one HMAC session carrying an empty HMAC. The session
+ * authorizes handle, or audits GetRandom when handle is 0. */
+static TPM_RC DaSendEmptyHmac(FWTPM_CTX* ctx, UINT32 cc, UINT32 handle,
+    UINT32 sessH)
+{
+    int pos, authStart, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, cc);
+    if (handle != 0) {
+        PutU32BE(gCmd + pos, handle); pos += 4;
+    }
+    authStart = pos;
+    pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, 16); pos += 2;
+    memset(gCmd + pos, 0xAA, 16); pos += 16;
+    gCmd[pos++] = (byte)(TPMA_SESSION_continueSession |
+        (handle != 0 ? 0 : TPMA_SESSION_audit));
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    if (handle == 0) {
+        PutU16BE(gCmd + pos, 8); pos += 2;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* An empty HMAC from an HMAC session verifies only against an empty HMAC
+ * key. Otherwise it is a failed authorization like any other HMAC: counted
+ * when the session is bound to a DA protected entity, and refused while the
+ * TPM is locked out. */
+static void test_fwtpm_da_bound_session_empty_hmac(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 daKey, noDaKey, sessH;
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 3, 1000, 1000), TPM_RC_SUCCESS);
+    daKey = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(daKey, 0);
+    noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
+    AssertIntNE(noDaKey, 0);
+
+    /* Unbound and unsalted: the HMAC key is empty */
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+
+    /* Bound to a noDA object: fails without being counted */
+    sessH = DaStartBoundSession(&ctx, noDaKey);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
+        TPM_RC_BAD_AUTH);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    FlushHandle(&ctx, sessH);
+
+    /* Bound to a DA protected object: counted */
+    sessH = DaStartBoundSession(&ctx, daKey);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
+        TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 1);
+
+    /* Locked out: refused in every slot */
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
+    AssertIntEQ((int)ctx.daFailedTries, 3);
+    AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
+        TPM_RC_LOCKOUT);
+    AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_Sign, noDaKey, sessH),
+        TPM_RC_LOCKOUT);
+    FlushHandle(&ctx, sessH);
+
+    /* An unbound session is refused only for a DA protected entity */
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_Sign, daKey, sessH),
+        TPM_RC_LOCKOUT);
+    AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ctx.daFailedTries, 3);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA bound session with an empty HMAC:", 0);
+}
 #endif /* HAVE_ECC */
 #endif /* !FWTPM_NO_DA */
 
@@ -32970,6 +33062,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_da_hmac_arms_daused();
     test_fwtpm_da_bound_session_no_auth_slot();
     test_fwtpm_da_bound_session_locked_out();
+    test_fwtpm_da_bound_session_empty_hmac();
     test_fwtpm_da_lockoutauth_failure();
     test_fwtpm_da_clear_resets();
     test_fwtpm_da_permanent_bits();

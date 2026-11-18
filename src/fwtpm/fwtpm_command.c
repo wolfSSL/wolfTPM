@@ -23243,7 +23243,8 @@ static int FwAuthSlotDAUse(FWTPM_CTX* ctx, TPM_HANDLE entityH,
               (sess->isPasswordPolicy || sess->isAuthValuePolicy)))) {
         usesEntityAuth = 1;
     }
-    usesBindAuth = sess != NULL && cmdHmacSize > 0 && sess->isBound;
+    usesBindAuth = sess != NULL && sess->isBound &&
+        (cmdHmacSize > 0 || sess->sessionType == TPM_SE_HMAC);
     if (usesEntityAuth) {
         if (entityH == TPM_RH_LOCKOUT) {
             daUse |= FW_AUTH_USES_LOCKOUT;
@@ -24035,18 +24036,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         }
                     }
 
-                    /* HMAC sessions require a non-empty HMAC per TPM 2.0
-                     * Part 1 Section 19.6. Accepting hmacSize=0 would
-                     * bypass command HMAC verification. Policy sessions
-                     * may have empty HMAC when PolicyAuthValue/PolicyPassword
-                     * has not been called. */
-                    if (rc == 0 && cmdAuths[cmdAuthCnt].sess != NULL &&
-                        cmdAuths[cmdAuthCnt].sess->sessionType == TPM_SE_HMAC &&
-                        cmdAuths[cmdAuthCnt].cmdHmacSize == 0) {
-                        rc = TPM_RC_AUTH_FAIL;
-                        break;
-                    }
-
                     cmdAuthCnt++;
                 }
             }
@@ -24613,6 +24602,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     for (hj = 0; hj < cmdAuthCnt; hj++) {
         int isAuthSess = (hj < (int)entry->authHandleCnt);
         if (cmdAuths[hj].sess != NULL && (cmdAuths[hj].cmdHmacSize > 0 ||
+                cmdAuths[hj].sess->sessionType == TPM_SE_HMAC ||
                 (!isAuthSess && cmdAuths[hj].sess->sessionKey.size > 0) ||
                 (cmdAuths[hj].sess->sessionType == TPM_SE_POLICY &&
                  (cmdAuths[hj].sess->isPasswordPolicy ||
