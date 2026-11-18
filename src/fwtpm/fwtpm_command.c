@@ -449,6 +449,9 @@ static TPM_RC FwValidatePcrSelection(TPM2_Packet* cmd, int cmdSize)
 
     check = *cmd;
     TPM2_Packet_ParseU32(&check, &count);
+    if (count > HASH_COUNT) {
+        return TPM_RC_SIZE;
+    }
     if (count > (UINT32)(cmdSize - check.pos) / 3U) {
         return TPM_RC_COMMAND_SIZE;
     }
@@ -19204,6 +19207,9 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* PCRselect */
     if (rc == 0) {
         rc = FwValidatePcrSelection(cmd, cmdSize);
+        if (rc == TPM_RC_SIZE) {
+            rc |= TPM_RC_P | TPM_RC_3;
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &pcrSelCount);

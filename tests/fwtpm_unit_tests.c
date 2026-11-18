@@ -2508,11 +2508,18 @@ static void test_fwtpm_pcr_allocate(void)
 
     /* A selection count that exceeds the remaining packet is truncated */
     cmdSz = BuildPcrAllocateCmd(gCmd, TPM_RH_PLATFORM, algs, 1, 1);
-    PutU32BE(gCmd + TPM2_HEADER_SIZE + 4 + 13, FWTPM_PCR_BANKS * 4 + 1);
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 4 + 13, HASH_COUNT);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+
+    /* A TPML_PCR_SELECTION holds HASH_COUNT selections at most */
+    PutU32BE(gCmd + TPM2_HEADER_SIZE + 4 + 13, HASH_COUNT + 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
 
     /* Both banks selected. Per spec 22.5 the change is staged, so the live
      * allocation must not move until the next Startup(CLEAR). */
@@ -15691,6 +15698,41 @@ static void test_fwtpm_quote_unrestricted_sign(void)
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Quote(unrestricted sign):", 0);
+}
+
+/* A TPML_PCR_SELECTION lists HASH_COUNT selections at most, so a quote never
+ * attests a count it did not marshal (Part 2 Sec.10.9.7). */
+static void test_fwtpm_quote_selection_count(void)
+{
+    FWTPM_CTX ctx;
+    int pos, i, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Quote);
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2; /* inScheme */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, HASH_COUNT + 1); pos += 4;
+    for (i = 0; i < HASH_COUNT + 1; i++) {
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        gCmd[pos++] = (byte)PCR_SELECT_MAX;
+        XMEMSET(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE | TPM_RC_P | TPM_RC_3);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Quote PCR selection count:", 0);
 }
 
 /* A key that declares a signing scheme must not be downgraded by a wire
@@ -32549,6 +32591,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif /* !FWTPM_NO_ECDH */
     test_fwtpm_quote_decrypt_key_returns_key();
     test_fwtpm_quote_unrestricted_sign();
+    test_fwtpm_quote_selection_count();
     test_fwtpm_sign_scheme_downgrade_rejected();
     test_fwtpm_quote_clockinfo_resetcount_nonzero();
     test_fwtpm_certify_decrypt_key_returns_key();
