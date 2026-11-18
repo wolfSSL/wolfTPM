@@ -2697,18 +2697,28 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             }
             if (rc == 0) {
                 pos = 0;
-                FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
-                for (i = 0; i < IMPLEMENTATION_PCR; i++) {
-                    FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
-                    FwNvMarshalDigest(buf, &pos, bufSz,
+                rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
+            }
+            for (i = 0; i < IMPLEMENTATION_PCR && rc == 0; i++) {
+                rc = FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
+                if (rc == 0) {
+                    rc = FwNvMarshalDigest(buf, &pos, bufSz,
                         &ctx->pcrPolicy[i]);
-                    FwNvMarshalU16(buf, &pos, bufSz,
+                }
+                if (rc == 0) {
+                    rc = FwNvMarshalU16(buf, &pos, bufSz,
                         ctx->pcrPolicyAlg[i]);
                 }
-                /* Appended last so an older record still parses */
-                FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
-                FwNvMarshalU8(buf, &pos, bufSz,
+            }
+            /* Appended last so an older record still parses */
+            if (rc == 0) {
+                rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
+            }
+            if (rc == 0) {
+                rc = FwNvMarshalU8(buf, &pos, bufSz,
                     ctx->pcrAllocatedBanksPending);
+            }
+            if (rc == 0) {
                 rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH,
                     buf, (UINT16)pos);
             }
