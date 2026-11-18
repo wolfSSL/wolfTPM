@@ -1322,6 +1322,7 @@ static TPM_RC FwDhkemExtractAndExpand(enum wc_HashType hashType, UINT16 kemId,
             scratch, sizeof(scratch), sharedSecret, nSecret);
     }
     TPM2_ForceZero(prk, sizeof(prk));
+    TPM2_ForceZero(scratch, sizeof(scratch));
     return rc;
 }
 
