@@ -11756,6 +11756,49 @@ static void test_fwtpm_create_sensitive_data_size(void)
     fwtpm_pass("Create sensitive data size:", 0);
 }
 
+/* A caller-supplied HMAC key is limited to the block size of the scheme
+ * hash; sealed data is not (Part 3 Sec.12.1). */
+static void test_fwtpm_create_keyedhash_key_size(void)
+{
+    static const UINT32 cc[] = {
+        TPM_CC_Create, TPM_CC_CreateLoaded, TPM_CC_CreatePrimary
+    };
+    /* fixedTPM | fixedParent | userWithAuth | noDA | sign */
+    const UINT32 attrs = 0x00040452;
+    FWTPM_CTX ctx;
+    byte key[WC_SHA256_BLOCK_SIZE + 1];
+    UINT32 parentH, h;
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(key, 0x6B, sizeof(key));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, FW_TEST_CREATE_ALG);
+    AssertIntNE(parentH, 0);
+
+    for (i = 0; i < (int)(sizeof(cc) / sizeof(cc[0])); i++) {
+        h = (cc[i] == TPM_CC_CreatePrimary) ? (TPM_HANDLE)TPM_RH_OWNER :
+            parentH;
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            attrs, 0, key, WC_SHA256_BLOCK_SIZE), TPM_RC_SUCCESS);
+        if (cc[i] != TPM_CC_Create) {
+            FlushHandle(&ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+        }
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            attrs, 0, key, WC_SHA256_BLOCK_SIZE + 1), TPM_RC_SIZE);
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            FW_TEST_SEALED_ATTRS, 0, key, WC_SHA256_BLOCK_SIZE + 1),
+            TPM_RC_SUCCESS);
+        if (cc[i] != TPM_CC_Create) {
+            FlushHandle(&ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+        }
+    }
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Create KEYEDHASH key size:", 0);
+}
+
 /* The authValue of a new object is limited to the nameAlg digest size once
  * its trailing zeros are dropped (Part 3 Sec.12.1). */
 static void test_fwtpm_create_auth_size(void)
@@ -32386,6 +32429,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_create_primary_creation_data();
     test_fwtpm_create_creation_data();
     test_fwtpm_create_sensitive_data_size();
+    test_fwtpm_create_keyedhash_key_size();
     test_fwtpm_create_auth_size();
 #ifndef NO_AES
     test_fwtpm_create_symcipher_caller_key();

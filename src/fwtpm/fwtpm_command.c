@@ -3273,6 +3273,35 @@ static TPM_RC FwCheckCreateAuthSize(const TPM2B_AUTH* auth,
     return TPM_RC_SUCCESS;
 }
 
+/* A caller-supplied key for a KEYEDHASH signing or decryption object is no
+ * larger than the block size of the scheme hash (Part 3 Sec.12.1). */
+static TPM_RC FwCheckCreateKeyedHashSize(const TPMT_PUBLIC* pub,
+    UINT16 dataSz)
+{
+    UINT16 scheme = pub->parameters.keyedHashDetail.scheme.scheme;
+    TPMI_ALG_HASH hashAlg;
+    int blockSz;
+
+    if ((pub->objectAttributes &
+            (TPMA_OBJECT_sign | TPMA_OBJECT_decrypt)) == 0) {
+        return TPM_RC_SUCCESS;
+    }
+    if (scheme == TPM_ALG_NULL) {
+        hashAlg = pub->nameAlg;
+    }
+    else if (scheme == TPM_ALG_XOR) {
+        hashAlg = pub->parameters.keyedHashDetail.scheme.details.xorr.hashAlg;
+    }
+    else {
+        hashAlg = pub->parameters.keyedHashDetail.scheme.details.hmac.hashAlg;
+    }
+    blockSz = wc_HashGetBlockSize(FwGetWcHashType(hashAlg));
+    if (blockSz <= 0 || (int)dataSz > blockSz) {
+        return TPM_RC_SIZE;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 static TPM_RC FwValidateCreateAttributes(const TPMT_PUBLIC* pub,
     const FWTPM_Object* parent, UINT16 sensitiveDataSz)
 {
@@ -5232,6 +5261,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     /* Use caller-supplied key material */
                     if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
+                    }
+                    if (rc == 0) {
+                        rc = FwCheckCreateKeyedHashSize(
+                            &inPublic->publicArea, sensDataSize);
                     }
                     if (rc == 0) {
                         XMEMCPY(obj->privKey, sensData, sensDataSize);
@@ -8465,6 +8498,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
+                        rc = FwCheckCreateKeyedHashSize(
+                            &inPublic->publicArea, sensDataSize);
+                    }
+                    if (rc == 0) {
                         XMEMCPY(privKeyDer, sensData, sensDataSize);
                         privKeyDerSz = (int)sensDataSize;
                     }
@@ -10711,6 +10748,10 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 if (rc == 0 && sensDataSize > 0) {
                     if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
+                    }
+                    if (rc == 0) {
+                        rc = FwCheckCreateKeyedHashSize(
+                            &inPublic->publicArea, sensDataSize);
                     }
                     if (rc == 0) {
                         XMEMCPY(privKeyDer, sensData, sensDataSize);
