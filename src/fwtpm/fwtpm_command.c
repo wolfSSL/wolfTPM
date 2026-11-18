@@ -18929,9 +18929,10 @@ static void FwAppendClockInfo(FWTPM_CTX* ctx, TPM2_Packet* pkt,
     TPM2_Packet_AppendU8(pkt, (UINT8)ctx->clockSafe); /* safe */
 }
 
+/* signer is NULL when signHandle is TPM_RH_NULL: the handle is then the
+ * qualifiedSigner. */
 static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
     UINT16 type, const FWTPM_Object* signer,
-    const TPM2B_NAME* qualifiedSigner,
     const TPM2B_DATA* extraData)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -18940,9 +18941,19 @@ static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
     UINT32 restartObfuscation = 0;
     byte proof[TPM_MAX_DIGEST_SIZE];
     byte obfuscation[16];
+    TPM2B_NAME nullSigner;
+    const TPM2B_NAME* qualifiedSigner = &nullSigner;
 
-    if (signer->hierarchy != TPM_RH_ENDORSEMENT &&
-            signer->hierarchy != TPM_RH_PLATFORM) {
+    if (signer != NULL) {
+        qualifiedSigner = &signer->qualifiedName;
+    }
+    else {
+        nullSigner.size = 4;
+        FwStoreU32BE(nullSigner.name, TPM_RH_NULL);
+    }
+
+    if (signer == NULL || (signer->hierarchy != TPM_RH_ENDORSEMENT &&
+            signer->hierarchy != TPM_RH_PLATFORM)) {
         int proofSz = TPM2_GetHashDigestSize(CONTEXT_INTEGRITY_HASH_ALG);
 
         if (proofSz <= 0) {
@@ -18952,7 +18963,7 @@ static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
             rc = FwComputeProofValue(ctx, TPM_RH_OWNER,
                 CONTEXT_INTEGRITY_HASH_ALG, proof, proofSz);
         }
-        if (rc == 0 && TPM2_KDFa_ex(signer->pub.nameAlg,
+        if (rc == 0 && TPM2_KDFa_ex(CONTEXT_INTEGRITY_HASH_ALG,
                 proof, (UINT32)proofSz, "OBFUSCATE",
                 qualifiedSigner->name, qualifiedSigner->size,
                 NULL, 0, obfuscation, sizeof(obfuscation)) !=
@@ -18998,7 +19009,9 @@ static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
 #ifndef FWTPM_NO_ATTESTATION
 /* Helper: parse common attestation command parameters.
  * Skips auth area, parses qualifyingData (TPM2B_DATA), and inScheme
- * (sigScheme + sigHashAlg), which has to suit the signing key sigObj.
+ * (sigScheme + sigHashAlg), which has to suit the signing key sigObj. With
+ * no signing key (signHandle TPM_RH_NULL) the scheme is TPM_ALG_NULL
+ * whatever inScheme asks for.
  * Called after handle parsing is complete. */
 static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
     UINT16 cmdTag, const FWTPM_Object* sigObj, TPM2B_DATA* qualifyingData,
@@ -19049,8 +19062,12 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
             }
         }
     }
+    if (rc == 0 && sigObj == NULL) {
+        *sigScheme = TPM_ALG_NULL;
+        *sigHashAlg = TPM_ALG_NULL;
+    }
     /* A key that cannot sign is left for FwSignAttest to reject */
-    if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
+    else if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
             FwCheckSignScheme(sigObj, *sigScheme, *sigHashAlg) != 0) {
         rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
     }
@@ -19115,12 +19132,12 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &signHandle);
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
     /* Quote requires a signing key (Part 3 Sec.18.4) */
-    if (rc == 0) {
+    if (rc == 0 && sigObj != NULL) {
         if (!(sigObj->pub.objectAttributes & TPMA_OBJECT_sign))
             rc = TPM_RC_KEY;
     }
@@ -19150,6 +19167,11 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Without a signing key there is no scheme hash for pcrDigest */
+    if (rc == 0 && sigObj == NULL) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
+
     /* Build TPMS_ATTEST for QUOTE */
     if (rc == 0) {
         XMEMSET(attestBuf, 0, FWTPM_MAX_ATTEST_BUF);
@@ -19158,8 +19180,7 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_QUOTE, sigObj, &sigObj->qualifiedName,
-            &qualifyingData);
+            TPM_ST_ATTEST_QUOTE, sigObj, &qualifyingData);
 
         /* attested.quote: pcrSelect (TPML_PCR_SELECTION) +
          * pcrDigest (TPM2B_DIGEST) */
@@ -19273,7 +19294,7 @@ static TPM_RC FwCmd_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -19295,8 +19316,7 @@ static TPM_RC FwCmd_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_CERTIFY, sigObj, &sigObj->qualifiedName,
-            &qualifyingData);
+            TPM_ST_ATTEST_CERTIFY, sigObj, &qualifyingData);
 
         /* attested.certify: name + qualifiedName */
         TPM2_Packet_AppendU16(&attestPkt, objToSign->name.size);
@@ -19347,7 +19367,7 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &objectHandle);
 
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -19413,8 +19433,12 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
     }
+    if (rc == 0 && sigObj == NULL) {
+        sigScheme = TPM_ALG_NULL;
+        sigHashAlg = TPM_ALG_NULL;
+    }
     /* A key that cannot sign is left for FwSignAttest to reject */
-    if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
+    else if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
             FwCheckSignScheme(sigObj, sigScheme, sigHashAlg) != 0) {
         rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_3;
     }
@@ -19503,8 +19527,7 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_CREATION, sigObj, &sigObj->qualifiedName,
-            &qualifyingData);
+            TPM_ST_ATTEST_CREATION, sigObj, &qualifyingData);
 
         /* attested.creation: objectName (TPM2B_NAME) +
          * creationHash (TPM2B_DIGEST) */
@@ -19555,7 +19578,7 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -19573,8 +19596,7 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_PUB_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_TIME, sigObj, &sigObj->qualifiedName,
-            &qualifyingData);
+            TPM_ST_ATTEST_TIME, sigObj, &qualifyingData);
 
         /* attested.time: TPMS_TIME_INFO (time + clockInfo) +
          * firmwareVersion */
@@ -19629,7 +19651,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &nvHandle);
 
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -19719,7 +19741,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt, attestType,
-            sigObj, &sigObj->qualifiedName, &qualifyingData);
+            sigObj, &qualifyingData);
 
         if (digestMode) {
             /* attested.nvDigest: indexName + nvDigest
@@ -19732,20 +19754,24 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* ML-DSA keys have no scheme hash, so resolve nvDigest's hash from
              * nameAlg (TCG v185 errata) before the classical
              * FwResolveSignScheme fallback. */
-            if (hashAlg == TPM_ALG_NULL) {
+            if (hashAlg == TPM_ALG_NULL && sigObj != NULL) {
                 hashAlg = FwAttestMldsaHashAlg(sigObj);
             }
-            if (hashAlg == TPM_ALG_NULL) {
+            if (hashAlg == TPM_ALG_NULL && sigObj != NULL) {
                 UINT16 keyScheme = TPM_ALG_NULL;
                 FwResolveSignScheme(sigObj, &keyScheme, &hashAlg);
                 (void)keyScheme;
             }
             wcDigH = FwGetWcHashType(hashAlg);
             hashSz = TPM2_GetHashDigestSize(hashAlg);
-            if (wcDigH == WC_HASH_TYPE_NONE || hashSz <= 0) {
+            if (sigObj == NULL) {
+                /* no scheme hash: nvDigest is the Empty Buffer */
+                hashSz = 0;
+            }
+            else if (wcDigH == WC_HASH_TYPE_NONE || hashSz <= 0) {
                 rc = TPM_RC_HASH;
             }
-            if (rc == 0) {
+            if (rc == 0 && sigObj != NULL) {
                 if (wc_Hash(wcDigH, nv->data, nv->nvPublic.dataSize,
                         nvDigest, hashSz) != 0) {
                     rc = TPM_RC_FAILURE;

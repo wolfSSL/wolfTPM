@@ -4984,6 +4984,13 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
     int digestSz;
     enum wc_HashType wcHash;
 
+    /* signHandle TPM_RH_NULL: the attestation is returned unsigned, with
+     * the NULL Signature */
+    if (obj == NULL) {
+        TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL);
+        return TPM_RC_SUCCESS;
+    }
+
     /* Attestation must be signed by a signing key (Part 3 Sec.18). Reject
      * decrypt-only keys so a forged attestation cannot be produced. */
     if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {

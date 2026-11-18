@@ -30900,6 +30900,245 @@ static void test_fwtpm_qualified_name_persistent(void)
 #endif /* !FWTPM_NO_NV */
 #endif /* HAVE_ECC */
 
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+/* One password entry of an authorization area */
+static int AppendPwEntry(byte* buf, int pos, const byte* pw, int pwSz)
+{
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2; /* nonce */
+    buf[pos++] = 0; /* attributes */
+    PutU16BE(buf + pos, (UINT16)pwSz); pos += 2;
+    if (pwSz > 0) {
+        memcpy(buf + pos, pw, pwSz); pos += pwSz;
+    }
+    return pos;
+}
+
+/* An attestation command with signHandle TPM_RH_NULL, authorized by the
+ * password pw, with qualifyingData "qd" and the given inScheme. objH is the
+ * object of Certify and CertifyCreation; creation is its creationHash
+ * followed by its creationTicket. NV_Certify reads nvSize octets of nvIndex
+ * by ownerAuth. */
+static TPM_RC SendAttestNullSigner(FWTPM_CTX* ctx, UINT32 cc, UINT32 objH,
+    UINT32 nvIndex, UINT16 nvSize, UINT16 sigScheme, const byte* pw, int pwSz,
+    const byte* creation)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, cc);
+    int rspSize = 0;
+    int authStart, hashSz = 0, ticketSz;
+
+    if (cc == TPM_CC_GetTime) {
+        PutU32BE(gCmd + pos, TPM_RH_ENDORSEMENT); pos += 4;
+    }
+    if (cc == TPM_CC_Certify) {
+        PutU32BE(gCmd + pos, objH); pos += 4;
+    }
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    if (cc == TPM_CC_CertifyCreation) {
+        PutU32BE(gCmd + pos, objH); pos += 4;
+    }
+    if (cc == TPM_CC_NV_Certify) {
+        PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+        PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    }
+    authStart = pos;
+    pos += 4;
+    if (cc == TPM_CC_GetTime || cc == TPM_CC_Certify) {
+        pos = AppendPwEntry(gCmd, pos, NULL, 0);
+    }
+    pos = AppendPwEntry(gCmd, pos, pw, pwSz);
+    if (cc == TPM_CC_NV_Certify) {
+        pos = AppendPwEntry(gCmd, pos, NULL, 0);
+    }
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, 2); pos += 2; /* qualifyingData */
+    gCmd[pos++] = 'q';
+    gCmd[pos++] = 'd';
+    if (cc == TPM_CC_CertifyCreation) {
+        hashSz = 2 + GetU16BE(creation);
+        memcpy(gCmd + pos, creation, hashSz); pos += hashSz;
+    }
+    PutU16BE(gCmd + pos, sigScheme); pos += 2;
+    if (sigScheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    }
+    if (cc == TPM_CC_Quote) {
+        PutU32BE(gCmd + pos, 1); pos += 4; /* PCRselect */
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        gCmd[pos++] = (byte)PCR_SELECT_MAX;
+        memset(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
+    }
+    else if (cc == TPM_CC_CertifyCreation) {
+        ticketSz = 2 + 4 + 2 + GetU16BE(creation + hashSz + 6);
+        memcpy(gCmd + pos, creation + hashSz, ticketSz); pos += ticketSz;
+    }
+    else if (cc == TPM_CC_NV_Certify) {
+        PutU16BE(gCmd + pos, nvSize); pos += 2;
+        PutU16BE(gCmd + pos, 0); pos += 2; /* offset */
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* gRsp holds a TPMS_ATTEST of this type with the handle TPM_RH_NULL as
+ * qualifiedSigner, "qd" as extraData and the NULL Signature after it.
+ * Returns the offset of clockInfo. */
+static int CheckNullSignerAttest(UINT16 type)
+{
+    static const byte nullSigner[6] = { 0x00, 0x04, 0x40, 0x00, 0x00, 0x07 };
+    int pos = TPM2_HEADER_SIZE;
+    int paramSz = (int)GetU32BE(gRsp + pos);
+    int attestSz = GetU16BE(gRsp + pos + 4);
+    int clockPos;
+
+    AssertIntEQ(paramSz, 2 + attestSz + 2);
+    pos += 4 + 2;
+    AssertIntEQ(GetU16BE(gRsp + pos + attestSz), TPM_ALG_NULL);
+    AssertIntEQ(GetU32BE(gRsp + pos), TPM_GENERATED_VALUE); pos += 4;
+    AssertIntEQ(GetU16BE(gRsp + pos), type); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, nullSigner, sizeof(nullSigner)), 0);
+    pos += (int)sizeof(nullSigner);
+    AssertIntEQ(GetU16BE(gRsp + pos), 2); pos += 2;
+    AssertIntEQ(memcmp(gRsp + pos, "qd", 2), 0); pos += 2;
+    clockPos = pos;
+    AssertIntLE(clockPos + 17 + 8, TPM2_HEADER_SIZE + 4 + 2 + attestSz);
+    return clockPos;
+}
+
+/* signHandle TPM_RH_NULL asks for an attestation that is not signed: the
+ * handle is the qualifiedSigner, the scheme is TPM_ALG_NULL whatever
+ * inScheme says, and the signature is the NULL Signature. Quote has no
+ * scheme hash for its pcrDigest then (Part 3 Sec.18). */
+static void test_fwtpm_attest_null_signer(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 objH;
+    TPM2B_NAME name, qn;
+    byte creation[2 + TPM_MAX_DIGEST_SIZE + 8 + TPM_MAX_DIGEST_SIZE];
+    byte proof[WC_SHA256_DIGEST_SIZE];
+    byte obfuscation[16];
+    byte nullHandle[4];
+    static const byte pw[1] = { 'x' };
+    static const UINT16 schemes[2] = { TPM_ALG_NULL, TPM_ALG_ECDSA };
+    UINT64 firmware = ((UINT64)FWTPM_VERSION_MAJOR << 32) |
+        FWTPM_VERSION_MINOR;
+    int i, pos, creationSz;
+#ifndef FWTPM_NO_NV
+    const UINT32 nvIdx = 0x01500A21;
+    int cmdSz, rspSize = 0;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|noDA|sign */
+    objH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    pos = TPM2_HEADER_SIZE + 4 + 4;
+    pos += 2 + GetU16BE(gRsp + pos); /* outPublic */
+    pos += 2 + GetU16BE(gRsp + pos); /* creationData */
+    creationSz = 2 + GetU16BE(gRsp + pos); /* creationHash */
+    creationSz += 2 + 4 + 2 + GetU16BE(gRsp + pos + creationSz + 6);
+    AssertIntLE(creationSz, (int)sizeof(creation));
+    memcpy(creation, gRsp + pos, creationSz);
+    ReadNames(&ctx, objH, &name, &qn);
+
+    for (i = 0; i < 2; i++) {
+        /* GetTime: the reset, restart and firmware values of the common
+         * part are obfuscated, those of the time information are not */
+        AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_GetTime, 0, 0, 0,
+            schemes[i], NULL, 0, NULL), TPM_RC_SUCCESS);
+        pos = CheckNullSignerAttest(TPM_ST_ATTEST_TIME);
+        PutU32BE(nullHandle, TPM_RH_NULL);
+        AssertIntEQ(FwComputeProofValue(&ctx, TPM_RH_OWNER,
+            CONTEXT_INTEGRITY_HASH_ALG, proof, (int)sizeof(proof)), 0);
+        AssertIntEQ(TPM2_KDFa_ex(CONTEXT_INTEGRITY_HASH_ALG, proof,
+            (UINT32)sizeof(proof), "OBFUSCATE", nullHandle,
+            (UINT32)sizeof(nullHandle), NULL, 0, obfuscation,
+            (UINT32)sizeof(obfuscation)), (int)sizeof(obfuscation));
+        AssertIntEQ(GetU32BE(gRsp + pos + 8),
+            ctx.resetCount + GetU32BE(obfuscation + 8));
+        AssertIntEQ(GetU32BE(gRsp + pos + 12),
+            ctx.restartCount + GetU32BE(obfuscation + 12));
+        AssertIntEQ(GetU32BE(gRsp + pos + 17), (UINT32)((firmware +
+            (((UINT64)GetU32BE(obfuscation) << 32) |
+                GetU32BE(obfuscation + 4))) >> 32));
+        AssertIntEQ(GetU32BE(gRsp + pos + 21), (UINT32)(firmware +
+            GetU32BE(obfuscation + 4)));
+        pos += 17 + 8;
+        AssertIntEQ(GetU32BE(gRsp + pos + 8 + 8), ctx.resetCount);
+        AssertIntEQ(GetU32BE(gRsp + pos + 8 + 12), ctx.restartCount);
+        AssertIntEQ(GetU32BE(gRsp + pos + 8 + 17), (UINT32)(firmware >> 32));
+        AssertIntEQ(GetU32BE(gRsp + pos + 8 + 21), (UINT32)firmware);
+
+        AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_Certify, objH, 0, 0,
+            schemes[i], NULL, 0, NULL), TPM_RC_SUCCESS);
+        pos = CheckNullSignerAttest(TPM_ST_ATTEST_CERTIFY) + 17 + 8;
+        AssertIntEQ(GetU16BE(gRsp + pos), name.size); pos += 2;
+        AssertIntEQ(memcmp(gRsp + pos, name.name, name.size), 0);
+        pos += name.size;
+        AssertIntEQ(GetU16BE(gRsp + pos), qn.size); pos += 2;
+        AssertIntEQ(memcmp(gRsp + pos, qn.name, qn.size), 0);
+
+        AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_CertifyCreation, objH,
+            0, 0, schemes[i], NULL, 0, creation), TPM_RC_SUCCESS);
+        pos = CheckNullSignerAttest(TPM_ST_ATTEST_CREATION) + 17 + 8;
+        AssertIntEQ(GetU16BE(gRsp + pos), name.size); pos += 2;
+        AssertIntEQ(memcmp(gRsp + pos, name.name, name.size), 0);
+        pos += name.size;
+        AssertIntEQ(memcmp(gRsp + pos, creation, 2 + GetU16BE(creation)), 0);
+
+        AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_Quote, 0, 0, 0,
+            schemes[i], NULL, 0, NULL), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    }
+
+#ifndef FWTPM_NO_NV
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 1,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerAccessCmd(&ctx, nvIdx, 1), TPM_RC_SUCCESS);
+    for (i = 0; i < 2; i++) {
+        AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_NV_Certify, 0, nvIdx,
+            1, schemes[i], NULL, 0, NULL), TPM_RC_SUCCESS);
+        pos = CheckNullSignerAttest(TPM_ST_ATTEST_NV) + 17 + 8;
+        pos += 2 + GetU16BE(gRsp + pos); /* indexName */
+        AssertIntEQ(GetU16BE(gRsp + pos), 0); pos += 2; /* offset */
+        AssertIntEQ(GetU16BE(gRsp + pos), 1); /* nvContents */
+
+        /* size and offset 0: the digest of the index, which is empty with
+         * no scheme hash */
+        AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_NV_Certify, 0, nvIdx,
+            0, schemes[i], NULL, 0, NULL), TPM_RC_SUCCESS);
+        pos = CheckNullSignerAttest(TPM_ST_ATTEST_NV_DIGEST) + 17 + 8;
+        pos += 2 + GetU16BE(gRsp + pos); /* indexName */
+        AssertIntEQ(GetU16BE(gRsp + pos), 0); pos += 2; /* nvDigest */
+        AssertIntEQ(pos, TPM2_HEADER_SIZE + 4 + 2 +
+            GetU16BE(gRsp + TPM2_HEADER_SIZE + 4));
+    }
+    AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_NV_Certify, 0, nvIdx, 1,
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+#endif
+
+    /* The authValue of TPM_RH_NULL is the Empty Buffer */
+    AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_GetTime, 0, 0, 0,
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+    AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_Certify, objH, 0, 0,
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+    AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_CertifyCreation, objH, 0,
+        0, TPM_ALG_NULL, pw, (int)sizeof(pw), creation), TPM_RC_BAD_AUTH);
+    AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_Quote, 0, 0, 0,
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+
+    FlushHandle(&ctx, objH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Attestation with signHandle TPM_RH_NULL:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
+
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_CREDENTIAL)
 /* keyHandle has to be a Storage Key: anything else is TPM_RC_TYPE for the
@@ -32033,6 +32272,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_NV
     test_fwtpm_qualified_name_persistent();
 #endif
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    test_fwtpm_attest_null_signer();
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_CREDENTIAL)
