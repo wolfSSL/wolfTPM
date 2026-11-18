@@ -118,6 +118,8 @@ static const char pemFileKey[] = PEM_FILE_KEY;
         #include "system/time/sys_time.h"
 #elif defined(WOLFTPM_ZEPHYR)
         #include <zephyr/kernel.h>
+#elif defined(WOLFTPM_PIKEOS)
+        #include <p4.h>
 #else
         #include <sys/time.h>
 #endif
@@ -140,6 +142,10 @@ static const char pemFileKey[] = PEM_FILE_KEY;
     #elif defined(WOLFTPM_ZEPHYR)
         (void)reset;
         return (double)k_uptime_get() / 1000.0;
+    #elif defined(WOLFTPM_PIKEOS)
+        P4_time_t now = p4_get_time(); /* nanoseconds since boot */
+        (void)reset;
+        return (double)now / 1000000000.0;
     #else
         struct timeval tv;
         gettimeofday(&tv, 0);

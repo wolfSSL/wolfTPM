@@ -41,6 +41,9 @@
 #ifdef WOLFTPM_WINAPI
     #include <wolftpm/tpm2_winapi.h>
 #endif
+#ifdef WOLFTPM_PIKEOS
+    #include <wolftpm/tpm2_pikeos.h>
+#endif
 #include <wolftpm/tpm2_param_enc.h>
 #ifdef WOLFTPM_SPDM
 #include <wolftpm/tpm2_spdm.h>
@@ -87,6 +90,9 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #elif defined(WOLFTPM_WINAPI)
 #define INTERNAL_SEND_COMMAND      TPM2_WinApi_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx) TPM2_WinApi_Cleanup(ctx)
+#elif defined(WOLFTPM_PIKEOS)
+#define INTERNAL_SEND_COMMAND      TPM2_PIKEOS_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
 #else
 #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
@@ -1088,11 +1094,19 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #endif
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-    defined(WOLFTPM_WINAPI) || defined(WOLFTPM_OPTEE)
+    defined(WOLFTPM_WINAPI) || defined(WOLFTPM_OPTEE) || \
+    defined(WOLFTPM_PIKEOS)
     if (ioCb != NULL || userCtx != NULL) {
         rc = BAD_FUNC_ARG;
         goto exit;
     }
+#ifdef WOLFTPM_PIKEOS
+    /* No TIS layer to wait on: the driver owns chip startup and locality */
+    if (timeoutTries > 0) {
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+#endif
 #elif defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     /* Accept IO callback for SPI fallback path */
     if (ioCb != NULL) {
@@ -1173,6 +1187,9 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 {
     TPM_RC rc;
+#ifdef WOLFTPM_PIKEOS
+    TPM_RC closeRc;
+#endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int wolfCryptInit;
     #ifdef TPM2_DYNAMIC_HW_LOCK
@@ -1269,9 +1286,19 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     TPM2_OpteeClose(ctx);
 #endif
 
+#ifdef WOLFTPM_PIKEOS
+    /* Report a failed driver close without masking an earlier failure */
+    closeRc = TPM2_PIKEOS_Cleanup(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = closeRc;
+    }
+#else
+    rc = TPM_RC_SUCCESS;
+#endif
+
     ctx->locality = TPM2_LOCALITY_UNINITIALIZED;
 
-    return TPM_RC_SUCCESS;
+    return rc;
 }
 
 

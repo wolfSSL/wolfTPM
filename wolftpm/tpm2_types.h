@@ -558,7 +558,7 @@ typedef int64_t  INT64;
 /* On Linux with autodetect, also try /dev/tpm0 kernel driver at runtime */
 #if defined(WOLFTPM_AUTODETECT) && defined(__linux__) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-    !defined(WOLFTPM_OPTEE) && \
+    !defined(WOLFTPM_OPTEE) && !defined(WOLFTPM_PIKEOS) && \
     !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_FWTPM_HAL)
     #define WOLFTPM_LINUX_DEV_AUTODETECT
 #endif
@@ -651,7 +651,8 @@ typedef int64_t  INT64;
 
 #ifndef TPM_TIMEOUT_TRIES
     #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-        defined(WOLFTPM_OPTEE) || defined(WOLFTPM_WINAPI)
+        defined(WOLFTPM_OPTEE) || defined(WOLFTPM_WINAPI) || \
+        defined(WOLFTPM_PIKEOS)
     #define TPM_TIMEOUT_TRIES 0
     #else
     #define TPM_TIMEOUT_TRIES 1000000
@@ -744,6 +745,9 @@ typedef int64_t  INT64;
     #elif defined(WOLFSSL_ESPIDF)
         #include <esp_rom_sys.h>
         #define XSLEEP_MS(ms) esp_rom_delay_us((word32)(ms) * 1000U)
+    #elif defined(WOLFTPM_PIKEOS)
+        #include <p4.h>
+        #define XSLEEP_MS(ms) p4_sleep(P4_MSEC(ms))
     #elif defined(__linux__) || defined(__ARM_EABI__)
         #include <unistd.h>
         #define XSLEEP_MS(ms) do {                       \
@@ -812,6 +816,11 @@ typedef int64_t  INT64;
             TEE_GetSystemTime(&now);
             return (word32)((word32)now.seconds * 1000u + (word32)now.millis);
         }
+        #define WOLFTPM_HAVE_MONOTONIC_MS
+    #elif defined(WOLFTPM_PIKEOS)
+        #include <p4.h>
+        /* p4_get_time() is nanoseconds since boot */
+        #define XTPM_GET_TIMEMS() ((word32)(p4_get_time() / 1000000ULL))
         #define WOLFTPM_HAVE_MONOTONIC_MS
     #else
         /* Include first, then feature-test: strict C99 may not expose
