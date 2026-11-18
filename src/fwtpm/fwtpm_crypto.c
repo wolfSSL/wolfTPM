@@ -2152,7 +2152,7 @@ int FwDeriveWrapKey(FWTPM_CTX* ctx, const FWTPM_Object* parent,
     int rc = TPM_RC_SUCCESS;
     byte proof[WC_SHA256_DIGEST_SIZE];
     int useProof;
-    int hmacTried = 0;
+    int hmacInit = 0;
     FWTPM_DECLARE_VAR(hmac, Hmac);
 
     if (ctx == NULL || parent == NULL || name == NULL || name->size == 0 ||
@@ -2169,8 +2169,10 @@ int FwDeriveWrapKey(FWTPM_CTX* ctx, const FWTPM_Object* parent,
             TPM_ALG_SHA256, proof, sizeof(proof));
     }
     if (rc == 0) {
-        hmacTried = 1;
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            hmacInit = 1;
+        }
     }
 
     /* AES key = HMAC-SHA256(parentPriv, label || [ehProof] || name).
@@ -2215,7 +2217,7 @@ int FwDeriveWrapKey(FWTPM_CTX* ctx, const FWTPM_Object* parent,
     }
 
     TPM2_ForceZero(proof, sizeof(proof));
-    if (hmacTried)
+    if (hmacInit)
         wc_HmacFree(hmac);
     FWTPM_FREE_VAR(hmac);
     return rc;
@@ -5118,6 +5120,8 @@ TPM_RC FwCredentialWrap(
     byte iv[AES_BLOCK_SIZE];
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
+    int aesInit = 0;
+    int hmacInit = 0;
 
     if (encCredBufSz < 2 + (int)credSz) {
         return TPM_RC_SIZE;
@@ -5138,11 +5142,15 @@ TPM_RC FwCredentialWrap(
 
     XMEMSET(iv, 0, sizeof(iv));
     rc = wc_AesInit(aes, NULL, INVALID_DEVID);
-    if (rc == 0)
+    if (rc == 0) {
+        aesInit = 1;
         rc = wc_AesSetKey(aes, symKey, (word32)symKeySz, iv, AES_ENCRYPTION);
+    }
     if (rc == 0)
         rc = wc_AesCfbEncrypt(aes, encCred, encCred, *encCredSz);
-    wc_AesFree(aes);
+    if (aesInit) {
+        wc_AesFree(aes);
+    }
     if (rc != 0) {
         rc = TPM_RC_FAILURE;
     }
@@ -5150,16 +5158,20 @@ TPM_RC FwCredentialWrap(
     /* HMAC(hmacKey, encCred || name) */
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
-        if (rc == 0)
+        if (rc == 0) {
+            hmacInit = 1;
             rc = wc_HmacSetKey(hmac, FwGetWcHashType(nameAlg),
                 hmacKey, (word32)hmacKeySz);
+        }
         if (rc == 0)
             rc = wc_HmacUpdate(hmac, encCred, *encCredSz);
         if (rc == 0)
             rc = wc_HmacUpdate(hmac, name, nameSz);
         if (rc == 0)
             rc = wc_HmacFinal(hmac, outerHmac);
-        wc_HmacFree(hmac);
+        if (hmacInit) {
+            wc_HmacFree(hmac);
+        }
         if (rc != 0)
             rc = TPM_RC_FAILURE;
     }
@@ -5191,6 +5203,8 @@ TPM_RC FwCredentialUnwrap(
     byte iv[AES_BLOCK_SIZE];
     int sizeMismatch;
     int hmacDiff;
+    int aesInit = 0;
+    int hmacInit = 0;
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
     FWTPM_DECLARE_BUF(decBuf, FWTPM_MAX_NV_DATA + 2);
@@ -5227,16 +5241,20 @@ TPM_RC FwCredentialUnwrap(
     /* Verify HMAC(hmacKey, encIdentity || name) */
     if (rc == 0) {
         rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
-        if (rc == 0)
+        if (rc == 0) {
+            hmacInit = 1;
             rc = wc_HmacSetKey(hmac, FwGetWcHashType(nameAlg),
                 hmacKey, (word32)hmacKeySz);
+        }
         if (rc == 0)
             rc = wc_HmacUpdate(hmac, encIdentity, encIdentitySz);
         if (rc == 0)
             rc = wc_HmacUpdate(hmac, name, nameSz);
         if (rc == 0)
             rc = wc_HmacFinal(hmac, computedHmac);
-        wc_HmacFree(hmac);
+        if (hmacInit) {
+            wc_HmacFree(hmac);
+        }
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -5261,12 +5279,16 @@ TPM_RC FwCredentialUnwrap(
         XMEMSET(iv, 0, sizeof(iv));
         XMEMCPY(decBuf, encIdentity, encIdentitySz);
         rc = wc_AesInit(aes, NULL, INVALID_DEVID);
-        if (rc == 0)
+        if (rc == 0) {
+            aesInit = 1;
             rc = wc_AesSetKey(aes, symKey, (word32)symKeySz, iv,
                 AES_ENCRYPTION);
+        }
         if (rc == 0)
             rc = wc_AesCfbDecrypt(aes, decBuf, decBuf, encIdentitySz);
-        wc_AesFree(aes);
+        if (aesInit) {
+            wc_AesFree(aes);
+        }
         if (rc != 0)
             rc = TPM_RC_FAILURE;
     }
