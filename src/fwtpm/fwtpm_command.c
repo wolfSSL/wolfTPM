@@ -1978,7 +1978,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramSzPos, paramStart;
     int moreDataPos;
 
-    if (cmdSize < TPM2_HEADER_SIZE + 12) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 12) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -11959,13 +11962,17 @@ static TPM_RC FwCmd_HashSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT8 eventBanks = 0;
     int bank;
 
-    (void)cmdSize;
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
 
     /* Parse auth (TPM2B_AUTH) */
     XMEMSET(&auth, 0, sizeof(auth));
-    TPM2_Packet_ParseU16(cmd, &authSize);
-    if (authSize > sizeof(auth.buffer)) {
-        rc = TPM_RC_SIZE;
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &authSize);
+        if (authSize > sizeof(auth.buffer)) {
+            rc = TPM_RC_SIZE;
+        }
     }
     if (rc == 0) {
         auth.size = authSize;
@@ -20424,11 +20431,12 @@ static TPM_RC FwCmd_EC_Ephemeral(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     word32 derSz;
     int keyInit = 0;
 
-    (void)cmdSize;
-
     FWTPM_ALLOC_VAR(ephKey, ecc_key);
 
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -20759,7 +20767,10 @@ static TPM_RC FwCmd_Vendor_TCG_Test(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     (void)ctx;
 
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 

@@ -12023,6 +12023,77 @@ static void test_fwtpm_session_parameter_area(TPM_CC code)
         "Hash session parameters:", 0);
 }
 
+/* A command without an authorization handle may still carry an audit
+ * session, and its parameters then follow the authorization area. */
+static void test_fwtpm_no_handle_session_commands(void)
+{
+    FWTPM_CTX ctx;
+    byte params[12], nonce[WC_SHA256_DIGEST_SIZE];
+    byte expectedParams[64];
+    UINT32 sessH;
+    int pos, expectedSz, rspSize = 0;
+
+    (void)remove(FWTPM_NV_FILE);
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(nonce, 0x42, sizeof(nonce));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+
+    PutU32BE(params, TPM_CAP_TPM_PROPERTIES);
+    PutU32BE(params + 4, TPM_PT_MANUFACTURER);
+    PutU32BE(params + 8, 1);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    XMEMCPY(gCmd + pos, params, 12); pos += 12;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    expectedSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntLE(expectedSz, sizeof(expectedParams));
+    XMEMCPY(expectedParams, gRsp + TPM2_HEADER_SIZE, expectedSz);
+    pos = BuildNoHandleAuditCmd(&ctx, TPM_CC_GetCapability, sessH, params,
+        12, nonce);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    CheckNoHandleAuditReply(TPM_CC_GetCapability, rspSize, nonce,
+        expectedParams, expectedSz);
+    pos = BuildNoHandleAuditCmd(&ctx, TPM_CC_GetCapability, sessH, params,
+        11, nonce);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+
+#ifndef FWTPM_NO_HASH_CMDS
+    PutU16BE(params, 0);
+    PutU16BE(params + 2, TPM_ALG_SHA256);
+    pos = BuildNoHandleAuditCmd(&ctx, TPM_CC_HashSequenceStart, sessH,
+        params, 4, nonce);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+    FlushHandle(&ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ZGEN_2PHASE)
+    PutU16BE(params, TPM_ECC_NIST_P256);
+    pos = BuildNoHandleAuditCmd(&ctx, TPM_CC_EC_Ephemeral, sessH, params, 2,
+        nonce);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+#endif
+#ifdef WOLFTPM_FWTPM_TCG_TEST
+    PutU16BE(params, 4);
+    XMEMSET(params + 2, 0xAB, 4);
+    pos = BuildNoHandleAuditCmd(&ctx, TPM_CC_Vendor_TCG_Test, sessH, params,
+        6, nonce);
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0), 0);
+    CheckNoHandleAuditReply(TPM_CC_Vendor_TCG_Test, rspSize, nonce, params,
+        6);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("Session on commands with no auth handle:", 0);
+}
+
 #ifdef WOLFTPM_FWTPM_UNIT_TEST
 int FwSessionIsBoundToEntity(FWTPM_CTX* ctx,
     const FWTPM_Session* sess, TPM_HANDLE handle);
@@ -31993,6 +32064,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_session_parameter_area(TPM_CC_Hash);
 #endif
+    test_fwtpm_no_handle_session_commands();
 
     /* GetCapability */
     test_fwtpm_getcap_algorithms();
