@@ -14450,7 +14450,7 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (nonceTpmSz != sess->nonceTPM.size ||
                 TPM2_ConstantCompare(nonceTpmBuf, sess->nonceTPM.buffer,
                     nonceTpmSz) != 0) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_NONCE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -15178,7 +15178,7 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (nonceTpmSz != sess->nonceTPM.size ||
                 TPM2_ConstantCompare(nonceBuf, sess->nonceTPM.buffer,
                     nonceTpmSz) != 0) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_NONCE | TPM_RC_P | TPM_RC_1;
         }
     }
 

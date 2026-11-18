@@ -29615,9 +29615,11 @@ static void test_fwtpm_policysigned(void)
     byte r[32], s[32], cc[4];
     byte zero[WC_SHA256_DIGEST_SIZE];
     byte expected[WC_SHA256_DIGEST_SIZE];
+    byte nonce[TPM_MAX_DIGEST_SIZE];
 
     memset(&ctx, 0, sizeof(ctx));
     memset(zero, 0, sizeof(zero));
+    memset(nonce, 0, sizeof(nonce));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
     gMockClockMs = 0;
     AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
@@ -29655,6 +29657,14 @@ static void test_fwtpm_policysigned(void)
     /* the signature covers nonceTPM */
     AssertIntEQ(SendPolicySigned(&ctx, keyH, sess->handle, NULL, 0, 0, r, s),
         TPM_RC_SIGNATURE);
+    /* a nonceTPM that is not the one of the session */
+    memcpy(nonce, sess->nonceTPM.buffer, sess->nonceTPM.size);
+    nonce[0] ^= 0x01;
+    AssertIntEQ(SendPolicySigned(&ctx, keyH, sess->handle, nonce,
+        sess->nonceTPM.size, 0, r, s), TPM_RC_NONCE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendPolicySigned(&ctx, keyH, sess->handle, nonce,
+        (UINT16)(sess->nonceTPM.size - 1), 0, r, s),
+        TPM_RC_NONCE | TPM_RC_P | TPM_RC_1);
     AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
     AssertIntEQ(SendPolicySigned(&ctx, keyH, sess->handle,
         sess->nonceTPM.buffer, sess->nonceTPM.size, 0, r, s),
@@ -29688,6 +29698,72 @@ static void test_fwtpm_policysigned(void)
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PolicySigned signature and expiration:", 0);
+}
+
+/* TPM2_PolicySecret by ownerAuth with an empty cpHashA and policyRef and no
+ * expiration */
+static TPM_RC SendPolicySecret(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* nonce, UINT16 nonceSz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicySecret);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, nonceSz); pos += 2;
+    if (nonceSz > 0) {
+        memcpy(gCmd + pos, nonce, nonceSz);
+    }
+    pos += nonceSz;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef */
+    PutU32BE(gCmd + pos, 0); pos += 4; /* expiration */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* PolicySecret takes a nonceTPM only when it is the one of the policy
+ * session (Part 3 Sec.23.4). */
+static void test_fwtpm_policysecret_nonce(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    UINT32 sessH;
+    byte zero[WC_SHA256_DIGEST_SIZE];
+    byte nonce[TPM_MAX_DIGEST_SIZE];
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(zero, 0, sizeof(zero));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+    AssertIntGT(sess->nonceTPM.size, 1);
+
+    memcpy(nonce, sess->nonceTPM.buffer, sess->nonceTPM.size);
+    nonce[0] ^= 0x01;
+    AssertIntEQ(SendPolicySecret(&ctx, sessH, nonce, sess->nonceTPM.size),
+        TPM_RC_NONCE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendPolicySecret(&ctx, sessH, nonce,
+        (UINT16)(sess->nonceTPM.size - 1)),
+        TPM_RC_NONCE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+    nonce[0] ^= 0x01;
+    AssertIntEQ(SendPolicySecret(&ctx, sessH, nonce, sess->nonceTPM.size),
+        TPM_RC_SUCCESS);
+    AssertIntNE(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicySecret nonceTPM:", 0);
 }
 #endif /* !FWTPM_NO_POLICY */
 
@@ -31295,6 +31371,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_ecc_verify_scheme();
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_policysigned();
+    test_fwtpm_policysecret_nonce();
 #endif
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
