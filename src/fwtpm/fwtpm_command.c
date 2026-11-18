@@ -6721,6 +6721,9 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (rc == 0) {
                 TPM2_ForceZero(sess, sizeof(FWTPM_Session));
             }
+            else {
+                ctx->contextLiveCount--;
+            }
         }
         else if (isSequence) {
             FWTPM_DECLARE_BUF(seqPlain, FWTPM_SEQ_CTX_PLAIN_MAX);

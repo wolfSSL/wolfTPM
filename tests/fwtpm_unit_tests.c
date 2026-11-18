@@ -22824,6 +22824,39 @@ static void test_fwtpm_context_save(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ContextSave:", 0);
 }
+
+/* A session ContextSave that cannot wrap the context leaves the session
+ * loaded and does not keep a saved-context slot for it. */
+static void test_fwtpm_context_save_wrap_failure(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, liveCount;
+    UINT32 sessH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    liveCount = ctx.contextLiveCount;
+
+    ctx.ctxProtectKeyValid = 0;
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, sessH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
+    AssertIntEQ(ctx.contextLiveCount, liveCount);
+
+    ctx.ctxProtectKeyValid = 1;
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.contextLiveCount, liveCount + 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ContextSave wrap failure:", 0);
+}
 #endif /* !FWTPM_NO_CONTEXT */
 
 /* A saved context must load at most once; replaying the same blob is
@@ -32496,6 +32529,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_evict_control_persistent_object_rejected();
 #ifndef FWTPM_NO_CONTEXT
     test_fwtpm_context_save();
+    test_fwtpm_context_save_wrap_failure();
     test_fwtpm_context_load_replay_rejected();
     test_fwtpm_contextload_forged_object_blob_rejected();
     test_fwtpm_contextload_short_blob_rejected();
