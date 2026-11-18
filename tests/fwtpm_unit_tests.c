@@ -683,10 +683,24 @@ static void test_fwtpm_crypto_alloc_failure(void)
 #ifdef HAVE_ECC
     TPMS_ECC_POINT eccPub;
 #endif
+#ifndef FWTPM_NO_NV
+    FWTPM_NvIndex nv;
+    byte nvName[2 + TPM_MAX_DIGEST_SIZE];
+    UINT16 nvNameSz = 0;
+#endif
 
     fwtpm_test_fail_next_alloc();
     rc = FwComputeHashUnique(TPM_ALG_SHA256, NULL, 0, NULL, 0, hash);
     AssertIntEQ(rc, TPM_RC_MEMORY);
+
+#ifndef FWTPM_NO_NV
+    memset(&nv, 0, sizeof(nv));
+    nv.nvPublic.nameAlg = TPM_ALG_SHA256;
+    fwtpm_test_fail_next_alloc();
+    rc = FwComputeNvName(&nv, nvName, &nvNameSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+    AssertIntEQ(nvNameSz, 0);
+#endif
 
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     memset(&rsaPub, 0, sizeof(rsaPub));

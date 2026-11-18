@@ -4762,9 +4762,12 @@ int FwComputeNvName(FWTPM_NvIndex* nv, byte* buf, UINT16* sz)
     FWTPM_DECLARE_VAR(hash, wc_HashAlg);
     enum wc_HashType hashType = FwGetWcHashType(nv->nvPublic.nameAlg);
     int hSz = TPM2_GetHashDigestSize(nv->nvPublic.nameAlg);
-    int rc;
+    int rc = 0;
 
     FWTPM_ALLOC_VAR(hash, wc_HashAlg);
+    if (rc != 0) {
+        return rc;
+    }
 
     if (hSz <= 0) {
         FWTPM_FREE_VAR(hash);
