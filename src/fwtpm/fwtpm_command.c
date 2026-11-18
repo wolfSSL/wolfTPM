@@ -15101,6 +15101,7 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT64 wireTimeout = 0;
     UINT64 now = 0;
     UINT32 ticketHierarchy = TPM_RH_NULL;
+    UINT16 aHashAlg = TPM_ALG_NULL;
     int entityNameSz = 0;
     int ticketDataSz = 0;
     int ticketHmacSz = 0;
@@ -15208,14 +15209,31 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_SIZE;
     }
 
+    /* aHash uses the hash of the signature, which need not be the session
+     * hash (Part 3 Sec.23.3). A signature that carries no hash keeps the
+     * session hash. */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        aHashAlg = sess->authHash;
+        if (sig.sigAlg == TPM_ALG_RSASSA || sig.sigAlg == TPM_ALG_RSAPSS ||
+                sig.sigAlg == TPM_ALG_ECDSA || sig.sigAlg == TPM_ALG_SM2 ||
+                sig.sigAlg == TPM_ALG_ECSCHNORR ||
+                sig.sigAlg == TPM_ALG_HMAC) {
+            aHashAlg = sig.signature.any.hashAlg;
+        }
+        if (FwGetWcHashType(aHashAlg) == WC_HASH_TYPE_NONE ||
+                TPM2_GetHashDigestSize(aHashAlg) <= 0) {
+            rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_5;
+        }
+    }
+
     /* For policy sessions (not trial): verify signature per TPM 2.0 Part 3
      * Section 23.3. Compute aHash = H(nonceTPM || expiration || cpHashA ||
      * policyRef), then verify signature against aHash using authObject's
      * public key. */
     if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
         FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
-        enum wc_HashType wcHash = FwGetWcHashType(sess->authHash);
-        int dSz = TPM2_GetHashDigestSize(sess->authHash);
+        enum wc_HashType wcHash = FwGetWcHashType(aHashAlg);
+        int dSz = TPM2_GetHashDigestSize(aHashAlg);
         byte aHash[TPM_MAX_DIGEST_SIZE];
         byte expBuf[4];
         int hrc;

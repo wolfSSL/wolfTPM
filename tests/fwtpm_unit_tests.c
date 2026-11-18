@@ -29541,11 +29541,11 @@ static void test_fwtpm_ecc_verify_scheme(void)
 }
 
 #ifndef FWTPM_NO_POLICY
-/* TPM2_PolicySigned with an ECDSA SHA-256 signature and an empty cpHashA
- * and policyRef */
-static TPM_RC SendPolicySigned(FWTPM_CTX* ctx, UINT32 keyH, UINT32 sessH,
-    const byte* nonce, UINT16 nonceSz, INT32 expiration, const byte* r,
-    const byte* s)
+/* TPM2_PolicySigned with an ECDSA signature and an empty cpHashA and
+ * policyRef */
+static TPM_RC SendPolicySignedHash(FWTPM_CTX* ctx, UINT32 keyH, UINT32 sessH,
+    const byte* nonce, UINT16 nonceSz, INT32 expiration, UINT16 sigHashAlg,
+    const byte* r, const byte* s)
 {
     int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
         TPM_CC_PolicySigned);
@@ -29562,7 +29562,7 @@ static TPM_RC SendPolicySigned(FWTPM_CTX* ctx, UINT32 keyH, UINT32 sessH,
     PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef */
     PutU32BE(gCmd + pos, (UINT32)expiration); pos += 4;
     PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
-    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigHashAlg); pos += 2;
     PutU16BE(gCmd + pos, 32); pos += 2;
     memcpy(gCmd + pos, r, 32); pos += 32;
     PutU16BE(gCmd + pos, 32); pos += 2;
@@ -29570,6 +29570,14 @@ static TPM_RC SendPolicySigned(FWTPM_CTX* ctx, UINT32 keyH, UINT32 sessH,
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
+}
+
+static TPM_RC SendPolicySigned(FWTPM_CTX* ctx, UINT32 keyH, UINT32 sessH,
+    const byte* nonce, UINT16 nonceSz, INT32 expiration, const byte* r,
+    const byte* s)
+{
+    return SendPolicySignedHash(ctx, keyH, sessH, nonce, nonceSz, expiration,
+        TPM_ALG_SHA256, r, s);
 }
 
 /* Start a SHA-256 policy session and sign, with keyH, the aHash that
@@ -29699,6 +29707,75 @@ static void test_fwtpm_policysigned(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PolicySigned signature and expiration:", 0);
 }
+
+#ifdef WOLFSSL_SHA384
+/* aHash is computed with the hash of the signature, here SHA-384 in a
+ * SHA-256 policy session (Part 3 Sec.23.3). */
+static void test_fwtpm_policysigned_sig_hash(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    UINT32 keyH, sessH;
+    wc_HashAlg h;
+    byte r[32], s[32], exp[4];
+    byte zero[WC_SHA256_DIGEST_SIZE];
+    byte aHash[TPM_SHA384_DIGEST_SIZE];
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(zero, 0, sizeof(zero));
+    memset(exp, 0, sizeof(exp));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|noDA|sign */
+    keyH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_NULL,
+        TPM_ALG_NULL);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+    AssertIntEQ(sess->authHash, TPM_ALG_SHA256);
+
+    /* the session hash under a SHA-384 signature label does not verify */
+    AssertIntEQ(wc_HashInit(&h, WC_HASH_TYPE_SHA256), 0);
+    AssertIntEQ(wc_HashUpdate(&h, WC_HASH_TYPE_SHA256,
+        sess->nonceTPM.buffer, sess->nonceTPM.size), 0);
+    AssertIntEQ(wc_HashUpdate(&h, WC_HASH_TYPE_SHA256, exp, sizeof(exp)), 0);
+    AssertIntEQ(wc_HashFinal(&h, WC_HASH_TYPE_SHA256, aHash), 0);
+    wc_HashFree(&h, WC_HASH_TYPE_SHA256);
+    AssertIntEQ(SendEccSign(&ctx, keyH, TPM_ALG_ECDSA, TPM_ALG_SHA256, aHash,
+        WC_SHA256_DIGEST_SIZE, r, s), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicySignedHash(&ctx, keyH, sessH,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, 0, TPM_ALG_SHA384, r, s),
+        TPM_RC_SIGNATURE);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+
+    AssertIntEQ(wc_HashInit(&h, WC_HASH_TYPE_SHA384), 0);
+    AssertIntEQ(wc_HashUpdate(&h, WC_HASH_TYPE_SHA384,
+        sess->nonceTPM.buffer, sess->nonceTPM.size), 0);
+    AssertIntEQ(wc_HashUpdate(&h, WC_HASH_TYPE_SHA384, exp, sizeof(exp)), 0);
+    AssertIntEQ(wc_HashFinal(&h, WC_HASH_TYPE_SHA384, aHash), 0);
+    wc_HashFree(&h, WC_HASH_TYPE_SHA384);
+    AssertIntEQ(SendEccSign(&ctx, keyH, TPM_ALG_ECDSA, TPM_ALG_SHA384, aHash,
+        sizeof(aHash), r, s), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPolicySignedHash(&ctx, keyH, sessH,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, 0, TPM_ALG_NULL, r, s),
+        TPM_RC_SCHEME | TPM_RC_P | TPM_RC_5);
+    AssertIntEQ(SendPolicySignedHash(&ctx, keyH, sessH,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, 0, TPM_ALG_SHA384, r, s),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(sess->policyDigest.size, WC_SHA256_DIGEST_SIZE);
+    AssertIntNE(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicySigned signature hash:", 0);
+}
+#endif /* WOLFSSL_SHA384 */
 
 /* TPM2_PolicySecret by ownerAuth with an empty cpHashA and policyRef and no
  * expiration */
@@ -31371,6 +31448,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_ecc_verify_scheme();
 #ifndef FWTPM_NO_POLICY
     test_fwtpm_policysigned();
+#ifdef WOLFSSL_SHA384
+    test_fwtpm_policysigned_sig_hash();
+#endif
     test_fwtpm_policysecret_nonce();
 #endif
 #endif
