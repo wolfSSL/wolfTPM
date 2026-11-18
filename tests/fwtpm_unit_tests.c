@@ -11642,6 +11642,98 @@ static void test_fwtpm_create_creation_data(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Create creationData:", 0);
 }
+
+/* Send Create, CreateLoaded or CreatePrimary for a SHA-256 KEYEDHASH or
+ * AES-128 SYMCIPHER object with an authValue of authSz octets and the given
+ * sensitive data. A KEYEDHASH object with sign set is an HMAC key. */
+static TPM_RC SendSymObjectCreate(FWTPM_CTX* ctx, UINT32 cc, UINT32 parentH,
+    UINT16 type, UINT32 attributes, UINT16 authSz, const byte* data,
+    UINT16 dataSz)
+{
+    int pos, sensStart, pubStart, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, cc);
+    PutU32BE(gCmd + pos, parentH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    sensStart = pos;
+    pos += 2;
+    PutU16BE(gCmd + pos, authSz); pos += 2;
+    memset(gCmd + pos, 0x5A, authSz); pos += authSz;
+    PutU16BE(gCmd + pos, dataSz); pos += 2;
+    if (dataSz > 0) {
+        memcpy(gCmd + pos, data, dataSz); pos += dataSz;
+    }
+    PutU16BE(gCmd + sensStart, (UINT16)(pos - sensStart - 2));
+    pubStart = pos;
+    pos += 2;
+    PutU16BE(gCmd + pos, type); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    if (type == TPM_ALG_SYMCIPHER) {
+        PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+        PutU16BE(gCmd + pos, 128); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    }
+    else if ((attributes & TPMA_OBJECT_sign) != 0) {
+        PutU16BE(gCmd + pos, TPM_ALG_HMAC); pos += 2;
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    }
+    else {
+        PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique */
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    if (cc != TPM_CC_CreateLoaded) {
+        PutU16BE(gCmd + pos, 0); pos += 2; /* outsideInfo */
+        PutU32BE(gCmd + pos, 0); pos += 4; /* creationPCR */
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* fixedTPM | fixedParent | userWithAuth | noDA */
+#define FW_TEST_SEALED_ATTRS 0x00000452
+
+/* Sealed data is a TPM2B_SENSITIVE_DATA, so MAX_SYM_DATA octets at most
+ * (Part 2 Sec.11.1.14). */
+static void test_fwtpm_create_sensitive_data_size(void)
+{
+    static const UINT32 cc[] = {
+        TPM_CC_Create, TPM_CC_CreateLoaded, TPM_CC_CreatePrimary
+    };
+    static byte data[FWTPM_MAX_DATA_BUF];
+    FWTPM_CTX ctx;
+    UINT32 parentH, h;
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(data, 0xA5, sizeof(data));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, FW_TEST_CREATE_ALG);
+    AssertIntNE(parentH, 0);
+
+    for (i = 0; i < (int)(sizeof(cc) / sizeof(cc[0])); i++) {
+        h = (cc[i] == TPM_CC_CreatePrimary) ? (TPM_HANDLE)TPM_RH_OWNER :
+            parentH;
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            FW_TEST_SEALED_ATTRS, 0, data, MAX_SYM_DATA), TPM_RC_SUCCESS);
+        if (cc[i] != TPM_CC_Create) {
+            FlushHandle(&ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+        }
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            FW_TEST_SEALED_ATTRS, 0, data, MAX_SYM_DATA + 1),
+            TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            FW_TEST_SEALED_ATTRS, 0, data, (UINT16)sizeof(data)),
+            TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    }
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Create sensitive data size:", 0);
+}
 #endif /* HAVE_ECC || (!NO_RSA && WOLFSSL_KEY_GEN) */
 
 /* Helper: build StartAuthSession command. Returns cmd size. */
@@ -31814,6 +31906,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #if defined(HAVE_ECC) || (!defined(NO_RSA) && defined(WOLFSSL_KEY_GEN))
     test_fwtpm_create_primary_creation_data();
     test_fwtpm_create_creation_data();
+    test_fwtpm_create_sensitive_data_size();
 #endif
 #ifdef WOLFTPM_V185
     test_fwtpm_create_primary_mlkem();

@@ -4865,6 +4865,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM2_Packet_ParseSensitiveCreate(cmd, cmdSize, &userAuth,
             sensData, (int)FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF), &sensDataSize);
     }
+    /* A TPM2B_SENSITIVE_DATA holds at most MAX_SYM_DATA octets */
+    if (rc == 0 && sensDataSize > MAX_SYM_DATA) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
 
     /* Parse inPublic (TPM2B_PUBLIC) */
     if (rc == 0) {
@@ -8219,6 +8223,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             sensData, (int)FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF),
             &sensDataSize);
     }
+    /* A TPM2B_SENSITIVE_DATA holds at most MAX_SYM_DATA octets */
+    if (rc == 0 && sensDataSize > MAX_SYM_DATA) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
 
     /* Parse inPublic */
     if (rc == 0) {
@@ -8413,7 +8421,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
                 if (rc == 0 && sensDataSize > 0) {
                     /* Use caller-supplied key material */
-                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
@@ -10503,6 +10511,10 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             sensData, (int)FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF),
             &sensDataSize);
     }
+    /* A TPM2B_SENSITIVE_DATA holds at most MAX_SYM_DATA octets */
+    if (rc == 0 && sensDataSize > MAX_SYM_DATA) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
 
     /* Parse inPublic (TPM2B_TEMPLATE = TPM2B_PUBLIC) */
     if (rc == 0) {
@@ -10653,7 +10665,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
-                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
@@ -10690,7 +10702,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
-                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
