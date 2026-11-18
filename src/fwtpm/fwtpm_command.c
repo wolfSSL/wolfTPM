@@ -80,7 +80,7 @@
 /* --- Forward declarations for command-local helpers --- */
 #ifndef FWTPM_NO_ATTESTATION
 static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
-    UINT16 cmdTag, TPM2B_DATA* qualifyingData,
+    UINT16 cmdTag, const FWTPM_Object* sigObj, TPM2B_DATA* qualifyingData,
     UINT16* sigScheme, UINT16* sigHashAlg);
 #endif /* !FWTPM_NO_ATTESTATION */
 
@@ -10812,28 +10812,12 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* Part 3 Sec.20.2: an inScheme has to agree with the scheme and hash
-     * of a key that has them */
-    if (rc == 0 && sigScheme != TPM_ALG_NULL) {
-        UINT16 keyScheme = TPM_ALG_NULL;
-        UINT16 keyHashAlg = TPM_ALG_NULL;
-        if (obj->pub.type == TPM_ALG_RSA) {
-            keyScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
-            keyHashAlg = obj->pub.parameters.rsaDetail.scheme.details
-                .anySig.hashAlg;
-        }
-        else if (obj->pub.type == TPM_ALG_ECC) {
-            keyScheme = obj->pub.parameters.eccDetail.scheme.scheme;
-            keyHashAlg = obj->pub.parameters.eccDetail.scheme.details
-                .any.hashAlg;
-        }
-        if (keyScheme != TPM_ALG_NULL &&
-                (sigScheme != keyScheme || sigHashAlg != keyHashAlg)) {
-            rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
-        }
+     * of a key that has them, and a key that has none needs an inScheme */
+    if (rc == 0 && FwCheckSignScheme(obj, sigScheme, sigHashAlg) != 0) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
     }
     if (rc == 0) {
-        /* A NULL inScheme takes the key's scheme, or the default for a key
-         * that has none */
+        /* A NULL inScheme takes the key's scheme */
         FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
     }
     /* Part 3 Sec.20.2.1: digest size MUST match the scheme hashAlg digest
@@ -18927,9 +18911,10 @@ static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
 #ifndef FWTPM_NO_ATTESTATION
 /* Helper: parse common attestation command parameters.
  * Skips auth area, parses qualifyingData (TPM2B_DATA), and inScheme
- * (sigScheme + sigHashAlg). Called after handle parsing is complete. */
+ * (sigScheme + sigHashAlg), which has to suit the signing key sigObj.
+ * Called after handle parsing is complete. */
 static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
-    UINT16 cmdTag, TPM2B_DATA* qualifyingData,
+    UINT16 cmdTag, const FWTPM_Object* sigObj, TPM2B_DATA* qualifyingData,
     UINT16* sigScheme, UINT16* sigHashAlg)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -18976,6 +18961,11 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
                 (void)ecdaaCount;
             }
         }
+    }
+    /* A key that cannot sign is left for FwSignAttest to reject */
+    if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
+            FwCheckSignScheme(sigObj, *sigScheme, *sigHashAlg) != 0) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
     }
 
     return rc;
@@ -19049,19 +19039,8 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
-    }
-    /* A key with no scheme of its own needs one from inScheme
-     * (Part 3 Sec.18.4) */
-    if (rc == 0 && sigScheme == TPM_ALG_NULL &&
-            ((sigObj->pub.type == TPM_ALG_RSA &&
-              sigObj->pub.parameters.rsaDetail.scheme.scheme ==
-                TPM_ALG_NULL) ||
-             (sigObj->pub.type == TPM_ALG_ECC &&
-              sigObj->pub.parameters.eccDetail.scheme.scheme ==
-                TPM_ALG_NULL))) {
-        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
     }
 
     /* PCRselect */
@@ -19212,7 +19191,7 @@ static TPM_RC FwCmd_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
@@ -19344,6 +19323,11 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 (void)ecdaaCount;
             }
         }
+    }
+    /* A key that cannot sign is left for FwSignAttest to reject */
+    if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
+            FwCheckSignScheme(sigObj, sigScheme, sigHashAlg) != 0) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_3;
     }
 
     /* creationTicket verification per TPM 2.0 Part 3 Section 18.3 */
@@ -19487,7 +19471,7 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
@@ -19576,7 +19560,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 

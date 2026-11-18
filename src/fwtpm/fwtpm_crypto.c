@@ -4844,6 +4844,42 @@ void FwResolveSignScheme(FWTPM_Object* obj, UINT16* sigScheme,
     }
 }
 
+/* Helper: check a command inScheme against an RSA or ECC signing key
+ * (Part 3 Sec.18 and Sec.20.2). An inScheme has to agree with the scheme
+ * and hash of a key that has them, and a key that has none needs one from
+ * inScheme. Returns TPM_RC_SCHEME for the caller to decorate. */
+TPM_RC FwCheckSignScheme(const FWTPM_Object* obj, UINT16 sigScheme,
+    UINT16 sigHashAlg)
+{
+    UINT16 keyScheme = TPM_ALG_NULL;
+    UINT16 keyHashAlg = TPM_ALG_NULL;
+
+    if (obj->pub.type == TPM_ALG_RSA) {
+        keyScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
+        keyHashAlg = obj->pub.parameters.rsaDetail.scheme.details
+            .anySig.hashAlg;
+    }
+    else if (obj->pub.type == TPM_ALG_ECC) {
+        keyScheme = obj->pub.parameters.eccDetail.scheme.scheme;
+        keyHashAlg = obj->pub.parameters.eccDetail.scheme.details
+            .any.hashAlg;
+    }
+    else {
+        return TPM_RC_SUCCESS;
+    }
+
+    if (keyScheme == TPM_ALG_NULL) {
+        if (sigScheme == TPM_ALG_NULL) {
+            return TPM_RC_SCHEME;
+        }
+    }
+    else if (sigScheme != TPM_ALG_NULL &&
+            (sigScheme != keyScheme || sigHashAlg != keyHashAlg)) {
+        return TPM_RC_SCHEME;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 #ifndef FWTPM_NO_ATTESTATION
 /* Helper: build attestation response -- append TPM2B_ATTEST, sign, finalize.
  * Caller has already built attestBuf via attestPkt. */

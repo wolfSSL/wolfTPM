@@ -4896,7 +4896,7 @@ static void test_fwtpm_quote_mldsa_scheme_on_ecc_rejected(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
@@ -29941,6 +29941,146 @@ static void test_fwtpm_quote_scheme_hash(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Quote pcrDigest uses scheme hash:", 0);
 }
+
+/* An attestation command signed by keyH with the given inScheme. Certify
+ * certifies keyH itself, CertifyCreation is sent an empty creation ticket
+ * and NV_Certify reads one octet of nvIndex by ownerAuth. */
+static TPM_RC SendAttestScheme(FWTPM_CTX* ctx, UINT32 cc, UINT32 keyH,
+    UINT32 nvIndex, UINT16 sigScheme, UINT16 sigHashAlg)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, cc);
+    int rspSize = 0;
+    int i;
+
+    if (cc == TPM_CC_GetTime) {
+        PutU32BE(gCmd + pos, TPM_RH_ENDORSEMENT); pos += 4;
+    }
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    if (cc == TPM_CC_Certify || cc == TPM_CC_CertifyCreation) {
+        PutU32BE(gCmd + pos, keyH); pos += 4;
+    }
+    if (cc == TPM_CC_NV_Certify) {
+        PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+        PutU32BE(gCmd + pos, nvIndex); pos += 4;
+    }
+    if (cc == TPM_CC_Quote || cc == TPM_CC_CertifyCreation) {
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    }
+    else {
+        PutU32BE(gCmd + pos, 18); pos += 4; /* two password sessions */
+        for (i = 0; i < 2; i++) {
+            PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+            PutU16BE(gCmd + pos, 0); pos += 2; /* nonce */
+            gCmd[pos++] = 0;                   /* attributes */
+            PutU16BE(gCmd + pos, 0); pos += 2; /* hmac */
+        }
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    if (cc == TPM_CC_CertifyCreation) {
+        PutU16BE(gCmd + pos, 0); pos += 2; /* creationHash */
+    }
+    PutU16BE(gCmd + pos, sigScheme); pos += 2;
+    if (sigScheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + pos, sigHashAlg); pos += 2;
+    }
+    if (cc == TPM_CC_Quote) {
+        PutU32BE(gCmd + pos, 1); pos += 4; /* PCRselect */
+        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+        gCmd[pos++] = (byte)PCR_SELECT_MAX;
+        memset(gCmd + pos, 0, PCR_SELECT_MAX); pos += PCR_SELECT_MAX;
+    }
+    else if (cc == TPM_CC_CertifyCreation) {
+        PutU16BE(gCmd + pos, TPM_ST_CREATION); pos += 2;
+        PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+    }
+    else if (cc == TPM_CC_NV_Certify) {
+        PutU16BE(gCmd + pos, 1); pos += 2; /* size */
+        PutU16BE(gCmd + pos, 0); pos += 2; /* offset */
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* An attestation inScheme has to agree with the scheme and hash of a key
+ * that has them, and a key that has none needs one from inScheme (Part 3
+ * Sec.18). The same holds for a Sign of a key with no scheme. */
+static void test_fwtpm_attest_inscheme(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 openH, fixedH;
+    UINT32 nvIdx = 0;
+    UINT32 cmds[5];
+    TPM_RC blame, done;
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    int i, n = 0;
+#ifndef FWTPM_NO_NV
+    int cmdSz, rspSize = 0;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(digest, 0x5C, sizeof(digest));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmds[n++] = TPM_CC_Quote;
+    cmds[n++] = TPM_CC_Certify;
+    cmds[n++] = TPM_CC_CertifyCreation;
+    cmds[n++] = TPM_CC_GetTime;
+#ifndef FWTPM_NO_NV
+    nvIdx = 0x01500A20;
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 1,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvOwnerAccessCmd(&ctx, nvIdx, 1), TPM_RC_SUCCESS);
+    cmds[n++] = TPM_CC_NV_Certify;
+#endif
+
+    /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|noDA|sign */
+    fixedH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    openH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_NULL,
+        TPM_ALG_NULL);
+
+    for (i = 0; i < n; i++) {
+        /* the empty creation ticket is looked at after inScheme */
+        blame = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+        done = TPM_RC_SUCCESS;
+        if (cmds[i] == TPM_CC_CertifyCreation) {
+            blame = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_3;
+            done = TPM_RC_TICKET;
+        }
+
+        AssertIntEQ(SendAttestScheme(&ctx, cmds[i], fixedH, nvIdx,
+            TPM_ALG_ECDSA, TPM_ALG_SHA384), blame);
+        AssertIntEQ(SendAttestScheme(&ctx, cmds[i], fixedH, nvIdx,
+            TPM_ALG_ECSCHNORR, TPM_ALG_SHA256), blame);
+        AssertIntEQ(SendAttestScheme(&ctx, cmds[i], fixedH, nvIdx,
+            TPM_ALG_ECDSA, TPM_ALG_SHA256), done);
+        AssertIntEQ(SendAttestScheme(&ctx, cmds[i], fixedH, nvIdx,
+            TPM_ALG_NULL, TPM_ALG_NULL), done);
+
+        AssertIntEQ(SendAttestScheme(&ctx, cmds[i], openH, nvIdx,
+            TPM_ALG_NULL, TPM_ALG_NULL), blame);
+        AssertIntEQ(SendAttestScheme(&ctx, cmds[i], openH, nvIdx,
+            TPM_ALG_ECDSA, TPM_ALG_SHA256), done);
+    }
+
+    AssertIntEQ(SendEccSign(&ctx, openH, TPM_ALG_NULL, TPM_ALG_NULL, digest,
+        sizeof(digest), NULL, NULL), TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2);
+    AssertIntEQ(SendEccSign(&ctx, openH, TPM_ALG_ECDSA, TPM_ALG_SHA256,
+        digest, sizeof(digest), NULL, NULL), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, openH);
+    FlushHandle(&ctx, fixedH);
+#ifndef FWTPM_NO_NV
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
+        TPM_RC_SUCCESS);
+#endif
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Attestation inScheme against the key scheme:", 0);
+}
 #endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
 
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
@@ -31462,6 +31602,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_quote_scheme_hash();
+    test_fwtpm_attest_inscheme();
     test_fwtpm_ecc_sign_scheme();
     test_fwtpm_ecc_verify_scheme();
 #ifndef FWTPM_NO_POLICY

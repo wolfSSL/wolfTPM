@@ -372,6 +372,9 @@ int FwComputeNvName(FWTPM_NvIndex* nv, byte* buf, UINT16* sz);
 void FwResolveSignScheme(FWTPM_Object* obj, UINT16* sigScheme,
     UINT16* sigHashAlg);
 
+TPM_RC FwCheckSignScheme(const FWTPM_Object* obj, UINT16 sigScheme,
+    UINT16 sigHashAlg);
+
 #ifndef FWTPM_NO_ATTESTATION
 TPM_RC FwBuildAttestResponse(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     UINT16 cmdTag, FWTPM_Object* sigObj, UINT16 sigScheme, UINT16 sigHashAlg,
