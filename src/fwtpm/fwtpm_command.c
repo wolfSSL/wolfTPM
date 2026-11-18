@@ -5244,7 +5244,15 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     rc = TPM_RC_KEY_SIZE;
                 }
 
-                if (rc == 0) {
+                if (rc == 0 && sensDataSize > 0) {
+                    if ((int)sensDataSize != keySz) {
+                        rc = TPM_RC_KEY_SIZE;
+                    }
+                    else {
+                        XMEMCPY(obj->privKey, sensData, sensDataSize);
+                    }
+                }
+                else if (rc == 0) {
                     rc = FwDeriveSymmetricPrimaryKey(
                         inPublic->publicArea.nameAlg, seed,
                         hashUnique, hashUniqueSz,
@@ -8459,7 +8467,15 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     rc = TPM_RC_KEY_SIZE;
                 }
 
-                if (rc == 0) {
+                if (rc == 0 && sensDataSize > 0) {
+                    if ((int)sensDataSize != keySz) {
+                        rc = TPM_RC_KEY_SIZE;
+                    }
+                    else {
+                        XMEMCPY(privKeyDer, sensData, sensDataSize);
+                    }
+                }
+                else if (rc == 0) {
                     rc = wc_RNG_GenerateBlock(&ctx->rng, privKeyDer,
                         (word32)keySz);
                     if (rc != 0) {
@@ -10702,8 +10718,8 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
-                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
-                        rc = TPM_RC_SIZE;
+                    if ((int)sensDataSize != keySz) {
+                        rc = TPM_RC_KEY_SIZE;
                     }
                     if (rc == 0) {
                         XMEMCPY(privKeyDer, sensData, sensDataSize);
