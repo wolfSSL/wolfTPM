@@ -19143,6 +19143,17 @@ static void test_fwtpm_da_bound_session_no_auth_slot(void)
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
         TPM_RH_LOCKOUT), TPM_RC_SUCCESS);
 
+    /* Still counted once a noDA object has taken over the bind handle */
+    sessH = DaStartBoundSession(&ctx, daKey);
+    AssertIntNE(sessH, 0);
+    FlushHandle(&ctx, daKey);
+    AssertIntEQ(DaMakeEccSignKey(&ctx, 0x00040472), daKey);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 1);
+    FlushHandle(&ctx, sessH);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        TPM_RH_LOCKOUT), TPM_RC_SUCCESS);
+
     /* Bound to lockout: locks lockoutAuth without counting a try */
     sessH = DaStartBoundSession(&ctx, TPM_RH_LOCKOUT);
     AssertIntNE(sessH, 0);

@@ -23306,7 +23306,7 @@ static void FwDaSelfHeal(FWTPM_CTX* ctx)
 static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
 {
     /* Platform authorization is not DA-protected. The other exempt permanent
-     * hierarchies are handled by FwHandleIsNoDA below. */
+     * hierarchies are left out by FwAuthSlotDAUse. */
     if (entityH == TPM_RH_PLATFORM) {
         return 0;
     }
@@ -23322,20 +23322,21 @@ static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
         }
         return 0;
     }
-    if (!FwHandleIsNoDA(ctx, entityH)) {
-        /* Cap at maxTries so a command that bypasses the lockout gate (e.g. a
-         * noDA primary handle with a DA-protected secondary auth) cannot grow
-         * the counter or append NV entries without bound while already
-         * locked. */
-        if (ctx->daRecoveryTime != 0 &&
-                ctx->daFailedTries < ctx->daMaxTries) {
-            ctx->daFailedTries++;
-            ctx->orderly = 0;
-            (void)FWTPM_NV_SaveFlags(ctx);
-        }
-        if (ctx->daFailedTries >= ctx->daMaxTries) {
-            return 1;
-        }
+    /* The caller found the authValue DA protected (FwAuthSlotDAUse). For a
+     * bound session that was settled when the session started, so whatever
+     * holds the bind handle now is not looked at again.
+     * Cap at maxTries so a command that bypasses the lockout gate (e.g. a
+     * noDA primary handle with a DA-protected secondary auth) cannot grow
+     * the counter or append NV entries without bound while already
+     * locked. */
+    if (ctx->daRecoveryTime != 0 &&
+            ctx->daFailedTries < ctx->daMaxTries) {
+        ctx->daFailedTries++;
+        ctx->orderly = 0;
+        (void)FWTPM_NV_SaveFlags(ctx);
+    }
+    if (ctx->daFailedTries >= ctx->daMaxTries) {
+        return 1;
     }
     return 0;
 }
