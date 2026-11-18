@@ -942,6 +942,8 @@ static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
                 *keySz > 0) {
             return 1;
         }
+        TPM2_ForceZero(key, FWTPM_NV_KEY_SIZE);
+        *keySz = 0;
         return 0;
     }
 #if !defined(NO_FILESYSTEM)
