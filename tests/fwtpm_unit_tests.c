@@ -11735,6 +11735,42 @@ static void test_fwtpm_create_sensitive_data_size(void)
     fwtpm_pass("Create sensitive data size:", 0);
 }
 
+/* The authValue of a new object is limited to the nameAlg digest size once
+ * its trailing zeros are dropped (Part 3 Sec.12.1). */
+static void test_fwtpm_create_auth_size(void)
+{
+    static const UINT32 cc[] = {
+        TPM_CC_Create, TPM_CC_CreateLoaded, TPM_CC_CreatePrimary
+    };
+    static const byte data[] = { 1, 2, 3, 4 };
+    FWTPM_CTX ctx;
+    UINT32 parentH, h;
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, FW_TEST_CREATE_ALG);
+    AssertIntNE(parentH, 0);
+
+    for (i = 0; i < (int)(sizeof(cc) / sizeof(cc[0])); i++) {
+        h = (cc[i] == TPM_CC_CreatePrimary) ? (TPM_HANDLE)TPM_RH_OWNER :
+            parentH;
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            FW_TEST_SEALED_ATTRS, WC_SHA256_DIGEST_SIZE, data, sizeof(data)),
+            TPM_RC_SUCCESS);
+        if (cc[i] != TPM_CC_Create) {
+            FlushHandle(&ctx, GetU32BE(gRsp + TPM2_HEADER_SIZE));
+        }
+        AssertIntEQ(SendSymObjectCreate(&ctx, cc[i], h, TPM_ALG_KEYEDHASH,
+            FW_TEST_SEALED_ATTRS, WC_SHA256_DIGEST_SIZE + 1, data,
+            sizeof(data)), TPM_RC_SIZE | TPM_RC_P | TPM_RC_1);
+    }
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Create authValue size:", 0);
+}
+
 #ifndef NO_AES
 /* A SYMCIPHER object takes the key the caller supplies in the sensitive
  * data, which has to be of the size in the public area (Part 3 Sec.12.1). */
@@ -31959,6 +31995,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_create_primary_creation_data();
     test_fwtpm_create_creation_data();
     test_fwtpm_create_sensitive_data_size();
+    test_fwtpm_create_auth_size();
 #ifndef NO_AES
     test_fwtpm_create_symcipher_caller_key();
 #endif

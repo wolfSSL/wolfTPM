@@ -3250,6 +3250,23 @@ static TPM_RC FwValidateKeyUsage(const TPMT_PUBLIC* pub)
     return TPM_RC_SUCCESS;
 }
 
+/* The authValue of a new object, less its trailing zeros, is no larger than
+ * the nameAlg digest (Part 3 Sec.12.1). */
+static TPM_RC FwCheckCreateAuthSize(const TPM2B_AUTH* auth,
+    TPMI_ALG_HASH nameAlg)
+{
+    int digestSz = TPM2_GetHashDigestSize(nameAlg);
+    int authSz = (int)auth->size;
+
+    while (authSz > 0 && auth->buffer[authSz - 1] == 0) {
+        authSz--;
+    }
+    if (digestSz > 0 && authSz > digestSz) {
+        return TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 static TPM_RC FwValidateCreateAttributes(const TPMT_PUBLIC* pub,
     const FWTPM_Object* parent, UINT16 sensitiveDataSz)
 {
@@ -4890,6 +4907,9 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidateLimitedAttributes(&inPublic->publicArea);
     }
 #endif /* WOLFTPM_V185 */
+    if (rc == 0) {
+        rc = FwCheckCreateAuthSize(&userAuth, inPublic->publicArea.nameAlg);
+    }
     /* Parse outsideInfo (TPM2B_DATA) */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -8256,6 +8276,9 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidateLimitedAttributes(&inPublic->publicArea);
     }
 #endif /* WOLFTPM_V185 */
+    if (rc == 0) {
+        rc = FwCheckCreateAuthSize(&userAuth, inPublic->publicArea.nameAlg);
+    }
     /* Parse outsideInfo (TPM2B_DATA) */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
@@ -10548,12 +10571,8 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif /* WOLFTPM_V185 */
 
-    /* userAuth must not exceed the object nameAlg digest size */
-    if (rc == 0 && userAuth.size > 0) {
-        int digestSz = TPM2_GetHashDigestSize(inPublic->publicArea.nameAlg);
-        if (digestSz > 0 && (int)userAuth.size > digestSz) {
-            rc = TPM_RC_SIZE;
-        }
+    if (rc == 0) {
+        rc = FwCheckCreateAuthSize(&userAuth, inPublic->publicArea.nameAlg);
     }
 
     /* Note: CreateLoaded does NOT include outsideInfo or creationPCR
