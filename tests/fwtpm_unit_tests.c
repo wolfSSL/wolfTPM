@@ -16936,6 +16936,16 @@ static void test_fwtpm_clear_disabled(void)
         TPM_RC_DISABLED);
     AssertIntEQ(memcmp(ownerSeed, ctx.ownerSeed, sizeof(ownerSeed)), 0);
 
+    /* lockoutAuth can set disableClear but not clear it */
+    AssertIntEQ(SendClearControl(&ctx, TPM_RH_LOCKOUT, 0), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(ctx.disableClear, 1);
+    AssertIntEQ(SendClearControl(&ctx, TPM_RH_PLATFORM, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.disableClear, 0);
+    AssertIntEQ(SendClearControl(&ctx, TPM_RH_LOCKOUT, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.disableClear, 1);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_DISABLED);
+
     AssertIntEQ(SendClearControl(&ctx, TPM_RH_PLATFORM, 0), TPM_RC_SUCCESS);
     AssertIntEQ(ctx.disableClear, 0);
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
@@ -29038,9 +29048,16 @@ static void test_fwtpm_clear_resets_lockout_auth(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
     AssertIntEQ(ctx.lockoutAuth.size, 0);
 
-    /* ClearControl(TPM_RH_LOCKOUT, NO) with the Empty Auth */
+    /* ClearControl(TPM_RH_LOCKOUT, YES) with the Empty Auth */
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ClearControl);
     PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    gCmd[pos++] = 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_ClearControl);
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
     gCmd[pos++] = 0;
     PutU32BE(gCmd + 2, (UINT32)pos);

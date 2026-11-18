@@ -7359,8 +7359,8 @@ static TPM_RC FwCmd_ChangePPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 
 /* --- TPM2_ClearControl (CC 0x0127) --- */
-/* Set or clear the disableClear flag. Only TPM_RH_PLATFORM can set
- * disable=YES. Both platform and lockout can set disable=NO. */
+/* Set or clear the disableClear flag. Both platform and lockout can set
+ * disable=YES. Only TPM_RH_PLATFORM can set disable=NO. */
 static TPM_RC FwCmd_ClearControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -7386,9 +7386,9 @@ static TPM_RC FwCmd_ClearControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_HIERARCHY;
     }
 
-    /* Only platform can SET disable (disable=YES=1) */
-    if (rc == 0 && disable == 1 && authHandle != TPM_RH_PLATFORM) {
-        rc = TPM_RC_AUTH_TYPE;
+    /* Only platform can CLEAR disable (disable=NO=0) */
+    if (rc == 0 && disable == 0 && authHandle == TPM_RH_LOCKOUT) {
+        rc = TPM_RC_AUTH_FAIL;
     }
 
     if (rc == 0) {
