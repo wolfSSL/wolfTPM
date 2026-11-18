@@ -318,7 +318,8 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
     int proofSz = TPM2_GetHashDigestSize(hashAlg);
     FWTPM_DECLARE_VAR(hmacCtx, Hmac);
     enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
-    int rc;
+    int rc = 0;
+    int hmacInit = 0;
 
     FWTPM_ALLOC_VAR(hmacCtx, Hmac);
 
@@ -330,9 +331,14 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
     tagBytes[0] = (byte)(ticketTag >> 8);
     tagBytes[1] = (byte)(ticketTag);
 
-    rc = FwComputeProofValue(ctx, hierarchy, hashAlg, proof, proofSz);
+    if (rc == 0) {
+        rc = FwComputeProofValue(ctx, hierarchy, hashAlg, proof, proofSz);
+    }
     if (rc == 0) {
         rc = wc_HmacInit(hmacCtx, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            hmacInit = 1;
+        }
     }
     if (rc == 0) {
         rc = wc_HmacSetKey(hmacCtx, (int)wcHash, proof, (word32)proofSz);
@@ -349,12 +355,14 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
     if (rc == 0) {
         rc = wc_HmacFinal(hmacCtx, hmacOut);
     }
-    wc_HmacFree(hmacCtx);
+    if (hmacInit) {
+        wc_HmacFree(hmacCtx);
+    }
 
     if (rc == 0) {
         *hmacOutSz = proofSz;
     }
-    else {
+    else if (rc != TPM_RC_MEMORY) {
         rc = TPM_RC_FAILURE;
     }
 

@@ -749,6 +749,14 @@ static void test_fwtpm_crypto_alloc_failure(void)
         &sensitiveType, &auth, der, &derSz);
     AssertIntEQ(rc, TPM_RC_MEMORY);
 
+    memset(&ctx, 0, sizeof(ctx));
+    derSz = 0;
+    fwtpm_test_fail_next_alloc();
+    rc = FwComputeTicketHmac(&ctx, TPM_RH_OWNER, TPM_ALG_SHA256,
+        TPM_ST_HASHCHECK, hash, sizeof(hash), NULL, 0, aesKey, &derSz);
+    AssertIntEQ(rc, TPM_RC_MEMORY);
+    AssertIntEQ(derSz, 0);
+
     fwtpm_pass("Crypto allocation failures preserved:", 0);
 }
 #endif
