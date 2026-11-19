@@ -4859,19 +4859,25 @@ static TPM_RC FwAppendCreationData(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     return rc;
 }
 
-/* Set the seedValue of an asymmetric primary storage key (see
- * FwCreateSeedValue). It is derived from the hierarchy seed so that the same
- * template gives the same object. */
+/* Set the seedValue of a primary object, for the object types that have one
+ * (see FwCreateSeedValue). It is derived from the hierarchy seed so that the
+ * same template gives the same object, and unique of a KEYEDHASH or
+ * SYMCIPHER primary is computed from it. A cached KEYEDHASH or SYMCIPHER
+ * primary whose unique is not the one it gives was created without a
+ * seedValue and stays as it is. */
 static TPM_RC FwPrimarySeedValue(const byte* seed, const byte* hashUnique,
-    int hashUniqueSz, FWTPM_Object* obj)
+    int hashUniqueSz, int cached, FWTPM_Object* obj)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     TPMT_PUBLIC* pub = &obj->pub;
     int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int isSym = (pub->type == TPM_ALG_KEYEDHASH ||
+        pub->type == TPM_ALG_SYMCIPHER);
+    int uSz;
+    byte unique[TPM_MAX_DIGEST_SIZE];
 
-    if (pub->type == TPM_ALG_KEYEDHASH || pub->type == TPM_ALG_SYMCIPHER ||
-            (pub->objectAttributes & TPMA_OBJECT_restricted) == 0 ||
-            (pub->objectAttributes & TPMA_OBJECT_sign) != 0) {
+    if (!isSym && ((pub->objectAttributes & TPMA_OBJECT_restricted) == 0 ||
+            (pub->objectAttributes & TPMA_OBJECT_sign) != 0)) {
         return TPM_RC_SUCCESS;
     }
     if (digestSz <= 0 || digestSz > (int)sizeof(obj->seedValue.buffer)) {
@@ -4885,6 +4891,27 @@ static TPM_RC FwPrimarySeedValue(const byte* seed, const byte* hashUnique,
     else {
         obj->seedValue.size = (UINT16)digestSz;
     }
+    if (rc == 0 && isSym) {
+        /* keyedHash and sym share the layout of unique */
+        uSz = FwComputeSymUnique(pub, obj->seedValue.buffer,
+            obj->seedValue.size, obj->privKey, obj->privKeySize, unique);
+        if (uSz == (int)TPM_RC_MEMORY) {
+            rc = TPM_RC_MEMORY;
+        }
+        else if (uSz != digestSz) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (!cached) {
+            pub->unique.keyedHash.size = (UINT16)uSz;
+            XMEMCPY(pub->unique.keyedHash.buffer, unique, (size_t)uSz);
+        }
+        else if ((int)pub->unique.keyedHash.size != uSz ||
+                XMEMCMP(pub->unique.keyedHash.buffer, unique,
+                    (size_t)uSz) != 0) {
+            TPM2_ForceZero(&obj->seedValue, sizeof(obj->seedValue));
+        }
+    }
+    TPM2_ForceZero(unique, sizeof(unique));
     return rc;
 }
 
@@ -5310,14 +5337,6 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         obj->privKeySize = keySz;
                     }
                 }
-
-                /* unique = H(key bytes) */
-                if (rc == 0) {
-                    obj->pub.unique.keyedHash.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            obj->privKey, obj->privKeySize,
-                            obj->pub.unique.keyedHash.buffer);
-                }
                 break;
             }
 
@@ -5348,12 +5367,6 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 if (rc == 0) {
                     obj->privKeySize = keySz;
-
-                    /* unique = H(key bytes) */
-                    obj->pub.unique.sym.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            obj->privKey, keySz,
-                            obj->pub.unique.sym.buffer);
                 }
                 break;
             }
@@ -5366,7 +5379,8 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwPrimarySeedValue(seed, hashUnique, hashUniqueSz, obj);
+        rc = FwPrimarySeedValue(seed, hashUnique, hashUniqueSz,
+            cached != NULL, obj);
     }
 
     /* Store in primary key cache */

@@ -53,9 +53,6 @@ enum wc_HashType FwGetWcHashType(UINT16 hashAlg);
 int FwGetMgfType(UINT16 hashAlg);
 #endif
 
-int FwComputeUniqueHash(TPMI_ALG_HASH nameAlg, const byte* keyData,
-    int keyDataSz, byte* outBuf);
-
 /* hashUnique = H(sensitiveCreate.data || unique_bytes) for primary derivation.
  * Returns the digest size, TPM_RC_MEMORY on allocation failure, or 0 for any
  * other error. */

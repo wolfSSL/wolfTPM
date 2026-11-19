@@ -21012,46 +21012,110 @@ static void test_fwtpm_create_seed_value(void)
     fwtpm_pass("Create seedValue and unique:", 0);
 }
 
-#ifdef HAVE_ECC
-/* A primary storage key gets its seedValue from the hierarchy seed: the same
- * template gives the same seedValue with or without the primary cache. A
- * signing key has none. */
+/* A primary gets its seedValue from the hierarchy seed: the same template
+ * gives the same seedValue and unique with or without the primary cache,
+ * and a KEYEDHASH primary cached with the plain digest of its key as unique
+ * keeps that unique and has no seedValue. */
 static void test_fwtpm_create_primary_seed_value(void)
 {
     FWTPM_CTX ctx;
+    static const TPM_ALG_ID types[] = {
+        TPM_ALG_KEYEDHASH,
+#ifndef NO_AES
+        TPM_ALG_SYMCIPHER,
+#endif
+#ifdef HAVE_ECC
+        TPM_ALG_ECC
+#endif
+    };
     UINT32 objH;
     FWTPM_Object* obj;
     byte seed[WC_SHA256_DIGEST_SIZE];
-    int pass;
+    byte unique[WC_SHA256_DIGEST_SIZE];
+    byte legacy[WC_SHA256_DIGEST_SIZE];
+    UINT16 pubSz;
+    int i, j, k, pass;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* created, from the cache, and created again without the cache */
-    for (pass = 0; pass < 3; pass++) {
-        if (pass == 2) {
-            memset(ctx.primaryCache, 0, sizeof(ctx.primaryCache));
+    for (i = 0; i < (int)(sizeof(types) / sizeof(types[0])); i++) {
+        UINT32 attributes = (types[i] == TPM_ALG_KEYEDHASH) ? DUP_ATTR_HMAC :
+            (types[i] == TPM_ALG_SYMCIPHER) ? DUP_ATTR_SYM :
+            DUP_ATTR_STORAGE;
+
+        /* created, from the cache, and created again without the cache */
+        for (pass = 0; pass < 3; pass++) {
+            if (pass == 2) {
+                memset(ctx.primaryCache, 0, sizeof(ctx.primaryCache));
+            }
+            objH = DupCreateObject(&ctx, types[i], attributes, &gDup);
+            pubSz = gDup.pubSz;
+            DupCheckSeedValue(&ctx, types[i], objH, WC_SHA256_DIGEST_SIZE, 0,
+                &gDup);
+            obj = &ctx.objects[objH - TRANSIENT_FIRST];
+            if (pass == 0) {
+                memcpy(seed, obj->seedValue.buffer, sizeof(seed));
+                memcpy(unique, gDup.pub + pubSz - sizeof(unique),
+                    sizeof(unique));
+            }
+            else {
+                AssertIntEQ(memcmp(seed, obj->seedValue.buffer, sizeof(seed)),
+                    0);
+                AssertIntEQ(memcmp(unique, gDup.pub + pubSz - sizeof(unique),
+                    sizeof(unique)), 0);
+            }
+            FlushHandle(&ctx, objH);
         }
-        objH = DupCreateObject(&ctx, TPM_ALG_ECC, DUP_ATTR_STORAGE, &gDup);
-        DupCheckSeedValue(&ctx, TPM_ALG_ECC, objH, WC_SHA256_DIGEST_SIZE, 0,
-            &gDup);
-        obj = &ctx.objects[objH - TRANSIENT_FIRST];
-        if (pass == 0) {
-            memcpy(seed, obj->seedValue.buffer, sizeof(seed));
-        }
-        else {
-            AssertIntEQ(memcmp(seed, obj->seedValue.buffer, sizeof(seed)), 0);
-        }
-        FlushHandle(&ctx, objH);
     }
+#ifdef HAVE_ECC
+    /* a signing key has no seedValue */
     objH = DupCreateObject(&ctx, TPM_ALG_ECC, DUP_ATTR_SIGN, &gDup);
     DupCheckSeedValue(&ctx, TPM_ALG_ECC, objH, 0, 0, &gDup);
     FlushHandle(&ctx, objH);
+#endif
+
+    /* The cache entry of the HMAC key as it was written without a
+     * seedValue */
+    memset(ctx.primaryCache, 0, sizeof(ctx.primaryCache));
+    objH = DupCreateObject(&ctx, TPM_ALG_KEYEDHASH, DUP_ATTR_HMAC, &gDup);
+    FlushHandle(&ctx, objH);
+    AssertIntEQ(wc_Sha256Hash(gDupHmacKey, (word32)sizeof(gDupHmacKey),
+        legacy), 0);
+    k = -1;
+    for (j = 0; j < FWTPM_MAX_PRIMARY_CACHE; j++) {
+        if (ctx.primaryCache[j].used &&
+                ctx.primaryCache[j].pub.type == TPM_ALG_KEYEDHASH) {
+            k = j;
+        }
+    }
+    AssertIntNE(k, -1);
+    memcpy(ctx.primaryCache[k].pub.unique.keyedHash.buffer, legacy,
+        sizeof(legacy));
+    objH = DupCreateObject(&ctx, TPM_ALG_KEYEDHASH, DUP_ATTR_HMAC, &gDup);
+    obj = &ctx.objects[objH - TRANSIENT_FIRST];
+    AssertIntEQ(obj->seedValue.size, 0);
+    AssertIntEQ(memcmp(gDup.pub + gDup.pubSz - sizeof(legacy), legacy,
+        sizeof(legacy)), 0);
+    DupCheckUse(&ctx, TPM_ALG_KEYEDHASH, objH, 0);
+    /* it duplicates with an empty seedValue and imports again */
+    AssertIntEQ(DupSend(&ctx, objH, TPM_RH_NULL, NULL, 0, TPM_ALG_NULL, 0,
+        &gDup), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gDup.dup + 2 + 2 + 2 + WC_SHA256_DIGEST_SIZE), 0);
+    FlushHandle(&ctx, objH);
+#ifdef HAVE_ECC
+    objH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    objH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(objH, 0);
+    AssertIntEQ(DupImport(&ctx, objH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SUCCESS);
+    FlushHandle(&ctx, objH);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("CreatePrimary seedValue:", 0);
+    fwtpm_pass("CreatePrimary seedValue and unique:", 0);
 }
-#endif /* HAVE_ECC */
 
 /* Rewrap replaces the outer wrap only: an inner and outer wrapped duplicate
  * moved to a second parent imports there with the inner key. */
@@ -33542,9 +33606,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_duplicate_needs_command_code();
     test_fwtpm_duplicate_import_roundtrip();
     test_fwtpm_create_seed_value();
-#ifdef HAVE_ECC
     test_fwtpm_create_primary_seed_value();
-#endif
     test_fwtpm_duplicate_rewrap_import();
     test_fwtpm_duplicate_import_rejections();
     test_fwtpm_import_known_duplicate();

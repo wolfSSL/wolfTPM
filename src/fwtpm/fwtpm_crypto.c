@@ -109,34 +109,6 @@ int FwGetMgfType(UINT16 hashAlg)
 }
 #endif /* !NO_RSA */
 
-/* Compute unique = H(keyData) for KEYEDHASH/SYMCIPHER key types.
- * Stores the hash in outBuf and returns the digest size, or 0 on error. */
-int FwComputeUniqueHash(TPMI_ALG_HASH nameAlg, const byte* keyData,
-    int keyDataSz, byte* outBuf)
-{
-    int rc = 0;
-    enum wc_HashType wcHash = FwGetWcHashType(nameAlg);
-    int hSz = TPM2_GetHashDigestSize(nameAlg);
-
-    if (hSz > 0) {
-        FWTPM_DECLARE_VAR(hCtx, wc_HashAlg);
-        FWTPM_ALLOC_VAR(hCtx, wc_HashAlg);
-        if (rc == 0 && wc_HashInit(hCtx, wcHash) == 0) {
-            rc = wc_HashUpdate(hCtx, wcHash, keyData, (word32)keyDataSz);
-            if (rc == 0) {
-                rc = wc_HashFinal(hCtx, wcHash, outBuf);
-            }
-            wc_HashFree(hCtx, wcHash);
-            if (rc == 0) {
-                FWTPM_FREE_VAR(hCtx);
-                return hSz;
-            }
-        }
-        FWTPM_FREE_VAR(hCtx);
-    }
-    return 0;
-}
-
 /* Compute hashUnique = H_nameAlg(sensitiveCreate.data || unique_bytes).
  * Per TPM 2.0 Part 1 Section 26.1: used as context for primary key derivation.
  * Returns digest size on success, 0 on error. */
