@@ -75,6 +75,7 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_SESSION tpmSession;
     WOLFTPM2_SESSION paramEncSession;
+    WOLFTPM2_KEY storage;
     WOLFTPM2_HANDLE parent;
     WOLFTPM2_NV nv;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
@@ -96,6 +97,7 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&paramEncSession, 0, sizeof(paramEncSession));
+    XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&parent, 0, sizeof(parent));
     XMEMSET(&nv, 0, sizeof(nv));
 
@@ -170,15 +172,24 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
     }
 
     if (paramEncAlg != TPM_ALG_NULL) {
+        /* Salt the session so its key is not derived from public nonces */
+    #ifndef NO_RSA
+        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    #else
+        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_ECC);
+    #endif
+        if (rc != 0) goto exit;
+
         /* Start TPM session for parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &paramEncSession, NULL, NULL,
+        rc = wolfTPM2_StartSession(&dev, &paramEncSession, &storage, NULL,
             TPM_SE_HMAC, paramEncAlg);
+        wolfTPM2_UnloadHandle(&dev, &storage.handle);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)paramEncSession.handle.hndl);
         /* Set TPM session attributes for parameter encryption.
-         * Use index 2 to avoid conflict with NV handle auth on index 1 */
-        rc = wolfTPM2_SetAuthSession(&dev, 2, &paramEncSession,
+         * Index 0 is used for the owner and NV policy authorization */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &paramEncSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
              TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
