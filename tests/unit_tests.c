@@ -3106,6 +3106,25 @@ static void test_wolfTPM2_NVWriteChunked(void)
 #endif
 }
 
+/* Data too large for one TPM2_NV_Extend is refused before the TPM is
+ * contacted, since extending it in pieces would chain the digest. */
+static void test_wolfTPM2_NVExtend_OneCommand(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_NV nv;
+    byte buf[MAX_NV_BUFFER_SIZE + 1];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(buf, 0x11, sizeof(buf));
+    nv.handle.hndl = TPM2_DEMO_NVRAM_EXTEND_INDEX;
+
+    AssertIntEQ(wolfTPM2_NVExtend(&dev, &nv, TPM2_DEMO_NVRAM_EXTEND_INDEX,
+        buf, (word32)sizeof(buf)), BUFFER_E);
+
+    printf("Test TPM Wrapper:\tNV extend size:\t\tPassed\n");
+}
+
 /* OWNERWRITE/OWNERREAD index authorized by the owner hierarchy through the
  * existing NV wrappers, multi-chunk under an HMAC parameter encryption
  * session so the NV index name refresh is exercised. */
@@ -12450,6 +12469,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();
     test_wolfTPM2_NVWriteChunked();
+    test_wolfTPM2_NVExtend_OneCommand();
     test_wolfTPM2_NVOwnerAuth();
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();

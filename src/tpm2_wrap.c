@@ -8142,6 +8142,11 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 int wolfTPM2_NVExtend(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz)
 {
+    /* one TPM2_NV_Extend hashes its whole input, so splitting the data
+     * over several commands would give a different digest */
+    if (dataSz > MAX_NV_BUFFER_SIZE) {
+        return BUFFER_E;
+    }
     return wolfTPM2_NVWriteData(dev, NULL, TPM_ALG_NULL, NULL, 0,
         nv, nvIndex, dataBuf, dataSz, 0, 1);
 }

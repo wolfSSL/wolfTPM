@@ -3345,6 +3345,7 @@ WOLFTPM_API int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: dataSz is larger than MAX_NV_BUFFER_SIZE
 
     \param dev pointer to a TPM2_DEV struct
     \param nv pointer to a populated structure of WOLFTPM2_NV type
