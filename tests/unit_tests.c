@@ -10191,6 +10191,79 @@ static void test_wolfTPM2_PCRPolicy(void)
 
     wolfTPM2_Cleanup(&dev);
 }
+
+/* The digest for a PCR list must match what TPM2_PolicyPCR computes for it:
+ * one value per selected PCR in ascending order, however the list is written */
+static void test_wolfTPM2_PCRGetDigest_Order(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    TPM_ALG_ID pcrAlg = TPM_ALG_SHA256;
+    byte pcrArray[3] = {TPM2_DEMO_PCR_INDEX, 0, TPM2_DEMO_PCR_INDEX};
+    byte pcrSorted[2] = {0, TPM2_DEMO_PCR_INDEX};
+    byte extend[WC_SHA256_DIGEST_SIZE];
+    byte pcrHash[WC_SHA256_DIGEST_SIZE];
+    byte pcrHashSorted[WC_SHA256_DIGEST_SIZE];
+    word32 pcrHashSz = 0;
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+    byte tpmDigest[WC_SHA256_DIGEST_SIZE];
+    word32 tpmDigestSz;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    if (!test_pcr_bank_allocated(pcrAlg)) {
+        printf("Test TPM Wrapper: %-40s Skipped (no SHA-256 PCR bank)\n",
+            "PCRGetDigest order:");
+        wolfTPM2_Cleanup(&dev);
+        return;
+    }
+
+    /* make the two PCR values differ */
+    XMEMSET(extend, 0x5C, sizeof(extend));
+    rc = wolfTPM2_ExtendPCR(&dev, TPM2_DEMO_PCR_INDEX, pcrAlg, extend,
+        (int)sizeof(extend));
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_PCRGetDigest(&dev, pcrAlg, pcrArray, (word32)sizeof(pcrArray),
+        pcrHash, &pcrHashSz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)pcrHashSz, WC_SHA256_DIGEST_SIZE);
+    rc = wolfTPM2_PCRGetDigest(&dev, pcrAlg, pcrSorted,
+        (word32)sizeof(pcrSorted), pcrHashSorted, &pcrHashSz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(XMEMCMP(pcrHash, pcrHashSorted, sizeof(pcrHash)), 0);
+
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(pcrAlg, pcrArray, (word32)sizeof(pcrArray),
+        pcrHash, pcrHashSz, digest, &digestSz);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_PolicyPCR(&dev, session.handle.hndl, pcrAlg, pcrArray,
+        (word32)sizeof(pcrArray));
+    AssertIntEQ(rc, 0);
+    tpmDigestSz = (word32)sizeof(tpmDigest);
+    rc = wolfTPM2_GetPolicyDigest(&dev, session.handle.hndl, tpmDigest,
+        &tpmDigestSz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)tpmDigestSz, (int)digestSz);
+    AssertIntEQ(XMEMCMP(tpmDigest, digest, digestSz), 0);
+
+    /* an index outside the PCR range is refused */
+    pcrArray[1] = (byte)(PCR_LAST + 1);
+    rc = wolfTPM2_PCRGetDigest(&dev, pcrAlg, pcrArray, (word32)sizeof(pcrArray),
+        pcrHash, &pcrHashSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "PCRGetDigest order:");
+}
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFTPM2_PEM_DECODE */
 
 #if defined(HAVE_THREAD_LS) && defined(HAVE_PTHREAD)
@@ -12466,6 +12539,7 @@ int unit_tests(int argc, char *argv[])
         !defined(NO_RSA)
     test_wolfTPM_ImportPublicKey();
     test_wolfTPM2_PCRPolicy();
+    test_wolfTPM2_PCRGetDigest_Order();
     #endif
     test_wolfTPM2_EncryptSecret();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)

@@ -11950,10 +11950,17 @@ int wolfTPM2_PCRGetDigest(WOLFTPM2_DEV* dev, TPM_ALG_ID pcrAlg,
     word32 i;
     enum wc_HashType hashType;
     wc_HashAlg hash_ctx;
+    TPML_PCR_SELECTION pcrSel;
+    const byte* pcrSelect;
 
     if (dev == NULL || pcrArray == NULL || pcrArraySz == 0 ||
             pcrDigest == NULL || pcrDigestSz == NULL) {
         return BAD_FUNC_ARG;
+    }
+    for (i = 0; i < pcrArraySz; i++) {
+        if (pcrArray[i] > PCR_LAST) {
+            return BAD_FUNC_ARG;
+        }
     }
 
     rc = TPM2_GetHashType(pcrAlg);
@@ -11967,9 +11974,16 @@ int wolfTPM2_PCRGetDigest(WOLFTPM2_DEV* dev, TPM_ALG_ID pcrAlg,
     if (rc != 0)
         return rc;
 
-    /* PCR(s) hash */
-    for (i=0; i<pcrArraySz && rc == 0; i++) {
-        rc = wolfTPM2_ReadPCR(dev, pcrArray[i], pcrAlg,
+    /* PCR(s) hash. The TPM digests each selected PCR once in ascending
+     * index order, whatever order the selection was built in. */
+    XMEMSET(&pcrSel, 0, sizeof(pcrSel));
+    TPM2_SetupPCRSelArray(&pcrSel, pcrAlg, pcrArray, pcrArraySz);
+    pcrSelect = pcrSel.pcrSelections[0].pcrSelect;
+    for (i = 0; i <= PCR_LAST && rc == 0; i++) {
+        if ((pcrSelect[i >> 3] & (1 << (i & 0x7))) == 0) {
+            continue;
+        }
+        rc = wolfTPM2_ReadPCR(dev, (int)i, pcrAlg,
             pcrDigest, (int*)pcrDigestSz);
         if (rc == 0) {
             rc = wc_HashUpdate(&hash_ctx, hashType, pcrDigest, *pcrDigestSz);
