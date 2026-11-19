@@ -530,7 +530,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_LoadKey(&dev, &testKey, &storageKey.handle);
         if (rc != 0) goto exit;
         printf("RSA Private Key Loaded into TPM: Handle 0x%x\n",
-            (word32)rsaKey.handle.hndl);
+            (word32)testKey.handle.hndl);
 
         /* Use TPM Handle... */
 
