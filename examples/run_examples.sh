@@ -615,9 +615,11 @@ fi
 ./examples/nvram/policy_nv >> $TPMPWD/run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "nv policy nv failed! $RESULT" && exit 1
-./examples/nvram/policy_nv -aes >> $TPMPWD/run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "nv policy nv aes failed! $RESULT" && exit 1
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/nvram/policy_nv -aes >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "nv policy nv aes failed! $RESULT" && exit 1
+fi
 
 # NV read without auth, write/delete with owner auth
 ./examples/nvram/nvauth >> $TPMPWD/run.out 2>&1
