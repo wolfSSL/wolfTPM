@@ -165,6 +165,12 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
                 printf("Saved to %s\n", outputPemFile);
             }
         }
+        else {
+            printf("Error opening %s\n", outputPemFile);
+            rc = -1;
+        }
+    #else
+        rc = 0;
     #endif
         printf("%s\n", (char*)output);
     }
