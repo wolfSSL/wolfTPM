@@ -161,6 +161,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&ekKey, 0, sizeof(ekKey));
     XMEMSET(&storageKey, 0, sizeof(storageKey));
     XMEMSET(&testKey, 0, sizeof(testKey));
 
