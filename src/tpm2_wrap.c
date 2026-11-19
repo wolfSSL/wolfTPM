@@ -7031,6 +7031,24 @@ int wolfTPM2_EccZToBuffer(byte* out, int* outSz, const TPM2B_ECC_PARAMETER* z)
     return TPM_RC_SUCCESS;
 }
 
+/* Copy Z at the fixed curve size, left padded with zeros, so the length of
+ * the shared secret does not depend on its value */
+int wolfTPM2_EccZToBuffer_ex(byte* out, int* outSz,
+    const TPM2B_ECC_PARAMETER* z, int curveSize)
+{
+    if (out == NULL || outSz == NULL || z == NULL || curveSize <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    if (z->size > (UINT16)sizeof(z->buffer) || (int)z->size > curveSize ||
+            curveSize > *outSz) {
+        return BUFFER_E;
+    }
+    XMEMSET(out, 0, curveSize - z->size);
+    XMEMCPY(&out[curveSize - z->size], z->buffer, z->size);
+    *outSz = curveSize;
+    return TPM_RC_SUCCESS;
+}
+
 /* Generate ephemeral key and compute Z (shared secret) */
 /* One shot API using private key handle to generate key-pair and return
     pub-point and shared secret */
@@ -7071,7 +7089,8 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     pubPoint->size = ecdhOut.pubPoint.size;
     wolfTPM2_CopyEccParam(&pubPoint->point.x, &ecdhOut.pubPoint.point.x);
     wolfTPM2_CopyEccParam(&pubPoint->point.y, &ecdhOut.pubPoint.point.y);
-    rc = wolfTPM2_EccZToBuffer(out, outSz, &ecdhOut.zPoint.point.x);
+    rc = wolfTPM2_EccZToBuffer_ex(out, outSz, &ecdhOut.zPoint.point.x,
+        curveSize);
 
 #ifdef DEBUG_WOLFTPM
     if (rc == TPM_RC_SUCCESS) {
@@ -7121,7 +7140,8 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         return rc;
     }
 
-    rc = wolfTPM2_EccZToBuffer(out, outSz, &ecdhZOut.outPoint.point.x);
+    rc = wolfTPM2_EccZToBuffer_ex(out, outSz, &ecdhZOut.outPoint.point.x,
+        curveSize);
 
 #ifdef DEBUG_WOLFTPM
     if (rc == TPM_RC_SUCCESS) {
@@ -7211,7 +7231,8 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
         return rc;
     }
 
-    rc = wolfTPM2_EccZToBuffer(out, outSz, &outZGen2Ph.outZ2.point.x);
+    rc = wolfTPM2_EccZToBuffer_ex(out, outSz, &outZGen2Ph.outZ2.point.x,
+        curveSize);
 
 #ifdef DEBUG_WOLFTPM
     if (rc == TPM_RC_SUCCESS) {

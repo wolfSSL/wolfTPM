@@ -2857,7 +2857,7 @@ WOLFTPM_API int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     \param privKey pointer to a structure of WOLFTPM2_KEY type
     \param pubPoint pointer to an empty structure of TPM2B_ECC_POINT type
     \param out pointer to a byte buffer, to store the generated shared secret
-    \param outSz integer value, specifying the size of the shared secret, in bytes
+    \param outSz integer value, on input the size of the out buffer, on output the size of the shared secret in bytes, which is the curve size with leading zeros kept
 
     \sa wolfTPM2_ECDHGenZ
     \sa wolfTPM2_ECDHGenKey
@@ -2879,7 +2879,7 @@ WOLFTPM_API int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     \param privKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle
     \param pubPoint pointer to a populated structure of TPM2B_ECC_POINT type
     \param out pointer to a byte buffer, to store the computed shared secret
-    \param outSz integer value, specifying the size of the shared secret, in bytes
+    \param outSz integer value, on input the size of the out buffer, on output the size of the shared secret in bytes, which is the curve size with leading zeros kept
 
     \sa wolfTPM2_ECDHGen
     \sa wolfTPM2_ECDHGenKey
@@ -2924,7 +2924,7 @@ WOLFTPM_API int wolfTPM2_ECDHEGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     \param ecdhKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle
     \param pubPoint pointer to an empty struct of TPM2B_ECC_POINT type
     \param out pointer to a byte buffer, to store the computed shared secret
-    \param outSz integer value, specifying the size of the shared secret, in bytes
+    \param outSz integer value, on input the size of the out buffer, on output the size of the shared secret in bytes, which is the curve size with leading zeros kept
 
     \sa wolfTPM2_ECDHEGenKey
     \sa wolfTPM2_ECDHGen
@@ -5670,6 +5670,8 @@ WOLFTPM_LOCAL int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
 
 WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer(byte* out, int* outSz,
     const TPM2B_ECC_PARAMETER* z);
+WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer_ex(byte* out, int* outSz,
+    const TPM2B_ECC_PARAMETER* z, int curveSize);
 
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE

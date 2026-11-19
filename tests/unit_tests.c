@@ -5757,6 +5757,28 @@ static void test_wolfTPM2_EccZToBuffer(void)
     AssertIntEQ(wolfTPM2_EccZToBuffer(out, NULL, &z), BAD_FUNC_ARG);
     AssertIntEQ(wolfTPM2_EccZToBuffer(out, &outSz, NULL), BAD_FUNC_ARG);
 
+    /* A short Z is left padded to the curve size */
+    z.size = 30;
+    XMEMSET(z.buffer, 0x7E, z.size);
+    XMEMSET(out, 0xFF, sizeof(out));
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_EccZToBuffer_ex(out, &outSz, &z, 32);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(outSz, 32);
+    AssertIntEQ(out[0], 0);
+    AssertIntEQ(out[1], 0);
+    AssertIntEQ(out[2], 0x7E);
+    AssertIntEQ(out[31], 0x7E);
+    /* Z longer than the curve, or a buffer shorter than it, is refused */
+    z.size = 33;
+    outSz = (int)sizeof(out);
+    AssertIntEQ(wolfTPM2_EccZToBuffer_ex(out, &outSz, &z, 32), BUFFER_E);
+    z.size = 32;
+    outSz = 31;
+    AssertIntEQ(wolfTPM2_EccZToBuffer_ex(out, &outSz, &z, 32), BUFFER_E);
+    outSz = (int)sizeof(out);
+    AssertIntEQ(wolfTPM2_EccZToBuffer_ex(out, &outSz, &z, 0), BAD_FUNC_ARG);
+
     printf("Test TPM Wrapper:\tECDH shared secret bounds:\tPassed\n");
 }
 
