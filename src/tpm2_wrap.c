@@ -2698,8 +2698,8 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
 
     /* On any failure scrub the caller's data buffer so partial KDFa
      * output (derived from the raw shared secret K) cannot leak via a
-     * caller that ignores rc. wolfCrypt's TPM2_KDFa never partially
-     * writes today, but defense-in-depth -- the buffer is always zeroed
+     * caller that ignores rc. TPM2_KDFa_ex writes per hash block and
+     * scrubs its output on failure; the buffer is zeroed here as well
      * on the failure path. */
     if (rc != 0) {
         TPM2_ForceZero(data->buffer, sizeof(data->buffer));
