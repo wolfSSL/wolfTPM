@@ -49,6 +49,7 @@
 #define TEST_PAGE_HANDLES 4
 #define TEST_MAX_FLUSHES (2 * MAX_HANDLE_NUM)
 #define TEST_POLICY_SESSION (POLICY_SESSION_FIRST + 2)
+#define TEST_CANNED_MAX   128
 
 /* Scripted TPM_CAP_HANDLES pages and a record of what the wrapper sent */
 static struct {
@@ -61,6 +62,9 @@ static struct {
     TPM_HANDLE flushed[TEST_MAX_FLUSHES];
     int flushes;
     TPM_HANDLE flushFail;
+    /* a response returned as is, whatever the command */
+    byte canned[TEST_CANNED_MAX];
+    int cannedSz;
 } script;
 
 /* Exercise the real wrapper, command builders and response parser without a
@@ -94,6 +98,12 @@ int test_unload_send(TPM2_CTX* ctx, TPM2_Packet* packet)
     UINT32 arg1 = test_get_u32(packet->buf + TPM2_HEADER_SIZE + 4);
     int page = script.pages;
     int i;
+
+    if (script.cannedSz > 0) {
+        XMEMCPY(packet->buf, script.canned, script.cannedSz);
+        packet->size = script.cannedSz;
+        return TPM_RC_SUCCESS;
+    }
 
     TPM2_Packet_Init(ctx, &rsp);
     if (code == TPM_CC_FlushContext) {
@@ -328,6 +338,63 @@ static void test_session_unload(void)
 }
 #endif
 
+/* Build a canned response from a tag, response code and body */
+static void test_canned(TPM_ST tag, TPM_RC rc, const byte* body, int bodySz)
+{
+    int sz = TPM2_HEADER_SIZE + bodySz;
+
+    AssertIntEQ(sz <= TEST_CANNED_MAX, 1);
+    script.canned[0] = (byte)(tag >> 8);
+    script.canned[1] = (byte)tag;
+    script.canned[2] = 0;
+    script.canned[3] = 0;
+    script.canned[4] = 0;
+    script.canned[5] = (byte)sz;
+    script.canned[6] = (byte)(rc >> 24);
+    script.canned[7] = (byte)(rc >> 16);
+    script.canned[8] = (byte)(rc >> 8);
+    script.canned[9] = (byte)rc;
+    if (bodySz > 0) {
+        XMEMCPY(&script.canned[TPM2_HEADER_SIZE], body, bodySz);
+    }
+    script.cannedSz = sz;
+}
+
+/* A command sent with sessions must be answered with sessions. A success
+ * response tagged TPM_ST_NO_SESSIONS would skip the response HMAC, so it is
+ * refused and nothing of it is left in the command buffer. */
+static void test_response_tag_downgrade(void)
+{
+    static const byte emptyAuth[] = {
+        0, 0, 0, 0,     /* parameterSize */
+        0, 0,           /* nonceTPM */
+        0,              /* sessionAttributes */
+        0, 0            /* hmac */
+    };
+    static const byte payload[] = { 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE };
+    WOLFTPM2_DEV dev;
+    Clear_In in;
+    int i;
+
+    test_setup(&dev);
+    dev.session[0].sessionHandle = TPM_RS_PW;
+    AssertIntEQ(TPM2_SetSessionAuth(dev.session), TPM_RC_SUCCESS);
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = TPM_RH_LOCKOUT;
+
+    test_canned(TPM_ST_SESSIONS, TPM_RC_SUCCESS, emptyAuth,
+        (int)sizeof(emptyAuth));
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_SUCCESS);
+
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS, payload,
+        (int)sizeof(payload));
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_HMAC);
+    for (i = 0; i < (int)sizeof(dev.ctx.cmdBuf); i++) {
+        AssertIntEQ(dev.ctx.cmdBuf[i], 0);
+    }
+    TPM2_Cleanup(&dev.ctx);
+}
+
 #ifdef WOLFTPM2_USE_WOLF_RNG
 /* A policy session whose PolicySecret is refused is not left loaded */
 static void test_ek_policy_secret_failure(void)
@@ -357,6 +424,7 @@ int main(void)
 #if MAX_SESSION_NUM > 1
     test_session_unload();
 #endif
+    test_response_tag_downgrade();
 #ifdef WOLFTPM2_USE_WOLF_RNG
     test_ek_policy_secret_failure();
 #endif
