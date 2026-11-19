@@ -5172,6 +5172,11 @@ static void test_TPM2_ParamEnc_XOR_MaskBoundary(void)
         data, TPM2_XOR_MASK_MAX + 1);
     AssertIntEQ(BUFFER_E, rc);
 
+#ifdef WOLFTPM_PQC
+    /* the largest ML-KEM ciphertext is the first parameter of Decapsulate */
+    AssertIntEQ(TPM2_XOR_MASK_MAX >= MAX_MLKEM_CT_SIZE, 1);
+#endif
+
     printf("Test TPM Wrapper: %-40s Passed\n", "ParamEnc_XOR mask boundary:");
 #endif
 }
