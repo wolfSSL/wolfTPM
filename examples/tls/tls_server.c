@@ -841,6 +841,13 @@ tls_setup:
         wolfSSL_free(ssl);
         ssl = NULL;
 
+    #ifndef WOLFSSL_USER_IO
+        if (sockIoCtx.fd != SOCKET_INVALID) {
+            CloseSocket(sockIoCtx.fd);
+            sockIoCtx.fd = SOCKET_INVALID;
+        }
+    #endif
+
         if (!runLoop)
             mStop = 1;
     }
