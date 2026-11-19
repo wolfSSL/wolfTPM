@@ -160,15 +160,20 @@ int FwComputeSymUnique(const TPMT_PUBLIC* pub,
     byte* uniqueOut)
 {
     int hSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int rc;
 
     if (seedSz > 0 &&
             (pub->objectAttributes & TPMA_OBJECT_restricted) != 0 &&
             (pub->objectAttributes & TPMA_OBJECT_decrypt) != 0) {
-        if (hSz <= 0 || TPM2_HmacCompute(pub->nameAlg, seed, (word32)seedSz,
-                key, (word32)keySz, NULL, 0, uniqueOut, NULL) != 0) {
+        if (hSz <= 0) {
             return 0;
         }
-        return hSz;
+        rc = TPM2_HmacCompute(pub->nameAlg, seed, (word32)seedSz,
+            key, (word32)keySz, NULL, 0, uniqueOut, NULL);
+        if (rc == MEMORY_E) {
+            return (int)TPM_RC_MEMORY;
+        }
+        return (rc == 0) ? hSz : 0;
     }
     return FwComputeHashUnique(pub->nameAlg, seed, seedSz, key, keySz,
         uniqueOut);
