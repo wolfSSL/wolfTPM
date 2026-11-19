@@ -7762,6 +7762,19 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     XMEMSET(&in, 0, sizeof(in));
     in.flushHandle = flushHandle;
     rc = TPM2_FlushContext(&in);
+
+    /* The session key is wiped even when the flush fails, such as for a
+     * session the TPM has already retired */
+    if (isSession) {
+        TPM2_ForceZero(&handle->auth, sizeof(handle->auth));
+        for (i = 0; i < MAX_SESSION_NUM; i++) {
+            if (dev->session[i].sessionHandle == flushHandle) {
+                TPM2_ForceZero(&dev->session[i], sizeof(dev->session[i]));
+                dev->session[i].sessionHandle = TPM_RS_PW;
+            }
+        }
+    }
+
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_FlushContext failed %d: %s\n", rc,
@@ -7774,15 +7787,6 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     printf("TPM2_FlushContext: Closed handle 0x%x\n", (word32)handle->hndl);
 #endif
 
-    if (isSession) {
-        TPM2_ForceZero(&handle->auth, sizeof(handle->auth));
-        for (i = 0; i < MAX_SESSION_NUM; i++) {
-            if (dev->session[i].sessionHandle == flushHandle) {
-                TPM2_ForceZero(&dev->session[i], sizeof(dev->session[i]));
-                dev->session[i].sessionHandle = TPM_RS_PW;
-            }
-        }
-    }
     handle->hndl = TPM_RH_NULL;
 
     return TPM_RC_SUCCESS;

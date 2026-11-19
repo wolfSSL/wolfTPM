@@ -269,6 +269,54 @@ static void test_bad_handles(void)
     TPM2_Cleanup(&dev.ctx);
 }
 
+#if MAX_SESSION_NUM > 1
+/* Unloading a session wipes its key from the handle and from every device
+ * slot it was installed in, whether or not the TPM accepts the flush */
+static void test_session_unload(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HANDLE handle;
+    int pass, i;
+
+    for (pass = 0; pass < 2; pass++) {
+        test_setup(&dev);
+        XMEMSET(&handle, 0, sizeof(handle));
+        handle.hndl = HMAC_SESSION_FIRST + 1;
+        handle.auth.size = 8;
+        XMEMSET(handle.auth.buffer, 0xA5, handle.auth.size);
+        dev.session[0].sessionHandle = TPM_RS_PW;
+        dev.session[0].auth.size = 4;
+        dev.session[1].sessionHandle = handle.hndl;
+        dev.session[1].sessionAttributes = TPMA_SESSION_decrypt;
+        dev.session[1].auth.size = 8;
+        XMEMSET(dev.session[1].auth.buffer, 0xA5, 8);
+        if (pass == 1) {
+            script.flushFail = handle.hndl;
+        }
+
+        AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &handle),
+            (pass == 0) ? TPM_RC_SUCCESS : TPM_RC_FAILURE);
+        AssertIntEQ(script.flushes, 1);
+        AssertIntEQ(script.flushed[0], HMAC_SESSION_FIRST + 1);
+        AssertIntEQ(handle.auth.size, 0);
+        for (i = 0; i < (int)sizeof(handle.auth.buffer); i++) {
+            AssertIntEQ(handle.auth.buffer[i], 0);
+        }
+        AssertIntEQ(dev.session[1].sessionHandle, TPM_RS_PW);
+        AssertIntEQ(dev.session[1].sessionAttributes, 0);
+        AssertIntEQ(dev.session[1].auth.size, 0);
+        for (i = 0; i < (int)sizeof(dev.session[1].auth.buffer); i++) {
+            AssertIntEQ(dev.session[1].auth.buffer[i], 0);
+        }
+        /* an unrelated slot is left alone */
+        AssertIntEQ(dev.session[0].auth.size, 4);
+        AssertIntEQ(handle.hndl,
+            (pass == 0) ? (TPM_HANDLE)TPM_RH_NULL : HMAC_SESSION_FIRST + 1);
+        TPM2_Cleanup(&dev.ctx);
+    }
+}
+#endif
+
 int main(void)
 {
     test_two_pages();
@@ -277,6 +325,9 @@ int main(void)
     test_second_page_failure();
     test_flush_failure();
     test_bad_handles();
+#if MAX_SESSION_NUM > 1
+    test_session_unload();
+#endif
     printf("Transient unload tests: passed\n");
     return 0;
 }
