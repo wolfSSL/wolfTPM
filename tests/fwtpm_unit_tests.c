@@ -20283,6 +20283,64 @@ static void test_fwtpm_load_private_seed_value(void)
     fwtpm_pass("Private blob seedValue:", 0);
 }
 
+/* A private key of FWTPM_MAX_PRIVKEY_DER octets wraps and unwraps with an
+ * authValue and a seedValue of the largest digest size. */
+static void test_fwtpm_wrap_private_max_sensitive(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Object* parent;
+    UINT32 parentH;
+    static byte der[FWTPM_MAX_PRIVKEY_DER];
+    static byte derOut[FWTPM_MAX_PRIVKEY_DER];
+    static TPM2B_PRIVATE priv;
+    TPM2B_NAME name;
+    TPM2B_AUTH auth, authOut;
+    TPM2B_DIGEST seed, seedOut;
+    UINT16 sensType = 0;
+    int derOutSz = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    parentH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    parentH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(parentH, 0);
+    parent = &ctx.objects[parentH - TRANSIENT_FIRST];
+
+    memset(&name, 0, sizeof(name));
+    name.size = 2 + WC_SHA256_DIGEST_SIZE;
+    PutU16BE(name.name, TPM_ALG_SHA256);
+    memset(der, 0x6B, sizeof(der));
+    memset(&auth, 0, sizeof(auth));
+    auth.size = sizeof(auth.buffer);
+    memset(auth.buffer, 0xA1, sizeof(auth.buffer));
+    memset(&seed, 0, sizeof(seed));
+    seed.size = sizeof(seed.buffer);
+    memset(seed.buffer, 0xC3, sizeof(seed.buffer));
+    memset(&priv, 0, sizeof(priv));
+    memset(&authOut, 0, sizeof(authOut));
+    memset(&seedOut, 0, sizeof(seedOut));
+
+    AssertIntEQ(FwWrapPrivate(&ctx, parent, &ctx.rng, &name,
+        TPM_ALG_KEYEDHASH, &auth, der, (int)sizeof(der), &seed, &priv),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(FwUnwrapPrivate(&ctx, parent, &name, &priv, &sensType,
+        &authOut, derOut, &derOutSz, &seedOut), TPM_RC_SUCCESS);
+    AssertIntEQ(sensType, TPM_ALG_KEYEDHASH);
+    AssertIntEQ(authOut.size, auth.size);
+    AssertIntEQ(memcmp(authOut.buffer, auth.buffer, auth.size), 0);
+    AssertIntEQ(derOutSz, (int)sizeof(der));
+    AssertIntEQ(memcmp(derOut, der, sizeof(der)), 0);
+    AssertIntEQ(seedOut.size, seed.size);
+    AssertIntEQ(memcmp(seedOut.buffer, seed.buffer, seed.size), 0);
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Private blob maximum sensitive:", 0);
+}
+
 #if !defined(FWTPM_NO_KEY_MIGRATION) && !defined(FWTPM_NO_POLICY)
 static TPM_RC SendDuplicateCmd(FWTPM_CTX* ctx, UINT32 objH,
     UINT32 newParentH, UINT32 sessH, UINT16 symAlg)
@@ -33588,6 +33646,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_loadexternal_symcipher_unique();
     test_fwtpm_loadexternal_keyedhash();
     test_fwtpm_load_private_seed_value();
+    test_fwtpm_wrap_private_max_sensitive();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_unpadded_values();
 #endif

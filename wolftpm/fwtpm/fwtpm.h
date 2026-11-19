@@ -233,8 +233,9 @@
 #endif
 
 /* Maximum sensitive area buffer: private key DER + wire-format overhead
- * (sensitiveType(2) + authValue(2+64) + seedValue(2+48) + size(2) = ~120) */
-#define FWTPM_MAX_SENSITIVE_SIZE  (FWTPM_MAX_PRIVKEY_DER + 128)
+ * (size(2) + sensitiveType(2) + authValue(2+64) + seedValue(2+64) + size(2)
+ * = 138) */
+#define FWTPM_MAX_SENSITIVE_SIZE  (FWTPM_MAX_PRIVKEY_DER + 144)
 
 /* Maximum concurrent hash sequences */
 #ifndef FWTPM_MAX_HASH_SEQ

@@ -2398,7 +2398,7 @@ int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     int rc = TPM_RC_SUCCESS;
     byte aesKey[FWTPM_MAX_SYM_KEY_SIZE], aesIV[AES_BLOCK_SIZE];
     byte macKey[WC_SHA256_DIGEST_SIZE];
-    FWTPM_DECLARE_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 128);
+    FWTPM_DECLARE_BUF(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
     byte hmacDigest[WC_SHA256_DIGEST_SIZE];
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
@@ -2407,14 +2407,14 @@ int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     int hmacInit = 0;
     int pos = 0;
 
-    FWTPM_ALLOC_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 128);
+    FWTPM_ALLOC_BUF(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_ALLOC_VAR(aes, Aes);
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
     /* Marshal inner sensitive */
     if (rc == 0) {
         sensSz = FwMarshalSensitive(sensBuf,
-            (int)(FWTPM_MAX_PRIVKEY_DER + 128),
+            (int)FWTPM_MAX_SENSITIVE_SIZE,
             sensitiveType, auth, privKeyDer, privKeyDerSz, seedValue);
         if (sensSz < 0) {
             rc = TPM_RC_FAILURE;
@@ -2499,7 +2499,7 @@ int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     TPM2_ForceZero(macKey, sizeof(macKey));
     TPM2_ForceZero(aesIV, sizeof(aesIV));
     TPM2_ForceZero(hmacDigest, sizeof(hmacDigest));
-    TPM2_ForceZero(sensBuf, FWTPM_MAX_PRIVKEY_DER + 128);
+    TPM2_ForceZero(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_FREE_BUF(sensBuf);
     FWTPM_FREE_VAR(aes);
     FWTPM_FREE_VAR(hmac);
@@ -2519,14 +2519,14 @@ int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
     byte macKey[WC_SHA256_DIGEST_SIZE];
     byte hmacDigest[WC_SHA256_DIGEST_SIZE];
     byte hmacCheck[WC_SHA256_DIGEST_SIZE];
-    FWTPM_DECLARE_BUF(decBuf, FWTPM_MAX_PRIVKEY_DER + 128);
+    FWTPM_DECLARE_BUF(decBuf, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
     int aesInit = 0;
     int pos = 0;
     UINT16 integritySize = 0, encSensSize = 0;
 
-    FWTPM_ALLOC_BUF(decBuf, FWTPM_MAX_PRIVKEY_DER + 128);
+    FWTPM_ALLOC_BUF(decBuf, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_ALLOC_VAR(aes, Aes);
     FWTPM_ALLOC_VAR(hmac, Hmac);
 
@@ -2559,7 +2559,7 @@ int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
         encSensSize = FwLoadU16BE(inPriv->buffer + pos);
         pos += 2;
         if (pos + encSensSize > inPriv->size ||
-            encSensSize > (int)(FWTPM_MAX_PRIVKEY_DER + 128)) {
+            encSensSize > (int)FWTPM_MAX_SENSITIVE_SIZE) {
             rc = TPM_RC_FAILURE;
         }
     }
@@ -2625,7 +2625,7 @@ int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
     TPM2_ForceZero(macKey, sizeof(macKey));
     TPM2_ForceZero(aesIV, sizeof(aesIV));
     TPM2_ForceZero(hmacCheck, sizeof(hmacCheck));
-    TPM2_ForceZero(decBuf, FWTPM_MAX_PRIVKEY_DER + 128);
+    TPM2_ForceZero(decBuf, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_FREE_BUF(decBuf);
     FWTPM_FREE_VAR(aes);
     FWTPM_FREE_VAR(hmac);
