@@ -42,6 +42,7 @@ typedef struct WOLFTPM2_HANDLE {
     unsigned int    policyPass : 1;
     unsigned int    policyAuth : 1; /* Handle requires policy auth */
     unsigned int    nameLoaded : 1; /* flag to indicate if "name" was loaded and computed */
+    unsigned int    noSessionKey : 1; /* Session is not salted or bound, so it has no session key */
 } WOLFTPM2_HANDLE;
 
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */

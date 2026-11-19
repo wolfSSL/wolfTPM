@@ -257,7 +257,7 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
     TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
 #endif
 
-    rc = TPM2_BuildParamKey(&session->auth,
+    rc = TPM2_BuildParamKey(&session->auth, session->noSessionKey ? 0 :
         (UINT16)TPM2_GetHashDigestSize(session->authHash),
         TPM2_ParamEncBindKey(session), keyBuf, &keyBufSz);
     if (rc != 0) {
@@ -304,7 +304,7 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
     TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
 #endif
 
-    rc = TPM2_BuildParamKey(&session->auth,
+    rc = TPM2_BuildParamKey(&session->auth, session->noSessionKey ? 0 :
         (UINT16)TPM2_GetHashDigestSize(session->authHash),
         TPM2_ParamEncBindKey(session), keyBuf, &keyBufSz);
     if (rc != 0) {

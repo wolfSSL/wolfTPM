@@ -2292,6 +2292,44 @@ static void test_wolfTPM2_PolicyAuthValue_AuthOffset(void)
 #endif
 }
 
+/* Without a session key the authValue has the whole auth buffer, which is
+ * what an authValue as long as a SHA-512 digest needs. */
+static void test_wolfTPM2_PolicyAuthValue_NoSessionKey(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    byte testAuth[sizeof(session.handle.auth.buffer)];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(testAuth, 0x5A, sizeof(testAuth));
+
+    (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+
+    session.authHash = TPM_ALG_SHA256;
+    session.handle.noSessionKey = 1;
+
+    /* the TPM command may fail without a real session handle */
+    AssertIntNE(wolfTPM2_PolicyAuthValue(&dev, &session, testAuth,
+        (int)sizeof(testAuth)), BUFFER_E);
+    AssertIntEQ(session.handle.auth.size, (int)sizeof(testAuth));
+    AssertIntEQ(XMEMCMP(session.handle.auth.buffer, testAuth,
+        sizeof(testAuth)), 0);
+
+    /* a session key in front leaves that much less room */
+    XMEMSET(&session, 0, sizeof(session));
+    session.authHash = TPM_ALG_SHA256;
+    AssertIntEQ(wolfTPM2_PolicyAuthValue(&dev, &session, testAuth,
+        (int)sizeof(testAuth) - TPM_SHA256_DIGEST_SIZE + 1), BUFFER_E);
+    AssertIntEQ(session.handle.auth.size, 0);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "PolicyAuthValue no key:");
+#endif
+}
+
 static void test_wolfTPM2_SetAuthHandle_PolicyAuthOffset(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT)
@@ -12987,6 +13025,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Policy_NULL_Args();
     test_wolfTPM2_SetLocality();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
+    test_wolfTPM2_PolicyAuthValue_NoSessionKey();
     test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
     test_wolfTPM2_StartSession_SaltedEncryptAttrs();
     test_wolfTPM2_StartSession_ex_authHash();
@@ -13003,6 +13042,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVNameRefresh();
     test_wolfTPM2_PolicyPassword_ModeReset();
     test_wolfTPM2_NVPolicyAuth(1);
+    test_wolfTPM2_NVPolicyAuth(0);
     test_wolfTPM2_NVExtend_OneCommand();
     test_wolfTPM2_NVOwnerAuth();
 #ifndef WOLFTPM2_NO_WOLFCRYPT

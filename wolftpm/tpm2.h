@@ -2096,6 +2096,7 @@ typedef struct TPM2_AUTH_SESSION {
 
     unsigned int policyAuth : 1; /* if policy auth should be used */
     unsigned int policyPass : 1;
+    unsigned int noSessionKey : 1; /* auth does not start with a session key */
 } TPM2_AUTH_SESSION;
 
 /* Macros to determine TPM 2.0 Session type */

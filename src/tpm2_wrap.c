@@ -2056,8 +2056,14 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
 
             /* Validate bounds before reading caller data or mutating the
              * session so it isn't left inconsistent on BUFFER_E. */
-            if (authDigestSz <= 0 ||
-                (word32)authDigestSz >
+            if (authDigestSz <= 0) {
+                return BUFFER_E;
+            }
+            /* without a session key the authValue is the whole HMAC key */
+            if (session->noSessionKey) {
+                authDigestSz = 0;
+            }
+            if ((word32)authDigestSz >
                     (word32)sizeof(session->auth.buffer) ||
                 handle->auth.size > (word32)sizeof(session->auth.buffer) -
                     (word32)authDigestSz ||
@@ -2123,9 +2129,14 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
                 !handle->policyPass) {
             int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
 
-            if (authDigestSz <= 0 ||
-                    (authDigestSz + handle->auth.size) >
-                        (int)sizeof(session->auth.buffer)) {
+            if (authDigestSz <= 0) {
+                return BUFFER_E;
+            }
+            if (session->noSessionKey) {
+                authDigestSz = 0;
+            }
+            if ((authDigestSz + handle->auth.size) >
+                    (int)sizeof(session->auth.buffer)) {
                 return BUFFER_E;
             }
         }
@@ -2144,6 +2155,9 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
                 /* HMAC + policy auth value */
                 int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
 
+                if (session->noSessionKey) {
+                    authDigestSz = 0;
+                }
                 session->auth.size = (UINT16)(authDigestSz +
                     handle->auth.size);
                 XMEMMOVE(&session->auth.buffer[authDigestSz],
@@ -2194,6 +2208,7 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         /* Capture auth type */
         session->policyAuth = tpmSession->handle.policyAuth;
         session->policyPass = tpmSession->handle.policyPass;
+        session->noSessionKey = tpmSession->handle.noSessionKey;
 
         /* Capture the bind auth pointer and the bind entity Name (set by
          * wolfTPM2_StartSession). Used by parameter encryption to tell whether
@@ -2261,6 +2276,7 @@ int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index,
 
         session->policyAuth = tpmSession->handle.policyAuth;
         session->policyPass = tpmSession->handle.policyPass;
+        session->noSessionKey = tpmSession->handle.noSessionKey;
     }
 
     TPM2_SetSessionAuth(dev->session);
@@ -3011,6 +3027,7 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
 #endif
 
         /* return session */
+        session->handle.noSessionKey = (session->handle.auth.size == 0);
         session->type = authSesIn.sessionType;
         session->authHash = authSesIn.authHash;
         session->handle.hndl = authSesOut.sessionHandle;
@@ -11888,12 +11905,17 @@ int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     if (auth != NULL && authSz >= 0) {
         int authDigestSz = TPM2_GetHashDigestSize(tpmSession->authHash);
         if (authDigestSz <= 0 ||
-            authDigestSz > (int)sizeof(tpmSession->handle.auth.buffer) ||
-            authSz > (int)sizeof(tpmSession->handle.auth.buffer) -
-                authDigestSz) {
+            authDigestSz > (int)sizeof(tpmSession->handle.auth.buffer)) {
             return BUFFER_E;
         }
         /* leave room for the computed HMAC key */
+        if (tpmSession->handle.noSessionKey) {
+            authDigestSz = 0;
+        }
+        if (authSz > (int)sizeof(tpmSession->handle.auth.buffer) -
+                authDigestSz) {
+            return BUFFER_E;
+        }
         XMEMMOVE(&tpmSession->handle.auth.buffer[authDigestSz], auth, authSz);
         tpmSession->handle.auth.size = (UINT16)(authDigestSz + authSz);
         if (tpmSession->handle.auth.size <
