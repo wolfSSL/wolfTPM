@@ -70,6 +70,7 @@ static int mldsa_sign_run(int argc, char *argv[])
     TPMT_PUBLIC pubTemplate;
     TPMI_MLDSA_PARAMETER_SET paramSet = TPM_MLDSA_65;
     TPM_HANDLE seqHandle = 0;
+    WOLFTPM2_HANDLE seqObj;
     TPMT_TK_VERIFIED validation;
     byte message[] = "wolfTPM PQC example: Pure ML-DSA sign/verify";
     int messageSz = (int)sizeof(message) - 1;
@@ -159,6 +160,7 @@ static int mldsa_sign_run(int argc, char *argv[])
             rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
+    seqHandle = 0; /* Complete consumed the sequence object */
     printf("Sign: signature %d bytes\n", sigSz);
 
     /* Verify: SequenceUpdate is allowed per Sec.20.3, so exercise it by
@@ -182,6 +184,7 @@ static int mldsa_sign_run(int argc, char *argv[])
             rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
+    seqHandle = 0; /* Complete consumed the sequence object */
 
     if (validation.tag != TPM_ST_MESSAGE_VERIFIED) {
         printf("ERROR: validation tag 0x%x, expected TPM_ST_MESSAGE_VERIFIED\n",
@@ -193,6 +196,11 @@ static int mldsa_sign_run(int argc, char *argv[])
     printf("Round-trip OK: Pure ML-DSA sign + verify sequence\n");
 
 exit:
+    if (seqHandle != 0) {
+        XMEMSET(&seqObj, 0, sizeof(seqObj));
+        seqObj.hndl = seqHandle;
+        wolfTPM2_UnloadHandle(&dev, &seqObj);
+    }
     wolfTPM2_UnloadHandle(&dev, &mldsaKey.handle);
     wolfTPM2_Cleanup(&dev);
     XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
