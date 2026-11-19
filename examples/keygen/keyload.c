@@ -74,6 +74,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     const char* inputFile = "keyblob.bin";
     int persistent = 0;
     int endorseKey = 0;
+    int stored = 0;
     int argBase = 1; /* first argv index the option scan may examine */
 
 
@@ -220,6 +221,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
             printf("wolfTPM2_NVStoreKey failed\n");
             goto exit;
         }
+        stored = 1;
         printf("Key was made persistent at 0x%X\n", persistKey.handle.hndl);
     }
 
@@ -233,7 +235,7 @@ exit:
     if (primary != NULL)
         wolfTPM2_UnloadHandle(&dev, &primary->handle);
     /* newKey.handle is already flushed by wolfTPM2_NVStoreKey */
-    if (!persistent) {
+    if (!stored) {
         wolfTPM2_UnloadHandle(&dev, &newKey.handle);
     }
     /* EK policy is destroyed after use, flush parameter encryption session */
