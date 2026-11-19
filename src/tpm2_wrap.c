@@ -5622,6 +5622,9 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
                                                                 sigSz == NULL) {
         return BAD_FUNC_ARG;
     }
+    if (digestSz <= 0) {
+        return BUFFER_E;
+    }
 
     if (key->pub.publicArea.type != TPM_ALG_ECC &&
             key->pub.publicArea.type != TPM_ALG_RSA) {
@@ -5888,6 +5891,9 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL) {
         return BAD_FUNC_ARG;
+    }
+    if (digestSz <= 0) {
+        return BUFFER_E;
     }
 
     rc = wolfTPM2_CheckSigInputBuffer(sigSz, digestSz);

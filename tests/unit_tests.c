@@ -5887,6 +5887,13 @@ static void test_wolfTPM2_VerifyHashTicket_DigestSize(void)
         TPM_ALG_RSASSA, TPM_ALG_SHA256, NULL);
     AssertIntEQ(rc, BUFFER_E);
 
+    /* An empty ECC digest would be padded to all zeros -> BUFFER_E */
+    key.pub.publicArea.type = TPM_ALG_ECC;
+    key.pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    rc = wolfTPM2_VerifyHashTicket(&dev, &key, sig, 64, digest, 0,
+        TPM_ALG_ECDSA, TPM_ALG_SHA256, NULL);
+    AssertIntEQ(rc, BUFFER_E);
+
     printf("Test TPM Wrapper:\tVerifyHashTicket size:\t\tPassed\n");
 #endif
 }
@@ -6599,6 +6606,14 @@ static void test_wolfTPM2_SignHashScheme_DigestSize(void)
     sigSz = (int)sizeof(sig);
     rc = wolfTPM2_SignHashScheme(&dev, &key, digest, 64, sig, &sigSz,
         TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* An empty ECC digest would be padded to all zeros -> BUFFER_E */
+    key.pub.publicArea.type = TPM_ALG_ECC;
+    key.pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    sigSz = (int)sizeof(sig);
+    rc = wolfTPM2_SignHashScheme(&dev, &key, digest, 0, sig, &sigSz,
+        TPM_ALG_ECDSA, TPM_ALG_SHA256);
     AssertIntEQ(rc, BUFFER_E);
 
     printf("Test TPM Wrapper:\tSignHashScheme size:\t\tPassed\n");
