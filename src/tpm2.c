@@ -611,7 +611,9 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return TPM_RC_FAILURE;
     }
 
-    if (tpmRespSz > MAX_RESPONSE_SIZE) {
+    if (tpmRespSz > MAX_RESPONSE_SIZE || packet->size < 0 ||
+            tpmRespSz > (word32)packet->size ||
+            tpmRespSz < TPM2_HEADER_SIZE) {
         TPM2_ForceZero(tpmResp, sizeof(tpmResp));
         return TPM_RC_SIZE;
     }
