@@ -10093,6 +10093,64 @@ static void test_TPM2_ASN_RsaDecodeSignature_Length(void)
 #endif
 }
 
+/* The modulus INTEGER of an RSA public key must be present and fit */
+static void test_TPM2_ASN_DecodeRsaPubKey_ModLen(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    static const byte validKey[] = {
+        0x30, 0x0C,
+        0x02, 0x05, 0x00, 0xC1, 0xC2, 0xC3, 0xC4,
+        0x02, 0x03, 0x01, 0x00, 0x03
+    };
+    static const byte emptyMod[] = {
+        0x30, 0x07,
+        0x02, 0x00,
+        0x02, 0x03, 0x01, 0x00, 0x01
+    };
+    static const byte emptyModAtEnd[] = { 0x30, 0x02, 0x02, 0x00 };
+    byte bigKey[8 + MAX_RSA_KEY_BYTES + 1 + 5];
+    TPM2B_PUBLIC pub;
+    word32 modSz = MAX_RSA_KEY_BYTES + 1;
+    word32 seqSz = 4 + modSz + 5;
+    word32 idx = 0;
+    int rc;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)validKey, (int)sizeof(validKey),
+        &pub);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(pub.publicArea.unique.rsa.size, 4);
+    AssertIntEQ(pub.publicArea.unique.rsa.buffer[0], 0xC1);
+    AssertIntEQ((int)pub.publicArea.parameters.rsaDetail.keyBits, 32);
+    AssertIntEQ((int)pub.publicArea.parameters.rsaDetail.exponent, 0x010003);
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)emptyMod, (int)sizeof(emptyMod),
+        &pub);
+    AssertIntNE(rc, 0);
+    AssertIntEQ(pub.publicArea.unique.rsa.size, 0);
+    rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)emptyModAtEnd,
+        (int)sizeof(emptyModAtEnd), &pub);
+    AssertIntNE(rc, 0);
+
+    /* one byte more than the public area can hold */
+    bigKey[idx++] = 0x30; bigKey[idx++] = 0x82;
+    bigKey[idx++] = (byte)(seqSz >> 8); bigKey[idx++] = (byte)seqSz;
+    bigKey[idx++] = 0x02; bigKey[idx++] = 0x82;
+    bigKey[idx++] = (byte)(modSz >> 8); bigKey[idx++] = (byte)modSz;
+    XMEMSET(&bigKey[idx], 0x7F, modSz);
+    idx += modSz;
+    bigKey[idx++] = 0x02; bigKey[idx++] = 0x03;
+    bigKey[idx++] = 0x01; bigKey[idx++] = 0x00; bigKey[idx++] = 0x01;
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = TPM2_ASN_DecodeRsaPubKey(bigKey, (int)idx, &pub);
+    AssertIntNE(rc, 0);
+    AssertIntEQ(pub.publicArea.unique.rsa.size, 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN DecodeRsaPubKey modulus:");
+#endif
+}
+
 static void test_TPM2_ASN_RsaUnpadPkcsv15(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
@@ -13258,6 +13316,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ASN_DecodeX509Cert_Errors();
     test_TPM2_ASN_GetNameAttr();
     test_TPM2_ASN_RsaDecodeSignature_Length();
+    test_TPM2_ASN_DecodeRsaPubKey_ModLen();
     test_TPM2_ASN_RsaUnpadPkcsv15();
     test_TPM2_ASN_TrimZeros();
     test_TPM2_ASN_DecodeX509Cert_Valid();
