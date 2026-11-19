@@ -19,10 +19,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* Tool and example for storing a TPM key into the TPM's NVRAM
+/* Example for writing data to a password protected TPM NVRAM index and
+ * comparing it using TPM2_PolicyNV
  *
- * NB: This example uses Parameter Encryption to protect the password of the
- *     TPM NVRAM Index, where the private and public parts of a TPM key is stored
+ * NB: This example can use Parameter Encryption (-aes or -xor) to protect the
+ *     password of the TPM NVRAM Index and the data written to it
  *
  */
 
