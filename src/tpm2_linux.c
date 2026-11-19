@@ -112,6 +112,30 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #define TPM2_LINUX_DEV_POLL_TIMEOUT -1 /* Infinite time for poll events */
 #endif
 
+/* Open a TPM device node that exec'd child processes do not inherit */
+static int TPM2_LINUX_OpenDev(const char* devPath)
+{
+    int fd;
+#ifdef O_CLOEXEC
+    fd = open(devPath, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+#else
+    int fdFlags;
+    int savedErrno;
+
+    fd = open(devPath, O_RDWR | O_NONBLOCK);
+    if (fd >= 0) {
+        fdFlags = fcntl(fd, F_GETFD);
+        if (fdFlags < 0 || fcntl(fd, F_SETFD, fdFlags | FD_CLOEXEC) < 0) {
+            savedErrno = errno;
+            close(fd);
+            errno = savedErrno;
+            fd = -1;
+        }
+    }
+#endif
+    return fd;
+}
+
 /* Linux kernels older than v4.20 (before December 2018) do not support
  * partial reads. The only way to receive a complete response is to read
  * the maximum allowed TPM response from the kernel, which is 4K. And most
@@ -139,7 +163,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #endif
 
     if (ctx->fd < 0) {
-        ctx->fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
+        ctx->fd = TPM2_LINUX_OpenDev(TPM2_LINUX_DEV);
         if (ctx->fd < 0)
             errPrimary = errno;
 #ifdef TPM2_LINUX_DEV_FALLBACK
@@ -147,7 +171,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         #ifdef DEBUG_WOLFTPM
             devName = TPM2_LINUX_DEV_FALLBACK;
         #endif
-            ctx->fd = open(TPM2_LINUX_DEV_FALLBACK, O_RDWR | O_NONBLOCK);
+            ctx->fd = TPM2_LINUX_OpenDev(TPM2_LINUX_DEV_FALLBACK);
             if (ctx->fd < 0)
                 errFallback = errno;
         }
@@ -246,7 +270,7 @@ int TPM2_LINUX_TryOpen(TPM2_CTX* ctx)
     /* Honor the same overrides as TPM2_LINUX_SendCommand: TPM2_LINUX_DEV pins
      * a node, and WOLFTPM_USE_TPMRM leaves TPM2_LINUX_DEV_FALLBACK undefined
      * so the raw device is never tried. */
-    ctx->fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
+    ctx->fd = TPM2_LINUX_OpenDev(TPM2_LINUX_DEV);
     if (ctx->fd >= 0) {
     #ifdef DEBUG_WOLFTPM
         printf("Opened %s\n", TPM2_LINUX_DEV);
@@ -256,7 +280,7 @@ int TPM2_LINUX_TryOpen(TPM2_CTX* ctx)
     errPrimary = errno;
 
 #ifdef TPM2_LINUX_DEV_FALLBACK
-    ctx->fd = open(TPM2_LINUX_DEV_FALLBACK, O_RDWR | O_NONBLOCK);
+    ctx->fd = TPM2_LINUX_OpenDev(TPM2_LINUX_DEV_FALLBACK);
     if (ctx->fd >= 0) {
     #ifdef DEBUG_WOLFTPM
         printf("Opened %s\n", TPM2_LINUX_DEV_FALLBACK);
