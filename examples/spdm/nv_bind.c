@@ -139,12 +139,12 @@ static int nv_bind_provision(WOLFTPM2_DEV* dev, const byte* secret,
         rc = wolfTPM2_NVCreateAuthPolicy(dev, &parent, &nv, NV_BIND_INDEX,
             nvAttributes, secretSz, NULL, 0, policyDigest, (int)policyDigestSz);
         if (rc == TPM_RC_NV_DEFINED) {
-            rc = wolfTPM2_NVDeleteAuth(dev, &parent, NV_BIND_INDEX);
-            if (rc == 0) {
-                rc = wolfTPM2_NVCreateAuthPolicy(dev, &parent, &nv,
-                    NV_BIND_INDEX, nvAttributes, secretSz, NULL, 0,
-                    policyDigest, (int)policyDigestSz);
-            }
+            /* Do not replace unrelated NV data on a customer's TPM. */
+            printf("  NV index 0x%x already exists; refusing to replace it\n",
+                NV_BIND_INDEX);
+            printf("  Remove it with NV_UndefineSpace under owner "
+                "authorization, or start fwtpm_server with --clear\n");
+            nvAttempted = 0;
         }
     }
     if (rc == 0) {
