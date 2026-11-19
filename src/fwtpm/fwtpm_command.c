@@ -2324,17 +2324,17 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                    * what is actually supported. */
             #if defined(WOLFTPM_MLKEM) && \
                 (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512)) && \
-                !defined(WOLFSSL_NO_KYBER512)
+                !defined(FWTPM_NO_MLKEM_512)
                   TPMA_ML_PARAMETER_SET_mlKem_512  |
             #endif
             #if defined(WOLFTPM_MLKEM) && \
                 (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER768)) && \
-                !defined(WOLFSSL_NO_KYBER768)
+                !defined(FWTPM_NO_MLKEM_768)
                   TPMA_ML_PARAMETER_SET_mlKem_768  |
             #endif
             #if defined(WOLFTPM_MLKEM) && \
                 (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER1024)) && \
-                !defined(WOLFSSL_NO_KYBER1024)
+                !defined(FWTPM_NO_MLKEM_1024)
                   TPMA_ML_PARAMETER_SET_mlKem_1024 |
             #endif
             #if defined(WOLFTPM_MLDSA) && defined(WOLFSSL_HAVE_MLDSA) && \
@@ -3332,13 +3332,13 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 TPM2_Packet_ParseU16(cmd, &ps);
                 /* Part 2 Sec.11.2.6.1 Table 204 — TPMI_MLKEM_PARMS error
                  * for unsupported parameter set is TPM_RC_PARMS. */
-            #if !defined(WOLFSSL_NO_KYBER512)
+            #if !defined(FWTPM_NO_MLKEM_512)
                 if (ps == TPM_MLKEM_512)  psSupported = 1;
             #endif
-            #if !defined(WOLFSSL_NO_KYBER768)
+            #if !defined(FWTPM_NO_MLKEM_768)
                 if (ps == TPM_MLKEM_768)  psSupported = 1;
             #endif
-            #if !defined(WOLFSSL_NO_KYBER1024)
+            #if !defined(FWTPM_NO_MLKEM_1024)
                 if (ps == TPM_MLKEM_1024) psSupported = 1;
             #endif
                 if (!psSupported) {

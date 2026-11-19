@@ -287,9 +287,25 @@
 #define FWTPM_MLKEM_1024_CT_SIZE  1568
 #define FWTPM_MLKEM_1024_PUB_SIZE 1568
 
+/* ML-KEM parameter sets wolfCrypt leaves out, resolved as wc_mlkem.h does
+ * for WOLFSSL_WC_ML_KEM_*: a set is present from FIPS 203 ML-KEM, or from
+ * original Kyber with WOLFSSL_MLKEM_KYBER. */
+#if (defined(WOLFSSL_NO_ML_KEM) || defined(WOLFSSL_NO_ML_KEM_512)) && \
+    (!defined(WOLFSSL_MLKEM_KYBER) || defined(WOLFSSL_NO_KYBER512))
+    #define FWTPM_NO_MLKEM_512
+#endif
+#if (defined(WOLFSSL_NO_ML_KEM) || defined(WOLFSSL_NO_ML_KEM_768)) && \
+    (!defined(WOLFSSL_MLKEM_KYBER) || defined(WOLFSSL_NO_KYBER768))
+    #define FWTPM_NO_MLKEM_768
+#endif
+#if (defined(WOLFSSL_NO_ML_KEM) || defined(WOLFSSL_NO_ML_KEM_1024)) && \
+    (!defined(WOLFSSL_MLKEM_KYBER) || defined(WOLFSSL_NO_KYBER1024))
+    #define FWTPM_NO_MLKEM_1024
+#endif
+
 /* Resolve the largest enabled parameter set for buffer sizing. Driven by
- * wolfCrypt's WOLFSSL_NO_ML_DSA_44/65/87 and WOLFSSL_NO_KYBER512/768/1024
- * gates so subset builds (e.g. MLDSA-44 only) don't pay for MLDSA-87. */
+ * wolfCrypt's WOLFSSL_NO_ML_DSA_44/65/87 gates and the FWTPM_NO_MLKEM_*
+ * gates above so subset builds (e.g. MLDSA-44 only) don't pay for MLDSA-87. */
 #if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT)
     #if !defined(WOLFSSL_NO_ML_DSA_87)
         #define FWTPM_MAX_MLDSA_SIG_SIZE  FWTPM_MLDSA_87_SIG_SIZE
@@ -304,13 +320,13 @@
         #define FWTPM_MAX_MLDSA_SIG_SIZE  0
         #define FWTPM_MAX_MLDSA_PUB_SIZE  0
     #endif
-    #if !defined(WOLFSSL_NO_KYBER1024)
+    #if !defined(FWTPM_NO_MLKEM_1024)
         #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_1024_CT_SIZE
         #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_1024_PUB_SIZE
-    #elif !defined(WOLFSSL_NO_KYBER768)
+    #elif !defined(FWTPM_NO_MLKEM_768)
         #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_768_CT_SIZE
         #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_768_PUB_SIZE
-    #elif !defined(WOLFSSL_NO_KYBER512)
+    #elif !defined(FWTPM_NO_MLKEM_512)
         #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_512_CT_SIZE
         #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_512_PUB_SIZE
     #else
