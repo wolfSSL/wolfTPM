@@ -533,6 +533,10 @@ static int FwBuildParamEncKey(FWTPM_CTX* ctx, FWTPM_Session* sess,
             (authValueSz > 0 && authValue == NULL)) {
         return TPM_RC_FAILURE;
     }
+    /* an authValue is used without its trailing zeros */
+    while (authValueSz > 0 && authValue[authValueSz - 1] == 0) {
+        authValueSz--;
+    }
     XMEMCPY(keyBuf, sess->sessionKey.buffer, sz);
     if (authValueSz > 0) {
         XMEMCPY(keyBuf + sz, authValue, authValueSz);
@@ -13057,6 +13061,10 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_FAILURE;
             }
             else {
+                /* an authValue is used without its trailing zeros */
+                while (bindAuthSz > 0 && bindAuthVal[bindAuthSz - 1] == 0) {
+                    bindAuthSz--;
+                }
                 bindAuth.size = (UINT16)bindAuthSz;
                 if (bindAuthSz > 0) {
                     XMEMCPY(bindAuth.buffer, bindAuthVal, bindAuthSz);
