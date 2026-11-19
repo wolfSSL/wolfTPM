@@ -293,6 +293,9 @@ exit:
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    if (buf != NULL) {
+        wc_ForceZero(buf, bufSz);
+    }
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
 
     /* Close key handles */
