@@ -5168,7 +5168,6 @@ WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     \brief Restart the policy digest for a policy session
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5187,7 +5186,8 @@ WOLFTPM_API int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHand
     wolfTPM2_GetPolicyDigest
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: policyDigestSz is too small to hold the returned digest
+    \return LENGTH_ONLY_E: policyDigest is NULL, policyDigestSz is set to the digest size
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5208,7 +5208,6 @@ WOLFTPM_API int wolfTPM2_GetPolicyDigest(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHa
     \brief Apply the PCR's to the policy digest for the policy session.
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5261,7 +5260,7 @@ WOLFTPM_API int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev,
     \brief Approve the policy digest of the policy session with a policy signed by an external key (TPM2_PolicyAuthorize).
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: pcrDigestSz or policyRefSz is too large
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5290,7 +5289,6 @@ WOLFTPM_API int wolfTPM2_PolicyAuthorize(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHa
     \brief Get a cumulative digest of the PCR's specified
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5313,7 +5311,7 @@ WOLFTPM_API int wolfTPM2_PCRGetDigest(WOLFTPM2_DEV* dev, TPM_ALG_ID pcrAlg,
         (nonce) used then just rehash the provided digest again (update -> final)
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: digestSz is smaller than the hash size
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param pcrAlg the hash algorithm to use with pcr policy
@@ -5427,11 +5425,10 @@ WOLFTPM_API int wolfTPM2_PolicyCommandCodeMake(TPM_ALG_ID hashAlg,
     policyDigestnew = hash(policyDigestOld || [cc] || [Input])
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param hashAlg the hash algorithm to use with pcr policy
-    \param digest input/out digest (input "old" / output "new")
+    \param digest input/out digest (input "old" / output "new"), the buffer must hold the hash size
     \param digestSz input/out digest size
     \param cc is the command code used
     \param input pointer to a array to use (optional)
@@ -5449,7 +5446,7 @@ WOLFTPM_API int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
     \brief Utility for generating a policy authorization digest based on a public key
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: digestSz is smaller than the hash size
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param pcrAlg the hash algorithm to use with pcr policy
