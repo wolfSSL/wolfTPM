@@ -347,6 +347,7 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION policySession;
     FirmwarePolicyCtx policyCtx;
     int clearRc;
+    int startConsumed;
 #endif
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
@@ -649,7 +650,9 @@ exit:
      * handle.hndl to TPM_RH_NULL (0x40000007), which is non-zero - so this
      * guard does not distinguish consumed from live. It does not need to:
      * wolfTPM2_UnloadHandle is a no-op on TPM_RH_NULL, so the call only ever
-     * flushes a session that is still loaded. */
+     * flushes a session that is still loaded. The unload also leaves
+     * TPM_RH_NULL behind, so note a consumed session before it runs. */
+    startConsumed = (policySession.handle.hndl == TPM_RH_NULL);
     if (policySession.handle.hndl != 0) {
         wolfTPM2_UnloadHandle(&dev, &policySession.handle);
     }
@@ -661,7 +664,7 @@ exit:
      * session (handle set to TPM_RH_NULL) and reset into firmware-upgrade
      * mode, where it will not service TPM2_SetPrimaryPolicy - and the
      * mandatory TPM reset clears the policy anyway. */
-    if (rc != 0 && policySession.handle.hndl != TPM_RH_NULL) {
+    if (rc != 0 && !startConsumed) {
         clearRc = firmware_policy_clear(&dev, &policyCtx);
         /* Report a failed rollback, but never overwrite the upgrade error that
          * explains why this run failed - that rc is the process exit status
