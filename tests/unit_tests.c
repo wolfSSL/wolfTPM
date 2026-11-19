@@ -10299,6 +10299,61 @@ static void test_TPM2_ASN_DecodeX509Cert_Valid(void)
 #endif
 }
 
+/* The signatureAlgorithm after the TBS certificate must repeat the one
+ * inside it, and its parameters must be NULL or a SEQUENCE */
+static void test_TPM2_ASN_DecodeX509Cert_SigAlg(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    static byte cert[sizeof(kSTSAFEIntCa20)];
+    DecodedX509 x509;
+    word32 outer, inner, algSz, oidLen, param;
+    int rc;
+
+    XMEMCPY(cert, kSTSAFEIntCa20, sizeof(cert));
+    XMEMSET(&x509, 0, sizeof(x509));
+    rc = TPM2_ASN_DecodeX509Cert(cert, (int)sizeof(cert), &x509);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* AlgorithmIdentifier: SEQUENCE { OBJECT IDENTIFIER, NULL } */
+    outer = x509.certBegin + x509.certSz;
+    AssertIntEQ(cert[outer], 0x30);
+    AssertIntEQ(cert[outer + 2], 0x06);
+    algSz = 2 + (word32)cert[outer + 1];
+    oidLen = cert[outer + 3];
+    param = 4 + oidLen;
+    AssertIntEQ(param + 2, algSz);
+    AssertIntEQ(cert[outer + param], 0x05);
+    for (inner = 0; inner < outer; inner++) {
+        if (XMEMCMP(&cert[inner], &cert[outer], algSz) == 0)
+            break;
+    }
+    AssertIntLT(inner, outer);
+
+    /* outer algorithm differs from the signed one */
+    cert[outer + param - 1] ^= 0x01;
+    rc = TPM2_ASN_DecodeX509Cert(cert, (int)sizeof(cert), &x509);
+    AssertIntEQ(rc, TPM_RC_ASN_VALUE);
+    cert[outer + param - 1] ^= 0x01;
+    cert[inner + param - 1] ^= 0x01;
+    rc = TPM2_ASN_DecodeX509Cert(cert, (int)sizeof(cert), &x509);
+    AssertIntEQ(rc, TPM_RC_ASN_VALUE);
+    cert[inner + param - 1] ^= 0x01;
+
+    /* matching identifiers whose parameters are neither NULL nor SEQUENCE */
+    cert[outer + param] = 0x04;
+    cert[inner + param] = 0x04;
+    rc = TPM2_ASN_DecodeX509Cert(cert, (int)sizeof(cert), &x509);
+    AssertIntEQ(rc, TPM_RC_ASN_VALUE);
+    cert[outer + param] = 0x05;
+    cert[inner + param] = 0x05;
+
+    rc = TPM2_ASN_DecodeX509Cert(cert, (int)sizeof(cert), &x509);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN DecodeX509Cert sig alg:");
+#endif
+}
+
 static void test_TPM2_ASN_GetNameAttr(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
@@ -13368,6 +13423,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ASN_RsaUnpadPkcsv15();
     test_TPM2_ASN_TrimZeros();
     test_TPM2_ASN_DecodeX509Cert_Valid();
+    test_TPM2_ASN_DecodeX509Cert_SigAlg();
     test_TPM2_ASN_DecodeTag_Errors();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
         !defined(NO_RSA)
