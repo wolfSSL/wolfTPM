@@ -65,6 +65,9 @@ static struct {
     /* a response returned as is, whatever the command */
     byte canned[TEST_CANNED_MAX];
     int cannedSz;
+    /* the start of the last command sent */
+    byte cmd[TEST_CANNED_MAX];
+    int cmdSz;
 } script;
 
 /* Exercise the real wrapper, command builders and response parser without a
@@ -99,6 +102,11 @@ int test_unload_send(TPM2_CTX* ctx, TPM2_Packet* packet)
     int page = script.pages;
     int i;
 
+    script.cmdSz = packet->pos;
+    if (script.cmdSz > TEST_CANNED_MAX) {
+        script.cmdSz = TEST_CANNED_MAX;
+    }
+    XMEMCPY(script.cmd, packet->buf, script.cmdSz);
     if (script.cannedSz > 0) {
         XMEMCPY(packet->buf, script.canned, script.cannedSz);
         packet->size = script.cannedSz;
@@ -451,6 +459,44 @@ static void test_read_pcr_guards(void)
     TPM2_Cleanup(&dev.ctx);
 }
 
+#if defined(WOLFTPM2_USE_WOLF_RNG) && !defined(NO_HMAC)
+/* Every command on a session carries a fresh caller nonce */
+static void test_caller_nonce_refresh(void)
+{
+    /* header, one handle, authorization size, session handle, nonce size */
+    const int nonceOff = TPM2_HEADER_SIZE + 4 + 4 + 4 + 2;
+    WOLFTPM2_DEV dev;
+    Clear_In in;
+    byte first[TPM_MAX_DIGEST_SIZE];
+    int nonceSz;
+    int i, nonZero = 0;
+
+    test_setup(&dev);
+    dev.session[0].sessionHandle = HMAC_SESSION_FIRST;
+    dev.session[0].authHash = TPM_ALG_SHA256;
+    dev.session[0].auth.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(dev.session[0].auth.buffer, 0x4B, TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(TPM2_SetSessionAuth(dev.session), TPM_RC_SUCCESS);
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = TPM_RH_LOCKOUT;
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_FAILURE, NULL, 0);
+
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_FAILURE);
+    nonceSz = (script.cmd[nonceOff - 2] << 8) | script.cmd[nonceOff - 1];
+    AssertIntEQ(nonceSz >= 16 && nonceSz <= (int)sizeof(first), 1);
+    AssertIntEQ(script.cmdSz >= nonceOff + nonceSz, 1);
+    XMEMCPY(first, &script.cmd[nonceOff], nonceSz);
+    for (i = 0; i < nonceSz; i++) {
+        nonZero |= first[i];
+    }
+    AssertIntEQ(nonZero != 0, 1);
+
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_FAILURE);
+    AssertIntEQ(XMEMCMP(first, &script.cmd[nonceOff], nonceSz) != 0, 1);
+    TPM2_Cleanup(&dev.ctx);
+}
+#endif
+
 #ifdef WOLFTPM2_USE_WOLF_RNG
 /* A policy session whose PolicySecret is refused is not left loaded */
 static void test_ek_policy_secret_failure(void)
@@ -482,6 +528,9 @@ int main(void)
 #endif
     test_response_tag_downgrade();
     test_read_pcr_guards();
+#if defined(WOLFTPM2_USE_WOLF_RNG) && !defined(NO_HMAC)
+    test_caller_nonce_refresh();
+#endif
 #ifdef WOLFTPM2_USE_WOLF_RNG
     test_ek_policy_secret_failure();
 #endif
