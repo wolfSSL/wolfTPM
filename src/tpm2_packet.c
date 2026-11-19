@@ -462,13 +462,18 @@ int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
         sessionHandle = ctx->session[sessionCount].sessionHandle;
         sessionAttributes = ctx->session[sessionCount].sessionAttributes;
 
-        if (info != NULL &&
-            ((sessionCount == 0 && (flags &
+        if (info == NULL) {
+            /* count the leading populated slots */
+            authReq = (sessionHandle == TPM_RS_PW ||
+                TPM2_IS_HMAC_SESSION(sessionHandle) ||
+                TPM2_IS_POLICY_SESSION(sessionHandle));
+        }
+        else if ((sessionCount == 0 && (flags &
                 (CMD_FLAG_AUTH_USER1 |
                  CMD_FLAG_AUTH_ADMIN |
                  CMD_FLAG_AUTH_DUP))) ||
              (sessionCount == 1 && (flags &
-                (CMD_FLAG_AUTH_USER2))))) {
+                (CMD_FLAG_AUTH_USER2)))) {
             authReq = 1;
         }
 

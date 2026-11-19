@@ -68,6 +68,18 @@ static int test_auth_count(void)
     if (TPM2_GetCmdAuthCount(&dev.ctx, &info) != 2)
         return 3;
 
+#if MAX_SESSION_NUM > 2
+    /* Without command information the populated slots are counted. */
+    if (TPM2_GetSessionAuthCount(&dev.ctx) != 2)
+        return 6;
+    dev.session[2].sessionHandle = POLICY_SESSION_FIRST;
+    if (TPM2_GetSessionAuthCount(&dev.ctx) != 3)
+        return 7;
+    dev.session[0].sessionHandle = 0;
+    if (TPM2_GetSessionAuthCount(&dev.ctx) != 0)
+        return 8;
+#endif
+
     return 0;
 }
 
