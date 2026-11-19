@@ -207,10 +207,13 @@ static TPM2B_AUTH* TPM2_ParamEncBindKey(TPM2_AUTH_SESSION* session)
     return session->bind;
 }
 
-/* Build combined param-enc key from session key + optional bind authValue. */
-static int TPM2_BuildParamKey(TPM2B_AUTH* sessKey, TPM2B_AUTH* bindKey,
-    BYTE* keyBuf, UINT32* keyBufSz)
+/* Build combined param-enc key from session key + optional bind authValue.
+ * An authValue starts at authPos when it follows the session key. The TPM
+ * uses an authValue without its trailing zeros. */
+static int TPM2_BuildParamKey(TPM2B_AUTH* sessKey, UINT16 authPos,
+    TPM2B_AUTH* bindKey, BYTE* keyBuf, UINT32* keyBufSz)
 {
+    UINT16 sessKeySz = sessKey->size;
     UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
     if (sessKey->size > sizeof(sessKey->buffer)) {
         return BUFFER_E;
@@ -218,14 +221,20 @@ static int TPM2_BuildParamKey(TPM2B_AUTH* sessKey, TPM2B_AUTH* bindKey,
     if (bindKey != NULL && bindKey->size > sizeof(bindKey->buffer)) {
         return BUFFER_E;
     }
-    if (sessKey->size + bindKeySz > MAX_SYM_DATA) {
+    while (sessKeySz > authPos && sessKey->buffer[sessKeySz - 1] == 0) {
+        sessKeySz--;
+    }
+    while (bindKeySz > 0 && bindKey->buffer[bindKeySz - 1] == 0) {
+        bindKeySz--;
+    }
+    if (sessKeySz + bindKeySz > MAX_SYM_DATA) {
         return BUFFER_E;
     }
-    XMEMCPY(keyBuf, sessKey->buffer, sessKey->size);
-    *keyBufSz = sessKey->size;
-    if (bindKey != NULL && bindKey->size > 0) {
-        XMEMCPY(keyBuf + *keyBufSz, bindKey->buffer, bindKey->size);
-        *keyBufSz += bindKey->size;
+    XMEMCPY(keyBuf, sessKey->buffer, sessKeySz);
+    *keyBufSz = sessKeySz;
+    if (bindKeySz > 0) {
+        XMEMCPY(keyBuf + *keyBufSz, bindKey->buffer, bindKeySz);
+        *keyBufSz += bindKeySz;
     }
     return 0;
 }
@@ -248,8 +257,9 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
     TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
 #endif
 
-    rc = TPM2_BuildParamKey(&session->auth, TPM2_ParamEncBindKey(session),
-        keyBuf, &keyBufSz);
+    rc = TPM2_BuildParamKey(&session->auth,
+        (UINT16)TPM2_GetHashDigestSize(session->authHash),
+        TPM2_ParamEncBindKey(session), keyBuf, &keyBufSz);
     if (rc != 0) {
         return rc;
     }
@@ -294,8 +304,9 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
     TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
 #endif
 
-    rc = TPM2_BuildParamKey(&session->auth, TPM2_ParamEncBindKey(session),
-        keyBuf, &keyBufSz);
+    rc = TPM2_BuildParamKey(&session->auth,
+        (UINT16)TPM2_GetHashDigestSize(session->authHash),
+        TPM2_ParamEncBindKey(session), keyBuf, &keyBufSz);
     if (rc != 0) {
         return rc;
     }

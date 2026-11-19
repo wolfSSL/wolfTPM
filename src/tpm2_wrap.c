@@ -2785,6 +2785,7 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     WOLFTPM2_HANDLE sessionHandle;
     byte keyIn[TPM_MAX_DIGEST_SIZE * 2];
     UINT16 keyInSz = 0;
+    UINT16 bindAuthSz;
     int hashDigestSz;
     TPMA_SESSION sessionAttributes = 0;
     TPM2B_DATA salt;
@@ -2932,12 +2933,17 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             rc = BUFFER_E;
         }
         if (rc == TPM_RC_SUCCESS) {
-            if ((keyInSz + bind->auth.size) > (UINT16)sizeof(keyIn)) {
+            /* the TPM keeps an authValue without its trailing zeros */
+            bindAuthSz = bind->auth.size;
+            while (bindAuthSz > 0 && bind->auth.buffer[bindAuthSz - 1] == 0) {
+                bindAuthSz--;
+            }
+            if ((keyInSz + bindAuthSz) > (UINT16)sizeof(keyIn)) {
                 rc = BUFFER_E;
             }
             else {
-                XMEMCPY(&keyIn[keyInSz], bind->auth.buffer, bind->auth.size);
-                keyInSz += bind->auth.size;
+                XMEMCPY(&keyIn[keyInSz], bind->auth.buffer, bindAuthSz);
+                keyInSz += bindAuthSz;
             }
         }
     }

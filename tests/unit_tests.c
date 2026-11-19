@@ -2765,6 +2765,179 @@ static void test_wolfTPM2_ChangeAuthKey_ParamEnc(int bound)
 #endif
 }
 
+/* The TPM keeps an authValue without its trailing zeros, and that is what
+ * goes in front of the salt in the session key of a bound and salted session.
+ * wolfTPM2_CreatePrimaryKey pads a short auth with zeros. The fwTPM derives
+ * the session key from the padded authValue, so this runs against other
+ * TPMs only. */
+static void test_wolfTPM2_BoundSaltedSession_PaddedAuth(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_FWTPM_BUILD) && \
+    (!defined(NO_RSA) || defined(HAVE_ECC))
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY child;
+    WOLFTPM2_SESSION session;
+    TPMT_PUBLIC publicTemplate;
+    const byte srkAuth[] = "shortauth";
+#ifdef HAVE_ECC
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID srkAlg = TPM_ALG_RSA;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&child, 0, sizeof(child));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tBound salted padded auth:\tSkipped\n");
+        return;
+    }
+    rc = wolfTPM2_CreateSRK(&dev, &srk, srkAlg, srkAuth,
+        (int)sizeof(srkAuth) - 1);
+    if (rc != 0) {
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tBound salted padded auth:\tSkipped\n");
+        return;
+    }
+    AssertIntGT((int)srk.handle.auth.size, (int)sizeof(srkAuth) - 1);
+
+    rc = wolfTPM2_StartSession(&dev, &session, &srk, &srk.handle,
+        TPM_SE_HMAC, TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+#ifdef HAVE_ECC
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+#else
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+#endif
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &child, &srk.handle,
+        &publicTemplate, NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &child.handle);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tBound salted padded auth:\tPassed\n");
+#endif
+}
+
+/* A bound session that authorizes its own bind entity adds the authValue to
+ * the parameter encryption key, also without its trailing zeros. The SHA-384
+ * Name pads the auth past the SHA-256 block size together with the session
+ * key, where the zeros would change the key. The fwTPM encrypts with the
+ * padded authValue, so this runs against other TPMs only. */
+static void test_wolfTPM2_BoundOwnEntity_PaddedAuth(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_FWTPM_BUILD) && \
+    defined(HAVE_ECC)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY primary;
+    WOLFTPM2_SESSION session;
+    TPMT_PUBLIC publicTemplate;
+    Create_In createIn;
+    Create_Out createOut;
+    Load_In loadIn;
+    Load_Out loadOut;
+    FlushContext_In flushCtx;
+    const byte primaryAuth[] = "shortauth";
+    const byte childAuth[] = "childauth";
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&primary, 0, sizeof(primary));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "Bound own-entity padded auth:");
+        return;
+    }
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    publicTemplate.nameAlg = TPM_ALG_SHA384;
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &primary, TPM_RH_OWNER,
+        &publicTemplate, primaryAuth, (int)sizeof(primaryAuth) - 1);
+    if (rc != 0) {
+        /* no SHA-384 */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "Bound own-entity padded auth:");
+        return;
+    }
+    AssertIntEQ((int)primary.handle.auth.size, TPM_SHA384_DIGEST_SIZE);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, &primary.handle,
+        TPM_SE_HMAC, TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthHandleName(&dev, 0, &primary.handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* the sensitive area goes out and the private area comes back encrypted,
+     * so the child only loads when both used the key the TPM derived */
+    XMEMSET(&createIn, 0, sizeof(createIn));
+    XMEMSET(&createOut, 0, sizeof(createOut));
+    createIn.parentHandle = primary.handle.hndl;
+    createIn.inSensitive.sensitive.userAuth.size =
+        (UINT16)sizeof(childAuth) - 1;
+    XMEMCPY(createIn.inSensitive.sensitive.userAuth.buffer, childAuth,
+        sizeof(childAuth) - 1);
+    rc = wolfTPM2_GetKeyTemplate_ECC(&createIn.inPublic.publicArea,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = TPM2_Create(&createIn, &createOut);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&loadIn, 0, sizeof(loadIn));
+    XMEMSET(&loadOut, 0, sizeof(loadOut));
+    loadIn.parentHandle = primary.handle.hndl;
+    XMEMCPY(&loadIn.inPrivate, &createOut.outPrivate, sizeof(loadIn.inPrivate));
+    XMEMCPY(&loadIn.inPublic, &createOut.outPublic, sizeof(loadIn.inPublic));
+    rc = TPM2_Load(&loadIn, &loadOut);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_SetAuthSession(&dev, 0, NULL, 0);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    XMEMSET(&flushCtx, 0, sizeof(flushCtx));
+    flushCtx.flushHandle = loadOut.objectHandle;
+    TPM2_FlushContext(&flushCtx);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_UnloadHandle(&dev, &primary.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Bound own-entity padded auth:");
+#endif
+}
+
 /* Run TPM2_CreateLoaded under a salted AES-CFB param-enc session. Pre-fix the
  * missing response outHandleCnt mis-parsed the rpHash offset and the reply was
  * rejected with TPM_RC_HMAC. */
@@ -12649,6 +12822,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_Hmac_ParamEnc();
     test_wolfTPM2_ChangeAuthKey_ParamEnc(0);
     test_wolfTPM2_ChangeAuthKey_ParamEnc(1);
+    test_wolfTPM2_BoundSaltedSession_PaddedAuth();
+    test_wolfTPM2_BoundOwnEntity_PaddedAuth();
     test_wolfTPM2_CreateLoaded_ParamEnc();
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();
