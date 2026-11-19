@@ -61,6 +61,7 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
     TPM_HANDLE nvIndex;
     word32 writeSize;
     BYTE pinState = 0x01;
+    int argBase = 1;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -69,13 +70,17 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-        pin = XATOI(argv[1]);
-        if(pin < TPM_GPIO_NUM_MIN || pin > TPM_GPIO_NUM_MAX) {
-            usage();
-            return 0;
+        if (argv[1][0] != '-' ||
+                (argv[1][1] >= '0' && argv[1][1] <= '9')) {
+            pin = XATOI(argv[1]);
+            if(pin < TPM_GPIO_NUM_MIN || pin > TPM_GPIO_NUM_MAX) {
+                usage();
+                return BAD_FUNC_ARG;
+            }
+            argBase = 2;
         }
     }
-    while (argc > 1) {
+    while (argc > argBase) {
         if (XSTRCMP(argv[argc-1], "-high") == 0) {
             pinState = 0x01;
         }
