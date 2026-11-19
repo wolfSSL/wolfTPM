@@ -287,7 +287,7 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
     if (rc != TPM_RC_SUCCESS) goto exit;
 
     if (paramEncAlg != TPM_ALG_NULL) {
-        /* Start an authenticated session (salted / unbound) with parameter encryption */
+        /* Start an unsalted, unbound session for parameter encryption */
         rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != TPM_RC_SUCCESS) goto exit;
