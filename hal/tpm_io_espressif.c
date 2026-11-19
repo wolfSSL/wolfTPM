@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* This example shows IO interfaces for Microchip micro-controllers using
- * MPLAB X and Harmony
+/* This example shows IO interfaces for Espressif ESP32 micro-controllers
+ * using ESP-IDF
  */
 
 #ifdef HAVE_CONFIG_H
