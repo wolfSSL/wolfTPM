@@ -8981,6 +8981,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 qSz = 0;
     UINT16 seedSz = 0;
     int seedPos = 0;
+    TPM2B_DIGEST seedValue;
     TPM2B_PUBLIC inPublic;
     UINT32 hierarchy = 0;
     FWTPM_Object* obj = NULL;
@@ -9015,6 +9016,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     XMEMSET(&authValue, 0, sizeof(authValue));
+    XMEMSET(&seedValue, 0, sizeof(seedValue));
     if (rc == 0 && inPrivSize > 0) {
         /* sensitiveType */
         if (cmd->pos + 2 > cmdSize) {
@@ -9043,7 +9045,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 TPM2_Packet_ParseBytes(cmd, authValue.buffer, authValue.size);
             }
         }
-        /* seedValue (skip) */
+        /* seedValue */
         if (rc == 0) {
             if (cmd->pos + 2 > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
@@ -9099,6 +9101,20 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         int digestSz = TPM2_GetHashDigestSize(inPublic.publicArea.nameAlg);
         if (digestSz > 0 && (int)authValue.size > digestSz) {
             rc = TPM_RC_SIZE;
+        }
+    }
+
+    /* seedValue (present only with inPrivate) must not exceed the object
+     * nameAlg digest size */
+    if (rc == 0 && inPrivSize > 0) {
+        int digestSz = TPM2_GetHashDigestSize(inPublic.publicArea.nameAlg);
+        if (seedSz > sizeof(seedValue.buffer) ||
+                (digestSz > 0 && (int)seedSz > digestSz)) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+        else {
+            seedValue.size = seedSz;
+            XMEMCPY(seedValue.buffer, cmd->buf + seedPos, seedSz);
         }
     }
 
@@ -9296,6 +9312,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         XMEMCPY(&obj->pub, &inPublic.publicArea, sizeof(TPMT_PUBLIC));
         XMEMCPY(&obj->authValue, &authValue, sizeof(TPM2B_AUTH));
+        XMEMCPY(&obj->seedValue, &seedValue, sizeof(TPM2B_DIGEST));
         if (privKeyDerSz > 0) {
             XMEMCPY(obj->privKey, privKeyDer, (size_t)privKeyDerSz);
         }
@@ -9338,6 +9355,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     TPM2_ForceZero(&authValue, sizeof(authValue));
+    TPM2_ForceZero(&seedValue, sizeof(seedValue));
     return rc;
 }
 
@@ -10010,6 +10028,25 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             &sensSeed, &sensSeedSz,
             &primeSz, primeBuf, (int)FWTPM_MAX_DER_SIG_BUF);
         rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_3);
+    }
+
+    /* The seedValue is no larger than the nameAlg digest and, when a
+     * storage key has one, no smaller than half of it */
+    if (rc == 0) {
+        if ((int)sensSeedSz > objDigestSz) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+        else if (sensSeedSz != 0 && (int)sensSeedSz < objDigestSz / 2 &&
+                (objectPublic->publicArea.objectAttributes &
+                    TPMA_OBJECT_restricted) != 0 &&
+                (objectPublic->publicArea.objectAttributes &
+                    TPMA_OBJECT_decrypt) != 0) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+        else {
+            importedSeed.size = sensSeedSz;
+            XMEMCPY(importedSeed.buffer, sensSeed, sensSeedSz);
+        }
     }
 
     /* Reconstruct private key from sensitive data */

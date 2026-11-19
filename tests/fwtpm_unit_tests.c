@@ -19651,6 +19651,10 @@ static void test_fwtpm_loadexternal_keyedhash(void)
         unique, &keyH), TPM_RC_BINDING);
     AssertIntEQ(SendLoadExternalHmacKey(&ctx, seed, sizeof(seed), key, 20,
         unique, &keyH), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.size,
+        sizeof(seed));
+    AssertIntEQ(memcmp(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.buffer,
+        seed, sizeof(seed)), 0);
 
 #ifndef FWTPM_NO_HASH_CMDS
     AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
@@ -21025,6 +21029,10 @@ static void test_fwtpm_import_known_duplicate(void)
         &gDup), TPM_RC_SUCCESS);
     keyH = DupLoad(&ctx, parentH, &gDup);
     DupCheckUse(&ctx, TPM_ALG_KEYEDHASH, keyH, 0);
+    AssertIntEQ(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.size,
+        sizeof(seedValue));
+    AssertIntEQ(memcmp(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.buffer,
+        seedValue, sizeof(seedValue)), 0);
     FlushHandle(&ctx, keyH);
 
     /* The same sensitive with no wrap, then with a key that unique does
