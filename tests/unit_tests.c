@@ -2598,6 +2598,91 @@ static void test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc(void)
 #endif
 }
 
+/* HMAC start/update/finish with a parameter encryption session in slot 1.
+ * TPM2_HMAC_Start authorizes the key handle, so the session cpHash needs the
+ * key Name; the sequence handle used after that has an empty Name. */
+static void test_wolfTPM2_Hmac_ParamEnc(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (!defined(NO_RSA) || defined(HAVE_ECC))
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_HMAC hmac;
+    WOLFTPM2_SESSION session;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+    const byte keyAuth[] = "hmacparamencauth";
+    /* RFC 4231 Test Case 1 */
+    const byte hmacKey[] = {
+        0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,
+        0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b
+    };
+    const byte hmacData[] = "Hi There";
+    const byte hmacExp[TPM_SHA256_DIGEST_SIZE] = {
+        0xb0,0x34,0x4c,0x61,0xd8,0xdb,0x38,0x53,0x5c,0xa8,0xaf,0xce,
+        0xaf,0x0b,0xf1,0x2b,0x88,0x1d,0xc2,0x00,0xc9,0x83,0x3d,0xa7,
+        0x26,0xe9,0x37,0x6c,0x2e,0x32,0xcf,0xf7
+    };
+#if defined(WOLFTPM_SMALL_STACK) && defined(WOLFTPM_FWTPM_BUILD) && \
+    defined(HAVE_ECC)
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#elif !defined(NO_RSA)
+    TPM_ALG_ID srkAlg = TPM_ALG_RSA;
+#else
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&hmac, 0, sizeof(hmac));
+    XMEMSET(&session, 0, sizeof(session));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tHMAC param-enc session:\tSkipped\n");
+        return;
+    }
+    rc = wolfTPM2_CreateSRK(&dev, &srk, srkAlg, NULL, 0);
+    if (rc != 0) {
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tHMAC param-enc session:\tSkipped\n");
+        return;
+    }
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_HmacStart(&dev, &hmac, &srk.handle, TPM_ALG_SHA256,
+        hmacKey, (word32)sizeof(hmacKey), keyAuth, (word32)sizeof(keyAuth)-1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    /* the session stayed in slot 1 for the commands above */
+    AssertIntEQ(dev.session[1].sessionHandle, session.handle.hndl);
+    rc = wolfTPM2_HmacUpdate(&dev, &hmac, hmacData,
+        (word32)sizeof(hmacData)-1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_HmacFinish(&dev, &hmac, digest, &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)digestSz, TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(XMEMCMP(digest, hmacExp, sizeof(hmacExp)), 0);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &hmac.key.handle);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tHMAC param-enc session:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHMAC param-enc session:\tSkipped\n");
+#endif
+}
+
 /* Run TPM2_CreateLoaded under a salted AES-CFB param-enc session. Pre-fix the
  * missing response outHandleCnt mis-parsed the rpHash offset and the reply was
  * rejected with TPM_RC_HMAC. */
@@ -12142,6 +12227,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_StartSession_SaltedEncryptAttrs();
     test_wolfTPM2_StartSession_ex_authHash();
     test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc();
+    test_wolfTPM2_Hmac_ParamEnc();
     test_wolfTPM2_CreateLoaded_ParamEnc();
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();
