@@ -1777,6 +1777,9 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
             #if defined(WOLFTPM_NATIONS) || defined(WOLFTPM_AUTODETECT) || \
                 defined(WOLFTPM_SPDM)
                 case TPM_CAP_PUB_KEYS:
+                    /* TPML_PUB_KEY is not parsed, TPMU_CAPABILITIES has no
+                     * member for it. The TPM answered: a refusal of its own
+                     * carries parameter or handle bits with TPM_RC_VALUE. */
                     rc = TPM_RC_VALUE;
                     break;
             #endif
