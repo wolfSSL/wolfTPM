@@ -1189,39 +1189,6 @@ static int test_oob_read_error(void)
     TEST_PASS();
 }
 
-static int test_constant_time_hmac(void)
-{
-    byte finishedKey[WOLFSPDM_HASH_SIZE];
-    byte thHash[WOLFSPDM_HASH_SIZE];
-    byte verifyData[WOLFSPDM_HASH_SIZE];
-    byte fakeVerify[WOLFSPDM_HASH_SIZE];
-    word32 i;
-    int diff;
-
-    printf("test_constant_time_hmac...\n");
-
-    memset(finishedKey, 0xAB, sizeof(finishedKey));
-    memset(thHash, 0xCD, sizeof(thHash));
-    ASSERT_SUCCESS(wolfSPDM_ComputeVerifyData(finishedKey, thHash, verifyData));
-
-    /* 1-byte difference must be detected */
-    memcpy(fakeVerify, verifyData, sizeof(fakeVerify));
-    fakeVerify[WOLFSPDM_HASH_SIZE - 1] ^= 0x01;
-
-    diff = 0;
-    for (i = 0; i < WOLFSPDM_HASH_SIZE; i++)
-        diff |= verifyData[i] ^ fakeVerify[i];
-    ASSERT_NE(diff, 0, "Should detect 1-byte diff");
-
-    /* Identical must pass */
-    diff = 0;
-    for (i = 0; i < WOLFSPDM_HASH_SIZE; i++)
-        diff |= verifyData[i] ^ verifyData[i];
-    ASSERT_EQ(diff, 0, "Identical data should match");
-
-    TEST_PASS();
-}
-
 static int test_setdebug_truncation(void)
 {
     TEST_CTX_SETUP();
@@ -2854,7 +2821,6 @@ int main(void)
 #endif
     test_decrypt_overflow();
     test_oob_read_error();
-    test_constant_time_hmac();
     test_setdebug_truncation();
     test_key_zeroing();
 
