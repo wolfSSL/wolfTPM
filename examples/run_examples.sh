@@ -620,6 +620,13 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "nv policy nv aes failed! $RESULT" && exit 1
 fi
+# First index of the owner and platform ranges
+./examples/nvram/policy_nv -nvindex=0x1800000 >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "nv policy nv owner index failed! $RESULT" && exit 1
+./examples/nvram/policy_nv -nvindex=0x1400000 >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "nv policy nv platform index failed! $RESULT" && exit 1
 
 # NV read without auth, write/delete with owner auth
 ./examples/nvram/nvauth >> $TPMPWD/run.out 2>&1
