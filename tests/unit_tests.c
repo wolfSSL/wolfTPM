@@ -11573,6 +11573,33 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     blob[privSizeOff] ^= 0xFF;
     blob[privSizeOff + 1] ^= 0xFF;
 
+    /* A public size beyond its buffer, a blob cut short and data after the
+     * private area are each refused whole */
+    blob[0] ^= 0xFF;
+    blob[1] ^= 0xFF;
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, blobSz);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(key.pub.size, 0);
+    blob[0] ^= 0xFF;
+    blob[1] ^= 0xFF;
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, 1);
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, privSizeOff - 1);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(key.pub.size, 0);
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, privSizeOff + 1);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(key.pub.size, 0);
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, blobSz - 1);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(key.pub.size, 0);
+    AssertIntEQ(key.priv.size, 0);
+    AssertIntLT(blobSz, (int)sizeof(blob));
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, blobSz + 1);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(key.pub.size, 0);
+    AssertIntEQ(key.priv.size, 0);
+
     /* Reset the originally created key */
     XMEMSET(&key, 0, sizeof(key));
 
