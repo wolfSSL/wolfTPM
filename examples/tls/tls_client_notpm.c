@@ -180,6 +180,7 @@ int TLS_ClientArgs(int argc, char *argv[])
     /* Optionally choose the cipher suite */
     rc = wolfSSL_CTX_set_cipher_list(ctx, TLS_CIPHER_SUITE);
     if (rc != WOLFSSL_SUCCESS) {
+        rc = WOLFSSL_FATAL_ERROR;
         goto exit;
     }
 #endif
