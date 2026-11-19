@@ -23,6 +23,12 @@
  * trusted public key. This example is supported in stand-alone (no wolfCrypt)
  * This example assumes ST33KTPM2X with signer
  * "STSAFE TPM RSA Intermediate CA 20" : RSA 4096-bit key with SHA2-384
+ *
+ * NOTE: The certificate hash and the issuer RSA public key operation both run
+ * on the TPM that is being verified, so this check cannot detect a counterfeit
+ * TPM that returns the results a verifier expects. When wolfCrypt is available
+ * verify the EK certificate on the host instead, as
+ * examples/endorsement/get_ek_certs.c does.
  */
 
 #ifdef HAVE_CONFIG_H
