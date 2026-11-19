@@ -80,7 +80,7 @@ int TPM2_PCR_Read_Test(void* userCtx, int argc, char *argv[])
             if (pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
         }
     }

@@ -274,13 +274,13 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
             if (pcrIndex < 0 || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
             if (pcrArraySz >= sizeof(pcrArray) / sizeof(pcrArray[0])) {
                 printf("Too many -pcr= arguments (max %zu)\n",
                     sizeof(pcrArray) / sizeof(pcrArray[0]));
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
             pcrArray[pcrArraySz] = (byte)pcrIndex;
             pcrArraySz++;
