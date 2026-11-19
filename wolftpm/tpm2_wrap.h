@@ -4721,6 +4721,10 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
+    \warning With WOLFTPM2_USE_HW_RNG the new auth value is read from the TPM
+        with TPM2_GetRandom, which is not parameter encrypted, before the
+        session protects it in TPM2_HierarchyChangeAuth.
+
     \param dev pointer to a TPM2_DEV struct
     \param session the current session, a session is required to protect the new platform auth
     \param authHandle the auth hierarchy (example: TPM_RH_PLATFORM or TPM_RH_LOCKOUT)
