@@ -164,7 +164,6 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 }
             }
             if (rc == 0) {
-                *sigSz = wc_RsaEncryptSize(&key.rsa);
                 rc = wc_RsaSSL_Sign(encHash, hashSz, sig, *sigSz, &key.rsa, &rng);
                 if (rc >= 0) {
                     *sigSz = rc;
@@ -192,6 +191,9 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 rc = mp_init_multi(&r, &s, NULL, NULL, NULL, NULL);
                 if (rc == 0) {
                     rc = wc_ecc_sign_hash_ex(hash, hashSz, &rng, &key.ecc, &r, &s);
+                    if (rc == 0 && (word32)key.ecc.dp->size * 2 > *sigSz) {
+                        rc = BUFFER_E;
+                    }
                     if (rc == 0) {
                         word32 keySz = key.ecc.dp->size;
                         *sigSz = keySz * 2;
@@ -249,7 +251,7 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
     byte digest[WC_MAX_DIGEST_SIZE];
     word32 digestSz = 0;
     byte sig[512]; /* up to 4096-bit key */
-    word32 sigSz = 0;
+    word32 sigSz = (word32)sizeof(sig);
     byte* policyRef = NULL; /* optional nonce */
     word32 policyRefSz = 0;
 
