@@ -7467,7 +7467,7 @@ const char* TPM2_GetRCString(int rc)
          *     6: 1=Parameter Number, 0=Session or Handle
          *     7: Format selector
          *  8-11: Number of handle, session or parameter
-         *    11: 1=Handle
+         *    11: 1=Session, 0=Handle
          */
         if (rc & 0x40) { /* bit 6 */
             /* bits 8-11 */
