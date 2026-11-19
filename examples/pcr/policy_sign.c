@@ -214,7 +214,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
         rc = NOT_COMPILED_IN;
     #endif
     }
-    else {
+    else if (rc == 0) {
         rc = BAD_FUNC_ARG;
     }
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
