@@ -72,17 +72,20 @@ static int verifySeq(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (rc != TPM_RC_SUCCESS)
         return rc;
     rc = wolfTPM2_VerifySequenceUpdate(dev, seqHandle, msg, msgSz);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_VerifySequenceComplete(dev, seqHandle, key, NULL, 0,
+            sig, sigSz, val);
+    }
     if (rc != TPM_RC_SUCCESS) {
-        /* Update failed after Start created the sequence object; flush it so
-         * the transient slot is not left allocated. Complete flushes itself
-         * on its own error path. */
+        /* Update or Complete failed after Start created the sequence object;
+         * flush it so the transient slot is not left allocated. Complete
+         * flushes it itself when the TPM rejects the signature, in which
+         * case this flush fails with TPM_RC_HANDLE and is ignored. */
         XMEMSET(&seqObj, 0, sizeof(seqObj));
         seqObj.hndl = seqHandle;
         wolfTPM2_UnloadHandle(dev, &seqObj);
-        return rc;
     }
-    return wolfTPM2_VerifySequenceComplete(dev, seqHandle, key, NULL, 0,
-        sig, sigSz, val);
+    return rc;
 }
 
 static int mldsa_verify_neg_run(int argc, char *argv[])
