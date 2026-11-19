@@ -19,7 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* Example for using TPM to seal a secret using an external key based on PCR(s)
+/* Example for using TPM to unseal a secret sealed under a PCR policy that is
+ * authorized by an external key
  */
 
 #ifdef HAVE_CONFIG_H
