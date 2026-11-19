@@ -244,10 +244,12 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
             (TPMA_NV_TPM_NT & (TPM_NT_EXTEND << 4)) |
             TPMA_NV_ORDERLY |
             TPMA_NV_CLEAR_STCLEAR |
-            TPMA_NV_PLATFORMCREATE |
             TPMA_NV_POLICYWRITE |
             TPMA_NV_POLICYREAD |
             TPMA_NV_NO_DA);
+    if (authHandle == TPM_RH_PLATFORM) {
+        nvAttributes |= TPMA_NV_PLATFORMCREATE;
+    }
     nvSize = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
 
     /* Try and open existing NV */
