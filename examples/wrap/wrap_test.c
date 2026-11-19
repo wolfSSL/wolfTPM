@@ -687,9 +687,10 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     if (message.size != cipher.size ||
         XMEMCMP(message.buffer, cipher.buffer, message.size) != 0) {
-        rc = -1; /* failed */
+        rc = TPM_RC_TESTING;
     }
     printf("ECC DH Test %s\n", rc == 0 ? "Passed" : "Failed");
+    if (rc != 0) goto exit;
 
     /* ECC Public Key Signature Verify Test/Example */
     /* Vector below uses a SHA-1 digest, which many current TPMs lack. */
