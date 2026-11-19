@@ -21012,6 +21012,47 @@ static void test_fwtpm_create_seed_value(void)
     fwtpm_pass("Create seedValue and unique:", 0);
 }
 
+#ifdef HAVE_ECC
+/* A primary storage key gets its seedValue from the hierarchy seed: the same
+ * template gives the same seedValue with or without the primary cache. A
+ * signing key has none. */
+static void test_fwtpm_create_primary_seed_value(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 objH;
+    FWTPM_Object* obj;
+    byte seed[WC_SHA256_DIGEST_SIZE];
+    int pass;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* created, from the cache, and created again without the cache */
+    for (pass = 0; pass < 3; pass++) {
+        if (pass == 2) {
+            memset(ctx.primaryCache, 0, sizeof(ctx.primaryCache));
+        }
+        objH = DupCreateObject(&ctx, TPM_ALG_ECC, DUP_ATTR_STORAGE, &gDup);
+        DupCheckSeedValue(&ctx, TPM_ALG_ECC, objH, WC_SHA256_DIGEST_SIZE, 0,
+            &gDup);
+        obj = &ctx.objects[objH - TRANSIENT_FIRST];
+        if (pass == 0) {
+            memcpy(seed, obj->seedValue.buffer, sizeof(seed));
+        }
+        else {
+            AssertIntEQ(memcmp(seed, obj->seedValue.buffer, sizeof(seed)), 0);
+        }
+        FlushHandle(&ctx, objH);
+    }
+    objH = DupCreateObject(&ctx, TPM_ALG_ECC, DUP_ATTR_SIGN, &gDup);
+    DupCheckSeedValue(&ctx, TPM_ALG_ECC, objH, 0, 0, &gDup);
+    FlushHandle(&ctx, objH);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("CreatePrimary seedValue:", 0);
+}
+#endif /* HAVE_ECC */
+
 /* Rewrap replaces the outer wrap only: an inner and outer wrapped duplicate
  * moved to a second parent imports there with the inner key. */
 static void test_fwtpm_duplicate_rewrap_import(void)
@@ -33501,6 +33542,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_duplicate_needs_command_code();
     test_fwtpm_duplicate_import_roundtrip();
     test_fwtpm_create_seed_value();
+#ifdef HAVE_ECC
+    test_fwtpm_create_primary_seed_value();
+#endif
     test_fwtpm_duplicate_rewrap_import();
     test_fwtpm_duplicate_import_rejections();
     test_fwtpm_import_known_duplicate();

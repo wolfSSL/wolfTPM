@@ -4859,6 +4859,35 @@ static TPM_RC FwAppendCreationData(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     return rc;
 }
 
+/* Set the seedValue of an asymmetric primary storage key (see
+ * FwCreateSeedValue). It is derived from the hierarchy seed so that the same
+ * template gives the same object. */
+static TPM_RC FwPrimarySeedValue(const byte* seed, const byte* hashUnique,
+    int hashUniqueSz, FWTPM_Object* obj)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPMT_PUBLIC* pub = &obj->pub;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+
+    if (pub->type == TPM_ALG_KEYEDHASH || pub->type == TPM_ALG_SYMCIPHER ||
+            (pub->objectAttributes & TPMA_OBJECT_restricted) == 0 ||
+            (pub->objectAttributes & TPMA_OBJECT_sign) != 0) {
+        return TPM_RC_SUCCESS;
+    }
+    if (digestSz <= 0 || digestSz > (int)sizeof(obj->seedValue.buffer)) {
+        rc = TPM_RC_HASH;
+    }
+    else if (TPM2_KDFa_ex(pub->nameAlg, seed, FWTPM_SEED_SIZE, "SEEDVALUE",
+            hashUnique, (UINT32)hashUniqueSz, NULL, 0,
+            obj->seedValue.buffer, (UINT32)digestSz) != digestSz) {
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        obj->seedValue.size = (UINT16)digestSz;
+    }
+    return rc;
+}
+
 /* --- TPM2_CreatePrimary (CC 0x0131) --- */
 static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -5334,6 +5363,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_TYPE;
                 break;
         }
+    }
+
+    if (rc == 0) {
+        rc = FwPrimarySeedValue(seed, hashUnique, hashUniqueSz, obj);
     }
 
     /* Store in primary key cache */
