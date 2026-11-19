@@ -7169,6 +7169,57 @@ static void test_TPM2_ResponseProcess_HmacVerify(void)
     rc = TPM2_ResponseProcess(&ctx, &packet, &info, cmdCode, respSz);
     AssertIntEQ(rc, TPM_RC_HMAC);
 
+    /* a response without continueSession retires the slot */
+    attr = 0x00;
+    buf[hmacOff - 3] = attr;
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &session[0].auth, &rpHash,
+        &nonceTPM, &session[0].nonceCaller, attr, &expHmac);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    XMEMCPY(&buf[hmacOff], expHmac.buffer, hmacSz);
+    packet.buf = buf; packet.pos = 0; packet.size = (int)respSz;
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, cmdCode, respSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(session[0].sessionHandle, TPM_RS_PW);
+    AssertIntEQ(session[0].auth.size, 0);
+    AssertIntEQ(session[0].nonceTPM.size, 0);
+    for (i = 0; i < (int)sizeof(session[0].auth.buffer); i++) {
+        AssertIntEQ(session[0].auth.buffer[i], 0);
+    }
+
+    /* an encrypt session without continueSession still decrypts the
+     * response parameter before its slot is retired */
+    XMEMSET(session, 0, sizeof(session));
+    session[0].sessionHandle = HMAC_SESSION_FIRST;
+    session[0].authHash = TPM_ALG_SHA256;
+    session[0].symmetric.algorithm = TPM_ALG_XOR;
+    session[0].symmetric.keyBits.xorr = TPM_ALG_SHA256;
+    session[0].auth.size = 4;
+    XMEMSET(session[0].auth.buffer, 0xA5, 4);
+    session[0].nonceCaller.size = 32;
+    XMEMSET(session[0].nonceCaller.buffer, 0x5C, 32);
+    info.flags = CMD_FLAG_DEC2;
+    attr = TPMA_SESSION_encrypt;
+    buf[hmacOff - 3] = attr;
+    buf[TPM2_HEADER_SIZE + 4] = 0x00; /* TPM2B size of the two bytes left */
+    buf[TPM2_HEADER_SIZE + 5] = 0x02;
+    buf[TPM2_HEADER_SIZE + 6] = 0xBE;
+    buf[TPM2_HEADER_SIZE + 7] = 0xEF;
+    rc = TPM2_CalcRpHash(TPM_ALG_SHA256, cmdCode, &buf[TPM2_HEADER_SIZE + 4],
+        paramSz, &rpHash);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &session[0].auth, &rpHash,
+        &nonceTPM, &session[0].nonceCaller, attr, &expHmac);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    XMEMCPY(&buf[hmacOff], expHmac.buffer, hmacSz);
+    packet.buf = buf; packet.pos = 0; packet.size = (int)respSz;
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, cmdCode, respSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(buf[TPM2_HEADER_SIZE + 6] == 0xBE &&
+        buf[TPM2_HEADER_SIZE + 7] == 0xEF, 0);
+    AssertIntEQ(session[0].sessionHandle, TPM_RS_PW);
+    AssertIntEQ(session[0].auth.size, 0);
+    AssertIntEQ(session[0].symmetric.algorithm, 0);
+
     printf("Test TPM Wrapper:\tResponseProcess HMAC verify:\tPassed\n");
 #endif
 }
