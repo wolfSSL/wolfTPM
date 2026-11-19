@@ -9932,6 +9932,45 @@ static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev,
 #endif
 }
 
+/* A hash longer than the curve, such as SHA-384 with P-256, is sent whole
+ * for the TPM to truncate, so the TPM's own signature verifies. */
+static void test_wolfTPM2_EccSignVerify_LongHash(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    WOLFTPM2_KEY eccKey;
+    TPMT_PUBLIC publicTemplate;
+    byte digest[TPM_SHA384_DIGEST_SIZE];
+    byte sig[MAX_ECC_BYTES * 2];
+    int sigSz = (int)sizeof(sig);
+    int i;
+
+    for (i = 0; i < (int)sizeof(digest); i++) {
+        digest[i] = (byte)(0xA0 + i);
+    }
+
+    /* sign and decrypt together leave the key scheme as TPM_ALG_NULL */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_CreatePrimaryKey(dev, &eccKey, TPM_RH_OWNER,
+        &publicTemplate, NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_SignHashScheme(dev, &eccKey, digest, (int)sizeof(digest),
+        sig, &sigSz, TPM_ALG_ECDSA, TPM_ALG_SHA384);
+    if (rc == 0) {
+        rc = wolfTPM2_VerifyHashScheme(dev, &eccKey, sig, sigSz, digest,
+            (int)sizeof(digest), TPM_ALG_ECDSA, TPM_ALG_SHA384);
+        AssertIntEQ(rc, 0);
+    }
+    wolfTPM2_UnloadHandle(dev, &eccKey.handle);
+
+    printf("Test TPM Wrapper: %-40s %s\n", "Sign/Verify P-256 with SHA-384:",
+        rc == 0 ? "Passed" : "Skipped");
+}
+
 /* Test with smaller, same and larger digest sizes using different ECC curves.
  * Interop sign and verify with wolfCrypt and TPM */
 static void test_wolfTPM2_EccSignVerify(void)
@@ -9950,6 +9989,7 @@ static void test_wolfTPM2_EccSignVerify(void)
     AssertIntEQ(rc, 0);
 
     test_wolfTPM2_EccSignVerify_All(&dev, &storageKey, 0);
+    test_wolfTPM2_EccSignVerify_LongHash(&dev);
 #ifdef WOLF_CRYPTO_CB
     test_wolfTPM2_EccSignVerify_All(&dev, &storageKey, FLAGS_USE_CRYPTO_CB);
 #endif

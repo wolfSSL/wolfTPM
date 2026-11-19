@@ -5909,10 +5909,6 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         if (curveSize > (int)sizeof(signature->ecdsa.signatureR.buffer)) {
             return BAD_FUNC_ARG;
         }
-
-        /* hash cannot be larger than key size for TPM */
-        if (digestSz > curveSize)
-            digestSz = curveSize;
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         if (sigAlg == TPM_ALG_NULL)
