@@ -36,6 +36,14 @@
  * the sealed blob (sealblob.bin). If the signing key is regenerated
  * (even with the same template), the TPM Name changes and the sealed
  * blob becomes un-unsealable.
+ *
+ * NOTE: This example demonstrates the PolicyAuthorize command flow only.
+ * The unseal path signs whatever PCR policy digest is current, using the
+ * signing key stored next to the sealed blob, so the PCR binding gives no
+ * protection here. A real deployment signs the approved PCR policy digest
+ * once, with a key that is not available to the unsealing system, and the
+ * unseal only verifies that signature (see examples/boot/secret_seal.c and
+ * examples/pcr/policy_sign.c).
  */
 
 #ifdef HAVE_CONFIG_H
