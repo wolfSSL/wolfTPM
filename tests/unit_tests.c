@@ -3106,6 +3106,106 @@ static void test_wolfTPM2_NVWriteChunked(void)
 #endif
 }
 
+/* A command that changes an NV Index attribute changes its Name. The cached
+ * Name must follow, or the next command under an HMAC session fails. */
+static void test_wolfTPM2_NVNameRefresh(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX + 2;
+    const word32 nvCounter = TPM2_DEMO_NV_TEST_CHUNKED_INDEX + 3;
+    const byte nvAuth[] = "namerefreshauth";
+    word32 nvAttributes;
+    byte buf[32];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+    TPM2B_NAME firstName;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(buf, 0x3C, sizeof(buf));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tNV name refresh:\tSkipped\n");
+        return;
+    }
+
+    parent.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    nvAttributes |= TPMA_NV_WRITEDEFINE;
+    (void)wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    (void)wolfTPM2_NVDeleteAuth(&dev, &parent, nvCounter);
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)(nv.attributes & TPMA_NV_WRITTEN), 0);
+    XMEMCPY(&firstName, &nv.handle.name, sizeof(firstName));
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+
+    /* A write that fits one command sets TPMA_NV_WRITTEN. */
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE((int)(nv.attributes & TPMA_NV_WRITTEN), 0);
+    AssertIntNE(XMEMCMP(&firstName, &nv.handle.name, sizeof(firstName)), 0);
+
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    /* The write lock sets TPMA_NV_WRITELOCKED. */
+    rc = wolfTPM2_NVWriteLock(&dev, &nv);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE((int)(nv.attributes & TPMA_NV_WRITELOCKED), 0);
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+
+    /* The first increment of a counter sets TPMA_NV_WRITTEN. */
+    XMEMSET(&nv, 0, sizeof(nv));
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    nvAttributes |= (TPMA_NV_TPM_NT & (TPM_NT_COUNTER << 4));
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvCounter, nvAttributes,
+        8, nvAuth, (int)sizeof(nvAuth)-1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+    rc = wolfTPM2_NVIncrement(&dev, &nv);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE((int)(nv.attributes & TPMA_NV_WRITTEN), 0);
+    readSz = 8;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvCounter, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, 8);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvCounter);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tNV name refresh:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tNV name refresh:\tSkipped\n");
+#endif
+}
+
 /* Data too large for one TPM2_NV_Extend is refused before the TPM is
  * contacted, since extending it in pieces would chain the digest. */
 static void test_wolfTPM2_NVExtend_OneCommand(void)
@@ -12469,6 +12569,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();
     test_wolfTPM2_NVWriteChunked();
+    test_wolfTPM2_NVNameRefresh();
     test_wolfTPM2_NVExtend_OneCommand();
     test_wolfTPM2_NVOwnerAuth();
 #ifndef WOLFTPM2_NO_WOLFCRYPT

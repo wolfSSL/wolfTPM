@@ -7854,6 +7854,19 @@ static int wolfTPM2_NVComputeName(WOLFTPM2_DEV* dev, word32 nvIndex,
     return rc;
 }
 
+/* The NV Index Name covers its attributes, so a command that sets one, such
+ * as the first write setting TPMA_NV_WRITTEN, changes the Name. Read it again
+ * so a later command under an HMAC session hashes the current Name. */
+static void wolfTPM2_NVRefreshName(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex)
+{
+    if (wolfTPM2_NVComputeName(dev, nvIndex, &nv->handle.name,
+            &nv->attributes) != TPM_RC_SUCCESS) {
+        /* have the next NV call open the index again */
+        nv->handle.nameLoaded = 0;
+    }
+}
+
 /* NV read/write authHandle may be the owner or platform hierarchy instead of
  * the NV Index (TPMA_NV_OWNERWRITE/PPWRITE/OWNERREAD/PPREAD) */
 static int wolfTPM2_NVIsHierarchyAuth(TPM_HANDLE authHandle)
@@ -8126,6 +8139,11 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
         pos += towrite;
         dataSz -= towrite;
+    }
+
+    if (rc == TPM_RC_SUCCESS && pos > 0 &&
+            (nv->attributes & TPMA_NV_WRITTEN) == 0) {
+        wolfTPM2_NVRefreshName(dev, nv, nvIndex);
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -8489,6 +8507,10 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
         return rc;
     }
 
+    if ((nv->attributes & TPMA_NV_WRITTEN) == 0) {
+        wolfTPM2_NVRefreshName(dev, nv, nv->handle.hndl);
+    }
+
     return rc;
 }
 
@@ -8521,7 +8543,11 @@ int wolfTPM2_NVWriteLock(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     XMEMSET(&in, 0, sizeof(in));
     in.authHandle = nv->handle.hndl;
     in.nvIndex = nv->handle.hndl;
-    return TPM2_NV_WriteLock(&in);
+    rc = TPM2_NV_WriteLock(&in);
+    if (rc == TPM_RC_SUCCESS && (nv->attributes & TPMA_NV_WRITELOCKED) == 0) {
+        wolfTPM2_NVRefreshName(dev, nv, nv->handle.hndl);
+    }
+    return rc;
 }
 
 int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
