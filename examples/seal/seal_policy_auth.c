@@ -125,12 +125,13 @@ int TPM2_Seal_PolicyAuth_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_RSA;
         }
         else if (XSTRNCMP(argv[argc-1], "-pcr=", XSTRLEN("-pcr=")) == 0) {
-            pcrIndex = (byte)XATOI(argv[argc-1] + XSTRLEN("-pcr="));
-            if (pcrIndex > PCR_LAST) {
+            int pcrVal = XATOI(argv[argc-1] + XSTRLEN("-pcr="));
+            if (pcrVal < 0 || pcrVal > (int)PCR_LAST) {
                 printf("PCR index out of range (0-23)\n");
                 usage();
                 return BAD_FUNC_ARG;
             }
+            pcrIndex = (byte)pcrVal;
         }
         else if (XSTRCMP(argv[argc-1], "-seal") == 0) {
             doSeal = 1;

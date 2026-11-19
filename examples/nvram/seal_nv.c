@@ -111,12 +111,13 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
     }
     while (argc > 1) {
         if (XSTRNCMP(argv[argc-1], "-pcr=", XSTRLEN("-pcr=")) == 0) {
-            pcrIndex = (byte)XATOI(argv[argc-1] + XSTRLEN("-pcr="));
-            if (pcrIndex > PCR_LAST) {
+            int pcrVal = XATOI(argv[argc-1] + XSTRLEN("-pcr="));
+            if (pcrVal < 0 || pcrVal > (int)PCR_LAST) {
                 printf("PCR index out of range (0-23)\n");
                 usage();
                 return BAD_FUNC_ARG;
             }
+            pcrIndex = (byte)pcrVal;
         }
         else if (XSTRNCMP(argv[argc-1], "-nvindex=",
                 XSTRLEN("-nvindex=")) == 0) {

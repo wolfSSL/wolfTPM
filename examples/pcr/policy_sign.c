@@ -270,8 +270,8 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRNCMP(argv[argc-1], "-pcr=", XSTRLEN("-pcr=")) == 0) {
             const char* pcrStr = argv[argc-1] + XSTRLEN("-pcr=");
-            byte pcrIndex = (byte)XATOI(pcrStr);
-            if (pcrIndex > PCR_LAST) {
+            int pcrIndex = XATOI(pcrStr);
+            if (pcrIndex < 0 || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
                 return 0;
@@ -282,7 +282,7 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            pcrArray[pcrArraySz] = pcrIndex;
+            pcrArray[pcrArraySz] = (byte)pcrIndex;
             pcrArraySz++;
         }
         else if (XSTRNCMP(argv[argc-1], "-pcrdigest=", XSTRLEN("-pcrdigest=")) == 0) {
