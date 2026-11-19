@@ -2283,6 +2283,9 @@ int wolfTPM2_CreateAuthSession_EkPolicy_ex(WOLFTPM2_DEV* dev,
             printf("policySecret applied on session\n");
         }
         #endif
+        if (rc != TPM_RC_SUCCESS) {
+            (void)wolfTPM2_UnloadHandle(dev, &tpmSession->handle);
+        }
     }
     return rc;
 }

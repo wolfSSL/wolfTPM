@@ -48,6 +48,7 @@
 #define TEST_MAX_PAGES   3
 #define TEST_PAGE_HANDLES 4
 #define TEST_MAX_FLUSHES (2 * MAX_HANDLE_NUM)
+#define TEST_POLICY_SESSION (POLICY_SESSION_FIRST + 2)
 
 /* Scripted TPM_CAP_HANDLES pages and a record of what the wrapper sent */
 static struct {
@@ -101,6 +102,16 @@ int test_unload_send(TPM2_CTX* ctx, TPM2_Packet* packet)
         if (arg0 == script.flushFail) {
             rc = TPM_RC_FAILURE;
         }
+    }
+    else if (code == TPM_CC_StartAuthSession) {
+        TPM2_Packet_AppendU32(&rsp, TEST_POLICY_SESSION);
+        TPM2_Packet_AppendU16(&rsp, TPM_SHA256_DIGEST_SIZE);
+        for (i = 0; i < TPM_SHA256_DIGEST_SIZE; i++) {
+            TPM2_Packet_AppendU8(&rsp, 0x5A);
+        }
+    }
+    else if (code == TPM_CC_PolicySecret) {
+        rc = TPM_RC_FAILURE;
     }
     else {
         AssertIntEQ(code, TPM_CC_GetCapability);
@@ -317,6 +328,24 @@ static void test_session_unload(void)
 }
 #endif
 
+#ifdef WOLFTPM2_USE_WOLF_RNG
+/* A policy session whose PolicySecret is refused is not left loaded */
+static void test_ek_policy_secret_failure(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+
+    test_setup(&dev);
+    XMEMSET(&session, 0, sizeof(session));
+    AssertIntEQ(wolfTPM2_CreateAuthSession_EkPolicy(&dev, &session),
+        TPM_RC_FAILURE);
+    AssertIntEQ(script.flushes, 1);
+    AssertIntEQ(script.flushed[0], TEST_POLICY_SESSION);
+    AssertIntEQ(session.handle.hndl, TPM_RH_NULL);
+    TPM2_Cleanup(&dev.ctx);
+}
+#endif
+
 int main(void)
 {
     test_two_pages();
@@ -327,6 +356,9 @@ int main(void)
     test_bad_handles();
 #if MAX_SESSION_NUM > 1
     test_session_unload();
+#endif
+#ifdef WOLFTPM2_USE_WOLF_RNG
+    test_ek_policy_secret_failure();
 #endif
     printf("Transient unload tests: passed\n");
     return 0;
