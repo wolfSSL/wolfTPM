@@ -220,6 +220,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     TPMI_MLKEM_PARAMETER_SET mlkemPs = TPM_MLKEM_768;  /* default */
 #endif
     WOLFTPM2_SESSION tpmSession;
+    WOLFTPM2_SESSION paramEncSession;
     TPM2B_AUTH auth;
     int endorseKey = 0;
     int pemFiles = 0;
@@ -364,6 +365,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&newKeyBlob, 0, sizeof(newKeyBlob));
     XMEMSET(&primaryBlob, 0, sizeof(primaryBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&paramEncSession, 0, sizeof(paramEncSession));
     XMEMSET(&auth, 0, sizeof(auth));
 #if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
     XMEMSET(&pqcKey, 0, sizeof(pqcKey));
@@ -436,22 +438,22 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (pqcParamEncAlg != TPM_ALG_NULL) {
             /* Use a PQC primary as the param-enc session key: ML-KEM salt
              * or ML-DSA bind. This replaces the salted-to-SRK session. */
-            rc = getPrimaryParamEncKey(&dev, &tpmSession, &pqcKey,
+            rc = getPrimaryParamEncKey(&dev, &paramEncSession, &pqcKey,
                 pqcParamEncAlg, pqcParamSet, paramEncAlg);
         }
         else
     #endif
         {
             /* Start an authenticated session (salted / unbound) with parameter encryption */
-            rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
+            rc = wolfTPM2_StartSession(&dev, &paramEncSession, bindKey, NULL,
                 TPM_SE_HMAC, paramEncAlg);
         }
         if (rc != 0) goto exit;
         printf("HMAC Session: Handle 0x%x\n",
-            (word32)tpmSession.handle.hndl);
+            (word32)paramEncSession.handle.hndl);
 
         /* set session for authorization of the primary key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &paramEncSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
              TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
@@ -712,6 +714,7 @@ exit:
         wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &paramEncSession.handle);
 #if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
     wolfTPM2_UnloadHandle(&dev, &pqcKey.handle);
 #endif
