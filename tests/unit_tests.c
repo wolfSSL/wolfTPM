@@ -4145,6 +4145,7 @@ static void test_wolfTPM2_SensitiveToPrivate(void)
 {
 #ifdef WOLFTPM2_PRIVATE_IMPORT
     int rc;
+    int i;
     TPM2B_SENSITIVE sens;
     TPM2B_PRIVATE priv;
     TPM2B_NAME name;
@@ -4203,6 +4204,26 @@ static void test_wolfTPM2_SensitiveToPrivate(void)
     AssertIntEQ(rc, 0);
     AssertIntEQ(priv.size, (int)sizeof(expected));
     AssertIntEQ(XMEMCMP(priv.buffer, expected, sizeof(expected)), 0);
+
+    /* A symmetric definition without the outer wrap seed would emit the
+     * sensitive unprotected. It is refused and nothing is left in priv. */
+    XMEMSET(&priv, 0xA5, sizeof(priv));
+    symSeed.size = 0;
+    rc = wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        TPM_ALG_SHA256, &name, NULL, &sym, &symSeed);
+    AssertIntEQ(rc, NOT_COMPILED_IN);
+    AssertIntEQ(priv.size, 0);
+    for (i = 0; i < (int)sizeof(priv.buffer); i++) {
+        AssertIntEQ(priv.buffer[i], 0);
+    }
+    XMEMSET(&priv, 0xA5, sizeof(priv));
+    rc = wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        TPM_ALG_SHA256, &name, NULL, &sym, NULL);
+    AssertIntEQ(rc, NOT_COMPILED_IN);
+    AssertIntEQ(priv.size, 0);
+    for (i = 0; i < (int)sizeof(priv.buffer); i++) {
+        AssertIntEQ(priv.buffer[i], 0);
+    }
 
     printf("Test TPM Wrapper: %-40s Passed\n", "SensitiveToPrivate:");
 #else
