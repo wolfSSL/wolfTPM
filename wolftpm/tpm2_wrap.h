@@ -5258,16 +5258,16 @@ WOLFTPM_API int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
 
-    \brief Apply the PCR's to the policy digest for the policy session.
+    \brief Approve the policy digest of the policy session with a policy signed by an external key (TPM2_PolicyAuthorize).
 
     \return TPM_RC_SUCCESS: successful
     \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param sessionHandle the handle of the current policy session, a session is required to use policy PCR
-    \param pub pointer to a populated structure of TPM2B_PUBLIC type
-    \param checkTicket returns the validation ticket proving the signature for digest was checked
+    \param sessionHandle the handle of the current policy session
+    \param pub pointer to a populated structure of TPM2B_PUBLIC type, the key that signed the approved policy
+    \param checkTicket validation ticket from wolfTPM2_VerifyHashTicket, proving the signature over the approved policy was checked
     \param pcrDigest digest for the PCR(s) collected with wolfTPM2_PCRGetDigest
     \param pcrDigestSz size of the PCR digest
     \param policyRef optional nonce
