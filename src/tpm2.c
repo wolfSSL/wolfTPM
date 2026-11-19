@@ -288,6 +288,19 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             XMEMCPY(authCmd.hmac.buffer, session->auth.buffer,
                 session->auth.size);
         }
+        /* Policy Session with PolicyPassword sends the authValue itself */
+        else if (TPM2_IS_POLICY_SESSION(session->sessionHandle) &&
+                 session->policyPass) {
+            authCmd.hmac.size = session->auth.size;
+            XMEMCPY(authCmd.hmac.buffer, session->auth.buffer,
+                session->auth.size);
+            if ((info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4)) == 0) {
+                authCmd.sessionAttributes &= ~TPMA_SESSION_decrypt;
+            }
+            if ((info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4)) == 0) {
+                authCmd.sessionAttributes &= ~TPMA_SESSION_encrypt;
+            }
+        }
         /* HMAC or Policy Session */
         else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
                  TPM2_IS_POLICY_SESSION(session->sessionHandle))
@@ -467,7 +480,18 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
-            if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+            if (TPM2_IS_POLICY_SESSION(session->sessionHandle) &&
+                session->policyPass)
+            {
+                /* the TPM answers a PolicyPassword authorization with an
+                 * empty HMAC */
+                if (authRsp.hmac.size != 0) {
+                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
+                    rc = TPM_RC_HMAC;
+                    break;
+                }
+            }
+            else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
                 TPM2_IS_POLICY_SESSION(session->sessionHandle))
             {
                 UINT16 expectedHmacSz = TPM2_GetHashDigestSize(session->authHash);

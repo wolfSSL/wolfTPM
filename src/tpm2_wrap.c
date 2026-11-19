@@ -2042,6 +2042,18 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
             int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
             word32 authSz;
 
+            /* PolicyPassword sends the password the session already holds */
+            if (session->policyPass &&
+                    TPM2_IS_POLICY_SESSION(session->sessionHandle)) {
+                if (handle->name.size > sizeof(session->name.name)) {
+                    return BUFFER_E;
+                }
+                session->name.size = handle->name.size;
+                XMEMCPY(session->name.name, handle->name.name,
+                    session->name.size);
+                return TPM_RC_SUCCESS;
+            }
+
             /* Validate bounds before reading caller data or mutating the
              * session so it isn't left inconsistent on BUFFER_E. */
             if (authDigestSz <= 0 ||
@@ -11717,6 +11729,7 @@ int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle)
 {
     int rc;
+    int i;
     PolicyRestart_In policyRestartIn[1];
 
     if (dev == NULL)
@@ -11727,6 +11740,15 @@ int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle)
     policyRestartIn->sessionHandle = sessionHandle;
 
     rc = TPM2_PolicyRestart(policyRestartIn);
+    if (rc == TPM_RC_SUCCESS) {
+        /* the TPM no longer expects a password or an authValue HMAC */
+        for (i = 0; i < MAX_SESSION_NUM; i++) {
+            if (dev->session[i].sessionHandle == sessionHandle) {
+                dev->session[i].policyPass = 0;
+                dev->session[i].policyAuth = 0;
+            }
+        }
+    }
 
     return rc;
 }
@@ -11845,6 +11867,7 @@ int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         tpmSession->handle.auth.size = (UINT16)authSz;
         tpmSession->handle.policyPass = 1;
     }
+    tpmSession->handle.policyAuth = 0;
 
     XMEMSET(&policyPasswordIn, 0, sizeof(policyPasswordIn));
     policyPasswordIn.policySession = tpmSession->handle.hndl;
@@ -11882,6 +11905,8 @@ int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         }
         tpmSession->handle.policyAuth = 1;
     }
+    /* the TPM takes an HMAC again after a PolicyPassword */
+    tpmSession->handle.policyPass = 0;
 
     XMEMSET(&policyAuthValueIn, 0, sizeof(policyAuthValueIn));
     policyAuthValueIn.policySession = tpmSession->handle.hndl;

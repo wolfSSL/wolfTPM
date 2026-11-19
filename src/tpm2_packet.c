@@ -567,7 +567,8 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
             }
             /* Policy Session */
             else if (TPM2_IS_POLICY_SESSION(session->sessionHandle)) {
-                if (!session->policyAuth && session->auth.size > 0) {
+                if (session->policyPass ||
+                        (!session->policyAuth && session->auth.size > 0)) {
                     packet->pos += session->auth.size;
                 }
                 else {

@@ -3461,6 +3461,178 @@ static void test_wolfTPM2_NVNameRefresh(void)
 #endif
 }
 
+/* An NV index that only its policy can authorize, written and read on a plain
+ * policy session (not salted, not bound). usePassword selects PolicyPassword,
+ * where the authValue is sent in the clear, over PolicyAuthValue, where it
+ * keys the session HMAC. */
+static void test_wolfTPM2_NVPolicyAuth(int usePassword)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX + 4;
+    const byte nvAuth[] = "policyauthvalue";
+    const byte badAuth[] = "notthevalue";
+    const int nvAuthSz = (int)sizeof(nvAuth) - 1;
+    word32 nvAttributes = (TPMA_NV_POLICYWRITE | TPMA_NV_POLICYREAD |
+        TPMA_NV_NO_DA);
+    byte policy[TPM_MAX_DIGEST_SIZE];
+    word32 policySz = (word32)sizeof(policy);
+    byte buf[32];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+    const char* name = usePassword ? "NV PolicyPassword:" :
+                                     "NV PolicyAuthValue:";
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(buf, 0x6D, sizeof(buf));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", name);
+        return;
+    }
+
+    /* have the TPM compute the policy digest */
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    if (usePassword)
+        rc = wolfTPM2_PolicyPassword(&dev, &session, NULL, 0);
+    else
+        rc = wolfTPM2_PolicyAuthValue(&dev, &session, NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_GetPolicyDigest(&dev, session.handle.hndl, policy,
+        &policySz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+
+    parent.hndl = TPM_RH_OWNER;
+    (void)wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    rc = wolfTPM2_NVCreateAuthPolicy(&dev, &parent, &nv, nvIndex,
+        nvAttributes, (word32)sizeof(buf), nvAuth, nvAuthSz,
+        policy, (int)policySz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    if (usePassword)
+        rc = wolfTPM2_PolicyPassword(&dev, &session, nvAuth, nvAuthSz);
+    else
+        rc = wolfTPM2_PolicyAuthValue(&dev, &session, nvAuth, nvAuthSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &session,
+        TPMA_SESSION_continueSession);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVWriteAuthPolicy(&dev, &session, TPM_ALG_NULL, NULL, 0,
+        &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* the policy is consumed by each use */
+    if (usePassword)
+        rc = wolfTPM2_PolicyPassword(&dev, &session, nvAuth, nvAuthSz);
+    else
+        rc = wolfTPM2_PolicyAuthValue(&dev, &session, nvAuth, nvAuthSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuthPolicy(&dev, &session, TPM_ALG_NULL, NULL, 0,
+        &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    /* a wrong authValue is refused */
+    if (usePassword)
+        rc = wolfTPM2_PolicyPassword(&dev, &session, badAuth,
+            (int)sizeof(badAuth) - 1);
+    else
+        rc = wolfTPM2_PolicyAuthValue(&dev, &session, badAuth,
+            (int)sizeof(badAuth) - 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuthPolicy(&dev, &session, TPM_ALG_NULL, NULL, 0,
+        &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_SetAuthSession(&dev, 0, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", name);
+#else
+    (void)usePassword;
+#endif
+}
+
+/* The TPM takes the authValue as a password or as an HMAC key, whichever of
+ * PolicyPassword and PolicyAuthValue ran last, and as neither after a
+ * PolicyRestart. A flag left over from the other one would send the
+ * authValue in the clear where the TPM expects an HMAC. */
+static void test_wolfTPM2_PolicyPassword_ModeReset(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    const byte auth[] = "policyauthvalue";
+    const int authSz = (int)sizeof(auth) - 1;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "PolicyPassword reset:");
+        return;
+    }
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_PolicyPassword(&dev, &session, auth, authSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(session.handle.policyPass, 1);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &session,
+        TPMA_SESSION_continueSession);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[0].policyPass, 1);
+
+    rc = wolfTPM2_PolicyRestart(&dev, session.handle.hndl);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[0].policyPass, 0);
+    AssertIntEQ(dev.session[0].policyAuth, 0);
+
+    rc = wolfTPM2_PolicyAuthValue(&dev, &session, auth, authSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(session.handle.policyPass, 0);
+    AssertIntEQ(session.handle.policyAuth, 1);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &session,
+        TPMA_SESSION_continueSession);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[0].policyPass, 0);
+    AssertIntEQ(dev.session[0].policyAuth, 1);
+
+    rc = wolfTPM2_PolicyPassword(&dev, &session, auth, authSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(session.handle.policyPass, 1);
+    AssertIntEQ(session.handle.policyAuth, 0);
+
+    wolfTPM2_SetAuthSession(&dev, 0, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "PolicyPassword reset:");
+#endif
+}
+
 /* Data too large for one TPM2_NV_Extend is refused before the TPM is
  * contacted, since extending it in pieces would chain the digest. */
 static void test_wolfTPM2_NVExtend_OneCommand(void)
@@ -12829,6 +13001,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_SplitParamEncSession();
     test_wolfTPM2_NVWriteChunked();
     test_wolfTPM2_NVNameRefresh();
+    test_wolfTPM2_PolicyPassword_ModeReset();
+    test_wolfTPM2_NVPolicyAuth(1);
     test_wolfTPM2_NVExtend_OneCommand();
     test_wolfTPM2_NVOwnerAuth();
 #ifndef WOLFTPM2_NO_WOLFCRYPT
