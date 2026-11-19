@@ -4338,7 +4338,7 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
     int rc = 0;
     RsaKey key[1];
     word32 idx = 0;
-    word32 e = 0;
+    byte e[sizeof(word32)];
     byte n[RSA_MAX_SIZE / 8];
     byte d[RSA_MAX_SIZE / 8];
     byte p[RSA_MAX_SIZE / 8];
@@ -4392,12 +4392,12 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
         if (rc == 0) {
             if (isPrivateKey) {
                 PRIVATE_KEY_UNLOCK();
-                rc = wc_RsaExportKey(key, (byte*)&e, &eSz, n, &nSz, d, &dSz,
+                rc = wc_RsaExportKey(key, e, &eSz, n, &nSz, d, &dSz,
                     p, &pSz, q, &qSz);
                 PRIVATE_KEY_LOCK();
             }
             else {
-                rc = wc_RsaFlattenPublicKey(key, (byte*)&e, &eSz, n, &nSz);
+                rc = wc_RsaFlattenPublicKey(key, e, &eSz, n, &nSz);
             }
         }
         if (rc == 0 && nSz > sizeof(pub->publicArea.unique.rsa.buffer))
@@ -4412,7 +4412,7 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             pub->publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
             pub->publicArea.objectAttributes = attributes;
             rsa->keyBits = nSz * 8;
-            rsa->exponent = e;
+            rsa->exponent = wolfTPM2_RsaKey_Exponent(e, eSz);
             /* if both sign and decrypt are set then must use NULL scheme */
             rsa->scheme.scheme =
                 ((attributes & TPMA_OBJECT_sign) &&
@@ -4896,7 +4896,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     int initRc = -1;
     RsaKey key[1];
     word32 idx = 0;
-    word32  e = 0;
+    byte e[sizeof(word32)];
     byte n[RSA_MAX_SIZE / 8];
     byte d[RSA_MAX_SIZE / 8];
     byte p[RSA_MAX_SIZE / 8];
@@ -4925,14 +4925,14 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
 
     if (rc == 0) {
         PRIVATE_KEY_UNLOCK();
-        rc = wc_RsaExportKey(key, (byte*)&e, &eSz, n, &nSz, d, &dSz, p, &pSz, q,
+        rc = wc_RsaExportKey(key, e, &eSz, n, &nSz, d, &dSz, p, &pSz, q,
             &qSz);
         PRIVATE_KEY_LOCK();
     }
 
     if (rc == 0) {
-        rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, keyBlob, n, nSz, e, q,
-            qSz, scheme, hashAlg);
+        rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, keyBlob, n, nSz,
+            wolfTPM2_RsaKey_Exponent(e, eSz), q, qSz, scheme, hashAlg);
     }
 
     if (initRc == 0) {

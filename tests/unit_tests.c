@@ -5662,6 +5662,38 @@ static void test_wolfTPM2_RsaKey_TpmToWolf_Exponent(void)
 #endif
 }
 
+/* A DER public key with a multi-byte exponent that is not a byte palindrome
+ * must decode to the same exponent value on any host byte order. */
+static void test_wolfTPM2_DecodeRsaDer_Exponent(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(NO_ASN)
+    static const byte spkiHdr[] = {
+        0x30, 0x82, 0x01, 0x22,
+        0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01,
+        0x01, 0x01, 0x05, 0x00,
+        0x03, 0x82, 0x01, 0x0F, 0x00,
+        0x30, 0x82, 0x01, 0x0A,
+        0x02, 0x82, 0x01, 0x01, 0x00
+    };
+    static const byte expDer[] = { 0x02, 0x03, 0x01, 0x00, 0x03 };
+    byte der[sizeof(spkiHdr) + 256 + sizeof(expDer)];
+    TPM2B_PUBLIC pub;
+    int rc;
+
+    XMEMCPY(der, spkiHdr, sizeof(spkiHdr));
+    XMEMSET(&der[sizeof(spkiHdr)], 0xC7, 256);
+    XMEMCPY(&der[sizeof(spkiHdr) + 256], expDer, sizeof(expDer));
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_DecodeRsaDer(der, (word32)sizeof(der), &pub, NULL, 0);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)pub.publicArea.unique.rsa.size, 256);
+    AssertIntEQ((int)pub.publicArea.parameters.rsaDetail.exponent, 0x010003);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "DecodeRsaDer exponent:");
+#endif
+}
+
 /* The ECDH shared-secret copy must reject a TPM response x-coordinate larger
  * than the caller's output buffer. TPM2_Packet_ParseEccPoint clamps only to
  * MAX_ECC_KEY_BYTES, so a MITM/crafted response can report a point.x.size
@@ -12311,6 +12343,7 @@ int unit_tests(int argc, char *argv[])
 #endif
     test_wolfTPM2_EccKey_TpmToWolf_ShortCoord();
     test_wolfTPM2_RsaKey_TpmToWolf_Exponent();
+    test_wolfTPM2_DecodeRsaDer_Exponent();
     test_wolfTPM2_EccZToBuffer();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
