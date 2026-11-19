@@ -895,6 +895,7 @@ static int test_tcg_get_pub_key_preserves_pin(void)
     ASSERT_EQ(rc, WOLFSPDM_E_PEER_ERROR,
         "malformed TPMT_PUBLIC Y size must be rejected");
 
+    SPDM_Set16BE(tpmtPublic + 70, WOLFSPDM_ECC_KEY_SIZE);
     ioCtx.pubKeySz = WOLFSPDM_ECC_POINT_SIZE + 1;
     pubKeySz = sizeof(pubKey);
     rc = wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz);
