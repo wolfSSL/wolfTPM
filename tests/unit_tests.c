@@ -9964,6 +9964,11 @@ static void test_wolfTPM2_EccSignVerify_LongHash(WOLFTPM2_DEV* dev)
         rc = wolfTPM2_VerifyHashScheme(dev, &eccKey, sig, sigSz, digest,
             (int)sizeof(digest), TPM_ALG_ECDSA, TPM_ALG_SHA384);
         AssertIntEQ(rc, 0);
+
+        /* no scheme given and none in the key selects ECDSA, as signing does */
+        rc = wolfTPM2_VerifyHashScheme(dev, &eccKey, sig, sigSz, digest,
+            (int)sizeof(digest), TPM_ALG_NULL, TPM_ALG_SHA384);
+        AssertIntEQ(rc, 0);
     }
     wolfTPM2_UnloadHandle(dev, &eccKey.handle);
 

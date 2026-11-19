@@ -5898,6 +5898,9 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
         if (sigAlg == TPM_ALG_NULL)
             sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
+        /* a key with sign and decrypt has no scheme of its own */
+        if (sigAlg == 0 || sigAlg == TPM_ALG_NULL)
+            sigAlg = TPM_ALG_ECDSA;
 
         /* get curve size */
         curveSize = wolfTPM2_GetCurveSize(
