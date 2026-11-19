@@ -70,6 +70,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     TPMI_ALG_PUBLIC srkAlg = TPM_ALG_RSA; /* default matches seal.c */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
+    WOLFTPM2_SESSION paramEncSession;
     const char* inputFile = "keyblob.bin";
     int persistent = 0;
     int endorseKey = 0;
@@ -113,6 +114,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&newKey, 0, sizeof(newKey));
     XMEMSET(&persistKey, 0, sizeof(persistKey));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&paramEncSession, 0, sizeof(paramEncSession));
 
     printf("TPM2.0 Key load example\n");
     printf("\tKey Blob: %s\n", inputFile);
@@ -157,16 +159,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         primary = &storage;
     }
 
-    if (endorseKey) {
-        /* Fresh policy session for EK auth */
-        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
-        if (rc != 0) goto exit;
-        /* Set the created Policy Session for use in next operation */
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
-        if (rc != 0) goto exit;
-    }
-    else if (paramEncAlg != TPM_ALG_NULL) {
-        WOLFTPM2_KEY* bindKey = &storage;
+    if (paramEncAlg != TPM_ALG_NULL) {
+        WOLFTPM2_KEY* bindKey = primary;
     #ifndef HAVE_ECC
         if (srkAlg == TPM_ALG_ECC)
             bindKey = NULL; /* cannot bind to key without ECC enabled */
@@ -177,16 +171,25 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     #endif
         /* Start an authenticated session (salted / unbound) with parameter
          * encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
+        rc = wolfTPM2_StartSession(&dev, &paramEncSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
-            (word32)tpmSession.handle.hndl);
+            (word32)paramEncSession.handle.hndl);
 
-        /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
+        /* slot 1, since the wrappers set the handle auth in slot 0 */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &paramEncSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
              TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
+    }
+
+    if (endorseKey) {
+        /* Fresh policy session for EK auth */
+        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        if (rc != 0) goto exit;
+        /* Set the created Policy Session for use in next operation */
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
         if (rc != 0) goto exit;
     }
 
@@ -234,9 +237,7 @@ exit:
         wolfTPM2_UnloadHandle(&dev, &newKey.handle);
     }
     /* EK policy is destroyed after use, flush parameter encryption session */
-    if (!endorseKey) {
-        wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
-    }
+    wolfTPM2_UnloadHandle(&dev, &paramEncSession.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;
