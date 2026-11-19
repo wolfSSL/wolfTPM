@@ -224,7 +224,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_StartSession(&dev, &tpmSession, &endorse, NULL,
         TPM_SE_HMAC, paramEncAlg);
     if (rc == 0) {
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
              TPMA_SESSION_continueSession));
     }
@@ -268,7 +268,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     }
 
     /* Close session and unload endorsement */
-    wolfTPM2_UnsetAuth(&dev, 0);
+    wolfTPM2_UnsetAuth(&dev, 1);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
 
