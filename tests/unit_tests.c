@@ -10224,7 +10224,7 @@ static void test_wolfTPM2_PCRGetDigest_Order(void)
     TPM_ALG_ID pcrAlg = TPM_ALG_SHA256;
     byte pcrArray[3] = {TPM2_DEMO_PCR_INDEX, 0, TPM2_DEMO_PCR_INDEX};
     byte pcrSorted[2] = {0, TPM2_DEMO_PCR_INDEX};
-    byte extend[WC_SHA256_DIGEST_SIZE];
+    byte extend[WC_SHA256_DIGEST_SIZE + 1];
     byte pcrHash[WC_SHA256_DIGEST_SIZE];
     byte pcrHashSorted[WC_SHA256_DIGEST_SIZE];
     word32 pcrHashSz = 0;
@@ -10245,7 +10245,7 @@ static void test_wolfTPM2_PCRGetDigest_Order(void)
     /* make the two PCR values differ */
     XMEMSET(extend, 0x5C, sizeof(extend));
     rc = wolfTPM2_ExtendPCR(&dev, TPM2_DEMO_PCR_INDEX, pcrAlg, extend,
-        (int)sizeof(extend));
+        WC_SHA256_DIGEST_SIZE);
     AssertIntEQ(rc, 0);
 
     rc = wolfTPM2_PCRGetDigest(&dev, pcrAlg, pcrArray, (word32)sizeof(pcrArray),
@@ -10275,6 +10275,14 @@ static void test_wolfTPM2_PCRGetDigest_Order(void)
     AssertIntEQ(rc, 0);
     AssertIntEQ((int)tpmDigestSz, (int)digestSz);
     AssertIntEQ(XMEMCMP(tpmDigest, digest, digestSz), 0);
+
+    /* a NULL or over-long measurement is refused, not truncated */
+    rc = wolfTPM2_ExtendPCR(&dev, TPM2_DEMO_PCR_INDEX, pcrAlg, NULL,
+        WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_ExtendPCR(&dev, TPM2_DEMO_PCR_INDEX, pcrAlg, extend,
+        (int)sizeof(extend));
+    AssertIntEQ(rc, BUFFER_E);
 
     /* an index outside the PCR range is refused */
     pcrArray[1] = (byte)(PCR_LAST + 1);

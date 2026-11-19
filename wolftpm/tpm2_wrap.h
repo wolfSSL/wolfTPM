@@ -3094,10 +3094,12 @@ WOLFTPM_API int wolfTPM2_SetLocality(WOLFTPM2_DEV* dev, int locality);
     \ingroup wolfTPM2_Wrappers
     \brief Extend a PCR register with a user provided digest
     \note Make sure to specify the correct hashing algorithm
+    \note A digest shorter than the hash algorithm size is zero padded
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: digestLen is larger than the hash algorithm size
 
     \param dev pointer to a TPM2_DEV struct
     \param pcrIndex integer value, specifying a valid PCR index, between 0 and 23 (TPM locality could have an impact on successful access)

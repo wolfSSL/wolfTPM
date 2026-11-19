@@ -7571,11 +7571,21 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     const byte* digest, int digestLen)
 {
     int rc;
+    int hashSz;
     PCR_Extend_In pcrExtend;
 
     if (dev == NULL || digestLen < 0 || digestLen > TPM_MAX_DIGEST_SIZE ||
             pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST) {
         return BAD_FUNC_ARG;
+    }
+    if (digest == NULL && digestLen > 0) {
+        return BAD_FUNC_ARG;
+    }
+    /* a shorter value is zero padded to the bank size, a longer one would
+     * be cut off */
+    hashSz = TPM2_GetHashDigestSize((TPMI_ALG_HASH)hashAlg);
+    if (hashSz > 0 && digestLen > hashSz) {
+        return BUFFER_E;
     }
 
     /* set session auth to blank */
@@ -7587,7 +7597,9 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     pcrExtend.pcrHandle = pcrIndex;
     pcrExtend.digests.count = 1;
     pcrExtend.digests.digests[0].hashAlg = hashAlg;
-    XMEMCPY(pcrExtend.digests.digests[0].digest.H, digest, digestLen);
+    if (digestLen > 0) {
+        XMEMCPY(pcrExtend.digests.digests[0].digest.H, digest, digestLen);
+    }
     rc = TPM2_PCR_Extend(&pcrExtend);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
