@@ -3609,13 +3609,13 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         return BAD_FUNC_ARG;
     }
 
-    /* Use outer wrap (Integrity then Encrypt) */
+    /* Use outer wrap (Encrypt then Integrity) */
     if (symSeed && symSeed->size > 0) {
         outerWrap = 1;
         integritySz = sizeof(word16) + digestSz;
     }
 
-    /* Use inner wrap (Encrypt then Integrity) */
+    /* Use inner wrap (Integrity then Encrypt) */
     if (sym && sym->algorithm != TPM_ALG_NULL) {
         innerWrap = 1;
     }
