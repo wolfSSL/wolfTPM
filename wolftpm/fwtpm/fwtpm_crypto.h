@@ -64,6 +64,12 @@ int FwComputeHashUnique(TPMI_ALG_HASH nameAlg,
     const byte* uniqueData, int uniqueDataSz,
     byte* hashOut);
 
+/* unique of a KEYEDHASH or SYMCIPHER object from its sensitive area. Returns
+ * as FwComputeHashUnique does. */
+int FwComputeSymUnique(const TPMT_PUBLIC* pub,
+    const byte* seed, int seedSz, const byte* key, int keySz,
+    byte* uniqueOut);
+
 /* Derive symmetric primary key via KDFa (KEYEDHASH / SYMCIPHER) */
 TPM_RC FwDeriveSymmetricPrimaryKey(TPMI_ALG_HASH nameAlg,
     const byte* seed, const byte* hashUnique, int hashUniqueSz,

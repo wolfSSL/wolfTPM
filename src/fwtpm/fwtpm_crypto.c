@@ -178,6 +178,30 @@ int FwComputeHashUnique(TPMI_ALG_HASH nameAlg,
     return 0;
 }
 
+/* Compute unique of a KEYEDHASH or SYMCIPHER object as the reference
+ * implementation does: HMAC_nameAlg(seedValue, key) for a restricted
+ * decryption key, H_nameAlg(seedValue || key) otherwise. An object that has
+ * no seedValue keeps the plain digest of its key.
+ * Returns digest size on success, TPM_RC_MEMORY or 0 on error. */
+int FwComputeSymUnique(const TPMT_PUBLIC* pub,
+    const byte* seed, int seedSz, const byte* key, int keySz,
+    byte* uniqueOut)
+{
+    int hSz = TPM2_GetHashDigestSize(pub->nameAlg);
+
+    if (seedSz > 0 &&
+            (pub->objectAttributes & TPMA_OBJECT_restricted) != 0 &&
+            (pub->objectAttributes & TPMA_OBJECT_decrypt) != 0) {
+        if (hSz <= 0 || TPM2_HmacCompute(pub->nameAlg, seed, (word32)seedSz,
+                key, (word32)keySz, NULL, 0, uniqueOut, NULL) != 0) {
+            return 0;
+        }
+        return hSz;
+    }
+    return FwComputeHashUnique(pub->nameAlg, seed, seedSz, key, keySz,
+        uniqueOut);
+}
+
 /* Derive a symmetric primary key from hierarchy seed via KDFa.
  * Per TPM 2.0 Part 1 Section 26.1:
  *   key = KDFa(nameAlg, seed, label, hashUnique, NULL, keySz*8)

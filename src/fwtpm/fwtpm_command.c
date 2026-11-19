@@ -8255,6 +8255,51 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* Create, Load, Sign, Verify, RSA Encrypt/Decrypt                     */
 /* ================================================================== */
 
+/* Generate the seedValue of a new object as the reference implementation
+ * does: nameAlg digest sized for a KEYEDHASH or SYMCIPHER object and for an
+ * asymmetric storage key, none for any other asymmetric key. unique of a
+ * KEYEDHASH or SYMCIPHER object is computed from it. */
+static TPM_RC FwCreateSeedValue(FWTPM_CTX* ctx, TPMT_PUBLIC* pub,
+    const byte* key, int keySz, TPM2B_DIGEST* seedValue)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int isSym = (pub->type == TPM_ALG_KEYEDHASH ||
+        pub->type == TPM_ALG_SYMCIPHER);
+    int uSz;
+
+    seedValue->size = 0;
+    if (!isSym && ((pub->objectAttributes & TPMA_OBJECT_restricted) == 0 ||
+            (pub->objectAttributes & TPMA_OBJECT_sign) != 0)) {
+        return TPM_RC_SUCCESS;
+    }
+    if (digestSz <= 0 || digestSz > (int)sizeof(seedValue->buffer)) {
+        rc = TPM_RC_HASH;
+    }
+    else if (wc_RNG_GenerateBlock(&ctx->rng, seedValue->buffer,
+            (word32)digestSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        seedValue->size = (UINT16)digestSz;
+    }
+    if (rc == 0 && isSym) {
+        /* keyedHash and sym share the layout of unique */
+        uSz = FwComputeSymUnique(pub, seedValue->buffer, seedValue->size,
+            key, keySz, pub->unique.keyedHash.buffer);
+        if (uSz == (int)TPM_RC_MEMORY) {
+            rc = TPM_RC_MEMORY;
+        }
+        else if (uSz != digestSz) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            pub->unique.keyedHash.size = (UINT16)uSz;
+        }
+    }
+    return rc;
+}
+
 /* --- TPM2_Create (CC 0x0153) --- */
 static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -8540,14 +8585,6 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         privKeyDerSz = keySz;
                     }
                 }
-
-                /* unique = H(key bytes) */
-                if (rc == 0) {
-                    inPublic->publicArea.unique.keyedHash.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, privKeyDerSz,
-                            inPublic->publicArea.unique.keyedHash.buffer);
-                }
                 break;
             }
             case TPM_ALG_SYMCIPHER: {
@@ -8577,12 +8614,6 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 if (rc == 0) {
                     privKeyDerSz = keySz;
-
-                    /* unique = H(key bytes) */
-                    inPublic->publicArea.unique.sym.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, keySz,
-                            inPublic->publicArea.unique.sym.buffer);
                 }
                 break;
             }
@@ -8590,6 +8621,11 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_TYPE;
                 break;
         }
+    }
+
+    if (rc == 0) {
+        rc = FwCreateSeedValue(ctx, &inPublic->publicArea, privKeyDer,
+            privKeyDerSz, &seedValue);
     }
 
     /* Wrap private key into TPM2B_PRIVATE, bound to the child's Name */
@@ -9614,9 +9650,9 @@ static TPM_RC FwDupOuterWrap(const FWTPM_Object* newParent, const byte* seed,
 }
 
 /* Check an imported KEYEDHASH or SYMCIPHER sensitive area and return its
- * key: the key fits the public parameters and unique is the nameAlg digest
- * of seedValue || key. Objects created by this TPM have an empty
- * seedValue. */
+ * key: the key fits the public parameters and unique is the one its
+ * seedValue and key give. An object duplicated before this TPM kept a
+ * seedValue arrives with an empty one. */
 static TPM_RC FwImportSymSensitive(const TPMT_PUBLIC* pub, UINT16 sensType,
     const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz,
     byte* privKey, int privKeyBufSz, int* privKeySz)
@@ -9662,8 +9698,7 @@ static TPM_RC FwImportSymSensitive(const TPMT_PUBLIC* pub, UINT16 sensType,
         }
     }
     if (rc == 0) {
-        hRc = FwComputeHashUnique(pub->nameAlg, seed, seedSz, key, keySz,
-            unique);
+        hRc = FwComputeSymUnique(pub, seed, seedSz, key, keySz, unique);
         if (hRc != digestSz) {
             rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
         }
@@ -10836,13 +10871,6 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         privKeyDerSz = keySz;
                     }
                 }
-
-                if (rc == 0) {
-                    inPublic->publicArea.unique.keyedHash.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, privKeyDerSz,
-                            inPublic->publicArea.unique.keyedHash.buffer);
-                }
                 break;
             }
             case TPM_ALG_SYMCIPHER: {
@@ -10873,19 +10901,17 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         privKeyDerSz = keySz;
                     }
                 }
-
-                if (rc == 0) {
-                    inPublic->publicArea.unique.sym.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, keySz,
-                            inPublic->publicArea.unique.sym.buffer);
-                }
                 break;
             }
             default:
                 rc = TPM_RC_TYPE;
                 break;
         }
+    }
+
+    if (rc == 0) {
+        rc = FwCreateSeedValue(ctx, &inPublic->publicArea, privKeyDer,
+            privKeyDerSz, &seedValue);
     }
 
     /* Wrap private key, bound to the child's Name */
