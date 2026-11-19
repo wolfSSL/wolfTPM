@@ -175,7 +175,7 @@ Define WOLFTPM_I2C to use the I2C transport, or supply your own SPI \
 TPM2_IoCb callback via wolfTPM2_Init()."
 #endif
 
-#endif /* WOLFSSL_ZEPHYR */
+#endif /* WOLFTPM_ZEPHYR */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */
 
 /******************************************************************************/
