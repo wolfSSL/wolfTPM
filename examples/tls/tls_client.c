@@ -117,6 +117,7 @@ int TPM2_TLS_Client(void* userCtx)
 int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
+    int err;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storageKey;
     WOLFTPM2_KEY* bindKey = NULL;
@@ -745,12 +746,16 @@ tls_setup:
         benchStart = gettime_secs(1);
     #endif
         do {
+            err = 0;
             rc = wolfSSL_write(ssl, msg, msgSz);
-            if (rc != msgSz) {
-                rc = wolfSSL_get_error(ssl, 0);
+            if (rc <= 0) {
+                err = wolfSSL_get_error(ssl, 0);
             }
-        } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-        if (rc >= 0) {
+        } while (err == WOLFSSL_ERROR_WANT_WRITE);
+        if (err != 0) {
+            rc = err;
+        }
+        else if (rc >= 0) {
             msgSz = rc;
         #ifdef TLS_BENCH_MODE
             benchStart = gettime_secs(0) - benchStart;
@@ -768,13 +773,17 @@ tls_setup:
         benchStart = 0; /* use the read callback to trigger timing */
     #endif
         do {
+            err = 0;
             /* attempt to fill msg buffer */
             rc = wolfSSL_read(ssl, msg, sizeof(msg));
             if (rc < 0) {
-                rc = wolfSSL_get_error(ssl, 0);
+                err = wolfSSL_get_error(ssl, 0);
             }
-        } while (rc == WOLFSSL_ERROR_WANT_READ);
-        if (rc >= 0) {
+        } while (err == WOLFSSL_ERROR_WANT_READ);
+        if (err != 0) {
+            rc = err;
+        }
+        else if (rc >= 0) {
             msgSz = rc;
         #ifdef TLS_BENCH_MODE
             benchStart = gettime_secs(0) - benchStart;
