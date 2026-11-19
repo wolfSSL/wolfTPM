@@ -124,10 +124,11 @@ WOLFTPM_API int TPM2_KDFe_ex(
     Backward-compatible wrapper around TPM2_KDFe_ex.
 
     \return keySz number of bytes generated on success
+    \return BAD_FUNC_ARG if key or Z is NULL
     \return negative on error
 
     \param hashAlg hash algorithm
-    \param Z pointer to TPM2B_DATA with shared secret (may be NULL)
+    \param Z pointer to TPM2B_DATA with shared secret (must not be NULL)
     \param label null-terminated label string
     \param partyU pointer to TPM2B_NONCE for party U (may be NULL)
     \param partyV pointer to TPM2B_NONCE for party V (may be NULL)
