@@ -10047,6 +10047,52 @@ static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
 #endif
 }
 
+/* A DigestInfo must fill the input exactly: bytes after the SEQUENCE or after
+ * the digest OCTET STRING are refused */
+static void test_TPM2_ASN_RsaDecodeSignature_Length(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    static const byte digestInfoHdr[] = {
+        0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65,
+        0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20
+    };
+    byte buf[sizeof(digestInfoHdr) + TPM_SHA256_DIGEST_SIZE + 1];
+    const int validSz = (int)sizeof(buf) - 1;
+    uint8_t* p;
+    int rc;
+
+    XMEMCPY(buf, digestInfoHdr, sizeof(digestInfoHdr));
+    XMEMSET(&buf[sizeof(digestInfoHdr)], 0x5A, TPM_SHA256_DIGEST_SIZE + 1);
+
+    p = buf;
+    rc = TPM2_ASN_RsaDecodeSignature(&p, validSz);
+    AssertIntEQ(rc, TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ((int)(p - buf), (int)sizeof(digestInfoHdr));
+
+    /* one byte after the SEQUENCE */
+    p = buf;
+    rc = TPM2_ASN_RsaDecodeSignature(&p, validSz + 1);
+    AssertIntEQ(rc, TPM_RC_ASN_VALUE);
+    AssertIntEQ((int)(p - buf), 0);
+
+    /* one byte after the OCTET STRING, inside the SEQUENCE */
+    buf[1] = 0x32;
+    p = buf;
+    rc = TPM2_ASN_RsaDecodeSignature(&p, validSz + 1);
+    AssertIntEQ(rc, TPM_RC_ASN_VALUE);
+    buf[1] = 0x31;
+
+    /* an OCTET STRING running past the SEQUENCE */
+    buf[sizeof(digestInfoHdr) - 1] = 0x21;
+    p = buf;
+    rc = TPM2_ASN_RsaDecodeSignature(&p, validSz);
+    AssertIntNE(rc, TPM_SHA256_DIGEST_SIZE + 1);
+    AssertIntEQ(rc < 0, 1);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN RsaDecodeSignature length:");
+#endif
+}
+
 static void test_TPM2_ASN_RsaUnpadPkcsv15(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
@@ -13211,6 +13257,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_CryptoDevCb_MlDsaKeyId();
     test_TPM2_ASN_DecodeX509Cert_Errors();
     test_TPM2_ASN_GetNameAttr();
+    test_TPM2_ASN_RsaDecodeSignature_Length();
     test_TPM2_ASN_RsaUnpadPkcsv15();
     test_TPM2_ASN_TrimZeros();
     test_TPM2_ASN_DecodeX509Cert_Valid();
