@@ -1456,8 +1456,9 @@ WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Single function to import an external private key and load it into the TPM in one step
+    \brief Import an external private key under a parent key. The key is returned as a key blob and is not loaded.
     \note The primary key material needs to be prepared in a format that the TPM expects, see the 'sens' argument
+    \note Use wolfTPM2_LoadKey to load the returned key blob, or wolfTPM2_LoadPrivateKey to import and load in one step
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -1469,6 +1470,8 @@ WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
     \param pub pointer to a populated structure of TPM2B_PUBLIC type
     \param sens pointer to a populated structure of TPM2B_SENSITIVE type
 
+    \sa wolfTPM2_LoadKey
+    \sa wolfTPM2_LoadPrivateKey
     \sa wolfTPM2_ImportRsaPrivateKey
     \sa wolfTPM2_ImportEccPrivateKey
 */
