@@ -644,15 +644,19 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     rc = writeKeyBlob(outputFile, &newKeyBlob);
     /* Generate key artifacts needed for remote attestation */
-    if (bAIK) {
+    if (rc == 0 && bAIK) {
         /* Store primary public key */
         XMEMCPY(&primaryBlob.pub, &primary->pub, sizeof(primaryBlob.pub));
-        rc |= writeKeyBlob(pubFilename, &primaryBlob);
+        rc = writeKeyBlob(pubFilename, &primaryBlob);
 
         /* Write AK's Name digest */
-        rc |= writeBin(nameFile, (byte*)&newKeyBlob.handle.name,
-            sizeof(newKeyBlob.handle.name));
-        printf("Wrote AK Name digest\n");
+        if (rc == 0) {
+            rc = writeBin(nameFile, (byte*)&newKeyBlob.handle.name,
+                sizeof(newKeyBlob.handle.name));
+        }
+        if (rc == 0) {
+            printf("Wrote AK Name digest\n");
+        }
     }
     if (rc != TPM_RC_SUCCESS) goto exit;
 #else
