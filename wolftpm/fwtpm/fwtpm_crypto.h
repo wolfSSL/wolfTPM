@@ -250,27 +250,32 @@ int FwDeriveWrapKey(FWTPM_CTX* ctx, const FWTPM_Object* parent,
 
 int FwMarshalSensitive(byte* buf, int bufSz,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
-    const byte* privKeyDer, int privKeyDerSz);
+    const byte* privKeyDer, int privKeyDerSz,
+    const TPM2B_DIGEST* seedValue);
 
 int FwMarshalSensitiveStd(byte* buf, int bufSz,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
+    const TPM2B_DIGEST* seedValue,
     const byte* sensData, int sensDataSz);
 
 int FwUnmarshalSensitive(const byte* buf, int bufSz,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
-    byte* privKeyDer, int* privKeyDerSz);
+    byte* privKeyDer, int* privKeyDerSz,
+    TPM2B_DIGEST* seedValue);
 
 int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     const TPM2B_NAME* name,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
     const byte* privKeyDer, int privKeyDerSz,
+    const TPM2B_DIGEST* seedValue,
     TPM2B_PRIVATE* outPriv);
 
 int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
     const TPM2B_NAME* name,
     const TPM2B_PRIVATE* inPriv,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
-    byte* privKeyDer, int* privKeyDerSz);
+    byte* privKeyDer, int* privKeyDerSz,
+    TPM2B_DIGEST* seedValue);
 
 /* --- Context blob wrap/unwrap (ContextSave/Load) --- */
 

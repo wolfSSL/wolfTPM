@@ -614,6 +614,7 @@ typedef struct FWTPM_Object {
     int privKeySize;
     TPM2B_NAME name;                /* Object name = nameAlg || H(publicArea) */
     TPM2B_NAME qualifiedName;       /* nameAlg || H(parent QN || name) */
+    TPM2B_DIGEST seedValue;         /* TPMT_SENSITIVE seedValue, may be empty */
     int publicOnly;                 /* Loaded without a sensitive area */
 } FWTPM_Object;
 

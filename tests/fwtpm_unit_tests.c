@@ -675,6 +675,7 @@ static void test_fwtpm_crypto_alloc_failure(void)
     FWTPM_Object parent;
     TPM2B_NAME name;
     TPM2B_AUTH auth;
+    TPM2B_DIGEST seedValue;
     TPM2B_PRIVATE privateBlob;
     UINT16 sensitiveType = 0;
     byte aesKey[WC_SHA256_DIGEST_SIZE];
@@ -737,6 +738,7 @@ static void test_fwtpm_crypto_alloc_failure(void)
     memset(&parent, 0, sizeof(parent));
     memset(&name, 0, sizeof(name));
     memset(&auth, 0, sizeof(auth));
+    memset(&seedValue, 0, sizeof(seedValue));
     memset(&privateBlob, 0, sizeof(privateBlob));
     parent.hierarchy = TPM_RH_OWNER;
     parent.privKeySize = 1;
@@ -747,7 +749,7 @@ static void test_fwtpm_crypto_alloc_failure(void)
 
     fwtpm_test_fail_next_alloc();
     rc = FwWrapPrivate(&ctx, &parent, NULL, &name, TPM_ALG_RSA, &auth,
-        der, 0, &privateBlob);
+        der, 0, &seedValue, &privateBlob);
     AssertIntEQ(rc, TPM_RC_MEMORY);
 
     memset(&privateBlob, 0, sizeof(privateBlob));
@@ -755,7 +757,7 @@ static void test_fwtpm_crypto_alloc_failure(void)
     PutU16BE(privateBlob.buffer, WC_SHA256_DIGEST_SIZE);
     fwtpm_test_fail_next_alloc();
     rc = FwUnwrapPrivate(&ctx, &parent, &name, &privateBlob,
-        &sensitiveType, &auth, der, &derSz);
+        &sensitiveType, &auth, der, &derSz, &seedValue);
     AssertIntEQ(rc, TPM_RC_MEMORY);
 
     memset(&ctx, 0, sizeof(ctx));
@@ -20045,6 +20047,133 @@ static void test_fwtpm_rsa_credential_oaep_label(void)
 }
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN && !FWTPM_NO_CREDENTIAL */
 
+/* Wrap a private blob for an HMAC-SHA256 key under parentH as FwWrapPrivate
+ * does, with the seedValue when seed is not NULL and in the layout that
+ * predates it otherwise, and Load it. The object handle is returned. */
+static UINT32 LoadCraftedHmacKey(FWTPM_CTX* ctx, UINT32 parentH,
+    const byte* key, UINT16 keySz, const byte* unique, const byte* seed,
+    UINT16 seedSz)
+{
+    FWTPM_Object* parent = &ctx->objects[parentH - TRANSIENT_FIRST];
+    byte pub[64];
+    byte sens[160];
+    byte priv[2 + WC_SHA256_DIGEST_SIZE + AES_BLOCK_SIZE + 2 + sizeof(sens)];
+    byte aesKey[FWTPM_MAX_SYM_KEY_SIZE];
+    byte macKey[WC_SHA256_DIGEST_SIZE];
+    byte iv[AES_BLOCK_SIZE];
+    TPM2B_NAME name;
+    Aes aes;
+    Hmac hmac;
+    int pubSz = 0, sensSz = 0, pos, rspSize = 0;
+
+    PutU16BE(pub + pubSz, TPM_ALG_KEYEDHASH); pubSz += 2;
+    PutU16BE(pub + pubSz, TPM_ALG_SHA256); pubSz += 2;
+    PutU32BE(pub + pubSz, 0x00040040); pubSz += 4; /* userWithAuth | sign */
+    PutU16BE(pub + pubSz, 0); pubSz += 2; /* authPolicy */
+    PutU16BE(pub + pubSz, TPM_ALG_HMAC); pubSz += 2;
+    PutU16BE(pub + pubSz, TPM_ALG_SHA256); pubSz += 2;
+    PutU16BE(pub + pubSz, WC_SHA256_DIGEST_SIZE); pubSz += 2;
+    memcpy(pub + pubSz, unique, WC_SHA256_DIGEST_SIZE);
+    pubSz += WC_SHA256_DIGEST_SIZE;
+    memset(&name, 0, sizeof(name));
+    name.size = 2 + WC_SHA256_DIGEST_SIZE;
+    PutU16BE(name.name, TPM_ALG_SHA256);
+    AssertIntEQ(wc_Sha256Hash(pub, (word32)pubSz, name.name + 2), 0);
+
+    PutU16BE(sens + sensSz, TPM_ALG_KEYEDHASH); sensSz += 2;
+    PutU16BE(sens + sensSz, 0); sensSz += 2; /* authValue */
+    PutU16BE(sens + sensSz, keySz); sensSz += 2;
+    memcpy(sens + sensSz, key, keySz); sensSz += keySz;
+    if (seed != NULL) {
+        PutU16BE(sens + sensSz, seedSz); sensSz += 2;
+        memcpy(sens + sensSz, seed, seedSz); sensSz += seedSz;
+    }
+
+    AssertIntEQ(FwDeriveWrapKey(ctx, parent, &name, aesKey, macKey), 0);
+    memset(iv, 0x3C, sizeof(iv));
+    pos = 0;
+    PutU16BE(priv + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+    pos += WC_SHA256_DIGEST_SIZE;
+    memcpy(priv + pos, iv, sizeof(iv)); pos += (int)sizeof(iv);
+    PutU16BE(priv + pos, (UINT16)sensSz); pos += 2;
+    AssertIntEQ(wc_AesInit(&aes, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_AesSetKey(&aes, aesKey, 32, iv, AES_ENCRYPTION), 0);
+    AssertIntEQ(wc_AesCfbEncrypt(&aes, priv + pos, sens, (word32)sensSz), 0);
+    wc_AesFree(&aes);
+    AssertIntEQ(wc_HmacInit(&hmac, NULL, INVALID_DEVID), 0);
+    AssertIntEQ(wc_HmacSetKey(&hmac, WC_SHA256, macKey, sizeof(macKey)), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, iv, sizeof(iv)), 0);
+    AssertIntEQ(wc_HmacUpdate(&hmac, priv + pos, (word32)sensSz), 0);
+    AssertIntEQ(wc_HmacFinal(&hmac, priv + 2), 0);
+    wc_HmacFree(&hmac);
+    sensSz += pos;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
+    PutU32BE(gCmd + pos, parentH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)sensSz); pos += 2;
+    memcpy(gCmd + pos, priv, sensSz); pos += sensSz;
+    PutU16BE(gCmd + pos, (UINT16)pubSz); pos += 2;
+    memcpy(gCmd + pos, pub, pubSz); pos += pubSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* A private blob written before the seedValue was kept still loads, with an
+ * empty seedValue and the unique it was created with; a blob that carries a
+ * seedValue loads with it. */
+static void test_fwtpm_load_private_seed_value(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 parentH, keyH;
+    FWTPM_Object* obj;
+    byte key[20];
+    byte seed[WC_SHA256_DIGEST_SIZE];
+    byte hashSrc[sizeof(seed) + sizeof(key)];
+    byte unique[WC_SHA256_DIGEST_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    parentH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    parentH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(parentH, 0);
+    memset(key, 0x47, sizeof(key));
+    memset(seed, 0x9A, sizeof(seed));
+
+    AssertIntEQ(wc_Sha256Hash(key, (word32)sizeof(key), unique), 0);
+    keyH = LoadCraftedHmacKey(&ctx, parentH, key, sizeof(key), unique, NULL,
+        0);
+    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    AssertIntEQ(obj->seedValue.size, 0);
+    AssertIntEQ(obj->privKeySize, (int)sizeof(key));
+    AssertIntEQ(memcmp(obj->privKey, key, sizeof(key)), 0);
+    AssertIntEQ(obj->pub.unique.keyedHash.size, sizeof(unique));
+    AssertIntEQ(memcmp(obj->pub.unique.keyedHash.buffer, unique,
+        sizeof(unique)), 0);
+    FlushHandle(&ctx, keyH);
+
+    memcpy(hashSrc, seed, sizeof(seed));
+    memcpy(hashSrc + sizeof(seed), key, sizeof(key));
+    AssertIntEQ(wc_Sha256Hash(hashSrc, (word32)sizeof(hashSrc), unique), 0);
+    keyH = LoadCraftedHmacKey(&ctx, parentH, key, sizeof(key), unique, seed,
+        sizeof(seed));
+    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    AssertIntEQ(obj->seedValue.size, sizeof(seed));
+    AssertIntEQ(memcmp(obj->seedValue.buffer, seed, sizeof(seed)), 0);
+    AssertIntEQ(obj->privKeySize, (int)sizeof(key));
+    AssertIntEQ(memcmp(obj->privKey, key, sizeof(key)), 0);
+    FlushHandle(&ctx, keyH);
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Private blob seedValue:", 0);
+}
+
 #if !defined(FWTPM_NO_KEY_MIGRATION) && !defined(FWTPM_NO_POLICY)
 static TPM_RC SendDuplicateCmd(FWTPM_CTX* ctx, UINT32 objH,
     UINT32 newParentH, UINT32 sessH, UINT16 symAlg)
@@ -23575,6 +23704,83 @@ static void test_fwtpm_context_legacy_hierarchy(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ContextLoad legacy hierarchy object:", 0);
+}
+
+/* A saved object context carries the seedValue, and one saved before the
+ * seedValue was kept loads with an empty one. */
+static void test_fwtpm_context_object_seed_value(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, ctxSz, pos, i, plainSz = 0, wrappedSz = 0;
+    const int wrapOff = 8 + 4 + 4 + 2 + 4 + 4;
+    UINT32 keyH, loadedH;
+    UINT64 seq;
+    byte savedObj[MAX_CONTEXT_SIZE];
+    byte plain[MAX_CONTEXT_SIZE];
+    byte seed[WC_SHA256_DIGEST_SIZE];
+    FWTPM_Object* obj;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+    memset(seed, 0x6D, sizeof(seed));
+    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj->seedValue.size = sizeof(seed);
+    memcpy(obj->seedValue.buffer, seed, sizeof(seed));
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSz, wrapOff);
+    memcpy(savedObj, gRsp + TPM2_HEADER_SIZE, ctxSz);
+    FlushHandle(&ctx, keyH);
+
+    for (i = 0; i < 2; i++) {
+        if (i == 1) {
+            /* Take the trailing seedValue and public-only flag off the
+             * protected area */
+            seq = ((UINT64)GetU32BE(savedObj) << 32) | GetU32BE(savedObj + 4);
+            AssertIntEQ(FwUnwrapContextBlob(&ctx, seq, FWTPM_CTX_TYPE_OBJECT,
+                savedObj + wrapOff, ctxSz - wrapOff, plain,
+                (int)sizeof(plain), &plainSz), 0);
+            AssertIntGT(plainSz, 2 + (int)sizeof(seed) + 1);
+            plainSz -= 2 + (int)sizeof(seed) + 1;
+            AssertIntEQ(GetU16BE(plain + plainSz), sizeof(seed));
+            AssertIntEQ(FwWrapContextBlob(&ctx, seq, FWTPM_CTX_TYPE_OBJECT,
+                plain, plainSz, savedObj + wrapOff,
+                (int)sizeof(savedObj) - wrapOff, &wrappedSz), 0);
+            PutU16BE(savedObj + 16, (UINT16)(8 + wrappedSz));
+            ctxSz = wrapOff + wrappedSz;
+        }
+        pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+        memcpy(gCmd + pos, savedObj, ctxSz); pos += ctxSz;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+        obj = &ctx.objects[loadedH - TRANSIENT_FIRST];
+        if (i == 0) {
+            AssertIntEQ(obj->seedValue.size, sizeof(seed));
+            AssertIntEQ(memcmp(obj->seedValue.buffer, seed, sizeof(seed)), 0);
+        }
+        else {
+            AssertIntEQ(obj->seedValue.size, 0);
+        }
+        AssertIntGT(obj->privKeySize, 0);
+        FlushHandle(&ctx, loadedH);
+    }
+
+    wc_ForceZero(plain, sizeof(plain));
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ContextLoad object seedValue:", 0);
 }
 #endif /* !FWTPM_NO_CONTEXT */
 
@@ -31709,14 +31915,16 @@ static void test_fwtpm_qualified_name_certify(void)
 #endif /* !FWTPM_NO_ATTESTATION */
 
 #ifndef FWTPM_NO_NV
-/* A persistent object keeps its Qualified Name across a restart, and a
- * record written without one loads with the Name in its place. */
+/* A persistent object keeps its Qualified Name and seedValue across a
+ * restart. A record written without the seedValue loads with an empty one,
+ * and one written without the Qualified Name with the Name in its place. */
 static void test_fwtpm_qualified_name_persistent(void)
 {
     FWTPM_CTX ctx;
     const UINT32 persistH = PERSISTENT_FIRST + 0x20;
     UINT32 primaryH, childH, grandH;
     TPM2B_NAME name, qn, primaryQn, childQn;
+    TPM2B_DIGEST seedValue;
     byte owner[4];
     byte hdr[4];
     byte record[1024];
@@ -31736,6 +31944,12 @@ static void test_fwtpm_qualified_name_persistent(void)
         &childQn);
     AssertIntEQ(SendEvictControl(&ctx, TPM_RH_OWNER, childH, persistH),
         TPM_RC_SUCCESS);
+    memset(&seedValue, 0, sizeof(seedValue));
+    for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+        if (ctx.persistent[i].used && ctx.persistent[i].handle == persistH) {
+            seedValue = ctx.persistent[i].seedValue;
+        }
+    }
     FlushHandle(&ctx, childH);
     FlushHandle(&ctx, primaryH);
 
@@ -31753,11 +31967,16 @@ static void test_fwtpm_qualified_name_persistent(void)
         }
         off += len;
     }
-    AssertIntGT(recordSz, 2 + childQn.size + 1);
+    AssertIntGT(recordSz, 2 + childQn.size + 2 + seedValue.size + 1);
     AssertIntEQ(record[0] | (record[1] << 8) | (record[2] << 16) |
         ((UINT32)record[3] << 24), persistH);
-    /* the Qualified Name and the public-only flag end the record */
-    off = (word32)(recordSz - 1 - childQn.size - 2);
+    /* the Qualified Name, the seedValue and the public-only flag end the
+     * record */
+    off = (word32)(recordSz - 1 - seedValue.size - 2);
+    AssertIntEQ(record[off] | (record[off + 1] << 8), seedValue.size);
+    AssertIntEQ(memcmp(record + off + 2, seedValue.buffer, seedValue.size),
+        0);
+    off -= (word32)(childQn.size + 2);
     AssertIntEQ(record[off] | (record[off + 1] << 8), childQn.size);
     AssertIntEQ(memcmp(record + off + 2, childQn.name, childQn.size), 0);
 
@@ -31775,13 +31994,20 @@ static void test_fwtpm_qualified_name_persistent(void)
         TPM_RC_SUCCESS);
     FWTPM_Cleanup(&ctx);
 
-    /* The record as written, then without its trailing Qualified Name and
-     * public-only flag */
-    for (i = 0; i < 2; i++) {
+    /* The record as written, then without its trailing seedValue and
+     * public-only flag, then without the Qualified Name either */
+    for (i = 0; i < 3; i++) {
         int slot;
+        UINT16 sz = recordSz;
 
+        if (i == 1) {
+            sz = (UINT16)(off + 2 + childQn.size);
+        }
+        else if (i == 2) {
+            sz = (UINT16)off;
+        }
         AssertIntEQ(NvLoadCraftedEntry(&ctx, FWTPM_NV_TAG_PERSISTENT, record,
-            (UINT16)((i == 0) ? recordSz : off)), TPM_RC_SUCCESS);
+            sz), TPM_RC_SUCCESS);
         found = 0;
         for (slot = 0; slot < FWTPM_MAX_PERSISTENT; slot++) {
             FWTPM_Object* obj = &ctx.persistent[slot];
@@ -31794,6 +32020,14 @@ static void test_fwtpm_qualified_name_persistent(void)
             AssertIntEQ(obj->name.size, name.size);
             AssertIntEQ(memcmp(obj->name.name, name.name, name.size), 0);
             if (i == 0) {
+                AssertIntEQ(obj->seedValue.size, seedValue.size);
+                AssertIntEQ(memcmp(obj->seedValue.buffer, seedValue.buffer,
+                    seedValue.size), 0);
+            }
+            else {
+                AssertIntEQ(obj->seedValue.size, 0);
+            }
+            if (i < 2) {
                 AssertIntEQ(obj->qualifiedName.size, childQn.size);
                 AssertIntEQ(memcmp(obj->qualifiedName.name, childQn.name,
                     childQn.size), 0);
@@ -32944,6 +33178,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
     test_fwtpm_loadexternal_keyedhash();
+    test_fwtpm_load_private_seed_value();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_unpadded_values();
 #endif
@@ -32982,6 +33217,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_contextload_short_blob_rejected();
     test_fwtpm_context_object_roundtrip();
     test_fwtpm_context_legacy_hierarchy();
+    test_fwtpm_context_object_seed_value();
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
     test_fwtpm_context_rsa_max();
 #endif

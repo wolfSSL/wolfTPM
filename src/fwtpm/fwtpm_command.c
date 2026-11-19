@@ -6480,6 +6480,7 @@ static TPM_RC FwSerializeObjectContext(FWTPM_CTX* ctx, FWTPM_Object* obj,
 
     *plainSz = 0;
     if (obj->authValue.size > sizeof(obj->authValue.buffer) ||
+            obj->seedValue.size > sizeof(obj->seedValue.buffer) ||
             obj->privKeySize < 0 ||
             obj->privKeySize > (int)sizeof(obj->privKey)) {
         return TPM_RC_FAILURE;
@@ -6507,6 +6508,9 @@ static TPM_RC FwSerializeObjectContext(FWTPM_CTX* ctx, FWTPM_Object* obj,
     TPM2_Packet_AppendU16(&packet, obj->qualifiedName.size);
     TPM2_Packet_AppendBytes(&packet, (byte*)obj->qualifiedName.name,
         obj->qualifiedName.size);
+    TPM2_Packet_AppendU16(&packet, obj->seedValue.size);
+    TPM2_Packet_AppendBytes(&packet, obj->seedValue.buffer,
+        obj->seedValue.size);
     TPM2_Packet_AppendU8(&packet, (UINT8)(obj->publicOnly != 0));
     if (packet.overflow) {
         rc = TPM_RC_SIZE;
@@ -6526,8 +6530,8 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
     FWTPM_DECLARE_VAR(pub, TPM2B_PUBLIC);
     FWTPM_Object* obj = NULL;
     byte proof[WC_SHA256_DIGEST_SIZE];
-    UINT16 pubSz, authSz = 0, privateSz = 0, qnSz = 0;
-    int authPos = 0, privatePos = 0, qnPos = 0, publicEnd;
+    UINT16 pubSz, authSz = 0, privateSz = 0, qnSz = 0, seedSz = 0;
+    int authPos = 0, privatePos = 0, qnPos = 0, seedPos = 0, publicEnd;
     int flagPos = 0;
     UINT32 expectedMarker;
 
@@ -6600,10 +6604,26 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
             rc = TPM_RC_INTEGRITY;
         }
     }
-    /* The public-only flag trails the Qualified Name; a blob saved without it
-     * ends there */
+    /* The seedValue trails the Qualified Name; a blob saved without it ends
+     * there */
     if (rc == 0 && qnPos + qnSz != plainSz) {
-        flagPos = qnPos + qnSz;
+        packet.pos += qnSz;
+        if (packet.pos + 2 > plainSz) {
+            rc = TPM_RC_INTEGRITY;
+        }
+        else {
+            TPM2_Packet_ParseU16(&packet, &seedSz);
+            seedPos = packet.pos;
+            if (seedSz > sizeof(((FWTPM_Object*)0)->seedValue.buffer) ||
+                    seedPos + seedSz > plainSz) {
+                rc = TPM_RC_INTEGRITY;
+            }
+        }
+    }
+    /* The public-only flag trails the seedValue; a blob saved without it
+     * ends there */
+    if (rc == 0 && seedPos != 0 && seedPos + seedSz != plainSz) {
+        flagPos = seedPos + seedSz;
         if (flagPos + 1 != plainSz) {
             rc = TPM_RC_INTEGRITY;
         }
@@ -6623,6 +6643,8 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         XMEMCPY(obj->privKey, plain + privatePos, privateSz);
         obj->qualifiedName.size = qnSz;
         XMEMCPY(obj->qualifiedName.name, plain + qnPos, qnSz);
+        obj->seedValue.size = seedSz;
+        XMEMCPY(obj->seedValue.buffer, plain + seedPos, seedSz);
         /* Without the flag only an object that has no private data is taken
          * to be public-only */
         obj->publicOnly = (flagPos != 0) ? (plain[flagPos] != 0) :
@@ -8249,6 +8271,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_VAR(outPrivate, TPM2B_PRIVATE);
     FWTPM_DECLARE_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     int privKeyDerSz = 0;
+    TPM2B_DIGEST seedValue;
     int paramSzPos = 0, paramStart = 0;
     FWTPM_DECLARE_VAR(outPub, TPM2B_PUBLIC);
     int cdMarkPos = 0;
@@ -8266,6 +8289,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Zero stack-resident locals (heap-allocated TPM2B vars are pre-zeroed
      * via FWTPM_CALLOC_VAR/BUF above). */
     XMEMSET(&userAuth, 0, sizeof(userAuth));
+    XMEMSET(&seedValue, 0, sizeof(seedValue));
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -8576,7 +8600,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) {
             rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
-                privKeyDer, privKeyDerSz, outPrivate);
+                privKeyDer, privKeyDerSz, &seedValue, outPrivate);
         }
     }
 
@@ -8641,6 +8665,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(sensData, FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF));
     FWTPM_FREE_BUF(sensData);
     /* outPrivate carries an HMAC-protected blob; XFREE alone is sufficient. */
+    TPM2_ForceZero(&seedValue, sizeof(seedValue));
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     FWTPM_FREE_VAR(inPublic);
@@ -8737,7 +8762,8 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Re-wrap the private key; the loaded object keeps its current auth. */
     if (rc == 0) {
         rc = FwWrapPrivate(ctx, parent, &ctx->rng, &obj->name, obj->pub.type,
-            &newAuth, obj->privKey, obj->privKeySize, &outPrivate);
+            &newAuth, obj->privKey, obj->privKeySize, &obj->seedValue,
+            &outPrivate);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -8863,7 +8889,7 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwUnwrapPrivate(ctx, parent, &obj->name, &inPrivate,
             &sensitiveType, &obj->authValue,
-            obj->privKey, &obj->privKeySize);
+            obj->privKey, &obj->privKeySize, &obj->seedValue);
     #ifdef DEBUG_WOLFTPM
         if (rc != TPM_RC_SUCCESS) {
             printf("fwTPM: Load unwrap failed rc=%d (0x%x)\n", rc, rc);
@@ -9329,8 +9355,7 @@ static TPM_RC FwRcAddIndex(TPM_RC rc, TPM_RC index)
 
 /* Marshal the TPM2B_SENSITIVE of an object for duplication: one prime for
  * RSA, the private scalar for ECC and the stored key octets for the other
- * types. The authValue is zero padded to the nameAlg digest size. This TPM
- * keeps no seedValue. */
+ * types. The authValue is zero padded to the nameAlg digest size. */
 static TPM_RC FwDupMarshalSensitive(const FWTPM_Object* obj, byte* buf,
     int bufSz, int* outSz)
 {
@@ -9403,7 +9428,7 @@ static TPM_RC FwDupMarshalSensitive(const FWTPM_Object* obj, byte* buf,
 
     if (rc == 0) {
         sz = FwMarshalSensitiveStd(buf, bufSz, obj->pub.type, &auth,
-            sens, sensSz);
+            &obj->seedValue, sens, sensSz);
         if (sz < 0) {
             rc = TPM_RC_SIZE;
         }
@@ -9686,6 +9711,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int innerOff = 0;
     FWTPM_DECLARE_BUF(primeBuf, FWTPM_MAX_DER_SIG_BUF);
     TPM2B_AUTH importedAuth;
+    TPM2B_DIGEST importedSeed;
     TPM_RC rc = TPM_RC_SUCCESS;
 
     FWTPM_ALLOC_BUF(dupBuf, FWTPM_MAX_PRIVKEY_DER + 256);
@@ -9696,6 +9722,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_BUF(primeBuf, FWTPM_MAX_DER_SIG_BUF);
     FWTPM_CALLOC_VAR(objectPublic, TPM2B_PUBLIC);
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
+    XMEMSET(&importedSeed, 0, sizeof(importedSeed));
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -10012,7 +10039,8 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwComputePublicName(&objectPublic->publicArea, &childName);
         if (rc == 0) {
             rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName, sensType,
-                &importedAuth, privKeyDer, privKeyDerSz, outPrivate);
+                &importedAuth, privKeyDer, privKeyDerSz, &importedSeed,
+                outPrivate);
         }
     }
 
@@ -10029,6 +10057,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(hmacKeyBuf, sizeof(hmacKeyBuf));
     TPM2_ForceZero(encKeyBuf, sizeof(encKeyBuf));
     TPM2_ForceZero(&importedAuth, sizeof(importedAuth));
+    TPM2_ForceZero(&importedSeed, sizeof(importedSeed));
     FWTPM_FREE_BUF(dupBuf);
     FWTPM_FREE_BUF(symSeedBuf);
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
@@ -10560,6 +10589,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramSzPos = 0;
     int paramStart = 0;
     FWTPM_DECLARE_VAR(outPub, TPM2B_PUBLIC);
+    TPM2B_DIGEST seedValue;
 
     FWTPM_CALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_CALLOC_BUF(sensData, FWTPM_MAX_DATA_BUF);
@@ -10567,6 +10597,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
     FWTPM_CALLOC_VAR(outPub, TPM2B_PUBLIC);
     XMEMSET(&userAuth, 0, sizeof(userAuth));
+    XMEMSET(&seedValue, 0, sizeof(seedValue));
 
     (void)ret;
 
@@ -10827,7 +10858,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) {
             rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
-                privKeyDer, privKeyDerSz, outPrivate);
+                privKeyDer, privKeyDerSz, &seedValue, outPrivate);
         }
     }
 
@@ -10844,6 +10875,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(obj->privKey, privKeyDer, (size_t)privKeyDerSz);
         obj->privKeySize = privKeyDerSz;
         XMEMCPY(&obj->authValue, &userAuth, sizeof(TPM2B_AUTH));
+        XMEMCPY(&obj->seedValue, &seedValue, sizeof(TPM2B_DIGEST));
         obj->hierarchy = parent->hierarchy;
 
         rc = FwComputeObjectName(obj);
@@ -10886,6 +10918,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(sensData);
     /* outPrivate is the wrapped (HMAC-protected) private blob, not raw key
      * material — XFREE alone is sufficient. */
+    TPM2_ForceZero(&seedValue, sizeof(seedValue));
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     FWTPM_FREE_VAR(inPublic);

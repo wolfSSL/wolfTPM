@@ -2223,10 +2223,13 @@ int FwDeriveWrapKey(FWTPM_CTX* ctx, const FWTPM_Object* parent,
     return rc;
 }
 
-/* Marshal inner sensitive: type(2) + auth(2+N) + der(2+N) */
+/* Marshal inner sensitive: type(2) + auth(2+N) + der(2+N) + seedValue(2+N).
+ * The seedValue trails the historic layout so a blob written without it
+ * still unmarshals. */
 int FwMarshalSensitive(byte* buf, int bufSz,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
-    const byte* privKeyDer, int privKeyDerSz)
+    const byte* privKeyDer, int privKeyDerSz,
+    const TPM2B_DIGEST* seedValue)
 {
     int pos = 0;
     if (pos + 2 > bufSz)
@@ -2250,6 +2253,16 @@ int FwMarshalSensitive(byte* buf, int bufSz,
     XMEMCPY(buf + pos, privKeyDer, privKeyDerSz);
     pos += privKeyDerSz;
 
+    if (seedValue->size > sizeof(seedValue->buffer) ||
+            pos + 2 + seedValue->size > bufSz)
+        return -1;
+    FwStoreU16BE(buf + pos, seedValue->size);
+    pos += 2;
+    if (seedValue->size > 0) {
+        XMEMCPY(buf + pos, seedValue->buffer, seedValue->size);
+        pos += seedValue->size;
+    }
+
     return pos;
 }
 
@@ -2260,6 +2273,7 @@ int FwMarshalSensitive(byte* buf, int bufSz,
  * This format matches what FwImportParseSensitive and other TPMs expect. */
 int FwMarshalSensitiveStd(byte* buf, int bufSz,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
+    const TPM2B_DIGEST* seedValue,
     const byte* sensData, int sensDataSz)
 {
     int pos = 0;
@@ -2288,11 +2302,16 @@ int FwMarshalSensitiveStd(byte* buf, int bufSz,
         pos += auth->size;
     }
 
-    /* seedValue (TPM2B) - empty for non-derived keys */
-    if (pos + 2 > bufSz)
+    /* seedValue (TPM2B) */
+    if (seedValue->size > sizeof(seedValue->buffer) ||
+            pos + 2 + seedValue->size > bufSz)
         return -1;
-    buf[pos++] = 0;
-    buf[pos++] = 0;
+    FwStoreU16BE(buf + pos, seedValue->size);
+    pos += 2;
+    if (seedValue->size > 0) {
+        XMEMCPY(buf + pos, seedValue->buffer, seedValue->size);
+        pos += seedValue->size;
+    }
 
     /* sensitive data (TPM2B) - raw sensitive component */
     if (pos + 2 + sensDataSz > bufSz)
@@ -2312,7 +2331,8 @@ int FwMarshalSensitiveStd(byte* buf, int bufSz,
 /* Unmarshal inner sensitive */
 int FwUnmarshalSensitive(const byte* buf, int bufSz,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
-    byte* privKeyDer, int* privKeyDerSz)
+    byte* privKeyDer, int* privKeyDerSz,
+    TPM2B_DIGEST* seedValue)
 {
     int pos = 0;
     UINT16 sz;
@@ -2347,6 +2367,18 @@ int FwUnmarshalSensitive(const byte* buf, int bufSz,
     *privKeyDerSz = (int)sz;
     pos += sz;
 
+    /* Optional trailing seedValue */
+    seedValue->size = 0;
+    if (pos + 2 <= bufSz) {
+        sz = FwLoadU16BE(buf + pos);
+        pos += 2;
+        if (sz > sizeof(seedValue->buffer) || pos + sz > bufSz)
+            return -1;
+        seedValue->size = sz;
+        XMEMCPY(seedValue->buffer, buf + pos, sz);
+        pos += sz;
+    }
+
     return pos;
 }
 
@@ -2359,6 +2391,7 @@ int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     const TPM2B_NAME* name,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
     const byte* privKeyDer, int privKeyDerSz,
+    const TPM2B_DIGEST* seedValue,
     TPM2B_PRIVATE* outPriv)
 {
     int rc = TPM_RC_SUCCESS;
@@ -2381,7 +2414,7 @@ int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     if (rc == 0) {
         sensSz = FwMarshalSensitive(sensBuf,
             (int)(FWTPM_MAX_PRIVKEY_DER + 128),
-            sensitiveType, auth, privKeyDer, privKeyDerSz);
+            sensitiveType, auth, privKeyDer, privKeyDerSz, seedValue);
         if (sensSz < 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -2477,7 +2510,8 @@ int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
     const TPM2B_NAME* name,
     const TPM2B_PRIVATE* inPriv,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
-    byte* privKeyDer, int* privKeyDerSz)
+    byte* privKeyDer, int* privKeyDerSz,
+    TPM2B_DIGEST* seedValue)
 {
     int rc = TPM_RC_SUCCESS;
     byte aesKey[FWTPM_MAX_SYM_KEY_SIZE], aesIV[AES_BLOCK_SIZE];
@@ -2575,7 +2609,8 @@ int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
     /* Unmarshal sensitive */
     if (rc == 0) {
         if (FwUnmarshalSensitive(decBuf, encSensSize,
-                sensitiveType, auth, privKeyDer, privKeyDerSz) < 0) {
+                sensitiveType, auth, privKeyDer, privKeyDerSz,
+                seedValue) < 0) {
             rc = TPM_RC_FAILURE;
         }
     }

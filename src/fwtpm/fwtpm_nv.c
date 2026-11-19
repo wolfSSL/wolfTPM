@@ -677,6 +677,9 @@ static int FwNvMarshalObject(byte* buf, word32* pos, word32 maxSz,
         rc = FwNvMarshalName(buf, pos, maxSz, &obj->qualifiedName);
     }
     if (rc == 0) {
+        rc = FwNvMarshalDigest(buf, pos, maxSz, &obj->seedValue);
+    }
+    if (rc == 0) {
         rc = FwNvMarshalU8(buf, pos, maxSz, (UINT8)(obj->publicOnly != 0));
     }
     return rc;
@@ -738,6 +741,10 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     else if (rc == 0) {
         obj->qualifiedName = obj->name;
+    }
+    /* Optional trailing seedValue, empty in a record written without it */
+    if (rc == 0 && *pos + 2 <= maxSz) {
+        rc = FwNvUnmarshalDigest(buf, pos, maxSz, &obj->seedValue);
     }
     /* Optional trailing public-only flag. A record written without it holds
      * a public-only object when it has no private data. */
@@ -2884,7 +2891,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             pos = 0;
             needed = 4 + FWTPM_NV_PUBAREA_EST + FWTPM_NV_NAME_EST + 2 +
                      ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST +
-                     2 + FWTPM_NV_NAME_EST + 1;
+                     2 + FWTPM_NV_NAME_EST + FWTPM_NV_AUTH_EST + 1;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -3412,7 +3419,7 @@ int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
 
     bufSz = 4 + FWTPM_NV_PUBAREA_EST + 2 + FWTPM_NV_NAME_EST + 2 +
             obj->privKeySize + 2 + FWTPM_NV_AUTH_EST +
-            2 + FWTPM_NV_NAME_EST + 1;
+            2 + FWTPM_NV_NAME_EST + FWTPM_NV_AUTH_EST + 1;
 
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {
