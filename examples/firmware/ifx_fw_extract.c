@@ -63,23 +63,23 @@
 #define LOG(t) { printf(__FILE__":%i: %s\n", __LINE__, t); }
 
 #define READ_BE16(dest, buf, size, off) { \
-    if (off + sizeof(dest) > size) { \
+    if ((off) + sizeof(dest) > (size)) { \
         LOG("FW file too short"); \
         return -1; \
     } \
-    memcpy(&dest, &fw[off], sizeof(dest)); \
-    dest = be16toh(dest); \
-    off += sizeof(dest); \
+    memcpy(&(dest), &(buf)[(off)], sizeof(dest)); \
+    (dest) = be16toh(dest); \
+    (off) += sizeof(dest); \
 }
 
 #define READ_BE32(dest, buf, size, off) { \
-    if (off + sizeof(dest) > size) { \
+    if ((off) + sizeof(dest) > (size)) { \
         LOG("FW file too short"); \
         return -1; \
     } \
-    memcpy(&dest, &fw[off], sizeof(dest)); \
-    dest = be32toh(dest); \
-    off += sizeof(dest); \
+    memcpy(&(dest), &(buf)[(off)], sizeof(dest)); \
+    (dest) = be32toh(dest); \
+    (off) += sizeof(dest); \
 }
 
 
