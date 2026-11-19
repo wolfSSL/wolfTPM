@@ -21696,6 +21696,75 @@ static void test_fwtpm_import_empty_keyedhash_auth(void)
     fwtpm_pass("Import empty KEYEDHASH authorizes:", 0);
 }
 
+/* Give the seedValue of the unwrapped TPM2B_SENSITIVE in blob->dup seedSz
+ * octets, keeping the leading ones it has */
+static void DupSetSeedSize(DupBlob* blob, UINT16 seedSz)
+{
+    int pos = 4, oldSz, tailSz;
+
+    pos += 2 + GetU16BE(blob->dup + pos); /* authValue */
+    oldSz = GetU16BE(blob->dup + pos);
+    tailSz = blob->dupSz - (pos + 2 + oldSz);
+    AssertIntGT(tailSz, 1);
+    AssertIntLE(pos + 2 + seedSz + tailSz, (int)sizeof(blob->dup));
+    memmove(blob->dup + pos + 2 + seedSz, blob->dup + pos + 2 + oldSz,
+        (size_t)tailSz);
+    if (seedSz > oldSz) {
+        memset(blob->dup + pos + 2 + oldSz, 0x5A, (size_t)(seedSz - oldSz));
+    }
+    PutU16BE(blob->dup + pos, seedSz);
+    blob->dupSz = (UINT16)(pos + 2 + seedSz + tailSz);
+    PutU16BE(blob->dup, (UINT16)(blob->dupSz - 2));
+}
+
+/* Import refuses a seedValue larger than the nameAlg digest, and for a
+ * storage key one that is not empty and smaller than half of it. */
+static void test_fwtpm_import_seed_value_size(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 parentH, objH;
+#ifdef HAVE_ECC
+    TPM_ALG_ID parentAlg = TPM_ALG_ECC;
+    TPM_ALG_ID objType = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID parentAlg = TPM_ALG_RSA;
+    TPM_ALG_ID objType = TPM_ALG_SYMCIPHER;
+#endif
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    parentH = CreatePrimaryHelper(&ctx, parentAlg);
+    AssertIntNE(parentH, 0);
+    objH = DupCreateObjectEx(&ctx, TPM_CC_CreateLoaded, parentH, objType,
+        DUP_ATTR_STORAGE, &gDup);
+    DupCheckSeedValue(&ctx, objType, objH, WC_SHA256_DIGEST_SIZE, 1, &gDup);
+    FlushHandle(&ctx, objH);
+
+    DupSetSeedSize(&gDup, WC_SHA256_DIGEST_SIZE + 1);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3);
+    DupSetSeedSize(&gDup, WC_SHA256_DIGEST_SIZE / 2 - 1);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_3);
+    DupSetSeedSize(&gDup, 1);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SIZE | TPM_RC_P | TPM_RC_3);
+#ifdef HAVE_ECC
+    /* half the digest is enough, and a duplicate made before this TPM kept
+     * a seedValue has none */
+    DupSetSeedSize(&gDup, WC_SHA256_DIGEST_SIZE / 2);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SUCCESS);
+    DupSetSeedSize(&gDup, 0);
+    AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
+        TPM_RC_SUCCESS);
+#endif
+
+    FlushHandle(&ctx, parentH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Import seedValue size:", 0);
+}
+
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
 /* A failed small-stack allocation in Duplicate or Rewrap is reported as
  * TPM_RC_MEMORY and the unallocated buffers are not used. */
@@ -33670,6 +33739,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_duplicate_import_rejections();
     test_fwtpm_import_known_duplicate();
     test_fwtpm_import_empty_keyedhash_auth();
+    test_fwtpm_import_seed_value_size();
 #if defined(WOLFTPM_FWTPM_UNIT_TEST) && defined(WOLFTPM_SMALL_STACK)
     test_fwtpm_duplicate_rewrap_alloc_failure();
 #endif
