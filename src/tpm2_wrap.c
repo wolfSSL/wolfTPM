@@ -12253,6 +12253,16 @@ int wolfTPM2_PolicyTransportSPDMMake(TPM_ALG_ID hashAlg,
 int wolfTPM2_PolicyRefMake(TPM_ALG_ID pcrAlg, byte* digest, word32* digestSz,
     const byte* policyRef, word32 policyRefSz)
 {
+    int hashSz;
+
+    if (digest == NULL || digestSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    /* the digest is replaced in place by one of the hash size */
+    hashSz = TPM2_GetHashDigestSize(pcrAlg);
+    if (hashSz > 0 && *digestSz < (word32)hashSz) {
+        return BUFFER_E;
+    }
     return wolfTPM2_PolicyHash(pcrAlg, digest, digestSz, 0,
         policyRef, policyRefSz);
 }
@@ -12265,10 +12275,16 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
     const byte* policyRef, word32 policyRefSz)
 {
     int rc;
+    int hashSz;
     TPM2B_NAME name;
 
     if (digest == NULL || digestSz == NULL || pub == NULL) {
         return BAD_FUNC_ARG;
+    }
+    /* the digest is replaced in place by one of the hash size */
+    hashSz = TPM2_GetHashDigestSize(pcrAlg);
+    if (hashSz > 0 && *digestSz < (word32)hashSz) {
+        return BUFFER_E;
     }
 
     rc = wolfTPM2_ComputeName(pub, &name);

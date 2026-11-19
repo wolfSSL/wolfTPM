@@ -3499,6 +3499,7 @@ static void test_wolfTPM2_PolicyHash(void)
     byte digestFirst[TPM_SHA256_DIGEST_SIZE];
     word32 digestSz;
     const byte input[] = {0x01, 0x02, 0x03, 0x04};
+    TPM2B_PUBLIC pub;
 
     /* Test 1: cc=0 (no command code, used by PolicyRefMake) */
     XMEMSET(digest, 0xAA, sizeof(digest));
@@ -3527,6 +3528,28 @@ static void test_wolfTPM2_PolicyHash(void)
     AssertIntEQ(rc, 0);
     AssertIntNE(XMEMCMP(digest0, digest, digestSz), 0);
     AssertIntNE(XMEMCMP(digestFirst, digest, digestSz), 0);
+
+    /* The Make helpers replace the digest in place, so a buffer smaller
+     * than the hash is refused before anything is written */
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_KEYEDHASH;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    digestSz = TPM_SHA256_DIGEST_SIZE - 1;
+    rc = wolfTPM2_PolicyRefMake(TPM_ALG_SHA256, digest, &digestSz,
+        input, sizeof(input));
+    AssertIntEQ(rc, BUFFER_E);
+    digestSz = TPM_SHA256_DIGEST_SIZE - 1;
+    rc = wolfTPM2_PolicyAuthorizeMake(TPM_ALG_SHA256, &pub, digest, &digestSz,
+        input, sizeof(input));
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(digest[0], 0xAA);
+    AssertIntEQ(digest[sizeof(digest) - 1], 0xAA);
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyRefMake(TPM_ALG_SHA256, digest, &digestSz,
+        input, sizeof(input));
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digestSz, TPM_SHA256_DIGEST_SIZE);
 
     printf("Test TPM Wrapper: %-40s Passed\n", "PolicyHash:");
 #else
