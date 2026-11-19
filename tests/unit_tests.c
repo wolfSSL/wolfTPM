@@ -2871,12 +2871,10 @@ static void test_wolfTPM2_StartSession_KeepsSlot0(void)
 
 /* The TPM keeps an authValue without its trailing zeros, and that is what
  * goes in front of the salt in the session key of a bound and salted session.
- * wolfTPM2_CreatePrimaryKey pads a short auth with zeros. The fwTPM derives
- * the session key from the padded authValue, so this runs against other
- * TPMs only. */
+ * wolfTPM2_CreatePrimaryKey pads a short auth with zeros. */
 static void test_wolfTPM2_BoundSaltedSession_PaddedAuth(void)
 {
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_FWTPM_BUILD) && \
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (!defined(NO_RSA) || defined(HAVE_ECC))
     int rc;
     WOLFTPM2_DEV dev;
@@ -2946,12 +2944,10 @@ static void test_wolfTPM2_BoundSaltedSession_PaddedAuth(void)
 /* A bound session that authorizes its own bind entity adds the authValue to
  * the parameter encryption key, also without its trailing zeros. The SHA-384
  * Name pads the auth past the SHA-256 block size together with the session
- * key, where the zeros would change the key. The fwTPM encrypts with the
- * padded authValue, so this runs against other TPMs only. */
+ * key, where the zeros would change the key. */
 static void test_wolfTPM2_BoundOwnEntity_PaddedAuth(void)
 {
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_FWTPM_BUILD) && \
-    defined(HAVE_ECC)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY primary;
