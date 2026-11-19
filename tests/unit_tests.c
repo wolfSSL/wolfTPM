@@ -2683,6 +2683,88 @@ static void test_wolfTPM2_Hmac_ParamEnc(void)
 #endif
 }
 
+/* TPM2_ObjectChangeAuth has two handles, so an HMAC session on it hashes the
+ * Name of the parent as well as that of the key. The parent is not authorized,
+ * so a session bound to it encrypts with the session key alone. */
+static void test_wolfTPM2_ChangeAuthKey_ParamEnc(int bound)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (!defined(NO_RSA) || defined(HAVE_ECC))
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY child;
+    WOLFTPM2_SESSION session;
+    TPMT_PUBLIC publicTemplate;
+    const byte srkAuth[] = "parentauth";
+    const byte oldAuth[] = "childauth";
+    const byte newAuth[] = "newchildauth";
+    const char* name = bound ? "ChangeAuthKey bound param-enc:" :
+                               "ChangeAuthKey param-enc:";
+#ifdef HAVE_ECC
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#else
+    TPM_ALG_ID srkAlg = TPM_ALG_RSA;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&child, 0, sizeof(child));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", name);
+        return;
+    }
+    rc = wolfTPM2_CreateSRK(&dev, &srk, srkAlg, bound ? srkAuth : NULL,
+        bound ? (int)sizeof(srkAuth) - 1 : 0);
+    if (rc != 0) {
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper: %-40s Skipped\n", name);
+        return;
+    }
+
+#ifdef HAVE_ECC
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+#else
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+#endif
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &child, &srk.handle,
+        &publicTemplate, oldAuth, (int)sizeof(oldAuth) - 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_StartSession(&dev, &session, NULL,
+        bound ? &srk.handle : NULL, TPM_SE_HMAC, TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_ChangeAuthKey(&dev, &child, &srk.handle, newAuth,
+        (int)sizeof(newAuth) - 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)child.handle.auth.size, (int)sizeof(newAuth) - 1);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &child.handle);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", name);
+#else
+    (void)bound;
+#endif
+}
+
 /* Run TPM2_CreateLoaded under a salted AES-CFB param-enc session. Pre-fix the
  * missing response outHandleCnt mis-parsed the rpHash offset and the reply was
  * rejected with TPM_RC_HMAC. */
@@ -12565,6 +12647,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_StartSession_ex_authHash();
     test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc();
     test_wolfTPM2_Hmac_ParamEnc();
+    test_wolfTPM2_ChangeAuthKey_ParamEnc(0);
+    test_wolfTPM2_ChangeAuthKey_ParamEnc(1);
     test_wolfTPM2_CreateLoaded_ParamEnc();
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();

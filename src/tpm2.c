@@ -130,12 +130,24 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
     (void)ctx;
 }
 
+/* A session adds an authValue to its parameter encryption key only in the
+ * slot of a handle that the command authorizes */
+static int TPM2_IsAuthSlot(const CmdInfo_t* info, int idx)
+{
+    if (idx == 0) {
+        return (info->flags & (CMD_FLAG_AUTH_USER1 | CMD_FLAG_AUTH_ADMIN |
+            CMD_FLAG_AUTH_DUP)) != 0;
+    }
+    return (idx == 1 && (info->flags & CMD_FLAG_AUTH_USER2) != 0);
+}
+
 static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 cmdSz)
 {
     int rc = TPM_RC_SUCCESS;
     UINT32 authSz;
     BYTE *param, *encParam = NULL;
+    TPM2B_AUTH* bind;
     int paramSz;
     UINT32 encParamSz = 0;
     int i, authPos;
@@ -243,8 +255,13 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
     if (encParam != NULL && decIdx >= 0) {
         /* Encrypt the first command parameter */
+        bind = ctx->session[decIdx].bind;
+        if (!TPM2_IsAuthSlot(info, decIdx)) {
+            ctx->session[decIdx].bind = NULL;
+        }
         rc = TPM2_ParamEnc_CmdRequest(&ctx->session[decIdx], encParam,
             encParamSz);
+        ctx->session[decIdx].bind = bind;
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
             printf("Command parameter encryption failed\n");
@@ -380,6 +397,7 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int i;
     int encIdx = -1;
     int retireEnc = 0;
+    TPM2B_AUTH* bind;
 
     /* Skip the header output handles */
     packet->pos = TPM2_HEADER_SIZE + (info->outHandleCnt * sizeof(TPM_HANDLE));
@@ -563,8 +581,13 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     if (encIdx >= 0) {
         if (rc == TPM_RC_SUCCESS) {
             /* Decrypt the first response parameter */
+            bind = ctx->session[encIdx].bind;
+            if (!TPM2_IsAuthSlot(info, encIdx)) {
+                ctx->session[encIdx].bind = NULL;
+            }
             rc = TPM2_ParamDec_CmdResponse(&ctx->session[encIdx], decParam,
                 decParamSz);
+            ctx->session[encIdx].bind = bind;
         #ifdef DEBUG_WOLFTPM
             if (rc != TPM_RC_SUCCESS) {
                 printf("Response parameter decryption failed\n");

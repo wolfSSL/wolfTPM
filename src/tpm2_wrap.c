@@ -3174,6 +3174,10 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+#if MAX_SESSION_NUM > 1
+    /* the parent is not authorized, but its Name is part of the cpHash */
+    wolfTPM2_CopyName(&dev->session[1].name, &parent->name);
+#endif
 
     XMEMSET(&changeIn, 0, sizeof(changeIn));
     changeIn.objectHandle = key->handle.hndl;
