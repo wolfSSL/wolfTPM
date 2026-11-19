@@ -395,6 +395,62 @@ static void test_response_tag_downgrade(void)
     TPM2_Cleanup(&dev.ctx);
 }
 
+/* A PCR read that returns no digest, or one larger than the caller's buffer,
+ * is refused without writing to the buffer */
+static void test_read_pcr_guards(void)
+{
+    static const byte noDigest[] = {
+        0, 0, 0, 1,                         /* pcrUpdateCounter */
+        0, 0, 0, 1, 0x00, 0x0B, 3, 1, 0, 0, /* one SHA-256 selection */
+        0, 0, 0, 0                          /* no digests */
+    };
+    byte oneDigest[sizeof(noDigest) + 2 + TPM_SHA256_DIGEST_SIZE];
+    WOLFTPM2_DEV dev;
+    byte digest[TPM_SHA256_DIGEST_SIZE + 1];
+    int digestLen;
+    int i;
+
+    test_setup(&dev);
+
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, -1, TPM_ALG_SHA256, digest,
+        &digestLen), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, PCR_LAST + 1, TPM_ALG_SHA256, digest,
+        &digestLen), BAD_FUNC_ARG);
+
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS, noDigest,
+        (int)sizeof(noDigest));
+    digestLen = (int)sizeof(digest);
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest,
+        &digestLen), TPM_RC_FAILURE);
+
+    XMEMCPY(oneDigest, noDigest, sizeof(noDigest));
+    oneDigest[sizeof(noDigest) - 1] = 1;
+    oneDigest[sizeof(noDigest)] = 0;
+    oneDigest[sizeof(noDigest) + 1] = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(&oneDigest[sizeof(noDigest) + 2], 0x77, TPM_SHA256_DIGEST_SIZE);
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS, oneDigest,
+        (int)sizeof(oneDigest));
+
+    XMEMSET(digest, 0xC3, sizeof(digest));
+    digestLen = TPM_SHA256_DIGEST_SIZE - 1;
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest,
+        &digestLen), BUFFER_E);
+    for (i = 0; i < (int)sizeof(digest); i++) {
+        AssertIntEQ(digest[i], 0xC3);
+    }
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest, NULL),
+        BAD_FUNC_ARG);
+
+    digestLen = TPM_SHA256_DIGEST_SIZE;
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest,
+        &digestLen), TPM_RC_SUCCESS);
+    AssertIntEQ(digestLen, TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(digest[0], 0x77);
+    AssertIntEQ(digest[TPM_SHA256_DIGEST_SIZE - 1], 0x77);
+    AssertIntEQ(digest[TPM_SHA256_DIGEST_SIZE], 0xC3);
+    TPM2_Cleanup(&dev.ctx);
+}
+
 #ifdef WOLFTPM2_USE_WOLF_RNG
 /* A policy session whose PolicySecret is refused is not left loaded */
 static void test_ek_policy_secret_failure(void)
@@ -425,6 +481,7 @@ int main(void)
     test_session_unload();
 #endif
     test_response_tag_downgrade();
+    test_read_pcr_guards();
 #ifdef WOLFTPM2_USE_WOLF_RNG
     test_ek_policy_secret_failure();
 #endif
