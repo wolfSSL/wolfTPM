@@ -1285,7 +1285,7 @@ int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
     UINT32 i;
 #endif
 
-    /* Get Capability TPM_CAP_HANDLES - PCR */
+    /* Get Capability TPM_CAP_HANDLES */
     XMEMSET(&in, 0, sizeof(in));
     in.capability = TPM_CAP_HANDLES;
     in.property = handle;
