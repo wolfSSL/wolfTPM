@@ -2925,7 +2925,7 @@ WOLFTPM_API int wolfTPM2_ECDHEGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     \param dev pointer to a TPM2_DEV struct
     \param parentKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle of a primary key
     \param ecdhKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle
-    \param pubPoint pointer to an empty struct of TPM2B_ECC_POINT type
+    \param pubPoint pointer to a populated struct of TPM2B_ECC_POINT type, the public point of the peer
     \param out pointer to a byte buffer, to store the computed shared secret
     \param outSz integer value, on input the size of the out buffer, on output the size of the shared secret in bytes, which is the curve size with leading zeros kept
 
