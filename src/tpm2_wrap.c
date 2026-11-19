@@ -2302,10 +2302,13 @@ int wolfTPM2_CreateAuthSession_EkPolicy_ex(WOLFTPM2_DEV* dev,
                 (word32)tpmSession->handle.hndl);
         #endif
         /* Provide Endorsement Auth using PolicySecret */
-        XMEMSET(&policySecretIn, 0, sizeof(policySecretIn));
-        policySecretIn.authHandle = TPM_RH_ENDORSEMENT;
-        policySecretIn.policySession = tpmSession->handle.hndl;
-        rc = TPM2_PolicySecret(&policySecretIn, &policySecretOut);
+        rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
+        if (rc == TPM_RC_SUCCESS) {
+            XMEMSET(&policySecretIn, 0, sizeof(policySecretIn));
+            policySecretIn.authHandle = TPM_RH_ENDORSEMENT;
+            policySecretIn.policySession = tpmSession->handle.hndl;
+            rc = TPM2_PolicySecret(&policySecretIn, &policySecretOut);
+        }
         #ifdef DEBUG_WOLFTPM
         if (rc == TPM_RC_SUCCESS) {
             printf("policySecret applied on session\n");
@@ -2846,7 +2849,11 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     if (tpmKey && (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR)) {
         sessionAttributes = TPMA_SESSION_decrypt | TPMA_SESSION_encrypt;
     }
-    wolfTPM2_SetAuth(dev, 0, TPM_RS_PW, NULL, sessionAttributes, NULL);
+    /* a session the caller has set in slot 0 stays there */
+    if (!TPM2_IS_HMAC_SESSION(dev->session[0].sessionHandle) &&
+            !TPM2_IS_POLICY_SESSION(dev->session[0].sessionHandle)) {
+        wolfTPM2_SetAuth(dev, 0, TPM_RS_PW, NULL, sessionAttributes, NULL);
+    }
     if (tpmKey) {
         authSesIn.tpmKey = tpmKey->handle.hndl;
     }

@@ -1159,6 +1159,7 @@ WOLFTPM_API int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index, const W
     \ingroup wolfTPM2_Wrappers
     \brief Create a TPM session, Policy, HMAC or Trial
     \note This wrapper can also be used to start TPM session for parameter encryption, see wolfTPM nvram or keygen example
+    \note An HMAC or policy session already set in authorization slot 0 is kept; otherwise slot 0 is reset to a password session
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
@@ -1181,6 +1182,7 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     \ingroup wolfTPM2_Wrappers
     \brief Create a TPM session selecting the session auth/hash algorithm
     \note Use this instead of wolfTPM2_StartSession when the session digest must match a non-default hash, such as SHA-512 policy digests in post-quantum environments
+    \note An HMAC or policy session already set in authorization slot 0 is kept; otherwise slot 0 is reset to a password session
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments

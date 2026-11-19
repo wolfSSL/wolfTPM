@@ -2803,6 +2803,72 @@ static void test_wolfTPM2_ChangeAuthKey_ParamEnc(int bound)
 #endif
 }
 
+/* A policy session set in slot 0 is still there after a second session is
+ * started, so the EK policy authorizes the command that follows. */
+static void test_wolfTPM2_StartSession_KeepsSlot0(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY ek;
+    WOLFTPM2_KEYBLOB child;
+    WOLFTPM2_SESSION policy;
+    WOLFTPM2_SESSION enc;
+    TPMT_PUBLIC publicTemplate;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&ek, 0, sizeof(ek));
+    XMEMSET(&child, 0, sizeof(child));
+    XMEMSET(&policy, 0, sizeof(policy));
+    XMEMSET(&enc, 0, sizeof(enc));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tStartSession keeps slot 0:\tSkipped\n");
+        return;
+    }
+    rc = wolfTPM2_CreateEK(&dev, &ek, TPM_ALG_ECC);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    ek.handle.policyAuth = 1;
+
+    rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &policy);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &policy, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_StartSession(&dev, &enc, &ek, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[0].sessionHandle, policy.handle.hndl);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &enc,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_CreateKey(&dev, &child, &ek.handle, &publicTemplate,
+        NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* the policy session was used up, so load with a second one */
+    rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &policy);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &policy, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_LoadKey(&dev, &child, &ek.handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    wolfTPM2_UnloadHandle(&dev, &child.handle);
+    wolfTPM2_UnloadHandle(&dev, &enc.handle);
+    wolfTPM2_UnloadHandle(&dev, &ek.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tStartSession keeps slot 0:\tPassed\n");
+#endif
+}
+
 /* The TPM keeps an authValue without its trailing zeros, and that is what
  * goes in front of the salt in the session key of a bound and salted session.
  * wolfTPM2_CreatePrimaryKey pads a short auth with zeros. The fwTPM derives
@@ -13296,6 +13362,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_Hmac_ParamEnc();
     test_wolfTPM2_ChangeAuthKey_ParamEnc(0);
     test_wolfTPM2_ChangeAuthKey_ParamEnc(1);
+    test_wolfTPM2_StartSession_KeepsSlot0();
     test_wolfTPM2_BoundSaltedSession_PaddedAuth();
     test_wolfTPM2_BoundOwnEntity_PaddedAuth();
     test_wolfTPM2_CreateLoaded_ParamEnc();
