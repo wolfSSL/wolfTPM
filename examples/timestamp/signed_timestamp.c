@@ -141,7 +141,7 @@ int TPM2_Timestamp_TestArgs(void* userCtx, int argc, char *argv[])
     printf("wolfTPM2_CreateSRK: Storage 0x%x (%d bytes)\n",
         (word32)storage.handle.hndl, storage.pub.size);
 
-    /* Start an authenticated session (salted / unbound) */
+    /* Start an unsalted, unbound policy session */
     rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
         TPM_SE_POLICY, paramEncAlg);
     if (rc != 0) goto exit;
