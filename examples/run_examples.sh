@@ -665,8 +665,8 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
 
     # Copy CRL files for wolfSSL CRL verification support (HAVE_CRL)
     mkdir -p $WOLFSSL_PATH/certs/crl 2>/dev/null
-    cp ./certs/ca-rsa.crl $WOLFSSL_PATH/certs/crl/ca-rsa.crl 2>/dev/null
-    cp ./certs/ca-ecc.crl $WOLFSSL_PATH/certs/crl/ca-ecc.crl 2>/dev/null
+    cp ./certs/ca-rsa.crl $WOLFSSL_PATH/certs/crl/tpm-ca-rsa-crl.pem 2>/dev/null
+    cp ./certs/ca-ecc.crl $WOLFSSL_PATH/certs/crl/tpm-ca-ecc-crl.pem 2>/dev/null
 fi
 
 # PKCS7 Tests
