@@ -343,6 +343,7 @@ exit:
     }
 
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &endorse.handle);
     wolfTPM2_Cleanup(&dev);
 
     return rc;
