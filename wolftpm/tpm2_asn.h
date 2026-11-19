@@ -189,7 +189,7 @@ WOLFTPM_API int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
     \param pSig Pointer to buffer containing padded signature, updated to point
         to unpadded data
     \param sigSz Size of signature buffer, updated with unpadded size
-    \return 0 on success, TPM_RC_ASN_VALUE on invalid padding
+    \return 0 on success, -1 on invalid padding
 */
 WOLFTPM_API int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz);
 
