@@ -8961,16 +8961,45 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+/* Part 3 Sec.12.3.1 binding of an external KEYEDHASH or SYMCIPHER sensitive
+ * area: the seedValue has the nameAlg digest size and unique is the one the
+ * seedValue and key give. */
+static TPM_RC FwCheckExternalSymUnique(const TPMT_PUBLIC* pub,
+    const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int hRc;
+    byte unique[TPM_MAX_DIGEST_SIZE];
+
+    if (pub->nameAlg == TPM_ALG_NULL) {
+        return TPM_RC_SUCCESS;
+    }
+    if (digestSz <= 0 || (int)seedSz != digestSz) {
+        rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
+    }
+    else {
+        hRc = FwComputeSymUnique(pub, seed, seedSz, key, keySz, unique);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+        else if ((int)pub->unique.keyedHash.size != digestSz ||
+                TPM2_ConstantCompare(pub->unique.keyedHash.buffer, unique,
+                    (word32)digestSz) != 0) {
+            rc = TPM_RC_BINDING;
+        }
+    }
+    return rc;
+}
+
 /* Part 3 Sec.12.3.1 checks on an external KEYEDHASH sensitive area: the key
- * fits its scheme, and unique is the nameAlg digest of seedValue || key. */
+ * fits its scheme and unique is bound to it. */
 static TPM_RC FwCheckExternalKeyedHash(const TPMT_PUBLIC* pub,
     const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 scheme = pub->parameters.keyedHashDetail.scheme.scheme;
-    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
     int maxSz = 128;
-    byte unique[TPM_MAX_DIGEST_SIZE];
 
     if (scheme == TPM_ALG_HMAC) {
         maxSz = wc_HashGetBlockSize(FwGetWcHashType(
@@ -8986,19 +9015,8 @@ static TPM_RC FwCheckExternalKeyedHash(const TPMT_PUBLIC* pub,
     if (rc == 0 && (maxSz <= 0 || (int)keySz > maxSz)) {
         rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
     }
-    if (rc == 0 && pub->nameAlg != TPM_ALG_NULL) {
-        if (digestSz <= 0 || (int)seedSz != digestSz) {
-            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
-        }
-        else if (FwComputeHashUnique(pub->nameAlg, seed, seedSz, key, keySz,
-                unique) != digestSz) {
-            rc = TPM_RC_FAILURE;
-        }
-        else if ((int)pub->unique.keyedHash.size != digestSz ||
-                TPM2_ConstantCompare(pub->unique.keyedHash.buffer, unique,
-                    (word32)digestSz) != 0) {
-            rc = TPM_RC_BINDING;
-        }
+    if (rc == 0) {
+        rc = FwCheckExternalSymUnique(pub, seed, seedSz, key, keySz);
     }
     return rc;
 }
@@ -9207,7 +9225,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Reconstruct/store private key if private area was provided */
     if (rc == 0 && inPrivSize > 0 && sensitiveType == TPM_ALG_SYMCIPHER &&
-            qSz > 0) {
+            inPublic.publicArea.type == TPM_ALG_SYMCIPHER && qSz > 0) {
         /* For SYMCIPHER, qBuf contains the raw AES key bytes. Per Part 2
          * Sec.11.1.9 a TPM2B_SYM_KEY for AES is 16, 24, or 32 bytes.
          * Reject any other length up front - the outer FWTPM_MAX_DER_SIG_BUF
@@ -9216,6 +9234,10 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * copy. */
         if (qSz != 16 && qSz != 24 && qSz != 32) {
             rc = TPM_RC_SIZE;
+        }
+        if (rc == 0) {
+            rc = FwCheckExternalSymUnique(&inPublic.publicArea,
+                cmd->buf + seedPos, seedSz, qBuf, qSz);
         }
         if (rc == 0) {
             XMEMCPY(privKeyDer, qBuf, qSz);

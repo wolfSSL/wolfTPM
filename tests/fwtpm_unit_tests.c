@@ -19543,6 +19543,98 @@ static void test_fwtpm_loadexternal_symcipher_bad_keysize_rejected(void)
     fwtpm_pass("LoadExternal SYMCIPHER bad keySz (SIZE):", 0);
 }
 
+/* LoadExternal of an AES-128 CFB key (userWithAuth | sign | decrypt) with
+ * its seedValue and unique */
+static TPM_RC SendLoadExternalAesKey(FWTPM_CTX* ctx, const byte* seed,
+    UINT16 seedSz, const byte* key, const byte* unique, UINT32* handle)
+{
+    int pos, privStart, pubStart, rspSize = 0;
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_LoadExternal);
+    privStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2; /* sensitiveType */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authValue */
+    PutU16BE(gCmd + pos, seedSz); pos += 2;
+    memcpy(gCmd + pos, seed, seedSz); pos += seedSz;
+    PutU16BE(gCmd + pos, AES_128_KEY_SIZE); pos += 2;
+    memcpy(gCmd + pos, key, AES_128_KEY_SIZE); pos += AES_128_KEY_SIZE;
+    PutU16BE(gCmd + privStart, (UINT16)(pos - privStart - 2));
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* nameAlg */
+    PutU32BE(gCmd + pos, 0x00060040); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+    PutU16BE(gCmd + pos, 128); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    PutU16BE(gCmd + pos, WC_SHA256_DIGEST_SIZE); pos += 2;
+    memcpy(gCmd + pos, unique, WC_SHA256_DIGEST_SIZE);
+    pos += WC_SHA256_DIGEST_SIZE;
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* hierarchy */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) == TPM_RC_SUCCESS) {
+        *handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    }
+    return GetRspRC(gRsp);
+}
+
+/* An external SYMCIPHER key loads when its seedValue has the nameAlg digest
+ * size and its unique is H_nameAlg(seedValue || key), with the response
+ * codes of the reference implementation otherwise (Part 3 Sec.12.3.1). */
+static void test_fwtpm_loadexternal_symcipher_unique(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 keyH = 0;
+    byte seed[WC_SHA256_DIGEST_SIZE + 1];
+    byte key[AES_128_KEY_SIZE];
+    byte hashSrc[WC_SHA256_DIGEST_SIZE + sizeof(key)];
+    byte unique[WC_SHA256_DIGEST_SIZE];
+    FWTPM_Object* obj;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(seed, 0x31, sizeof(seed));
+    memset(key, 0x52, sizeof(key));
+    memcpy(hashSrc, seed, WC_SHA256_DIGEST_SIZE);
+    memcpy(hashSrc + WC_SHA256_DIGEST_SIZE, key, sizeof(key));
+    AssertIntEQ(wc_Sha256Hash(hashSrc, (word32)sizeof(hashSrc), unique), 0);
+
+    /* a seedValue that is empty, short, or longer than the digest */
+    AssertIntEQ(SendLoadExternalAesKey(&ctx, seed, 0, key, unique, &keyH),
+        TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendLoadExternalAesKey(&ctx, seed, WC_SHA256_DIGEST_SIZE - 1,
+        key, unique, &keyH), TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1);
+    AssertIntEQ(SendLoadExternalAesKey(&ctx, seed, WC_SHA256_DIGEST_SIZE + 1,
+        key, unique, &keyH), TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1);
+
+    /* a unique that the seedValue and key do not give */
+    unique[0] ^= 0x01;
+    AssertIntEQ(SendLoadExternalAesKey(&ctx, seed, WC_SHA256_DIGEST_SIZE,
+        key, unique, &keyH), TPM_RC_BINDING);
+    unique[0] ^= 0x01;
+    key[0] ^= 0x01;
+    AssertIntEQ(SendLoadExternalAesKey(&ctx, seed, WC_SHA256_DIGEST_SIZE,
+        key, unique, &keyH), TPM_RC_BINDING);
+    key[0] ^= 0x01;
+
+    AssertIntEQ(SendLoadExternalAesKey(&ctx, seed, WC_SHA256_DIGEST_SIZE,
+        key, unique, &keyH), TPM_RC_SUCCESS);
+    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    AssertIntEQ(obj->seedValue.size, WC_SHA256_DIGEST_SIZE);
+    AssertIntEQ(memcmp(obj->seedValue.buffer, seed, WC_SHA256_DIGEST_SIZE),
+        0);
+    AssertIntEQ(obj->privKeySize, (int)sizeof(key));
+    AssertIntEQ(memcmp(obj->privKey, key, sizeof(key)), 0);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("LoadExternal SYMCIPHER unique:", 0);
+}
+
 /* Rewrap must re-encrypt under a storage parent. A TPM_RH_NULL newParent
  * would serialize the unwrapped TPMT_SENSITIVE in the clear, so it must be
  * rejected per Part 3 Sec.23.4.2. */
@@ -33388,6 +33480,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
+    test_fwtpm_loadexternal_symcipher_unique();
     test_fwtpm_loadexternal_keyedhash();
     test_fwtpm_load_private_seed_value();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
