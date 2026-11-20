@@ -142,11 +142,11 @@ static TEE_Result FwOpteeSubmit(uint32_t paramTypes,
         return TEE_ERROR_BAD_PARAMETERS;
     }
 
-    cmdSize = params[0].memref.size;
-    if (params[0].memref.buffer == NULL || cmdSize == 0 ||
-            cmdSize > sizeof(fwCmdBuf)) {
+    if (params[0].memref.buffer == NULL || params[0].memref.size == 0 ||
+            params[0].memref.size > sizeof(fwCmdBuf)) {
         return TEE_ERROR_BAD_PARAMETERS;
     }
+    cmdSize = (uint32_t)params[0].memref.size;
 
     /* Handlers commit state before the response size is known, so refuse a
      * buffer that cannot hold a response before running anything. */
