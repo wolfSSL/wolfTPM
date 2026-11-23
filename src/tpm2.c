@@ -273,6 +273,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     for (i=0; i<info->authCnt; i++) {
         TPM2_AUTH_SESSION* session = &ctx->session[i];
         TPMS_AUTH_COMMAND authCmd;
+        UINT16 keySz;
 
         /* Build auth */
         XMEMSET(&authCmd, 0, sizeof(authCmd));
@@ -288,12 +289,19 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             XMEMCPY(authCmd.hmac.buffer, session->auth.buffer,
                 session->auth.size);
         }
-        /* Policy Session with PolicyPassword sends the authValue itself */
+        /* Policy Session with PolicyPassword sends the authValue itself,
+         * which follows the session key */
         else if (TPM2_IS_POLICY_SESSION(session->sessionHandle) &&
                  session->policyPass) {
-            authCmd.hmac.size = session->auth.size;
-            XMEMCPY(authCmd.hmac.buffer, session->auth.buffer,
-                session->auth.size);
+            keySz = session->noSessionKey ? 0 :
+                (UINT16)TPM2_GetHashDigestSize(session->authHash);
+            if (keySz > session->auth.size) {
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
+                return BUFFER_E;
+            }
+            authCmd.hmac.size = session->auth.size - keySz;
+            XMEMCPY(authCmd.hmac.buffer, &session->auth.buffer[keySz],
+                authCmd.hmac.size);
             if ((info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4)) == 0) {
                 authCmd.sessionAttributes &= ~TPMA_SESSION_decrypt;
             }

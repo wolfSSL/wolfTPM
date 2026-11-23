@@ -23794,13 +23794,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 FwLookupEntityAuth(ctx, entityH, &authVal, &authValSz);
             }
 
-            /* PolicyPassword with no sessionKey (unsalted/unbound):
+            /* PolicyPassword, with or without a sessionKey:
              * HMAC field contains plaintext authValue per spec Section 19.6.13.
              * Use fixed-length FwCtAuthCompare so the compare trip count can't
              * leak the auth value length (matches the TPM_RS_PW path). */
             if (isAuthSess && hSess->sessionType == TPM_SE_POLICY &&
-                hSess->isPasswordPolicy &&
-                hSess->sessionKey.size == 0) {
+                hSess->isPasswordPolicy) {
                 if (FwCtAuthCompare(cmdAuths[hj].cmdHmac,
                         (int)cmdAuths[hj].cmdHmacSize, authVal, authValSz)) {
                     TPM_RC authRc = TPM_RC_BAD_AUTH;
@@ -24111,10 +24110,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 /* Append session attributes */
                 TPM2_Packet_AppendU8(&rspPkt, rspAttribs);
 
-                /* PolicyPassword with no sessionKey (unsalted/unbound):
+                /* PolicyPassword, with or without a sessionKey:
                  * response HMAC is zero-length per spec Section 19.6.13 */
                 if (sess->sessionType == TPM_SE_POLICY &&
-                    sess->isPasswordPolicy && sess->sessionKey.size == 0) {
+                    sess->isPasswordPolicy) {
                     TPM2_Packet_AppendU16(&rspPkt, 0);
                     continue;
                 }
