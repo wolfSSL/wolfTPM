@@ -13647,6 +13647,7 @@ static TPM_RC FwCmd_PolicyPassword(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         sess->isPasswordPolicy = 1;
+        sess->isAuthValuePolicy = 0;
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -13682,6 +13683,7 @@ static TPM_RC FwCmd_PolicyAuthValue(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         sess->isAuthValuePolicy = 1;
+        sess->isPasswordPolicy = 0;
         FwRspNoParams(rsp, cmdTag);
     }
 

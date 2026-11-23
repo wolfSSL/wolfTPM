@@ -13580,6 +13580,23 @@ static void test_fwtpm_nv_policy_auth_proof_required(void)
         TPM_RC_SUCCESS);
 
     FlushHandle(&ctx, sessH);
+
+    /* the last of the two assertions selects how the authValue is proven */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    for (i = 0; i < 2; i++) {
+        AssertIntEQ(SendPolicyCmd(&ctx, policyCc[(i + 1) % 2], sessH),
+            TPM_RC_SUCCESS);
+        AssertIntEQ(SendPolicyCmd(&ctx, policyCc[i], sessH), TPM_RC_SUCCESS);
+        for (si = 0; si < FWTPM_MAX_SESSIONS; si++) {
+            if (ctx.sessions[si].used && ctx.sessions[si].handle == sessH) {
+                AssertIntEQ(ctx.sessions[si].isAuthValuePolicy, i == 0);
+                AssertIntEQ(ctx.sessions[si].isPasswordPolicy, i == 1);
+            }
+        }
+    }
+
+    FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("NV policy authValue proof required:", 0);
 }
