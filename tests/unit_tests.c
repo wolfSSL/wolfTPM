@@ -7099,6 +7099,7 @@ static void test_TPM2_ResponseProcess_ParamSizeOverflow(void)
     XMEMSET(&ctx, 0, sizeof(ctx));
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&info, 0, sizeof(info));
+    XMEMSET(&packet, 0, sizeof(packet));
     XMEMSET(buf, 0, sizeof(buf));
 
     /* parameterSize field at offset TPM2_HEADER_SIZE: 0xFFFFFFF8 makes
@@ -7155,6 +7156,55 @@ static void test_TPM2_ResponseProcess_ParamSizeOverflow(void)
     printf("Test TPM Wrapper:\tResponseProcess paramSize overflow:\tPassed\n");
 }
 
+/* Each session sent has an authorization in the response. A PolicyPassword
+ * session is answered with an empty HMAC, so a missing or cut short record
+ * must not pass for one. */
+static void test_TPM2_ResponseProcess_AuthMissing(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
+    TPM2_Packet packet;
+    CmdInfo_t info;
+    byte buf[32];
+    const UINT32 authPos = TPM2_HEADER_SIZE + sizeof(UINT32);
+    UINT32 respSz;
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(session, 0, sizeof(session));
+    XMEMSET(&info, 0, sizeof(info));
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(buf, 0, sizeof(buf));
+
+    session[0].sessionHandle = POLICY_SESSION_FIRST;
+    session[0].authHash = TPM_ALG_SHA256;
+    session[0].policyPass = 1;
+    ctx.session = session;
+    info.authCnt = 1;
+    packet.buf = buf;
+
+    /* nonce size 0, continueSession, HMAC size 0 */
+    buf[authPos + 2] = TPMA_SESSION_continueSession;
+
+    for (respSz = authPos; respSz < authPos + 5; respSz++) {
+        packet.pos = 0;
+        packet.size = (int)respSz;
+        packet.overflow = 0;
+        rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0, respSz);
+        AssertIntEQ(rc, TPM_RC_SIZE);
+        AssertIntEQ(session[0].sessionHandle, POLICY_SESSION_FIRST);
+    }
+
+    packet.pos = 0;
+    packet.size = (int)respSz;
+    packet.overflow = 0;
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0, respSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(session[0].sessionHandle, POLICY_SESSION_FIRST);
+
+    printf("Test TPM Wrapper:\tResponseProcess auth missing:\tPassed\n");
+}
+
 static void test_TPM2_ResponseProcess_DecParamSizeOverflow(void)
 {
     TPM2_CTX ctx;
@@ -7167,6 +7217,7 @@ static void test_TPM2_ResponseProcess_DecParamSizeOverflow(void)
     XMEMSET(&ctx, 0, sizeof(ctx));
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&info, 0, sizeof(info));
+    XMEMSET(&packet, 0, sizeof(packet));
     ctx.session = session;
     packet.buf = buf;
 
@@ -7244,6 +7295,7 @@ static void test_TPM2_ResponseProcess_HmacVerify(void)
     XMEMSET(&ctx, 0, sizeof(ctx));
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&info, 0, sizeof(info));
+    XMEMSET(&packet, 0, sizeof(packet));
     XMEMSET(buf, 0, sizeof(buf));
 
     /* HMAC session with a known auth value and nonces */
@@ -13485,6 +13537,7 @@ int unit_tests(int argc, char *argv[])
 #endif
     test_TPM2_ResponseProcess_ParamSizeOverflow();
     test_TPM2_ResponseProcess_DecParamSizeOverflow();
+    test_TPM2_ResponseProcess_AuthMissing();
     test_TPM2_ResponseProcess_HmacVerify();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();

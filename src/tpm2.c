@@ -472,11 +472,18 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         TPMS_AUTH_RESPONSE authRsp;
         XMEMSET(&authRsp, 0, sizeof(authRsp));
 
-        /* Parse Auth - if exists */
-        if (respSz > authPos) {
-            packet->pos = authPos;
-            TPM2_Packet_ParseAuth(packet, &authRsp);
-            authPos = packet->pos;
+        /* The response carries one authorization for each session sent */
+        if (respSz <= authPos) {
+            rc = TPM_RC_SIZE;
+            break;
+        }
+        packet->pos = authPos;
+        TPM2_Packet_ParseAuth(packet, &authRsp);
+        authPos = packet->pos;
+        if (packet->overflow) {
+            TPM2_ForceZero(&authRsp, sizeof(authRsp));
+            rc = TPM_RC_SIZE;
+            break;
         }
 
         if (session->sessionHandle != TPM_RS_PW) {
