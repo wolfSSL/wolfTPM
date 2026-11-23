@@ -60,6 +60,7 @@ static int test_auth_count(void)
     if (TPM2_GetCmdAuthCount(&dev.ctx, &info) != 0)
         return 2;
 
+#if MAX_SESSION_NUM > 1
     /* A further HMAC session still needs an attribute the command uses. */
     info.flags = CMD_FLAG_AUTH_USER1 | CMD_FLAG_ENC2;
     dev.session[0].sessionHandle = TPM_RS_PW;
@@ -78,6 +79,7 @@ static int test_auth_count(void)
     dev.session[0].sessionHandle = 0;
     if (TPM2_GetSessionAuthCount(&dev.ctx) != 0)
         return 8;
+#endif
 #endif
 
     return 0;
