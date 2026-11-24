@@ -19812,9 +19812,10 @@ static void test_fwtpm_loadexternal_keyedhash(void)
 }
 
 #ifdef HAVE_ECC
-/* LoadExternal of a P-256 key, public only when d is NULL. */
-static TPM_RC SendLoadExternalEcc(FWTPM_CTX* ctx, UINT32 attributes,
-    const byte* x, UINT16 xSz, const byte* y, UINT16 ySz,
+/* LoadExternal of a P-256 key, public only when d is NULL. sensType is the
+ * sensitiveType sent with d. */
+static TPM_RC SendLoadExternalEccType(FWTPM_CTX* ctx, UINT16 sensType,
+    UINT32 attributes, const byte* x, UINT16 xSz, const byte* y, UINT16 ySz,
     const byte* d, UINT16 dSz, UINT32* handle)
 {
     int pos, privStart, pubStart, rspSize = 0;
@@ -19823,7 +19824,7 @@ static TPM_RC SendLoadExternalEcc(FWTPM_CTX* ctx, UINT32 attributes,
     privStart = pos;
     PutU16BE(gCmd + pos, 0); pos += 2;
     if (d != NULL) {
-        PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2; /* sensitiveType */
+        PutU16BE(gCmd + pos, sensType); pos += 2; /* sensitiveType */
         PutU16BE(gCmd + pos, 0); pos += 2; /* authValue */
         PutU16BE(gCmd + pos, 0); pos += 2; /* seedValue */
         PutU16BE(gCmd + pos, dSz); pos += 2;
@@ -19852,6 +19853,14 @@ static TPM_RC SendLoadExternalEcc(FWTPM_CTX* ctx, UINT32 attributes,
         *handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
     }
     return GetRspRC(gRsp);
+}
+
+static TPM_RC SendLoadExternalEcc(FWTPM_CTX* ctx, UINT32 attributes,
+    const byte* x, UINT16 xSz, const byte* y, UINT16 ySz,
+    const byte* d, UINT16 dSz, UINT32* handle)
+{
+    return SendLoadExternalEccType(ctx, TPM_ALG_ECC, attributes, x, xSz, y,
+        ySz, d, dSz, handle);
 }
 
 /* Make a P-256 key whose x coordinate (wantX) or private scalar starts with
@@ -19933,6 +19942,42 @@ static void test_fwtpm_ecc_private_binding(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ECC private scalar bound to public point:", 0);
+}
+
+/* The sensitive area of an external object has the type of its public area
+ * (Part 3 Sec.12.3.1). */
+static void test_fwtpm_loadexternal_sensitive_type(void)
+{
+    static const UINT16 types[] = {
+        TPM_ALG_RSA, TPM_ALG_KEYEDHASH, TPM_ALG_SYMCIPHER
+    };
+    FWTPM_CTX ctx;
+    ecc_key key;
+    UINT32 keyH = 0;
+    byte x[32], y[32], d[32];
+    word32 xSz = sizeof(x), ySz = sizeof(y), dSz = sizeof(d);
+    size_t i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(wc_ecc_init(&key), 0);
+    AssertIntEQ(wc_ecc_make_key_ex(&ctx.rng, 32, &key, ECC_SECP256R1), 0);
+    AssertIntEQ(wc_ecc_export_private_raw(&key, x, &xSz, y, &ySz, d, &dSz),
+        0);
+    wc_ecc_free(&key);
+
+    /* userWithAuth | sign */
+    for (i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+        AssertIntEQ(SendLoadExternalEccType(&ctx, types[i], 0x00040040, x,
+            (UINT16)xSz, y, (UINT16)ySz, d, (UINT16)dSz, &keyH),
+            TPM_RC_TYPE | TPM_RC_P | TPM_RC_1);
+    }
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00040040, x, (UINT16)xSz, y,
+        (UINT16)ySz, d, (UINT16)dSz, &keyH), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("LoadExternal sensitive type matches public:", 0);
 }
 
 #ifndef FWTPM_NO_ECDH
@@ -33786,6 +33831,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #ifdef HAVE_ECC
     test_fwtpm_ecc_private_binding();
+    test_fwtpm_loadexternal_sensitive_type();
 #endif
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
     !defined(FWTPM_NO_CREDENTIAL)

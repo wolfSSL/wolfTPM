@@ -9270,9 +9270,15 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif
 
+    /* The sensitive area is of the type of the public area */
+    if (rc == 0 && inPrivSize > 0 &&
+            sensitiveType != inPublic.publicArea.type) {
+        rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_1;
+    }
+
     /* Reconstruct/store private key if private area was provided */
     if (rc == 0 && inPrivSize > 0 && sensitiveType == TPM_ALG_SYMCIPHER &&
-            inPublic.publicArea.type == TPM_ALG_SYMCIPHER && qSz > 0) {
+            qSz > 0) {
         /* For SYMCIPHER, qBuf contains the raw AES key bytes. Per Part 2
          * Sec.11.1.9 a TPM2B_SYM_KEY for AES is 16, 24, or 32 bytes.
          * Reject any other length up front - the outer FWTPM_MAX_DER_SIG_BUF
@@ -9292,8 +9298,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     else if (rc == 0 && inPrivSize > 0 &&
-            sensitiveType == TPM_ALG_KEYEDHASH &&
-            inPublic.publicArea.type == TPM_ALG_KEYEDHASH && qSz > 0) {
+            sensitiveType == TPM_ALG_KEYEDHASH && qSz > 0) {
         /* For KEYEDHASH, qBuf is the HMAC key or the data */
         rc = FwCheckExternalKeyedHash(&inPublic.publicArea,
             cmd->buf + seedPos, seedSz, qBuf, qSz);
