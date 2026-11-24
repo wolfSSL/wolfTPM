@@ -3753,6 +3753,22 @@ static void test_wolfTPM2_PolicyPassword_ModeReset(void)
     AssertIntEQ(dev.session[0].policyPass, 0);
     AssertIntEQ(dev.session[0].policyAuth, 0);
 
+    /* setting the session again must not bring the password back */
+    AssertIntEQ(wolfTPM2_PolicyRestart_ex(NULL, &session), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_PolicyRestart_ex(&dev, NULL), BAD_FUNC_ARG);
+    AssertIntEQ(session.handle.policyPass, 1);
+    rc = wolfTPM2_PolicyRestart_ex(&dev, &session);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(session.handle.policyPass, 0);
+    AssertIntEQ(session.handle.policyAuth, 0);
+    AssertIntEQ(session.handle.auth.size, 0);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &session,
+        TPMA_SESSION_continueSession);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[0].policyPass, 0);
+    AssertIntEQ(dev.session[0].policyAuth, 0);
+    AssertIntEQ(dev.session[0].auth.size, 0);
+
     rc = wolfTPM2_PolicyAuthValue(&dev, &session, auth, authSz);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(session.handle.policyPass, 0);

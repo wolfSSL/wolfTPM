@@ -5180,11 +5180,35 @@ WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     \param dev pointer to a TPM2_DEV struct
     \param sessionHandle the handle of the current session, a session is required to use policy pcr
 
+    \note The caller's WOLFTPM2_SESSION is not changed. After
+    wolfTPM2_PolicyPassword or wolfTPM2_PolicyAuthValue use
+    wolfTPM2_PolicyRestart_ex so it is not set again with the old mode.
+
+    \sa wolfTPM2_PolicyRestart_ex
     \sa wolfTPM2_GetPolicyDigest
     \sa wolfTPM2_PolicyPCR
     \sa wolfTPM2_PolicyAuthorize
 */
 WOLFTPM_API int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Restart the policy digest for a policy session and clear the
+    PolicyPassword or PolicyAuthValue mode and authValue held in the session
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to a WOLFTPM2_SESSION struct for the policy session
+
+    \sa wolfTPM2_PolicyRestart
+    \sa wolfTPM2_PolicyPassword
+    \sa wolfTPM2_PolicyAuthValue
+*/
+WOLFTPM_API int wolfTPM2_PolicyRestart_ex(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* tpmSession);
 
 /*!
     \ingroup wolfTPM2_Wrappers

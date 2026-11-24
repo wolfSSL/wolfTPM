@@ -11750,11 +11750,26 @@ int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 /* --- BEGIN Policy Support -- */
 /******************************************************************************/
 
+/* After a policy restart the TPM no longer expects a password or an authValue
+ * HMAC, so only the session key stays in front */
+static void wolfTPM2_TrimPolicyAuth(TPM2B_AUTH* auth, TPMI_ALG_HASH authHash,
+    int noSessionKey, int hasPolicyAuth)
+{
+    UINT16 keySz = noSessionKey ? 0 : (UINT16)TPM2_GetHashDigestSize(authHash);
+
+    if (auth->size > sizeof(auth->buffer)) {
+        auth->size = (UINT16)sizeof(auth->buffer);
+    }
+    if (hasPolicyAuth && auth->size > keySz) {
+        TPM2_ForceZero(&auth->buffer[keySz], auth->size - keySz);
+        auth->size = keySz;
+    }
+}
+
 int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle)
 {
     int rc;
     int i;
-    UINT16 keySz;
     TPM2_AUTH_SESSION* session;
     PolicyRestart_In policyRestartIn[1];
 
@@ -11767,26 +11782,35 @@ int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle)
 
     rc = TPM2_PolicyRestart(policyRestartIn);
     if (rc == TPM_RC_SUCCESS) {
-        /* the TPM no longer expects a password or an authValue HMAC, so
-         * only the session key stays */
         for (i = 0; i < MAX_SESSION_NUM; i++) {
             session = &dev->session[i];
             if (session->sessionHandle == sessionHandle) {
-                keySz = session->noSessionKey ? 0 :
-                    (UINT16)TPM2_GetHashDigestSize(session->authHash);
-                if (session->auth.size > sizeof(session->auth.buffer)) {
-                    session->auth.size = (UINT16)sizeof(session->auth.buffer);
-                }
-                if ((session->policyPass || session->policyAuth) &&
-                        session->auth.size > keySz) {
-                    TPM2_ForceZero(&session->auth.buffer[keySz],
-                        session->auth.size - keySz);
-                    session->auth.size = keySz;
-                }
+                wolfTPM2_TrimPolicyAuth(&session->auth, session->authHash,
+                    session->noSessionKey,
+                    session->policyPass || session->policyAuth);
                 session->policyPass = 0;
                 session->policyAuth = 0;
             }
         }
+    }
+
+    return rc;
+}
+
+int wolfTPM2_PolicyRestart_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession)
+{
+    int rc;
+
+    if (dev == NULL || tpmSession == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = wolfTPM2_PolicyRestart(dev, tpmSession->handle.hndl);
+    if (rc == TPM_RC_SUCCESS) {
+        wolfTPM2_TrimPolicyAuth(&tpmSession->handle.auth,
+            tpmSession->authHash, tpmSession->handle.noSessionKey,
+            tpmSession->handle.policyPass || tpmSession->handle.policyAuth);
+        tpmSession->handle.policyPass = 0;
+        tpmSession->handle.policyAuth = 0;
     }
 
     return rc;
