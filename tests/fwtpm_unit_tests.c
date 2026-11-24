@@ -30856,6 +30856,53 @@ static void test_fwtpm_nv_global_write_lock_attribute(void)
     fwtpm_pass("NV_GlobalWriteLock sets WRITELOCKED:", 0);
 }
 
+/* The global write lock flag of an older NV image write-locks its GLOBALLOCK
+ * indexes when the image is loaded, until Startup(CLEAR). */
+static void test_fwtpm_nv_global_write_lock_flag(void)
+{
+    FWTPM_CTX ctx;
+    const UINT32 lockIdx = 0x01500A14;
+    const UINT32 plainIdx = 0x01500A15;
+    const UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD;
+    int cmdSz, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildNvDefineCmd(gCmd, lockIdx, 8, attrs | TPMA_NV_GLOBALLOCK);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cmdSz = BuildNvDefineCmd(gCmd, plainIdx, 8, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    ctx.globalNvWriteLock = 1;
+    AssertIntEQ(FWTPM_NV_SaveFlags(&ctx), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_test_cycle(&ctx, TPM_SU_STATE, TPM_SU_STATE), 0);
+    AssertIntNE(NvReadPublicAttributes(&ctx, lockIdx) &
+        TPMA_NV_WRITELOCKED, 0);
+    AssertIntEQ(NvReadPublicAttributes(&ctx, plainIdx) &
+        TPMA_NV_WRITELOCKED, 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, lockIdx, NULL, 8, 0),
+        TPM_RC_NV_LOCKED);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, plainIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(fwtpm_test_cycle(&ctx, TPM_SU_CLEAR, TPM_SU_CLEAR), 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, lockIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_test_cycle(&ctx, TPM_SU_STATE, TPM_SU_STATE), 0);
+    AssertIntEQ(SendNvOwnerCmd(&ctx, TPM_CC_NV_Write, lockIdx, NULL, 8, 0),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, lockIdx),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, plainIdx),
+        TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV global write lock flag of an older image:", 0);
+}
+
 static FWTPM_NV_HAL gNvFailAfterHal;
 static int gNvFailAfterWrites;
 
@@ -33992,6 +34039,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_clear_resets_lockout_auth();
 #ifndef FWTPM_NO_NV
     test_fwtpm_nv_global_write_lock_attribute();
+    test_fwtpm_nv_global_write_lock_flag();
     test_fwtpm_nv_global_write_lock_all_or_none();
     test_fwtpm_nv_global_write_lock_at_capacity();
 #endif

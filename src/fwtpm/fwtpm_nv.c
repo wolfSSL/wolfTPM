@@ -2546,6 +2546,14 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         rc = FwNvGenFreshState(ctx);
     }
 
+#ifndef FWTPM_NO_NV
+    /* An image saved with the global write lock flag set has no lock record
+     * and its indexes do not carry the lock */
+    if (rc == TPM_RC_SUCCESS && ctx->globalNvWriteLock) {
+        FwNvApplyGlobalLock(ctx);
+    }
+#endif
+
     TPM2_ForceZero(valueBuf, valueBufSz);
     XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;

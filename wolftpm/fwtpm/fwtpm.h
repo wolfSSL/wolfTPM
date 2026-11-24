@@ -879,7 +879,8 @@ typedef struct FWTPM_CTX {
     int shutdownStateSaved;     /* Previous Shutdown(STATE), persisted */
     int pendingClear;           /* Deferred clear (after response auth) */
     int disableClear;           /* ClearControl: 1 = Clear is disabled */
-    int globalNvWriteLock;      /* Persisted in the NV flags; not enforced */
+    int globalNvWriteLock;      /* NV flag of an older image: GLOBALLOCK
+                                 * indexes are write locked on load */
     /* HierarchyControl enable state (0 = enabled). Re-enabled on Startup
      * CLEAR per TPM 2.0 Part 1 (TPMS_STARTUP_CLEAR). */
     int shDisabled;             /* !shEnable:   owner hierarchy */
