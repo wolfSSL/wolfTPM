@@ -4045,7 +4045,7 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
          * Mirror TPM2_VerifySequenceStart: ENC2 only, dynamic tag from
          * AppendAuth so the caller can drive ST_NO_SESSIONS or ST_SESSIONS
          * (the fwTPM handler accepts both). */
-        info.flags = CMD_FLAG_NONE;
+        info.flags = (CMD_FLAG_ENC2);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4096,7 +4096,7 @@ TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
         info.outHandleCnt = 1;
-        info.flags = CMD_FLAG_NONE;
+        info.flags = (CMD_FLAG_ENC2);
 
         TPM2_Packet_Init(ctx, &packet);
 

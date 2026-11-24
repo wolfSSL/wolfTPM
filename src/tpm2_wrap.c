@@ -6108,7 +6108,12 @@ int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    /* keyHandle has Auth Index None per Part 3 Sec.17.6.3 — no SetAuth */
+    /* keyHandle has Auth Index None per Part 3 Sec.17.6.3, but a parameter
+     * encryption session covers the key Name */
+    rc = wolfTPM2_SetAuthHandleName(dev, 0, &key->handle);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
 
     XMEMSET(&signSeqStartIn, 0, sizeof(signSeqStartIn));
     signSeqStartIn.keyHandle = key->handle.hndl;
@@ -6337,6 +6342,12 @@ int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
     if (contextSz > 0 && context == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    /* a parameter encryption session covers the key Name */
+    rc = wolfTPM2_SetAuthHandleName(dev, 0, &key->handle);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     XMEMSET(&verifySeqStartIn, 0, sizeof(verifySeqStartIn));

@@ -12806,6 +12806,57 @@ static void test_wolfTPM2_MLDSA_VerifySequence(WOLFTPM2_DEV* dev,
     printf("Test TPM Wrapper: %-40s Passed\n", "ML-DSA Verify Sequence:");
 }
 
+/* The sequence start commands take no authorization, and their first
+ * parameter is the sequence authValue, so they send a parameter encryption
+ * session. */
+static void test_wolfTPM2_MLDSA_SequenceStart_ParamEnc(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mldsaKey)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && MAX_SESSION_NUM > 1
+    int rc;
+    int i;
+    WOLFTPM2_SESSION encSess;
+    WOLFTPM2_HANDLE seq;
+    TPM2B_NONCE nonceTPM;
+
+    XMEMSET(&encSess, 0, sizeof(encSess));
+    XMEMSET(&seq, 0, sizeof(seq));
+
+    rc = wolfTPM2_StartSession(dev, &encSess, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_SetAuthSession(dev, 1, &encSess,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, 0);
+
+    for (i = 0; i < 2; i++) {
+        XMEMCPY(&nonceTPM, &dev->session[1].nonceTPM, sizeof(nonceTPM));
+        if (i == 0)
+            rc = wolfTPM2_SignSequenceStart(dev, mldsaKey, NULL, 0, &seq.hndl);
+        else
+            rc = wolfTPM2_VerifySequenceStart(dev, mldsaKey, NULL, 0,
+                &seq.hndl);
+        if (rc == TPM_RC_SCHEME || rc == TPM_RC_COMMAND_CODE ||
+            rc == (int)(RC_VER1 + 0x043)) {
+            break;
+        }
+        AssertIntEQ(rc, 0);
+        AssertIntNE(XMEMCMP(&nonceTPM, &dev->session[1].nonceTPM,
+            sizeof(nonceTPM)), 0);
+        wolfTPM2_UnloadHandle(dev, &seq);
+    }
+
+    wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(dev, &encSess.handle);
+    printf("Test TPM Wrapper: %-40s %s\n", "ML-DSA sequence start param-enc:",
+        i == 2 ? "Passed" : "Skipped (not supported)");
+#else
+    (void)dev;
+    (void)mldsaKey;
+#endif
+}
+
 /* Regression for the SignSequenceComplete slot-1 auth fix.
  * Creates a separate ML-DSA-65 primary with a NON-EMPTY user auth and runs
  * a sign sequence end-to-end. The wrapper now sets both auth slots
@@ -13485,6 +13536,7 @@ static void test_wolfTPM2_PQC(void)
 
     test_wolfTPM2_MLDSA_VerifySequence(&dev, &mldsaKey,
         testMessage, testMessageSz, sig, sigSz);
+    test_wolfTPM2_MLDSA_SequenceStart_ParamEnc(&dev, &mldsaKey);
 
     /* Bug-fix regressions: each test exercises a wrapper / native-API path
      * that no existing test covers, so a re-introduction of the underlying
