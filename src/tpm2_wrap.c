@@ -6819,6 +6819,12 @@ int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
+    /* a parameter encryption session covers the key Name */
+    rc = wolfTPM2_SetAuthHandleName(dev, 0, &key->handle);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
     XMEMSET(&encapsulateIn, 0, sizeof(encapsulateIn));
     encapsulateIn.keyHandle = key->handle.hndl;
 

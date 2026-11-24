@@ -446,7 +446,8 @@ void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
  * the leading populated slots are counted. With it, the slots the command
  * needs for authorization come first and a further HMAC session is added
  * when one of its attributes applies to the command. A slot that is not
- * used does not hide a later one. slots may be NULL. */
+ * used does not hide a later one. A command with no authorization sends a
+ * session only if it flags a parameter for encryption. slots may be NULL. */
 int TPM2_GetCmdAuthSlots(TPM2_CTX* ctx, const CmdInfo_t* info, byte* slots)
 {
     int authSessCount = 0, sessionCount;
@@ -499,13 +500,18 @@ int TPM2_GetCmdAuthSlots(TPM2_CTX* ctx, const CmdInfo_t* info, byte* slots)
                 sessionCount);
         #endif
         }
-        /* Additional HMAC sessions need attributes. */
-        else if (authSessCount > 0 && TPM2_IS_HMAC_SESSION(sessionHandle)) {
+        /* Additional HMAC sessions need attributes. A command with no
+         * authorization takes one for parameter encryption only. */
+        else if (TPM2_IS_HMAC_SESSION(sessionHandle) &&
+                (authSessCount > 0 || (flags & (CMD_FLAG_AUTH_USER1 |
+                    CMD_FLAG_AUTH_USER2 | CMD_FLAG_AUTH_ADMIN |
+                    CMD_FLAG_AUTH_DUP)) == 0)) {
             if (((sessionAttributes & TPMA_SESSION_decrypt) && (flags &
                     (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) ||
                 ((sessionAttributes & TPMA_SESSION_encrypt) && (flags &
                     (CMD_FLAG_DEC2 | CMD_FLAG_DEC4))) ||
-                 (sessionAttributes & TPMA_SESSION_audit))
+                 (authSessCount > 0 &&
+                    (sessionAttributes & TPMA_SESSION_audit)))
                 use = 1;
         }
 

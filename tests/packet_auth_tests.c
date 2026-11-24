@@ -85,10 +85,18 @@ static int test_auth_count(void)
     info.flags = CMD_FLAG_AUTH_USER1 | CMD_FLAG_DEC2;
     if (TPM2_GetCmdAuthCount(&dev.ctx, &info) != 1)
         return 10;
-    /* Nor is any session on a command without an authorization. */
+    /* A command without an authorization takes it for encryption alone. */
+    info.flags = CMD_FLAG_ENC2;
+    XMEMSET(slots, 0xFF, sizeof(slots));
+    if (TPM2_GetCmdAuthSlots(&dev.ctx, &info, slots) != 1 || slots[0] != 2)
+        return 11;
+    info.flags = CMD_FLAG_DEC2;
+    if (TPM2_GetCmdAuthCount(&dev.ctx, &info) != 0)
+        return 12;
+    dev.session[2].sessionAttributes = TPMA_SESSION_audit;
     info.flags = CMD_FLAG_ENC2;
     if (TPM2_GetCmdAuthCount(&dev.ctx, &info) != 0)
-        return 11;
+        return 13;
     info.flags = CMD_FLAG_AUTH_USER1 | CMD_FLAG_ENC2;
     dev.session[1].sessionHandle = HMAC_SESSION_FIRST;
     dev.session[2].sessionHandle = 0;

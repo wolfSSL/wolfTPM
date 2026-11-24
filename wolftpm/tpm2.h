@@ -4023,6 +4023,15 @@ WOLFTPM_API int TPM2_GetCommandRetries(TPM2_CTX* ctx);
     therefore it is recommended to supply an array of size
     MAX_SESSION_NUM to TPM2_SetSessionAuth(see example below).
 
+    \note An HMAC session with the decrypt or encrypt attribute is also sent
+    with these commands, which take no authorization: TPM2_LoadExternal,
+    TPM2_Hash, TPM2_HashSequenceStart, TPM2_ECDH_KeyGen, TPM2_RSA_Encrypt,
+    TPM2_Encapsulate. The session HMAC covers the Name of the key handle of the
+    last three, so the Name must be in slot 0
+    (see wolfTPM2_SetAuthHandleName) or the TPM returns TPM_RC_BAD_AUTH. The
+    wolfTPM2 wrappers set it. Other commands that take no authorization are
+    sent without a session.
+
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: could not acquire the lock on the wolfTPM2 context
     \return BAD_FUNC_ARG: the TPM2 context structure is a NULL pointer

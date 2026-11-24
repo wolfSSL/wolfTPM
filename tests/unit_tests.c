@@ -3791,6 +3791,129 @@ static void test_wolfTPM2_ParamEncSession_SlotGap(void)
 #endif
 }
 
+/* Commands that take no authorization but carry a secret send a parameter
+ * encryption session. Its HMAC covers the Name of the key handle. */
+static void test_wolfTPM2_NoAuthCmd_ParamEnc(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI) && \
+    defined(HAVE_ECC) && !defined(NO_SHA256) && MAX_SESSION_NUM > 1
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION encSess;
+    WOLFTPM2_KEY key;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY symKey;
+    TPMT_PUBLIC publicTemplate;
+    TPM2B_NONCE nonceTPM;
+    TPM2B_ECC_POINT pubPoint;
+    ECDH_KeyGen_In keyGenIn;
+    ECDH_KeyGen_Out keyGenOut;
+    ECDH_ZGen_In zGenIn;
+    ECDH_ZGen_Out zGenOut;
+    Hash_In hashCmd;
+    Hash_Out hashOut;
+    byte secret[MAX_ECC_BYTES];
+    int secretSz = (int)sizeof(secret);
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    const byte data[] = "noauthparamenc";
+    const byte symKeyBuf[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
+    };
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&encSess, 0, sizeof(encSess));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&symKey, 0, sizeof(symKey));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+    XMEMSET(&pubPoint, 0, sizeof(pubPoint));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "No-auth command param-enc:");
+        return;
+    }
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDH);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &key, TPM_RH_OWNER, &publicTemplate,
+        NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_CreateSRK(&dev, &srk, TPM_ALG_ECC, NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_StartSession(&dev, &encSess, &srk, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &encSess,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* ECDH_KeyGen: the TPM rolls the nonce of a session only when it is
+     * sent, and ZGen on the public point gives the secret it encrypted */
+    XMEMCPY(&nonceTPM, &dev.session[1].nonceTPM, sizeof(nonceTPM));
+    rc = wolfTPM2_ECDHGen(&dev, &key, &pubPoint, secret, &secretSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    XMEMSET(&zGenIn, 0, sizeof(zGenIn));
+    XMEMSET(&zGenOut, 0, sizeof(zGenOut));
+    zGenIn.keyHandle = key.handle.hndl;
+    XMEMCPY(&zGenIn.inPoint, &pubPoint, sizeof(zGenIn.inPoint));
+    rc = TPM2_ECDH_ZGen(&zGenIn, &zGenOut);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(zGenOut.outPoint.point.x.size, secretSz);
+    AssertIntEQ(XMEMCMP(zGenOut.outPoint.point.x.buffer, secret, secretSz), 0);
+
+    /* without the right key Name the session HMAC does not verify */
+    dev.session[0].name.name[dev.session[0].name.size - 1] ^= 0x01;
+    XMEMSET(&keyGenIn, 0, sizeof(keyGenIn));
+    XMEMSET(&keyGenOut, 0, sizeof(keyGenOut));
+    keyGenIn.keyHandle = key.handle.hndl;
+    rc = TPM2_ECDH_KeyGen(&keyGenIn, &keyGenOut);
+    AssertIntEQ(rc & ~0xF00, TPM_RC_BAD_AUTH);
+    AssertIntEQ(dev.session[1].sessionHandle, encSess.handle.hndl);
+
+    /* Hash: the data goes out encrypted and the digest comes back so */
+    XMEMSET(&hashCmd, 0, sizeof(hashCmd));
+    XMEMSET(&hashOut, 0, sizeof(hashOut));
+    hashCmd.data.size = (UINT16)sizeof(data);
+    XMEMCPY(hashCmd.data.buffer, data, sizeof(data));
+    hashCmd.hashAlg = TPM_ALG_SHA256;
+    hashCmd.hierarchy = TPM_RH_NULL;
+    XMEMCPY(&nonceTPM, &dev.session[1].nonceTPM, sizeof(nonceTPM));
+    rc = TPM2_Hash(&hashCmd, &hashOut);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    AssertIntEQ(wc_Sha256Hash(data, (word32)sizeof(data), digest), 0);
+    AssertIntEQ(hashOut.outHash.size, (int)sizeof(digest));
+    AssertIntEQ(XMEMCMP(hashOut.outHash.buffer, digest, sizeof(digest)), 0);
+
+    /* LoadExternal: the private part goes out encrypted */
+    XMEMCPY(&nonceTPM, &dev.session[1].nonceTPM, sizeof(nonceTPM));
+    rc = wolfTPM2_LoadSymmetricKey(&dev, &symKey, TPM_ALG_CFB, symKeyBuf,
+        (word32)sizeof(symKeyBuf));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    wolfTPM2_UnloadHandle(&dev, &symKey.handle);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &encSess.handle);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_UnloadHandle(&dev, &key.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "No-auth command param-enc:");
+#endif
+}
+
 /* The TPM takes the authValue as a password or as an HMAC key, whichever of
  * PolicyPassword and PolicyAuthValue ran last, and as neither after a
  * PolicyRestart. A flag left over from the other one would send the
@@ -13158,6 +13281,10 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
     byte sharedSecret1[64], sharedSecret2[64];
     int sharedSecret1Sz = (int)sizeof(sharedSecret1);
     int sharedSecret2Sz = (int)sizeof(sharedSecret2);
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && MAX_SESSION_NUM > 1
+    WOLFTPM2_SESSION encSess;
+    TPM2B_NONCE nonceTPM;
+#endif
 
     XMEMSET(ciphertext, 0, sizeof(ciphertext));
     XMEMSET(sharedSecret1, 0, sizeof(sharedSecret1));
@@ -13184,6 +13311,35 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
     /* Verify shared secrets match */
     AssertIntEQ(sharedSecret1Sz, sharedSecret2Sz);
     AssertIntEQ(XMEMCMP(sharedSecret1, sharedSecret2, sharedSecret1Sz), 0);
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && MAX_SESSION_NUM > 1
+    /* Encapsulate takes no authorization, and its shared secret comes back
+     * under a parameter encryption session */
+    XMEMSET(&encSess, 0, sizeof(encSess));
+    rc = wolfTPM2_StartSession(dev, &encSess, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_SetAuthSession(dev, 1, &encSess,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, 0);
+    XMEMCPY(&nonceTPM, &dev->session[1].nonceTPM, sizeof(nonceTPM));
+    ciphertextSz = (int)sizeof(ciphertext);
+    sharedSecret1Sz = (int)sizeof(sharedSecret1);
+    rc = wolfTPM2_Encapsulate(dev, mlkemKey, ciphertext, &ciphertextSz,
+        sharedSecret1, &sharedSecret1Sz);
+    AssertIntEQ(rc, 0);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev->session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    sharedSecret2Sz = (int)sizeof(sharedSecret2);
+    rc = wolfTPM2_Decapsulate(dev, mlkemKey, ciphertext, ciphertextSz,
+        sharedSecret2, &sharedSecret2Sz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(sharedSecret1Sz, sharedSecret2Sz);
+    AssertIntEQ(XMEMCMP(sharedSecret1, sharedSecret2, sharedSecret1Sz), 0);
+    wolfTPM2_SetAuthSession(dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(dev, &encSess.handle);
+#endif
 
     printf("Test TPM Wrapper: %-40s %s\n", "ML-KEM Round Trip:",
         rc == 0 ? "Passed" : "Failed");
@@ -13555,6 +13711,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVNameRefresh();
     test_wolfTPM2_PolicyPassword_ModeReset();
     test_wolfTPM2_ParamEncSession_SlotGap();
+    test_wolfTPM2_NoAuthCmd_ParamEnc();
     test_wolfTPM2_NVPolicyAuth(1, 0);
     test_wolfTPM2_NVPolicyAuth(0, 0);
     test_wolfTPM2_NVPolicyAuth(1, 1);

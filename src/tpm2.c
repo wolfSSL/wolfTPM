@@ -3867,7 +3867,7 @@ TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in, EC_Ephemeral_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
@@ -3907,7 +3907,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4030,7 +4030,7 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
          * Mirror TPM2_VerifySequenceStart: ENC2 only, dynamic tag from
          * AppendAuth so the caller can drive ST_NO_SESSIONS or ST_SESSIONS
          * (the fwTPM handler accepts both). */
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4081,7 +4081,7 @@ TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
         info.outHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4311,7 +4311,7 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4765,7 +4765,7 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4894,7 +4894,7 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4983,7 +4983,7 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5025,7 +5025,7 @@ TPM_RC TPM2_PolicyTransportSPDM(PolicyTransportSPDM_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5133,7 +5133,7 @@ TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5200,7 +5200,7 @@ TPM_RC TPM2_PolicyCpHash(PolicyCpHash_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5234,7 +5234,7 @@ TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5269,7 +5269,7 @@ TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5310,7 +5310,7 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5410,7 +5410,7 @@ TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->policySession);
@@ -5475,7 +5475,7 @@ TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->policySession);
@@ -5903,7 +5903,7 @@ TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in, FieldUpgradeData_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5952,7 +5952,7 @@ TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -6333,7 +6333,7 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
