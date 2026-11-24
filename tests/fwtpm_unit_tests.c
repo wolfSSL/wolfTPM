@@ -210,6 +210,9 @@ static void ParseRspHeader(const byte* buf, UINT16* tag, UINT32* size,
     if (rc)   *rc   = (TPM_RC)GetU32BE(buf + 6);
 }
 
+/* rc with the number of the session it is reported for */
+#define FW_RC_S(rc, n) ((rc) | TPM_RC_S | (TPM_RC)(TPM_RC_1 * (n)))
+
 /* Get response RC from a response buffer */
 static TPM_RC GetRspRC(const byte* rsp)
 {
@@ -2867,7 +2870,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_BAD_AUTH);
+    AssertIntEQ(GetRspRC(gRsp), FW_RC_S(TPM_RC_BAD_AUTH, 1));
 
     /* Restore PCR 16 to empty auth so the NV journal doesn't contaminate
      * later tests that share FWTPM_NV_FILE. */
@@ -15030,7 +15033,7 @@ static void test_fwtpm_nv_policy_auth_proof_required(void)
         AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
         AssertIntEQ(SendNvAccessCmd(&ctx, nvIdx, sessH, NULL, 0, 1),
-            hasAuth ? TPM_RC_BAD_AUTH : TPM_RC_SUCCESS);
+            hasAuth ? FW_RC_S(TPM_RC_BAD_AUTH, 1) : TPM_RC_SUCCESS);
         FlushHandle(&ctx, sessH);
     }
 
@@ -18473,11 +18476,11 @@ static void test_fwtpm_da_platform_exempt(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
     AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
-        TPM_RC_BAD_AUTH);
+        FW_RC_S(TPM_RC_BAD_AUTH, 1));
     AssertIntEQ((int)ctx.daFailedTries, 0);
     /* Repeated failures must neither count nor lock. */
     AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
-        TPM_RC_BAD_AUTH);
+        FW_RC_S(TPM_RC_BAD_AUTH, 1));
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(ctx.lockoutAuthFailed, 0);
 
@@ -18592,14 +18595,14 @@ static void test_fwtpm_da_noda_object_exempt(void)
     /* noDA sign key (attr includes TPMA_OBJECT_noDA = 0x400) */
     noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
     AssertIntNE(noDaKey, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_BAD_AUTH);
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), FW_RC_S(TPM_RC_BAD_AUTH, 1));
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(ctx.daUsed, 0);
 
     /* DA-protected sign key (no noDA bit) */
     daKey = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(daKey, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 1);
     AssertIntEQ(ctx.daUsed, 1);
 
@@ -18625,7 +18628,7 @@ static void test_fwtpm_da_lockout_and_reset(void)
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
 
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 1);
     AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
     AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 2);
@@ -18669,13 +18672,13 @@ static void test_fwtpm_da_noda_usable_during_lockout(void)
     AssertIntNE(daKey, 0);
 
     /* Drive lockout with the DA key. */
-    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
     /* The DA key is now gated... */
     AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
     /* ...but the noDA key is still processed (BAD_AUTH, not LOCKOUT) and does
      * not feed the counter. */
-    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_BAD_AUTH);
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), FW_RC_S(TPM_RC_BAD_AUTH, 1));
     AssertIntEQ((int)ctx.daFailedTries, 2);
 
     FWTPM_Cleanup(&ctx);
@@ -18705,8 +18708,8 @@ static void test_fwtpm_da_selfheal(void)
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
 
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 2);
 
     /* Advance 3s (>= 2 recovery intervals) and run a benign command. */
@@ -18735,8 +18738,8 @@ static void test_fwtpm_da_persist_failedtries(void)
     AssertIntEQ(DaSetParams(&ctx, 100, 1000, 0), TPM_RC_SUCCESS);
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 2);
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
     PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
@@ -18753,7 +18756,7 @@ static void test_fwtpm_da_persist_failedtries(void)
     /* One more failure, then drop power without Shutdown (non-orderly). */
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 3);
     FWTPM_Cleanup(&ctx);
 
@@ -18791,7 +18794,7 @@ static void test_fwtpm_da_nonorderly_penalty(void)
     AssertIntEQ(DaSetParams(&ctx, 100, 1000, 0), TPM_RC_SUCCESS);
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 1);
     FWTPM_Cleanup(&ctx);
 
@@ -18826,7 +18829,7 @@ static void test_fwtpm_da_reboot_in_lockout_recovers(void)
     AssertIntEQ(DaSetParams(&ctx, 2, 1000, 0), TPM_RC_SUCCESS);
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
     AssertTrue(ctx.daFailedTries >= ctx.daMaxTries);
     FWTPM_Cleanup(&ctx);
@@ -18893,7 +18896,7 @@ static void test_fwtpm_da_lockoutauth_failure(void)
 
     /* The first wrong lockoutAuth reports AUTH_FAIL but arms the lock. */
     AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
-        NULL, 0), TPM_RC_AUTH_FAIL);
+        NULL, 0), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(ctx.lockoutAuthFailed, 1);
 
     /* Even the correct auth is now rejected while the lockout lock holds. */
@@ -18955,7 +18958,7 @@ static void test_fwtpm_da_lockoutauth_persist(void)
     ctx.lockoutAuth.size = (UINT16)sizeof(lkAuth);
     memcpy(ctx.lockoutAuth.buffer, lkAuth, sizeof(lkAuth));
     AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
-        NULL, 0), TPM_RC_AUTH_FAIL);
+        NULL, 0), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(ctx.lockoutAuthFailed, 1);
     FWTPM_Cleanup(&ctx);
 
@@ -18973,7 +18976,7 @@ static void test_fwtpm_da_lockoutauth_persist(void)
     ctx.lockoutAuth.size = (UINT16)sizeof(lkAuth);
     memcpy(ctx.lockoutAuth.buffer, lkAuth, sizeof(lkAuth));
     AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
-        NULL, 0), TPM_RC_AUTH_FAIL);
+        NULL, 0), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(ctx.lockoutAuthFailed, 1);
     FWTPM_Cleanup(&ctx);
 
@@ -18994,7 +18997,7 @@ static void test_fwtpm_da_lockoutauth_persist(void)
     ctx.lockoutAuth.size = (UINT16)sizeof(lkAuth);
     memcpy(ctx.lockoutAuth.buffer, lkAuth, sizeof(lkAuth));
     AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
-        NULL, 0), TPM_RC_AUTH_FAIL);
+        NULL, 0), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(ctx.lockoutAuthFailed, 1);
     FWTPM_Cleanup(&ctx);
 
@@ -19020,7 +19023,7 @@ static void test_fwtpm_da_clear_resets(void)
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
     /* Drive into full lockout so the inLockout bit is set. */
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
     AssertTrue(DaGetCapProp(&ctx, TPM_PT_PERMANENT) &
         TPMA_PERMANENT_inLockout);
@@ -19085,9 +19088,9 @@ static void test_fwtpm_da_selfheal_partial(void)
     AssertIntEQ(DaSetParams(&ctx, 10, 1 /*sec*/, 0), TPM_RC_SUCCESS);
     key = DaMakeEccSignKey(&ctx, 0x00040072);
     AssertIntNE(key, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 3);
 
     /* One recovery interval forgives exactly one try (partial). */
@@ -19141,7 +19144,7 @@ static void test_fwtpm_da_hmac_arms_daused(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
 
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(GetRspRC(gRsp), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(ctx.daUsed, 1);
 
     FWTPM_Cleanup(&ctx);
@@ -19205,11 +19208,11 @@ static void test_fwtpm_da_bound_session_no_auth_slot(void)
     /* Unbound, and bound to a noDA object: not counted */
     sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
     AssertIntNE(sessH, 0);
-    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_BAD_AUTH);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), FW_RC_S(TPM_RC_BAD_AUTH, 1));
     FlushHandle(&ctx, sessH);
     sessH = DaStartBoundSession(&ctx, noDaKey);
     AssertIntNE(sessH, 0);
-    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_BAD_AUTH);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), FW_RC_S(TPM_RC_BAD_AUTH, 1));
     FlushHandle(&ctx, sessH);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(ctx.daUsed, 0);
@@ -19217,7 +19220,7 @@ static void test_fwtpm_da_bound_session_no_auth_slot(void)
     /* Bound to a DA protected object: counted, then locked out */
     sessH = DaStartBoundSession(&ctx, daKey);
     AssertIntNE(sessH, 0);
-    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 1);
     AssertIntEQ(ctx.daUsed, 1);
     AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_LOCKOUT);
@@ -19233,7 +19236,7 @@ static void test_fwtpm_da_bound_session_no_auth_slot(void)
     AssertIntNE(sessH, 0);
     FlushHandle(&ctx, daKey);
     AssertIntEQ(DaMakeEccSignKey(&ctx, 0x00040472), daKey);
-    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 1);
     FlushHandle(&ctx, sessH);
     AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
@@ -19242,7 +19245,7 @@ static void test_fwtpm_da_bound_session_no_auth_slot(void)
     /* Bound to lockout: locks lockoutAuth without counting a try */
     sessH = DaStartBoundSession(&ctx, TPM_RH_LOCKOUT);
     AssertIntNE(sessH, 0);
-    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(ctx.lockoutAuthFailed, 1);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(DaGetRandomBadHmac(&ctx, sessH), TPM_RC_LOCKOUT);
@@ -19325,7 +19328,7 @@ static void test_fwtpm_da_bound_session_locked_out(void)
         AssertIntNE(daKey, 0);
         noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
         AssertIntNE(noDaKey, 0);
-        AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+        AssertIntEQ(DaSignWrongAuth(&ctx, daKey), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
         AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
         AssertIntEQ((int)ctx.daFailedTries, 2);
 
@@ -19412,7 +19415,7 @@ static void test_fwtpm_da_bound_session_empty_hmac(void)
     sessH = DaStartBoundSession(&ctx, noDaKey);
     AssertIntNE(sessH, 0);
     AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
-        TPM_RC_BAD_AUTH);
+        FW_RC_S(TPM_RC_BAD_AUTH, 1));
     AssertIntEQ((int)ctx.daFailedTries, 0);
     FlushHandle(&ctx, sessH);
 
@@ -19420,11 +19423,11 @@ static void test_fwtpm_da_bound_session_empty_hmac(void)
     sessH = DaStartBoundSession(&ctx, daKey);
     AssertIntNE(sessH, 0);
     AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
-        TPM_RC_AUTH_FAIL);
+        FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ((int)ctx.daFailedTries, 1);
 
     /* Locked out: refused in every slot */
-    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
     AssertIntEQ((int)ctx.daFailedTries, 3);
     AssertIntEQ(DaSendEmptyHmac(&ctx, TPM_CC_GetRandom, 0, sessH),
@@ -21684,7 +21687,7 @@ static void test_fwtpm_import_empty_keyedhash_auth(void)
         &dataSz), TPM_RC_SUCCESS);
     AssertIntEQ(dataSz, 0);
     AssertIntEQ(SendUnseal(&ctx, objH, 0, badAuth, sizeof(badAuth) - 1,
-        &dataSz), TPM_RC_BAD_AUTH);
+        &dataSz), FW_RC_S(TPM_RC_BAD_AUTH, 1));
 
 #ifndef FWTPM_NO_CONTEXT
     /* A saved context keeps the sensitive area */
@@ -21727,7 +21730,7 @@ static void test_fwtpm_import_empty_keyedhash_auth(void)
         &dataSz), TPM_RC_SUCCESS);
     AssertIntEQ(dataSz, 0);
     AssertIntEQ(SendUnseal(&ctx, persH, 0, badAuth, sizeof(badAuth) - 1,
-        &dataSz), TPM_RC_BAD_AUTH);
+        &dataSz), FW_RC_S(TPM_RC_BAD_AUTH, 1));
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_EvictControl);
     PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
     PutU32BE(gCmd + pos, persH); pos += 4;
@@ -22589,7 +22592,11 @@ static void SweepSessionHmac(FWTPM_CTX* ctx, FWTPM_Session* sess, UINT32 cc,
     UINT8 attrs = TPMA_SESSION_continueSession | TPMA_SESSION_audit;
     int pos, rspSize, h, bad, rejected, cpSz = 0;
     TPM_RC rc;
+    TPM_RC wantRc = expectRc;
 
+    if (expectRc == TPM_RC_BAD_AUTH) {
+        wantRc |= TPM_RC_S | (withPw ? TPM_RC_2 : TPM_RC_1);
+    }
     XMEMSET(nonceCaller, 0x5C, sizeof(nonceCaller));
     XMEMCPY(nonceTPM, sess->nonceTPM.buffer, nonceSz);
     PutU32BE(cpBuf + cpSz, cc); cpSz += 4;
@@ -22610,11 +22617,11 @@ static void SweepSessionHmac(FWTPM_CTX* ctx, FWTPM_Session* sess, UINT32 cc,
         FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
         rc = GetRspRC(gRsp);
         if (bad) {
-            if (rc != expectRc) {
+            if (rc != wantRc) {
                 printf("CC 0x%x (password %d): 0x%x, expected 0x%x\n",
-                    (unsigned)cc, withPw, (unsigned)rc, (unsigned)expectRc);
+                    (unsigned)cc, withPw, (unsigned)rc, (unsigned)wantRc);
             }
-            AssertIntEQ(rc, expectRc);
+            AssertIntEQ(rc, wantRc);
             AssertIntEQ(sess->nonceTPM.size, nonceSz);
             AssertIntEQ(XMEMCMP(sess->nonceTPM.buffer, nonceTPM, nonceSz), 0);
             if (expectRc != TPM_RC_BAD_AUTH) {
@@ -22622,7 +22629,8 @@ static void SweepSessionHmac(FWTPM_CTX* ctx, FWTPM_Session* sess, UINT32 cc,
             }
         }
         else {
-            rejected = (rc == TPM_RC_BAD_AUTH || rc == TPM_RC_AUTH_FAIL);
+            rejected = ((rc & RC_MAX_FMT1) == TPM_RC_BAD_AUTH ||
+                (rc & RC_MAX_FMT1) == TPM_RC_AUTH_FAIL);
             if (rejected) {
                 printf("CC 0x%x (password %d): correct HMAC rejected\n",
                     (unsigned)cc, withPw);
@@ -23188,7 +23196,7 @@ static void test_fwtpm_param_enc_session_no_handle(void)
         rspSize = 0;
         FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
         AssertIntEQ(GetRspRC(gRsp),
-            withNonce ? TPM_RC_SUCCESS : TPM_RC_BAD_AUTH);
+            withNonce ? TPM_RC_SUCCESS : FW_RC_S(TPM_RC_BAD_AUTH, 1));
     }
 
     FlushHandle(&ctx, hmacSess);
@@ -23357,7 +23365,7 @@ static void test_fwtpm_param_enc_session_bound_to_auth(void)
         nonceCaller, plain, sizeof(plain));
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_BAD_AUTH);
+    AssertIntEQ(GetRspRC(gRsp), FW_RC_S(TPM_RC_BAD_AUTH, 1));
 
     pos = BuildBoundHmacCmd(gCmd, keyH, name, nameSz, hmacSess, nonceH,
         nonceHSz, encSess, cont | TPMA_SESSION_encrypt, nonceE, nonceESz, 1,
@@ -30396,11 +30404,13 @@ static void test_fwtpm_pcr_auth_startup_clear(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
     AssertIntEQ(SendPcrSetAuthValue(&ctx, FW_TEST_PCR, NULL, 0, pcrAuth,
         pcrAuthSz), TPM_RC_SUCCESS);
-    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0), TPM_RC_BAD_AUTH);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0),
+        FW_RC_S(TPM_RC_BAD_AUTH, 1));
 
 #ifndef FWTPM_NO_NV
     AssertIntEQ(fwtpm_test_cycle(&ctx, TPM_SU_STATE, TPM_SU_STATE), 0);
-    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0), TPM_RC_BAD_AUTH);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0),
+        FW_RC_S(TPM_RC_BAD_AUTH, 1));
 
     AssertIntEQ(fwtpm_test_cycle(&ctx, TPM_SU_STATE, TPM_SU_CLEAR), 0);
     AssertIntEQ(SendPcrExtendLoc(&ctx, FW_TEST_PCR, 0), TPM_RC_SUCCESS);
@@ -31121,7 +31131,7 @@ static void test_fwtpm_da_recovery_zero_disables(void)
     AssertIntNE(key, 0);
 
     for (i = 0; i < 4; i++) {
-        AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+        AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
         AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 0);
     }
     AssertIntEQ(DaGetCapProp(&ctx, TPM_PT_PERMANENT) &
@@ -31130,11 +31140,11 @@ static void test_fwtpm_da_recovery_zero_disables(void)
     /* Failures counted earlier are forgotten at once */
     ctx.daFailedTries = 2;
     AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
 
     /* A non-zero recovery time counts failures again */
     AssertIntEQ(DaSetParams(&ctx, 2, 1000, 0), TPM_RC_SUCCESS);
-    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), FW_RC_S(TPM_RC_AUTH_FAIL, 1));
     AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
     AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 2);
 
@@ -32910,20 +32920,21 @@ static void test_fwtpm_attest_null_signer(void)
             GetU16BE(gRsp + TPM2_HEADER_SIZE + 4));
     }
     AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_NV_Certify, 0, nvIdx, 1,
-        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), FW_RC_S(TPM_RC_BAD_AUTH, 1));
     AssertIntEQ(SendNvLockCmd(&ctx, TPM_CC_NV_UndefineSpace, nvIdx),
         TPM_RC_SUCCESS);
 #endif
 
     /* The authValue of TPM_RH_NULL is the Empty Buffer */
     AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_GetTime, 0, 0, 0,
-        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), FW_RC_S(TPM_RC_BAD_AUTH, 2));
     AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_Certify, objH, 0, 0,
-        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), FW_RC_S(TPM_RC_BAD_AUTH, 2));
     AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_CertifyCreation, objH, 0,
-        0, TPM_ALG_NULL, pw, (int)sizeof(pw), creation), TPM_RC_BAD_AUTH);
+        0, TPM_ALG_NULL, pw, (int)sizeof(pw), creation),
+        FW_RC_S(TPM_RC_BAD_AUTH, 1));
     AssertIntEQ(SendAttestNullSigner(&ctx, TPM_CC_Quote, 0, 0, 0,
-        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), TPM_RC_BAD_AUTH);
+        TPM_ALG_NULL, pw, (int)sizeof(pw), NULL), FW_RC_S(TPM_RC_BAD_AUTH, 1));
 
     FlushHandle(&ctx, objH);
     FWTPM_Cleanup(&ctx);
