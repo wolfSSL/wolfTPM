@@ -442,31 +442,36 @@ void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
     TPM2_Packet_AppendBytes(packet, authCmd->hmac.buffer, authCmd->hmac.size);
 }
 
-/* Finds the number of active Auth Session in the given TPM2 context.
- * If the info is not provided then returns the populated ctx->session,
- * otherwise adjusted based on the command information provided.
- */
-int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
+/* Finds the session slots a command sends, in wire order. Without the info
+ * the leading populated slots are counted. With it, the slots the command
+ * needs for authorization come first and a further HMAC session is added
+ * when one of its attributes applies to the command. A slot that is not
+ * used does not hide a later one. slots may be NULL. */
+int TPM2_GetCmdAuthSlots(TPM2_CTX* ctx, const CmdInfo_t* info, byte* slots)
 {
     int authSessCount = 0, sessionCount;
     TPMI_SH_AUTH_SESSION sessionHandle;
     TPMA_SESSION sessionAttributes;
     unsigned char flags = 0xFF;
+    int use;
 
     if (info != NULL)
         flags = info->flags;
 
-    /* The auth sessions must be first in the list */
     for (sessionCount = 0; sessionCount < MAX_SESSION_NUM; sessionCount++) {
         int authReq = 0;
         sessionHandle = ctx->session[sessionCount].sessionHandle;
         sessionAttributes = ctx->session[sessionCount].sessionAttributes;
+        use = 0;
 
         if (info == NULL) {
             /* count the leading populated slots */
-            authReq = (sessionHandle == TPM_RS_PW ||
-                TPM2_IS_HMAC_SESSION(sessionHandle) ||
-                TPM2_IS_POLICY_SESSION(sessionHandle));
+            if (sessionHandle != TPM_RS_PW &&
+                    !TPM2_IS_HMAC_SESSION(sessionHandle) &&
+                    !TPM2_IS_POLICY_SESSION(sessionHandle)) {
+                break;
+            }
+            use = 1;
         }
         else if ((sessionCount == 0 && (flags &
                 (CMD_FLAG_AUTH_USER1 |
@@ -477,34 +482,16 @@ int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
             authReq = 1;
         }
 
-        /* Only a password auth if command user auth set */
-        if (sessionHandle == TPM_RS_PW && authReq) {
-            authSessCount++;
+        if (use) {
+            /* counted above */
         }
-
-        /* A required HMAC authorization occupies the same slot as password
-         * or policy authorization. Additional HMAC sessions need attributes. */
-        else if (authReq && TPM2_IS_HMAC_SESSION(sessionHandle)) {
-            authSessCount++;
+        /* A required authorization is a password, HMAC or policy session */
+        else if (authReq && (sessionHandle == TPM_RS_PW ||
+                TPM2_IS_HMAC_SESSION(sessionHandle) ||
+                TPM2_IS_POLICY_SESSION(sessionHandle))) {
+            use = 1;
         }
-        else if (authSessCount > 0 && TPM2_IS_HMAC_SESSION(sessionHandle)) {
-            if (((sessionAttributes & TPMA_SESSION_decrypt) && (flags &
-                    (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) ||
-                ((sessionAttributes & TPMA_SESSION_encrypt) && (flags &
-                    (CMD_FLAG_DEC2 | CMD_FLAG_DEC4))) ||
-                 (sessionAttributes & TPMA_SESSION_audit))
-                authSessCount++;
-        }
-
-        /* Allow policy auth */
-        else if (authReq && TPM2_IS_POLICY_SESSION(sessionHandle)) {
-            authSessCount++;
-        }
-        else if (!authReq) {
-            /* we cannot accept further authentications */
-            break;
-        }
-        else {
+        else if (authReq) {
             /* This will result in a TPM_RC_AUTH_MISSING auth error from the TPM
              * Make sure the wolfTPM2_SetAuth* API is called for the index! */
         #ifdef DEBUG_WOLFTPM
@@ -512,13 +499,52 @@ int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
                 sessionCount);
         #endif
         }
+        /* Additional HMAC sessions need attributes. */
+        else if (authSessCount > 0 && TPM2_IS_HMAC_SESSION(sessionHandle)) {
+            if (((sessionAttributes & TPMA_SESSION_decrypt) && (flags &
+                    (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) ||
+                ((sessionAttributes & TPMA_SESSION_encrypt) && (flags &
+                    (CMD_FLAG_DEC2 | CMD_FLAG_DEC4))) ||
+                 (sessionAttributes & TPMA_SESSION_audit))
+                use = 1;
+        }
+
+        if (use) {
+            if (slots != NULL) {
+                slots[authSessCount] = (byte)sessionCount;
+            }
+            authSessCount++;
+        }
     }
     return authSessCount;
+}
+
+/* Finds the number of active Auth Session in the given TPM2 context.
+ * If the info is not provided then returns the leading populated ctx->session
+ * slots, otherwise adjusted based on the command information provided.
+ */
+int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
+{
+    return TPM2_GetCmdAuthSlots(ctx, info, NULL);
+}
+
+/* The slots for the info->authCnt sessions of a command. A caller that set
+ * authCnt itself gets the leading slots. */
+void TPM2_GetCmdInfoSlots(TPM2_CTX* ctx, const CmdInfo_t* info, byte* slots)
+{
+    int i;
+
+    if (TPM2_GetCmdAuthSlots(ctx, info, slots) != (int)info->authCnt) {
+        for (i = 0; i < MAX_SESSION_NUM; i++) {
+            slots[i] = (byte)i;
+        }
+    }
 }
 
 TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* info)
 {
     TPM_ST st = TPM_ST_NO_SESSIONS;
+    byte slots[MAX_SESSION_NUM];
 
     /* the return type is a wire tag, so a negative error cannot be encoded */
     if (ctx == NULL || info == NULL)
@@ -526,12 +552,12 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
     if (ctx->session == NULL)
         return st;
 
-    info->authCnt = TPM2_GetCmdAuthCount(ctx, info);
+    info->authCnt = (unsigned char)TPM2_GetCmdAuthSlots(ctx, info, slots);
     if (info->authCnt > 0) {
         int i, authTotalSzPos = 0;
         TPM2_Packet_MarkU32(packet, &authTotalSzPos);
         for (i=0; i<info->authCnt; i++) {
-            TPM2_AUTH_SESSION* session = &ctx->session[i];
+            TPM2_AUTH_SESSION* session = &ctx->session[slots[i]];
 
             /* TPM2_CommandProcess refuses an auth larger than its buffer */
             if (session->auth.size > sizeof(session->auth.buffer)) {

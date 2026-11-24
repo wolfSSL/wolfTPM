@@ -153,6 +153,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int i, authPos;
     int authTotalSzPos = 0;
     int decIdx = -1;
+    byte slots[MAX_SESSION_NUM];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     UINT32 handleValue1, handleValue2, handleValue3;
     int handlePos;
@@ -160,6 +161,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
     int encIdx = -1;
 #endif
+
+    TPM2_GetCmdInfoSlots(ctx, info, slots);
 
     /* Skip the header and handles area */
     packet->pos = TPM2_HEADER_SIZE + (info->inHandleCnt * sizeof(TPM_HANDLE));
@@ -222,7 +225,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Fresh nonces and parameter encryption come first so that every
      * session's cpHash covers the encrypted parameter */
     for (i=0; i<info->authCnt; i++) {
-        TPM2_AUTH_SESSION* session = &ctx->session[i];
+        TPM2_AUTH_SESSION* session = &ctx->session[slots[i]];
 
         /* the session array is caller memory; its sizes are copied below */
         if (session->nonceCaller.size > sizeof(session->nonceCaller.buffer) ||
@@ -242,13 +245,13 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             if (decIdx < 0 &&
                     (session->sessionAttributes & TPMA_SESSION_decrypt) &&
                     (info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) {
-                decIdx = i;
+                decIdx = slots[i];
             }
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             if (encIdx < 0 &&
                     (session->sessionAttributes & TPMA_SESSION_encrypt) &&
                     (info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4))) {
-                encIdx = i;
+                encIdx = slots[i];
             }
         #endif
         }
@@ -271,7 +274,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
     for (i=0; i<info->authCnt; i++) {
-        TPM2_AUTH_SESSION* session = &ctx->session[i];
+        TPM2_AUTH_SESSION* session = &ctx->session[slots[i]];
         TPMS_AUTH_COMMAND authCmd;
         UINT16 keySz;
 
@@ -361,10 +364,11 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
             /* Part 1 Sec.19.6.5: the first session's HMAC also covers the
              * nonceTPM of a different decrypt and encrypt session */
-            if (i == 0 && decIdx > 0) {
+            if (i == 0 && decIdx >= 0 && decIdx != slots[0]) {
                 nonceDecrypt = &ctx->session[decIdx].nonceTPM;
             }
-            if (i == 0 && encIdx > 0 && encIdx != decIdx) {
+            if (i == 0 && encIdx >= 0 && encIdx != slots[0] &&
+                    encIdx != decIdx) {
                 nonceEncrypt = &ctx->session[encIdx].nonceTPM;
             }
             /* Calculate HMAC for policy, hmac or salted sessions */
@@ -419,6 +423,9 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int encIdx = -1;
     int retireEnc = 0;
     TPM2B_AUTH* bind;
+    byte slots[MAX_SESSION_NUM];
+
+    TPM2_GetCmdInfoSlots(ctx, info, slots);
 
     /* Skip the header output handles */
     packet->pos = TPM2_HEADER_SIZE + (info->outHandleCnt * sizeof(TPM_HANDLE));
@@ -468,7 +475,7 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 #endif
 
     for (i=0; i<info->authCnt; i++) {
-        TPM2_AUTH_SESSION* session = &ctx->session[i];
+        TPM2_AUTH_SESSION* session = &ctx->session[slots[i]];
         TPMS_AUTH_RESPONSE authRsp;
         XMEMSET(&authRsp, 0, sizeof(authRsp));
 
@@ -597,14 +604,14 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
              * rpHash covers the encrypted response parameter */
             if (decParam && encIdx < 0 &&
                     (authRsp.sessionAttributes & TPMA_SESSION_encrypt)) {
-                encIdx = i;
+                encIdx = slots[i];
             }
             /* Retire a one-shot session: when the TPM clears
              * continueSession the session is consumed, so clear the local
              * slot to prevent reuse of a stale handle. */
             if ((authRsp.sessionAttributes & TPMA_SESSION_continueSession)
                     == 0) {
-                if (i == encIdx) {
+                if (slots[i] == encIdx) {
                     retireEnc = 1; /* still needed to decrypt */
                 }
                 else {

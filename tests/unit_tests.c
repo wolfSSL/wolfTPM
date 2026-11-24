@@ -3715,6 +3715,82 @@ static void test_wolfTPM2_NVPolicyAuth(int usePassword, int salted)
 #endif
 }
 
+/* A parameter encryption session in the last slot is sent with a command
+ * that authorizes with slot 0 only, although the slot between them is not
+ * used. */
+static void test_wolfTPM2_ParamEncSession_SlotGap(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI) && \
+    MAX_SESSION_NUM > 2
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION encSess;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    TPM2B_NONCE nonceTPM;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX + 5;
+    const byte nvAuth[] = "slotgapauth";
+    word32 nvAttributes;
+    byte buf[24];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&encSess, 0, sizeof(encSess));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(buf, 0x3C, sizeof(buf));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "Param-enc slot gap:");
+        return;
+    }
+
+    parent.hndl = TPM_RH_OWNER;
+    (void)wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth) - 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_StartSession(&dev, &encSess, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 2, &encSess,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[1].sessionHandle, 0);
+
+    /* the TPM rolls the nonce of a session only when it is sent */
+    XMEMCPY(&nonceTPM, &dev.session[2].nonceTPM, sizeof(nonceTPM));
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.session[2].sessionHandle, encSess.handle.hndl);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[2].nonceTPM,
+        sizeof(nonceTPM)), 0);
+
+    XMEMCPY(&nonceTPM, &dev.session[2].nonceTPM, sizeof(nonceTPM));
+    readSz = (word32)sizeof(readBuf);
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[2].nonceTPM,
+        sizeof(nonceTPM)), 0);
+
+    wolfTPM2_SetAuthSession(&dev, 2, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &encSess.handle);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "Param-enc slot gap:");
+#endif
+}
+
 /* The TPM takes the authValue as a password or as an HMAC key, whichever of
  * PolicyPassword and PolicyAuthValue ran last, and as neither after a
  * PolicyRestart. A flag left over from the other one would send the
@@ -7106,7 +7182,7 @@ static void test_st33_fu_ordinals(void)
 static void test_TPM2_ResponseProcess_ParamSizeOverflow(void)
 {
     TPM2_CTX ctx;
-    TPM2_AUTH_SESSION session[1];
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
     TPM2_Packet packet;
     CmdInfo_t info;
     byte buf[128];
@@ -7224,7 +7300,7 @@ static void test_TPM2_ResponseProcess_AuthMissing(void)
 static void test_TPM2_ResponseProcess_DecParamSizeOverflow(void)
 {
     TPM2_CTX ctx;
-    TPM2_AUTH_SESSION session[1];
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
     TPM2_Packet packet;
     CmdInfo_t info;
     byte buf[128];
@@ -7294,7 +7370,7 @@ static void test_TPM2_ResponseProcess_HmacVerify(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
     TPM2_CTX ctx;
-    TPM2_AUTH_SESSION session[1];
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
     TPM2_Packet packet;
     CmdInfo_t info;
     TPM2B_DIGEST rpHash;
@@ -13478,6 +13554,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVWriteChunked();
     test_wolfTPM2_NVNameRefresh();
     test_wolfTPM2_PolicyPassword_ModeReset();
+    test_wolfTPM2_ParamEncSession_SlotGap();
     test_wolfTPM2_NVPolicyAuth(1, 0);
     test_wolfTPM2_NVPolicyAuth(0, 0);
     test_wolfTPM2_NVPolicyAuth(1, 1);

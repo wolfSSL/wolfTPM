@@ -43,6 +43,9 @@ static int test_auth_count(void)
 {
     WOLFTPM2_DEV dev;
     CmdInfo_t info;
+#if MAX_SESSION_NUM > 2
+    byte slots[MAX_SESSION_NUM];
+#endif
 
     XMEMSET(&dev, 0, sizeof(dev));
     dev.ctx.session = dev.session;
@@ -70,6 +73,27 @@ static int test_auth_count(void)
         return 3;
 
 #if MAX_SESSION_NUM > 2
+    /* A slot that is not used does not hide the session after it. */
+    dev.session[1].sessionHandle = TPM_RS_PW;
+    dev.session[2].sessionHandle = HMAC_SESSION_FIRST;
+    dev.session[2].sessionAttributes = TPMA_SESSION_decrypt;
+    XMEMSET(slots, 0xFF, sizeof(slots));
+    if (TPM2_GetCmdAuthSlots(&dev.ctx, &info, slots) != 2 ||
+            slots[0] != 0 || slots[1] != 2)
+        return 9;
+    /* A session attribute the command has no use for is not sent. */
+    info.flags = CMD_FLAG_AUTH_USER1 | CMD_FLAG_DEC2;
+    if (TPM2_GetCmdAuthCount(&dev.ctx, &info) != 1)
+        return 10;
+    /* Nor is any session on a command without an authorization. */
+    info.flags = CMD_FLAG_ENC2;
+    if (TPM2_GetCmdAuthCount(&dev.ctx, &info) != 0)
+        return 11;
+    info.flags = CMD_FLAG_AUTH_USER1 | CMD_FLAG_ENC2;
+    dev.session[1].sessionHandle = HMAC_SESSION_FIRST;
+    dev.session[2].sessionHandle = 0;
+    dev.session[2].sessionAttributes = 0;
+
     /* Without command information the populated slots are counted. */
     if (TPM2_GetSessionAuthCount(&dev.ctx) != 2)
         return 6;
