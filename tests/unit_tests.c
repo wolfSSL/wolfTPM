@@ -3812,6 +3812,8 @@ static void test_wolfTPM2_NoAuthCmd_ParamEnc(void)
     ECDH_ZGen_Out zGenOut;
     Hash_In hashCmd;
     Hash_Out hashOut;
+    MakeCredential_In makeCredIn;
+    MakeCredential_Out makeCredOut;
     byte secret[MAX_ECC_BYTES];
     int secretSz = (int)sizeof(secret);
     byte digest[TPM_SHA256_DIGEST_SIZE];
@@ -3903,6 +3905,24 @@ static void test_wolfTPM2_NoAuthCmd_ParamEnc(void)
     AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[1].nonceTPM,
         sizeof(nonceTPM)), 0);
     wolfTPM2_UnloadHandle(&dev, &symKey.handle);
+
+    /* MakeCredential: the credential goes out encrypted */
+    rc = wolfTPM2_SetAuthHandleName(&dev, 0, &srk.handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    XMEMSET(&makeCredIn, 0, sizeof(makeCredIn));
+    XMEMSET(&makeCredOut, 0, sizeof(makeCredOut));
+    makeCredIn.handle = srk.handle.hndl;
+    makeCredIn.credential.size = (UINT16)sizeof(symKeyBuf);
+    XMEMCPY(makeCredIn.credential.buffer, symKeyBuf, sizeof(symKeyBuf));
+    XMEMCPY(&makeCredIn.objectName, &key.handle.name,
+        sizeof(makeCredIn.objectName));
+    XMEMCPY(&nonceTPM, &dev.session[1].nonceTPM, sizeof(nonceTPM));
+    rc = TPM2_MakeCredential(&makeCredIn, &makeCredOut);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    AssertIntGT(makeCredOut.credentialBlob.size, 0);
+    AssertIntGT(makeCredOut.secret.size, 0);
 
     wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
     wolfTPM2_UnloadHandle(&dev, &encSess.handle);

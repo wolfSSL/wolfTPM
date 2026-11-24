@@ -4026,8 +4026,8 @@ WOLFTPM_API int TPM2_GetCommandRetries(TPM2_CTX* ctx);
     \note An HMAC session with the decrypt or encrypt attribute is also sent
     with these commands, which take no authorization: TPM2_LoadExternal,
     TPM2_Hash, TPM2_HashSequenceStart, TPM2_ECDH_KeyGen, TPM2_RSA_Encrypt,
-    TPM2_Encapsulate. The session HMAC covers the Name of the key handle of the
-    last three, so the Name must be in slot 0
+    TPM2_Encapsulate and TPM2_MakeCredential. The session HMAC covers the Name
+    of the key handle of the last four, so the Name must be in slot 0
     (see wolfTPM2_SetAuthHandleName) or the TPM returns TPM_RC_BAD_AUTH. The
     wolfTPM2 wrappers set it. Other commands that take no authorization are
     sent without a session.

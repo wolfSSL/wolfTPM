@@ -2530,6 +2530,7 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
 {
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
         return BAD_FUNC_ARG;
@@ -2537,8 +2538,14 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
+
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->handle);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
         TPM2_Packet_AppendU16(&packet, in->credential.size);
         TPM2_Packet_AppendBytes(&packet, in->credential.buffer,
@@ -2548,12 +2555,17 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->objectName.name,
             in->objectName.size);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
-            TPM_CC_MakeCredential);
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_MakeCredential);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
+
             TPM2_Packet_ParseU16Buf(&packet, &out->credentialBlob.size,
                 out->credentialBlob.buffer,
                 (UINT16)sizeof(out->credentialBlob.buffer));
@@ -2562,6 +2574,9 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
                 out->secret.secret,
                 (UINT16)sizeof(out->secret.secret));
         }
+
+        /* the credential is in the shared command buffer */
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
 
         TPM2_ReleaseLock(ctx);
     }
