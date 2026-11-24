@@ -1,0 +1,79 @@
+name: OP-TEE Port (mock TEE)
+
+# Builds the fwTPM OP-TEE trusted application port with the real fwTPM core
+# and a WOLFSSL_OPTEE wolfCrypt on the host, against the mock TEE in
+# tests/optee, and drives it through the TA entry points. The stubbed-core
+# port tests run under make check instead. Push and pull request runs use a
+# pinned wolfSSL commit, since WOLFSSL_OPTEE platform support is not in a
+# -stable release yet; the nightly run uses wolfSSL master to catch drift.
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+    paths:
+      - 'src/fwtpm/**'
+      - 'wolftpm/fwtpm/**'
+      - 'src/tpm2_util.c'
+      - 'src/tpm2_packet.c'
+      - 'src/tpm2_crypto.c'
+      - 'src/tpm2_param_enc.c'
+      - 'wolftpm/*.h'
+      - 'tests/optee/**'
+      - '.github/workflows/optee-mock.yml'
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/fwtpm/**'
+      - 'wolftpm/fwtpm/**'
+      - 'src/tpm2_util.c'
+      - 'src/tpm2_packet.c'
+      - 'src/tpm2_crypto.c'
+      - 'src/tpm2_param_enc.c'
+      - 'wolftpm/*.h'
+      - 'tests/optee/**'
+      - '.github/workflows/optee-mock.yml'
+  repository_dispatch:
+    types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # wolfSSL master with WOLFSSL_OPTEE support (PRs 11919 and 11927)
+  WOLFSSL_PIN: 80c58daaec471de712453cf664c6973ffa6ba962
+
+jobs:
+  optee-mock:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            cflags: -O1 -g
+            ldflags: ""
+          - name: sanitizers
+            cflags: -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
+            ldflags: -fsanitize=address,undefined
+    name: optee-mock (${{ matrix.name }})
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfSSL/wolfssl
+          ref: ${{ github.event_name == 'repository_dispatch' && 'master' || env.WOLFSSL_PIN }}
+          path: wolfssl
+
+      - name: Build and run OP-TEE core tests
+        run: |
+          make -f tests/optee/optee_core.mk WOLFSSL=wolfssl \
+            CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}" check
