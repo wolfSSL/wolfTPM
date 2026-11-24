@@ -641,8 +641,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     /* Test changing auth for a key */
-    /* parent name is needed for the cpHash of a session in slot 1 */
-    wolfTPM2_SetAuthHandleName(&dev, 1, &storageKey.handle);
     rc = wolfTPM2_ChangeAuthKey(&dev, &eccKey, &storageKey.handle,
         (byte*)gKeyAuthAlt, sizeof(gKeyAuthAlt)-1);
     if (rc != 0) goto exit;
