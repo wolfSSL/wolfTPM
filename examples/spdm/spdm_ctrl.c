@@ -903,6 +903,10 @@ static int ctrl_nations_caps184(WOLFTPM2_DEV* dev)
         if (rawSz > 64) printf("...");
         printf("\n");
     } else if (rc == TPM_RC_VALUE) {
+        /* TPM2_GetCapability does not parse this capability: it returns a
+         * bare TPM_RC_VALUE after the TPM answered successfully */
+        printf("    Supported (response not parsed)\n");
+    } else if (rc > 0 && (rc & RC_MAX_FMT1) == TPM_RC_VALUE) {
         printf("    Not supported (TPM_RC_VALUE)\n");
     } else {
         printf("    Failed: 0x%x: %s\n", rc, ctrl_rc_string(rc));

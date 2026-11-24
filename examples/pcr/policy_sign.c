@@ -113,6 +113,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
             word32 derSz = (word32)bufSz * 3 / 4 + 1;
             byte* derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             if (derBuf == NULL) {
+                wc_ForceZero(buf, bufSz);
                 XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 wc_FreeRng(&rng);
                 return MEMORY_E;
@@ -120,12 +121,14 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
             rc = wc_KeyPemToDer((byte*)buf, (word32)bufSz, derBuf, derSz, password);
             if (rc >= 0) {
                 /* replace buf with DER */
+                wc_ForceZero(buf, bufSz);
                 XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 bufSz = rc;
                 buf = derBuf;
                 rc = 0;
             }
             else {
+                wc_ForceZero(derBuf, derSz);
                 XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             }
         #else
@@ -164,7 +167,6 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 }
             }
             if (rc == 0) {
-                *sigSz = wc_RsaEncryptSize(&key.rsa);
                 rc = wc_RsaSSL_Sign(encHash, hashSz, sig, *sigSz, &key.rsa, &rng);
                 if (rc >= 0) {
                     *sigSz = rc;
@@ -192,6 +194,9 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 rc = mp_init_multi(&r, &s, NULL, NULL, NULL, NULL);
                 if (rc == 0) {
                     rc = wc_ecc_sign_hash_ex(hash, hashSz, &rng, &key.ecc, &r, &s);
+                    if (rc == 0 && (word32)key.ecc.dp->size * 2 > *sigSz) {
+                        rc = BUFFER_E;
+                    }
                     if (rc == 0) {
                         word32 keySz = key.ecc.dp->size;
                         *sigSz = keySz * 2;
@@ -214,8 +219,11 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
         rc = NOT_COMPILED_IN;
     #endif
     }
-    else {
+    else if (rc == 0) {
         rc = BAD_FUNC_ARG;
+    }
+    if (buf != NULL) {
+        wc_ForceZero(buf, bufSz);
     }
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     wc_FreeRng(&rng);
@@ -249,7 +257,7 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
     byte digest[WC_MAX_DIGEST_SIZE];
     word32 digestSz = 0;
     byte sig[512]; /* up to 4096-bit key */
-    word32 sigSz = 0;
+    word32 sigSz = (word32)sizeof(sig);
     byte* policyRef = NULL; /* optional nonce */
     word32 policyRefSz = 0;
 
@@ -270,19 +278,19 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRNCMP(argv[argc-1], "-pcr=", XSTRLEN("-pcr=")) == 0) {
             const char* pcrStr = argv[argc-1] + XSTRLEN("-pcr=");
-            byte pcrIndex = (byte)XATOI(pcrStr);
-            if (pcrIndex > PCR_LAST) {
+            int pcrIndex = XATOI(pcrStr);
+            if (pcrIndex < 0 || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
             if (pcrArraySz >= sizeof(pcrArray) / sizeof(pcrArray[0])) {
                 printf("Too many -pcr= arguments (max %zu)\n",
                     sizeof(pcrArray) / sizeof(pcrArray[0]));
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
-            pcrArray[pcrArraySz] = pcrIndex;
+            pcrArray[pcrArraySz] = (byte)pcrIndex;
             pcrArraySz++;
         }
         else if (XSTRNCMP(argv[argc-1], "-pcrdigest=", XSTRLEN("-pcrdigest=")) == 0) {

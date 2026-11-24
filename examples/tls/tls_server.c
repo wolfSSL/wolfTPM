@@ -139,6 +139,7 @@ int TPM2_TLS_Server(void* userCtx)
 int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
+    int err;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storageKey;
     WOLFTPM2_KEY* bindKey = NULL;
@@ -404,8 +405,8 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
 
-        /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
+        /* slot 1, since the wrappers set the handle auth in slot 0 */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
              TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
@@ -776,12 +777,16 @@ tls_setup:
             benchStart = 0; /* use the read callback to trigger timing */
         #endif
             do {
+                err = 0;
                 rc = wolfSSL_read(ssl, msg, sizeof(msg));
                 if (rc < 0) {
-                    rc = wolfSSL_get_error(ssl, 0);
+                    err = wolfSSL_get_error(ssl, 0);
                 }
-            } while (rc == WOLFSSL_ERROR_WANT_READ);
-            if (rc >= 0) {
+            } while (err == WOLFSSL_ERROR_WANT_READ);
+            if (err != 0) {
+                rc = err;
+            }
+            else if (rc >= 0) {
                 msgSz = rc;
             #ifdef TLS_BENCH_MODE
                 benchStart = gettime_secs(0) - benchStart;
@@ -807,12 +812,16 @@ tls_setup:
             XMEMCPY(msg, webServerMsg, msgSz);
         #endif
             do {
+                err = 0;
                 rc = wolfSSL_write(ssl, msg, msgSz);
-                if (rc != msgSz) {
-                    rc = wolfSSL_get_error(ssl, 0);
+                if (rc <= 0) {
+                    err = wolfSSL_get_error(ssl, 0);
                 }
-            } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-            if (rc >= 0) {
+            } while (err == WOLFSSL_ERROR_WANT_WRITE);
+            if (err != 0) {
+                rc = err;
+            }
+            else if (rc >= 0) {
                 msgSz = rc;
             #ifdef TLS_BENCH_MODE
                 benchStart = gettime_secs(0) - benchStart;
@@ -840,6 +849,13 @@ tls_setup:
 
         wolfSSL_free(ssl);
         ssl = NULL;
+
+    #ifndef WOLFSSL_USER_IO
+        if (sockIoCtx.fd != SOCKET_INVALID) {
+            CloseSocket(sockIoCtx.fd);
+            sockIoCtx.fd = SOCKET_INVALID;
+        }
+    #endif
 
         if (!runLoop)
             mStop = 1;

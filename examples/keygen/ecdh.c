@@ -135,6 +135,7 @@ int TPM2_ECDH_Example(void* userCtx, int argc, char* argv[])
 
 exit:
 
+    wc_ForceZero(secret, sizeof(secret));
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
 

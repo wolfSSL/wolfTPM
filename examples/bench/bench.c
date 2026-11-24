@@ -392,9 +392,15 @@ static int bench_pqc_mldsa(WOLFTPM2_DEV* dev, double maxDuration,
     bench_stats_start(&count, &start);
     do {
         rc = wolfTPM2_VerifySequenceStart(dev, &mldsaKey, NULL, 0, &seqHandle);
-        if (rc == 0)
+        if (rc == 0) {
             rc = wolfTPM2_VerifySequenceComplete(dev, seqHandle, &mldsaKey,
                 message, (int)sizeof(message), sig, sigSz, &validation);
+            if (rc != 0) {
+                XMEMSET(&seqObj, 0, sizeof(seqObj));
+                seqObj.hndl = seqHandle;
+                wolfTPM2_UnloadHandle(dev, &seqObj);
+            }
+        }
         if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
     rc = bench_asym_done("ML-DSA", strength, "verify", count, start, rc);

@@ -161,6 +161,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&ekKey, 0, sizeof(ekKey));
     XMEMSET(&storageKey, 0, sizeof(storageKey));
     XMEMSET(&testKey, 0, sizeof(testKey));
 
@@ -325,8 +326,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
 
-        /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
+        /* slot 1, since the wrappers set the handle auth in slot 0 */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
@@ -529,7 +530,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_LoadKey(&dev, &testKey, &storageKey.handle);
         if (rc != 0) goto exit;
         printf("RSA Private Key Loaded into TPM: Handle 0x%x\n",
-            (word32)rsaKey.handle.hndl);
+            (word32)testKey.handle.hndl);
 
         /* Use TPM Handle... */
 
@@ -622,8 +623,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
 
-        /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
+        /* slot 1, since the wrappers set the handle auth in slot 0 */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
@@ -640,6 +641,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     /* Test changing auth for a key */
+    /* parent name is needed for the cpHash of a session in slot 1 */
+    wolfTPM2_SetAuthHandleName(&dev, 1, &storageKey.handle);
     rc = wolfTPM2_ChangeAuthKey(&dev, &eccKey, &storageKey.handle,
         (byte*)gKeyAuthAlt, sizeof(gKeyAuthAlt)-1);
     if (rc != 0) goto exit;
@@ -685,9 +688,10 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     if (message.size != cipher.size ||
         XMEMCMP(message.buffer, cipher.buffer, message.size) != 0) {
-        rc = -1; /* failed */
+        rc = TPM_RC_TESTING;
     }
     printf("ECC DH Test %s\n", rc == 0 ? "Passed" : "Failed");
+    if (rc != 0) goto exit;
 
     /* ECC Public Key Signature Verify Test/Example */
     /* Vector below uses a SHA-1 digest, which many current TPMs lack. */
@@ -810,11 +814,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
 
-#if 0 /* disabled until ECC Encrypted salt is added */
     /* Close TPM session based on ECC storage key */
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
-#endif
 
     /*------------------------------------------------------------------------*/
     /* NV TESTS */

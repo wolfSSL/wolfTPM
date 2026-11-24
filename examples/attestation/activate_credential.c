@@ -55,6 +55,7 @@ static void usage(void)
 int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 {
     int rc = -1;
+    int i;
     int endorseKey = 0;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY endorse;
@@ -75,19 +76,21 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     if (argc == 1) {
         printf("Using default values\n");
     }
-    else if (argc == 2) {
+    else if (argc <= 3) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
             XSTRCMP(argv[1], "-h") == 0 ||
             XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
-        if (argv[1][0] != '-') {
-            input = argv[1];
-        }
-        if (XSTRCMP(argv[1], "-eh") == 0) {
-            printf("Use Endorsement Key\n");
-            endorseKey = 1;
+        for (i = 1; i < argc; i++) {
+            if (argv[i][0] != '-') {
+                input = argv[i];
+            }
+            if (XSTRCMP(argv[i], "-eh") == 0) {
+                printf("Use Endorsement Key\n");
+                endorseKey = 1;
+            }
         }
     }
     else {

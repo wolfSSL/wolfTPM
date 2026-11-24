@@ -19,7 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* Example for using TPM to seal a secret using an external key based on PCR(s)
+/* Example for using TPM to unseal a secret sealed under a PCR policy that is
+ * authorized by an external key
  */
 
 #ifdef HAVE_CONFIG_H
@@ -161,19 +162,19 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRNCMP(argv[argc-1], "-pcr=", XSTRLEN("-pcr=")) == 0) {
             const char* pcrStr = argv[argc-1] + XSTRLEN("-pcr=");
-            byte pcrIndex = (byte)XATOI(pcrStr);
-            if (pcrIndex > PCR_LAST) {
+            int pcrIndex = XATOI(pcrStr);
+            if (pcrIndex < 0 || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
             if (pcrArraySz >= sizeof(pcrArray) / sizeof(pcrArray[0])) {
                 printf("Too many -pcr= arguments (max %zu)\n",
                     sizeof(pcrArray) / sizeof(pcrArray[0]));
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
-            pcrArray[pcrArraySz] = pcrIndex;
+            pcrArray[pcrArraySz] = (byte)pcrIndex;
             pcrArraySz++;
         }
         else if (XSTRNCMP(argv[argc-1], "-seal=",

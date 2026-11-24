@@ -60,6 +60,45 @@ static int DaSignWithRetry(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 }
 
 
+/* Read the dictionary attack parameters so they can be restored later. */
+static int DaGetParameters(word32* maxTries, word32* recoveryTime,
+    word32* lockoutRecovery)
+{
+    int rc;
+    word32 i;
+    int found = 0;
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_TAGGED_TPM_PROPERTY* props;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_MAX_AUTH_FAIL;
+    in.propertyCount = 3;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    props = &out.capabilityData.data.tpmProperties;
+    for (i = 0; i < props->count && i < MAX_TPM_PROPERTIES; i++) {
+        if (props->tpmProperty[i].property == TPM_PT_MAX_AUTH_FAIL) {
+            *maxTries = props->tpmProperty[i].value;
+            found |= 1;
+        }
+        else if (props->tpmProperty[i].property == TPM_PT_LOCKOUT_INTERVAL) {
+            *recoveryTime = props->tpmProperty[i].value;
+            found |= 2;
+        }
+        else if (props->tpmProperty[i].property == TPM_PT_LOCKOUT_RECOVERY) {
+            *lockoutRecovery = props->tpmProperty[i].value;
+            found |= 4;
+        }
+    }
+    return (found == 7) ? TPM_RC_SUCCESS : TPM_RC_FAILURE;
+}
+
 int TPM2_DA_Check_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
@@ -67,6 +106,11 @@ int TPM2_DA_Check_Example(void* userCtx, int argc, char *argv[])
     int sigSz;
     int locked = 0;
     int doLockout = 0;
+    int daSaved = 0;
+    int restoreRc;
+    word32 daMaxTries = 0;
+    word32 daRecoveryTime = 0;
+    word32 daLockoutRecovery = 0;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY srk;
     WOLFTPM2_KEY daKey;     /* DA-protected: noDA clear */
@@ -119,6 +163,11 @@ int TPM2_DA_Check_Example(void* userCtx, int argc, char *argv[])
     printf("Signed with DA-protected key (rode through any RC_RETRY)\n");
 
     if (doLockout) {
+        rc = DaGetParameters(&daMaxTries, &daRecoveryTime,
+            &daLockoutRecovery);
+        if (rc != 0) goto exit;
+        daSaved = 1;
+
         wolfTPM2_SetAuthPassword(&dev, 0, NULL);
         rc = wolfTPM2_DictionaryAttackParameters(&dev, 3, 0, 0);
         if (rc != 0) goto exit;
@@ -199,6 +248,17 @@ exit:
     /* Best-effort: do not leave the TPM locked for subsequent examples. */
     wolfTPM2_SetAuthPassword(&dev, 0, NULL);
     (void)wolfTPM2_DictionaryAttackLockReset(&dev);
+    if (daSaved) {
+        restoreRc = wolfTPM2_DictionaryAttackParameters(&dev, daMaxTries,
+            daRecoveryTime, daLockoutRecovery);
+        if (restoreRc != 0) {
+            printf("Failed to restore the DA parameters 0x%x: %s\n",
+                restoreRc, wolfTPM2_GetRCString(restoreRc));
+            if (rc == 0) {
+                rc = restoreRc;
+            }
+        }
+    }
 
     wolfTPM2_UnloadHandle(&dev, &noDaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &daKey.handle);

@@ -145,7 +145,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
-    /* Start an authenticated policy session (salted / unbound) */
+    /* Start an unsalted, unbound policy session */
     rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
         TPM_SE_POLICY, paramEncAlg);
     if (rc != 0) goto exit;

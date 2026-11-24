@@ -224,7 +224,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_StartSession(&dev, &tpmSession, &endorse, NULL,
         TPM_SE_HMAC, paramEncAlg);
     if (rc == 0) {
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
              TPMA_SESSION_continueSession));
     }
@@ -244,10 +244,12 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
             (TPMA_NV_TPM_NT & (TPM_NT_EXTEND << 4)) |
             TPMA_NV_ORDERLY |
             TPMA_NV_CLEAR_STCLEAR |
-            TPMA_NV_PLATFORMCREATE |
             TPMA_NV_POLICYWRITE |
             TPMA_NV_POLICYREAD |
             TPMA_NV_NO_DA);
+    if (authHandle == TPM_RH_PLATFORM) {
+        nvAttributes |= TPMA_NV_PLATFORMCREATE;
+    }
     nvSize = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
 
     /* Try and open existing NV */
@@ -268,7 +270,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     }
 
     /* Close session and unload endorsement */
-    wolfTPM2_UnsetAuth(&dev, 0);
+    wolfTPM2_UnsetAuth(&dev, 1);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
 
@@ -341,6 +343,7 @@ exit:
     }
 
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &endorse.handle);
     wolfTPM2_Cleanup(&dev);
 
     return rc;

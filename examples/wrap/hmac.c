@@ -142,8 +142,8 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
 
-        /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
+        /* slot 1, since the wrappers set the handle auth in slot 0 */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }

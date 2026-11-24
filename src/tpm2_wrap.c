@@ -9300,6 +9300,8 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
         goto hmac_start_cleanup;
     }
     authSet = 1;
+    /* the authorized handle is the key, so a session cpHash needs its Name */
+    wolfTPM2_CopyName(&dev->session[0].name, &hmac->key.handle.name);
 
     /* Setup HMAC start command */
     in.handle = hmac->key.handle.hndl;

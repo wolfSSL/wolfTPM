@@ -120,7 +120,7 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
             if (pcrIndex < 0 || pcrIndex > 23) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
         }
         else if (*argv[argc-1] != '-') {

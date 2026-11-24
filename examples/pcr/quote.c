@@ -118,13 +118,13 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
             if (*argv[1] < '0' || *argv[1] > '9') {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
             pcrIndex = XATOI(argv[1]);
             if (pcrIndex < 0 || pcrIndex > 23) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
-                return 0;
+                return BAD_FUNC_ARG;
             }
         }
         if (argc >= 3 && argv[2][0] != '-')
@@ -356,9 +356,13 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
                 cmdOut.quoteResult.quoted.size);
         }
         if (rc == 0) {
-            wc_Sha256Final(&sha256, digest);
+            rc = wc_Sha256Final(&sha256, digest);
         }
         wc_Sha256Free(&sha256);
+        if (rc != 0) {
+            printf("FAILURE [rc = %d]\n", rc);
+            goto exit;
+        }
 
         /* read in the public key and the signature r/s values */
         rc = wc_ecc_init(&ecKey);
@@ -384,6 +388,9 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         wc_ecc_free(&ecKey);
         printf("%s [rc = %d, result = %d]\n", (res == 1)? "SUCCESS": "FAILURE",
             rc, res);
+        if (rc == 0 && res != 1) {
+            rc = SIG_VERIFY_E;
+        }
     }
 #endif
 
