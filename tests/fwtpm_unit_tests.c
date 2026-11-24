@@ -22210,7 +22210,7 @@ static void test_fwtpm_param_enc_session_selection(void)
         sessB, cont | TPMA_SESSION_decrypt, nonceCaller, plain, sizeof(plain));
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES | TPM_RC_S | TPM_RC_3);
 
     FlushHandle(&ctx, sessB);
     nullSess = StartParamEncSessionHelper(&ctx, TPM_SE_POLICY, TPM_ALG_NULL,
@@ -22220,7 +22220,7 @@ static void test_fwtpm_param_enc_session_selection(void)
         0, 0, nonceCaller, plain, sizeof(plain));
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SYMMETRIC);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SYMMETRIC | TPM_RC_S | TPM_RC_2);
 
     FlushHandle(&ctx, nullSess);
     FlushHandle(&ctx, sessA);
@@ -22713,12 +22713,12 @@ static void test_fwtpm_session_hmac_sweep(void)
         for (withPw = 0; withPw <= 1; withPw++) {
             expectRc = TPM_RC_BAD_AUTH;
             if (withPw && nHandles == 0) {
-                expectRc = TPM_RC_HANDLE;
+                expectRc = TPM_RC_HANDLE | TPM_RC_S | TPM_RC_1;
             }
             for (j = 0; withPw && j < sizeof(noAuth) / sizeof(noAuth[0]);
                     j++) {
                 if (noAuth[j] == cc) {
-                    expectRc = TPM_RC_HANDLE;
+                    expectRc = TPM_RC_HANDLE | TPM_RC_S | TPM_RC_1;
                 }
             }
             for (j = 0; j < sizeof(early) / sizeof(early[0]); j++) {
@@ -23160,18 +23160,21 @@ static void test_fwtpm_session_attribute_rules(void)
         UINT8 attrs;
         TPM_RC rc;
     } cases[] = {
-        { TPMA_SESSION_continueSession, TPM_RC_ATTRIBUTES },
+        { TPMA_SESSION_continueSession, TPM_RC_ATTRIBUTES | TPM_RC_S |
+            TPM_RC_1 },
         { TPMA_SESSION_continueSession | TPMA_SESSION_audit, TPM_RC_SUCCESS },
         { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt,
             TPM_RC_SUCCESS },
         { TPMA_SESSION_continueSession | TPMA_SESSION_decrypt,
-            TPM_RC_ATTRIBUTES },
+            TPM_RC_ATTRIBUTES | TPM_RC_S | TPM_RC_1 },
         { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt |
-            TPMA_SESSION_decrypt, TPM_RC_ATTRIBUTES },
+            TPMA_SESSION_decrypt, TPM_RC_ATTRIBUTES | TPM_RC_S | TPM_RC_1 },
         { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt |
-            TPMA_SESSION_auditExclusive, TPM_RC_ATTRIBUTES },
+            TPMA_SESSION_auditExclusive, TPM_RC_ATTRIBUTES | TPM_RC_S |
+            TPM_RC_1 },
         { TPMA_SESSION_continueSession | TPMA_SESSION_encrypt |
-            TPMA_SESSION_auditReset, TPM_RC_ATTRIBUTES }
+            TPMA_SESSION_auditReset, TPM_RC_ATTRIBUTES | TPM_RC_S |
+            TPM_RC_1 }
     };
     FWTPM_CTX ctx;
     FWTPM_Session* sess = NULL;
@@ -23183,7 +23186,7 @@ static void test_fwtpm_session_attribute_rules(void)
     byte cpBuf[6];
     byte pHash[WC_SHA256_DIGEST_SIZE];
     byte authHmac[WC_SHA256_DIGEST_SIZE];
-    int pos, rspSize;
+    int pos, authStart, rspSize;
     size_t i;
 
     memset(&ctx, 0, sizeof(ctx));
@@ -23221,7 +23224,7 @@ static void test_fwtpm_session_attribute_rules(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE | TPM_RC_S | TPM_RC_1);
 
     /* and cannot decrypt, encrypt or audit */
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Clear);
@@ -23230,7 +23233,22 @@ static void test_fwtpm_session_attribute_rules(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES | TPM_RC_S | TPM_RC_1);
+
+    /* the response code names the session at fault */
+    pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Clear);
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    authStart = pos;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE | TPM_RC_S | TPM_RC_2);
 
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);

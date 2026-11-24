@@ -24082,6 +24082,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     UINT16 nonceSize, hmacSize;
                     UINT8 attribs;
                     byte nonceBuf[TPM_MAX_DIGEST_SIZE];
+                    /* Session number of a format-one response code */
+                    TPM_RC rcSession = TPM_RC_S |
+                        (TPM_RC)(TPM_RC_1 * (cmdAuthCnt + 1));
 
                     TPM2_Packet_ParseU32(&cmdPkt, &sessHandle);
                     TPM2_Packet_ParseU16(&cmdPkt, &nonceSize);
@@ -24130,6 +24133,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     rc = FwCheckSessionAttributes(entry, sessHandle, attribs,
                         cmdAuthCnt, &auditCnt);
                     if (rc != 0) {
+                        rc |= rcSession;
                         break;
                     }
 
@@ -24153,13 +24157,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                                     decSess != NULL) ||
                                 ((attribs & TPMA_SESSION_encrypt) != 0 &&
                                     encSess != NULL)) {
-                                rc = TPM_RC_ATTRIBUTES;
+                                rc = TPM_RC_ATTRIBUTES | rcSession;
                                 break;
                             }
                             if ((attribs & (TPMA_SESSION_decrypt |
                                     TPMA_SESSION_encrypt)) != 0 &&
                                     sess->symmetric.algorithm == TPM_ALG_NULL) {
-                                rc = TPM_RC_SYMMETRIC;
+                                rc = TPM_RC_SYMMETRIC | rcSession;
                                 break;
                             }
                             /* The first authHandleCnt handles are the ones
