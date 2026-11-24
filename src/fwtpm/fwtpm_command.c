@@ -10618,23 +10618,10 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* === Re-wrap under newParent === */
     if (rc == 0 && newParent != NULL) {
-        TPMI_ALG_HASH parentNameAlg = newParent->pub.nameAlg;
-        int symKeySz, digestSz;
+        int digestSz;
         int encSeedSz = 0;
-        byte hmacDigest[TPM_MAX_DIGEST_SIZE];
-        int outPos = 0;
 
-        if (newParent->pub.type == TPM_ALG_RSA) {
-            symKeySz = (int)(newParent->pub.parameters.rsaDetail.symmetric.keyBits.sym / 8);
-        }
-        else {
-            symKeySz = (int)(newParent->pub.parameters.eccDetail.symmetric.keyBits.sym / 8);
-        }
-        if (symKeySz <= 0) symKeySz = 16;
-        if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
-            rc = TPM_RC_SYMMETRIC;
-        }
-        digestSz = TPM2_GetHashDigestSize(parentNameAlg);
+        digestSz = TPM2_GetHashDigestSize(newParent->pub.nameAlg);
         if (digestSz <= 0)
             rc = TPM_RC_HASH;
 
@@ -10645,48 +10632,17 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 seedBuf, (int)sizeof(seedBuf), &seedSz,
                 encSeedBuf, (int)FWTPM_MAX_PUB_BUF, &encSeedSz);
         }
-        /* Derive new AES + HMAC keys */
-        if (rc == 0) {
-            rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                "STORAGE", nameBuf, nameSz, NULL, 0, aesKey, symKeySz);
-            rc = (rc == symKeySz) ? 0 : TPM_RC_FAILURE;
-        }
-        if (rc == 0) {
-            rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                "INTEGRITY", NULL, 0, NULL, 0, hmacKeyBuf, digestSz);
-            rc = (rc == digestSz) ? 0 : TPM_RC_FAILURE;
-        }
-        /* AES-CFB encrypt plainSens */
-        if (rc == 0) {
-            rc = TPM2_AesCfbEncrypt(aesKey, symKeySz,
-                NULL, plainSens, (word32)plainSensSz);
-            if (rc != 0)
-                rc = TPM_RC_FAILURE;
-        }
-        /* HMAC(hmacKey, encSens || name) */
-        if (rc == 0) {
-            rc = TPM2_HmacCompute(parentNameAlg,
-                hmacKeyBuf, (word32)digestSz,
-                plainSens, (word32)plainSensSz,
-                (nameSz > 0) ? nameBuf : NULL, (word32)nameSz,
-                hmacDigest, NULL);
-            if (rc != 0)
-                rc = TPM_RC_FAILURE;
-        }
-        /* Pack outDuplicate: integritySize(2) || integrity || encSens */
+        /* outDuplicate: integritySize(2) || integrity || encSens */
         if (rc == 0) {
             if (2 + digestSz + plainSensSz > (int)(FWTPM_MAX_PRIVKEY_DER + 256)) {
                 rc = TPM_RC_SIZE;
             }
         }
         if (rc == 0) {
-            FwStoreU16BE(dupBuf + outPos, (UINT16)digestSz);
-            outPos += 2;
-            XMEMCPY(dupBuf + outPos, hmacDigest, digestSz);
-            outPos += digestSz;
-            XMEMCPY(dupBuf + outPos, plainSens, plainSensSz);
-            outPos += plainSensSz;
-            dupSz = (UINT16)outPos;
+            XMEMCPY(dupBuf + 2 + digestSz, plainSens, plainSensSz);
+            dupSz = (UINT16)(2 + digestSz + plainSensSz);
+            rc = FwDupOuterWrap(newParent, seedBuf, seedSz, nameBuf, nameSz,
+                dupBuf, plainSensSz);
         }
 
         /* Build response: outDuplicate(TPM2B) + outSymSeed(TPM2B) */
@@ -10700,11 +10656,10 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         TPM2_ForceZero(seedBuf, sizeof(seedBuf));
-        TPM2_ForceZero(aesKey, sizeof(aesKey));
-        TPM2_ForceZero(hmacKeyBuf, sizeof(hmacKeyBuf));
     }
 
     TPM2_ForceZero(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
+    TPM2_ForceZero(dupBuf, FWTPM_MAX_PRIVKEY_DER + 256);
     FWTPM_FREE_BUF(dupBuf);
     FWTPM_FREE_BUF(symSeedBuf);
     FWTPM_FREE_BUF(plainSens);
