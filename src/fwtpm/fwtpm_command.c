@@ -8983,7 +8983,7 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify type matches */
     if (rc == 0) {
         if (sensitiveType != inPublic.publicArea.type) {
-            rc = TPM_RC_TYPE;
+            rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_1;
         }
     }
 
