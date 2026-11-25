@@ -6908,7 +6908,10 @@ TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out)
     }
     return rc;
 }
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT) || \
+    defined(WOLFTPM_MFG_IDENTITY)
 TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
 {
     TPM_RC rc;
@@ -6955,7 +6958,7 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
     }
     return rc;
 }
-#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT || WOLFTPM_MFG_IDENTITY */
 
 /* GPIO Vendor Specific API's */
 #ifdef WOLFTPM_ST33
