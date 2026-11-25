@@ -4612,6 +4612,58 @@ static void test_TPM2_command_process_session_sizes(void)
     TPM2_Cleanup(&ctx);
     printf("Test TPM Wrapper:\tCommand process session sizes:\tPassed\n");
 }
+
+/* A first parameter larger than the parameter area that was marshalled must
+ * be refused before its size is used as a parameter encryption length. */
+static void test_TPM2_command_process_param_size(void)
+{
+#if XFER_MAX_SIZE < 0xFFFF
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION sessions[MAX_SESSION_NUM];
+    NV_Write_In in;
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&in, 0, sizeof(in));
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
+    AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
+#else
+    AssertIntEQ(TPM2_Init_ex(&ctx, TPM2_IoCb, NULL, 0),
+        TPM_RC_SUCCESS);
+#endif
+    ctx.session = sessions;
+    in.authHandle = TPM_RH_OWNER;
+    in.nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    /* does not fit the command buffer, so only the size is marshalled */
+    in.data.size = 0xFFFF;
+
+    /* password authorization */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+#ifndef NO_HMAC
+    /* a decrypt session would encrypt that many bytes in place */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[1].sessionHandle = HMAC_SESSION_FIRST;
+    sessions[1].authHash = TPM_ALG_SHA256;
+    sessions[1].symmetric.algorithm = TPM_ALG_AES;
+    sessions[1].symmetric.keyBits.aes = 128;
+    sessions[1].symmetric.mode.aes = TPM_ALG_CFB;
+    sessions[1].sessionAttributes = TPMA_SESSION_decrypt;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+#endif
+
+    TPM2_Cleanup(&ctx);
+    printf("Test TPM Wrapper:\tCommand process param size:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tCommand process param size:\tSkipped\n");
+#endif
+}
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
@@ -14313,6 +14365,7 @@ int unit_tests(int argc, char *argv[])
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();
     test_TPM2_command_process_session_sizes();
+    test_TPM2_command_process_param_size();
 #endif
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
     test_TPM2_transport_buffer_cleanup();
