@@ -48,6 +48,8 @@
 #define TEST_MAX_PAGES   3
 #define TEST_PAGE_HANDLES 4
 #define TEST_MAX_FLUSHES (2 * MAX_HANDLE_NUM)
+#define TEST_POLICY_SESSION (POLICY_SESSION_FIRST + 2)
+#define TEST_CANNED_MAX   128
 
 /* Scripted TPM_CAP_HANDLES pages and a record of what the wrapper sent */
 static struct {
@@ -60,6 +62,12 @@ static struct {
     TPM_HANDLE flushed[TEST_MAX_FLUSHES];
     int flushes;
     TPM_HANDLE flushFail;
+    /* a response returned as is, whatever the command */
+    byte canned[TEST_CANNED_MAX];
+    int cannedSz;
+    /* the start of the last command sent */
+    byte cmd[TEST_CANNED_MAX];
+    int cmdSz;
 } script;
 
 /* Exercise the real wrapper, command builders and response parser without a
@@ -94,6 +102,17 @@ int test_unload_send(TPM2_CTX* ctx, TPM2_Packet* packet)
     int page = script.pages;
     int i;
 
+    script.cmdSz = packet->pos;
+    if (script.cmdSz > TEST_CANNED_MAX) {
+        script.cmdSz = TEST_CANNED_MAX;
+    }
+    XMEMCPY(script.cmd, packet->buf, script.cmdSz);
+    if (script.cannedSz > 0) {
+        XMEMCPY(packet->buf, script.canned, script.cannedSz);
+        packet->size = script.cannedSz;
+        return TPM_RC_SUCCESS;
+    }
+
     TPM2_Packet_Init(ctx, &rsp);
     if (code == TPM_CC_FlushContext) {
         AssertIntEQ(script.flushes < TEST_MAX_FLUSHES, 1);
@@ -101,6 +120,16 @@ int test_unload_send(TPM2_CTX* ctx, TPM2_Packet* packet)
         if (arg0 == script.flushFail) {
             rc = TPM_RC_FAILURE;
         }
+    }
+    else if (code == TPM_CC_StartAuthSession) {
+        TPM2_Packet_AppendU32(&rsp, TEST_POLICY_SESSION);
+        TPM2_Packet_AppendU16(&rsp, TPM_SHA256_DIGEST_SIZE);
+        for (i = 0; i < TPM_SHA256_DIGEST_SIZE; i++) {
+            TPM2_Packet_AppendU8(&rsp, 0x5A);
+        }
+    }
+    else if (code == TPM_CC_PolicySecret) {
+        rc = TPM_RC_FAILURE;
     }
     else {
         AssertIntEQ(code, TPM_CC_GetCapability);
@@ -269,6 +298,223 @@ static void test_bad_handles(void)
     TPM2_Cleanup(&dev.ctx);
 }
 
+#if MAX_SESSION_NUM > 1
+/* Unloading a session wipes its key from the handle and from every device
+ * slot it was installed in, whether or not the TPM accepts the flush */
+static void test_session_unload(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HANDLE handle;
+    int pass, i;
+
+    for (pass = 0; pass < 2; pass++) {
+        test_setup(&dev);
+        XMEMSET(&handle, 0, sizeof(handle));
+        handle.hndl = HMAC_SESSION_FIRST + 1;
+        handle.auth.size = 8;
+        XMEMSET(handle.auth.buffer, 0xA5, handle.auth.size);
+        dev.session[0].sessionHandle = TPM_RS_PW;
+        dev.session[0].auth.size = 4;
+        dev.session[1].sessionHandle = handle.hndl;
+        dev.session[1].sessionAttributes = TPMA_SESSION_decrypt;
+        dev.session[1].auth.size = 8;
+        XMEMSET(dev.session[1].auth.buffer, 0xA5, 8);
+        if (pass == 1) {
+            script.flushFail = handle.hndl;
+        }
+
+        AssertIntEQ(wolfTPM2_UnloadHandle(&dev, &handle),
+            (pass == 0) ? TPM_RC_SUCCESS : TPM_RC_FAILURE);
+        AssertIntEQ(script.flushes, 1);
+        AssertIntEQ(script.flushed[0], HMAC_SESSION_FIRST + 1);
+        AssertIntEQ(handle.auth.size, 0);
+        for (i = 0; i < (int)sizeof(handle.auth.buffer); i++) {
+            AssertIntEQ(handle.auth.buffer[i], 0);
+        }
+        AssertIntEQ(dev.session[1].sessionHandle, TPM_RS_PW);
+        AssertIntEQ(dev.session[1].sessionAttributes, 0);
+        AssertIntEQ(dev.session[1].auth.size, 0);
+        for (i = 0; i < (int)sizeof(dev.session[1].auth.buffer); i++) {
+            AssertIntEQ(dev.session[1].auth.buffer[i], 0);
+        }
+        /* an unrelated slot is left alone */
+        AssertIntEQ(dev.session[0].auth.size, 4);
+        AssertIntEQ(handle.hndl,
+            (pass == 0) ? (TPM_HANDLE)TPM_RH_NULL : HMAC_SESSION_FIRST + 1);
+        TPM2_Cleanup(&dev.ctx);
+    }
+}
+#endif
+
+/* Build a canned response from a tag, response code and body */
+static void test_canned(TPM_ST tag, TPM_RC rc, const byte* body, int bodySz)
+{
+    int sz = TPM2_HEADER_SIZE + bodySz;
+
+    AssertIntEQ(sz <= TEST_CANNED_MAX, 1);
+    script.canned[0] = (byte)(tag >> 8);
+    script.canned[1] = (byte)tag;
+    script.canned[2] = 0;
+    script.canned[3] = 0;
+    script.canned[4] = 0;
+    script.canned[5] = (byte)sz;
+    script.canned[6] = (byte)(rc >> 24);
+    script.canned[7] = (byte)(rc >> 16);
+    script.canned[8] = (byte)(rc >> 8);
+    script.canned[9] = (byte)rc;
+    if (bodySz > 0) {
+        XMEMCPY(&script.canned[TPM2_HEADER_SIZE], body, bodySz);
+    }
+    script.cannedSz = sz;
+}
+
+/* A command sent with sessions must be answered with sessions. A success
+ * response tagged TPM_ST_NO_SESSIONS would skip the response HMAC, so it is
+ * refused and nothing of it is left in the command buffer. */
+static void test_response_tag_downgrade(void)
+{
+    static const byte emptyAuth[] = {
+        0, 0, 0, 0,     /* parameterSize */
+        0, 0,           /* nonceTPM */
+        0,              /* sessionAttributes */
+        0, 0            /* hmac */
+    };
+    static const byte payload[] = { 0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE };
+    WOLFTPM2_DEV dev;
+    Clear_In in;
+    int i;
+
+    test_setup(&dev);
+    dev.session[0].sessionHandle = TPM_RS_PW;
+    AssertIntEQ(TPM2_SetSessionAuth(dev.session), TPM_RC_SUCCESS);
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = TPM_RH_LOCKOUT;
+
+    test_canned(TPM_ST_SESSIONS, TPM_RC_SUCCESS, emptyAuth,
+        (int)sizeof(emptyAuth));
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_SUCCESS);
+
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS, payload,
+        (int)sizeof(payload));
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_HMAC);
+    for (i = 0; i < (int)sizeof(dev.ctx.cmdBuf); i++) {
+        AssertIntEQ(dev.ctx.cmdBuf[i], 0);
+    }
+    TPM2_Cleanup(&dev.ctx);
+}
+
+/* A PCR read that returns no digest, or one larger than the caller's buffer,
+ * is refused without writing to the buffer */
+static void test_read_pcr_guards(void)
+{
+    static const byte noDigest[] = {
+        0, 0, 0, 1,                         /* pcrUpdateCounter */
+        0, 0, 0, 1, 0x00, 0x0B, 3, 1, 0, 0, /* one SHA-256 selection */
+        0, 0, 0, 0                          /* no digests */
+    };
+    byte oneDigest[sizeof(noDigest) + 2 + TPM_SHA256_DIGEST_SIZE];
+    WOLFTPM2_DEV dev;
+    byte digest[TPM_SHA256_DIGEST_SIZE + 1];
+    int digestLen;
+    int i;
+
+    test_setup(&dev);
+
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, -1, TPM_ALG_SHA256, digest,
+        &digestLen), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, PCR_LAST + 1, TPM_ALG_SHA256, digest,
+        &digestLen), BAD_FUNC_ARG);
+
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS, noDigest,
+        (int)sizeof(noDigest));
+    digestLen = (int)sizeof(digest);
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest,
+        &digestLen), TPM_RC_FAILURE);
+
+    XMEMCPY(oneDigest, noDigest, sizeof(noDigest));
+    oneDigest[sizeof(noDigest) - 1] = 1;
+    oneDigest[sizeof(noDigest)] = 0;
+    oneDigest[sizeof(noDigest) + 1] = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(&oneDigest[sizeof(noDigest) + 2], 0x77, TPM_SHA256_DIGEST_SIZE);
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS, oneDigest,
+        (int)sizeof(oneDigest));
+
+    XMEMSET(digest, 0xC3, sizeof(digest));
+    digestLen = TPM_SHA256_DIGEST_SIZE - 1;
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest,
+        &digestLen), BUFFER_E);
+    for (i = 0; i < (int)sizeof(digest); i++) {
+        AssertIntEQ(digest[i], 0xC3);
+    }
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest, NULL),
+        BAD_FUNC_ARG);
+
+    digestLen = TPM_SHA256_DIGEST_SIZE;
+    AssertIntEQ(wolfTPM2_ReadPCR(&dev, 0, TPM_ALG_SHA256, digest,
+        &digestLen), TPM_RC_SUCCESS);
+    AssertIntEQ(digestLen, TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(digest[0], 0x77);
+    AssertIntEQ(digest[TPM_SHA256_DIGEST_SIZE - 1], 0x77);
+    AssertIntEQ(digest[TPM_SHA256_DIGEST_SIZE], 0xC3);
+    TPM2_Cleanup(&dev.ctx);
+}
+
+#if defined(WOLFTPM2_USE_WOLF_RNG) && !defined(NO_HMAC)
+/* Every command on a session carries a fresh caller nonce */
+static void test_caller_nonce_refresh(void)
+{
+    /* header, one handle, authorization size, session handle, nonce size */
+    const int nonceOff = TPM2_HEADER_SIZE + 4 + 4 + 4 + 2;
+    WOLFTPM2_DEV dev;
+    Clear_In in;
+    byte first[TPM_MAX_DIGEST_SIZE];
+    int nonceSz;
+    int i, nonZero = 0;
+
+    test_setup(&dev);
+    dev.session[0].sessionHandle = HMAC_SESSION_FIRST;
+    dev.session[0].authHash = TPM_ALG_SHA256;
+    dev.session[0].auth.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(dev.session[0].auth.buffer, 0x4B, TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(TPM2_SetSessionAuth(dev.session), TPM_RC_SUCCESS);
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = TPM_RH_LOCKOUT;
+    test_canned(TPM_ST_NO_SESSIONS, TPM_RC_FAILURE, NULL, 0);
+
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_FAILURE);
+    nonceSz = (script.cmd[nonceOff - 2] << 8) | script.cmd[nonceOff - 1];
+    AssertIntEQ(nonceSz >= 16 && nonceSz <= (int)sizeof(first), 1);
+    AssertIntEQ(script.cmdSz >= nonceOff + nonceSz, 1);
+    XMEMCPY(first, &script.cmd[nonceOff], nonceSz);
+    for (i = 0; i < nonceSz; i++) {
+        nonZero |= first[i];
+    }
+    AssertIntEQ(nonZero != 0, 1);
+
+    AssertIntEQ(TPM2_Clear(&in), TPM_RC_FAILURE);
+    AssertIntEQ(XMEMCMP(first, &script.cmd[nonceOff], nonceSz) != 0, 1);
+    TPM2_Cleanup(&dev.ctx);
+}
+#endif
+
+#ifdef WOLFTPM2_USE_WOLF_RNG
+/* A policy session whose PolicySecret is refused is not left loaded */
+static void test_ek_policy_secret_failure(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+
+    test_setup(&dev);
+    XMEMSET(&session, 0, sizeof(session));
+    AssertIntEQ(wolfTPM2_CreateAuthSession_EkPolicy(&dev, &session),
+        TPM_RC_FAILURE);
+    AssertIntEQ(script.flushes, 1);
+    AssertIntEQ(script.flushed[0], TEST_POLICY_SESSION);
+    AssertIntEQ(session.handle.hndl, TPM_RH_NULL);
+    TPM2_Cleanup(&dev.ctx);
+}
+#endif
+
 int main(void)
 {
     test_two_pages();
@@ -277,6 +523,17 @@ int main(void)
     test_second_page_failure();
     test_flush_failure();
     test_bad_handles();
+#if MAX_SESSION_NUM > 1
+    test_session_unload();
+#endif
+    test_response_tag_downgrade();
+    test_read_pcr_guards();
+#if defined(WOLFTPM2_USE_WOLF_RNG) && !defined(NO_HMAC)
+    test_caller_nonce_refresh();
+#endif
+#ifdef WOLFTPM2_USE_WOLF_RNG
+    test_ek_policy_secret_failure();
+#endif
     printf("Transient unload tests: passed\n");
     return 0;
 }

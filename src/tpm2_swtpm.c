@@ -647,6 +647,7 @@ int TPM2_SwtpmValidateRspSz(int packetSize, uint32_t rspSz)
 
 /* Talk to a TPM through socket
  * return TPM_RC_SUCCESS on success,
+ *        BAD_FUNC_ARG on a NULL argument,
  *        TPM_RC_FAILURE on other errors
  */
 int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)

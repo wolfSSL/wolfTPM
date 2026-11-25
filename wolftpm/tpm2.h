@@ -2096,6 +2096,7 @@ typedef struct TPM2_AUTH_SESSION {
 
     unsigned int policyAuth : 1; /* if policy auth should be used */
     unsigned int policyPass : 1;
+    unsigned int noSessionKey : 1; /* auth does not start with a session key */
 } TPM2_AUTH_SESSION;
 
 /* Macros to determine TPM 2.0 Session type */
@@ -4021,6 +4022,16 @@ WOLFTPM_API int TPM2_GetCommandRetries(TPM2_CTX* ctx);
     TPM 2.0 Commands can have up to three authorization slots,
     therefore it is recommended to supply an array of size
     MAX_SESSION_NUM to TPM2_SetSessionAuth(see example below).
+
+    \note An HMAC session with the decrypt or encrypt attribute is also sent
+    with these commands, which take no authorization: TPM2_LoadExternal,
+    TPM2_Hash, TPM2_HashSequenceStart, TPM2_ECDH_KeyGen, TPM2_RSA_Encrypt,
+    TPM2_Encapsulate, TPM2_MakeCredential, TPM2_SignSequenceStart and
+    TPM2_VerifySequenceStart. The session HMAC covers the Name of the key
+    handle of the last six, so the Name must be in slot 0
+    (see wolfTPM2_SetAuthHandleName) or the TPM returns TPM_RC_BAD_AUTH. The
+    wolfTPM2 wrappers set it. Other commands that take no authorization are
+    sent without a session.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: could not acquire the lock on the wolfTPM2 context

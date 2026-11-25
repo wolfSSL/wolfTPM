@@ -68,6 +68,9 @@
         spi.mode = 0;                       /* Mode 0 (CPOL=0, CPHA=0) */
         spi.bits_per_word = 8;              /* 8-bits */
         spi.chip_select = 0;                /* Use CS 0 */
+        if (spi.master == NULL) {
+            return TPM_RC_FAILURE;
+        }
 
         /* setup SPI master */
         ret = spi.master->setup(&spi);

@@ -109,8 +109,9 @@ WOLFTPM_API int wolfTPM2_SPDM_InitCtx(
 );
 
 /**
- * Set the TPM context for NTC2 vendor commands.
- * Only needed for Nuvoton TPMs when using wolfTPM2_SPDM_Enable().
+ * Set the TPM context used for the TPM transport and vendor commands.
+ * Required before wolfTPM2_SPDM_SetTisIO(), wolfTPM2_SPDM_Enable() and
+ * wolfTPM2_SPDM_Disable().
  *
  * @param ctx       wolfTPM2 SPDM context
  * @param tpmCtx    TPM2 context

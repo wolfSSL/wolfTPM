@@ -213,10 +213,6 @@ int TPM2_NVRAM_PolicyNV_Example(void* userCtx, int argc, char *argv[])
 
     printf("Write %d bytes to NV index 0x%x\n", (int)bufLen, nvIndex);
 
-    /* The first write sets TPMA_NV_WRITTEN, which changes the index name */
-    rc = wolfTPM2_NVOpen(&dev, &nv, nvIndex, auth.buffer, auth.size);
-    if (rc != 0) goto exit;
-
     /* BEGIN TPM2_PolicyNV test */
 
     /* Start TPM policy session */

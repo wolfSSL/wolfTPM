@@ -34,9 +34,16 @@
  * exceed MAX_DIGEST_BUFFER (1024), and an fwTPM outPrivate carries a 32-byte
  * integrity value plus a 16-byte IV on top of the sensitive area. */
 #ifndef TPM2_XOR_MASK_MAX
+#ifdef WOLFTPM_PQC
+/* The first parameter of TPM2_Decapsulate is an ML-KEM ciphertext. */
+#define TPM2_XOR_MASK_MIN MAX_MLKEM_CT_SIZE
+#else
+#define TPM2_XOR_MASK_MIN 1536
+#endif
 /* The sensitive area, and so that blob, scales with the RSA key size. */
 #define TPM2_XOR_MASK_MAX \
-    ((UINT32)(sizeof(TPM2B_PRIVATE) > 1536 ? sizeof(TPM2B_PRIVATE) : 1536))
+    ((UINT32)(sizeof(TPM2B_PRIVATE) > TPM2_XOR_MASK_MIN ? \
+        sizeof(TPM2B_PRIVATE) : TPM2_XOR_MASK_MIN))
 #endif
 
 /* XOR parameter encryption/decryption (raw pointer interface).

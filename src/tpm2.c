@@ -130,17 +130,30 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
     (void)ctx;
 }
 
+/* A session adds an authValue to its parameter encryption key only in the
+ * slot of a handle that the command authorizes */
+static int TPM2_IsAuthSlot(const CmdInfo_t* info, int idx)
+{
+    if (idx == 0) {
+        return (info->flags & (CMD_FLAG_AUTH_USER1 | CMD_FLAG_AUTH_ADMIN |
+            CMD_FLAG_AUTH_DUP)) != 0;
+    }
+    return (idx == 1 && (info->flags & CMD_FLAG_AUTH_USER2) != 0);
+}
+
 static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 cmdSz)
 {
     int rc = TPM_RC_SUCCESS;
     UINT32 authSz;
     BYTE *param, *encParam = NULL;
+    TPM2B_AUTH* bind;
     int paramSz;
     UINT32 encParamSz = 0;
     int i, authPos;
     int authTotalSzPos = 0;
     int decIdx = -1;
+    byte slots[MAX_SESSION_NUM];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     UINT32 handleValue1, handleValue2, handleValue3;
     int handlePos;
@@ -148,6 +161,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
     int encIdx = -1;
 #endif
+
+    TPM2_GetCmdInfoSlots(ctx, info, slots);
 
     /* Skip the header and handles area */
     packet->pos = TPM2_HEADER_SIZE + (info->inHandleCnt * sizeof(TPM_HANDLE));
@@ -210,7 +225,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Fresh nonces and parameter encryption come first so that every
      * session's cpHash covers the encrypted parameter */
     for (i=0; i<info->authCnt; i++) {
-        TPM2_AUTH_SESSION* session = &ctx->session[i];
+        TPM2_AUTH_SESSION* session = &ctx->session[slots[i]];
 
         /* the session array is caller memory; its sizes are copied below */
         if (session->nonceCaller.size > sizeof(session->nonceCaller.buffer) ||
@@ -230,21 +245,26 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             if (decIdx < 0 &&
                     (session->sessionAttributes & TPMA_SESSION_decrypt) &&
                     (info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) {
-                decIdx = i;
+                decIdx = slots[i];
             }
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             if (encIdx < 0 &&
                     (session->sessionAttributes & TPMA_SESSION_encrypt) &&
                     (info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4))) {
-                encIdx = i;
+                encIdx = slots[i];
             }
         #endif
         }
     }
     if (encParam != NULL && decIdx >= 0) {
         /* Encrypt the first command parameter */
+        bind = ctx->session[decIdx].bind;
+        if (!TPM2_IsAuthSlot(info, decIdx)) {
+            ctx->session[decIdx].bind = NULL;
+        }
         rc = TPM2_ParamEnc_CmdRequest(&ctx->session[decIdx], encParam,
             encParamSz);
+        ctx->session[decIdx].bind = bind;
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
             printf("Command parameter encryption failed\n");
@@ -254,8 +274,9 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
     for (i=0; i<info->authCnt; i++) {
-        TPM2_AUTH_SESSION* session = &ctx->session[i];
+        TPM2_AUTH_SESSION* session = &ctx->session[slots[i]];
         TPMS_AUTH_COMMAND authCmd;
+        UINT16 keySz;
 
         /* Build auth */
         XMEMSET(&authCmd, 0, sizeof(authCmd));
@@ -270,6 +291,26 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             authCmd.hmac.size = session->auth.size;
             XMEMCPY(authCmd.hmac.buffer, session->auth.buffer,
                 session->auth.size);
+        }
+        /* Policy Session with PolicyPassword sends the authValue itself,
+         * which follows the session key */
+        else if (TPM2_IS_POLICY_SESSION(session->sessionHandle) &&
+                 session->policyPass) {
+            keySz = session->noSessionKey ? 0 :
+                (UINT16)TPM2_GetHashDigestSize(session->authHash);
+            if (keySz > session->auth.size) {
+                TPM2_ForceZero(&authCmd, sizeof(authCmd));
+                return BUFFER_E;
+            }
+            authCmd.hmac.size = session->auth.size - keySz;
+            XMEMCPY(authCmd.hmac.buffer, &session->auth.buffer[keySz],
+                authCmd.hmac.size);
+            if ((info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4)) == 0) {
+                authCmd.sessionAttributes &= ~TPMA_SESSION_decrypt;
+            }
+            if ((info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4)) == 0) {
+                authCmd.sessionAttributes &= ~TPMA_SESSION_encrypt;
+            }
         }
         /* HMAC or Policy Session */
         else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
@@ -323,10 +364,11 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
             /* Part 1 Sec.19.6.5: the first session's HMAC also covers the
              * nonceTPM of a different decrypt and encrypt session */
-            if (i == 0 && decIdx > 0) {
+            if (i == 0 && decIdx >= 0 && decIdx != slots[0]) {
                 nonceDecrypt = &ctx->session[decIdx].nonceTPM;
             }
-            if (i == 0 && encIdx > 0 && encIdx != decIdx) {
+            if (i == 0 && encIdx >= 0 && encIdx != slots[0] &&
+                    encIdx != decIdx) {
                 nonceEncrypt = &ctx->session[encIdx].nonceTPM;
             }
             /* Calculate HMAC for policy, hmac or salted sessions */
@@ -380,6 +422,10 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int i;
     int encIdx = -1;
     int retireEnc = 0;
+    TPM2B_AUTH* bind;
+    byte slots[MAX_SESSION_NUM];
+
+    TPM2_GetCmdInfoSlots(ctx, info, slots);
 
     /* Skip the header output handles */
     packet->pos = TPM2_HEADER_SIZE + (info->outHandleCnt * sizeof(TPM_HANDLE));
@@ -429,15 +475,22 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 #endif
 
     for (i=0; i<info->authCnt; i++) {
-        TPM2_AUTH_SESSION* session = &ctx->session[i];
+        TPM2_AUTH_SESSION* session = &ctx->session[slots[i]];
         TPMS_AUTH_RESPONSE authRsp;
         XMEMSET(&authRsp, 0, sizeof(authRsp));
 
-        /* Parse Auth - if exists */
-        if (respSz > authPos) {
-            packet->pos = authPos;
-            TPM2_Packet_ParseAuth(packet, &authRsp);
-            authPos = packet->pos;
+        /* The response carries one authorization for each session sent */
+        if (respSz <= authPos) {
+            rc = TPM_RC_SIZE;
+            break;
+        }
+        packet->pos = authPos;
+        TPM2_Packet_ParseAuth(packet, &authRsp);
+        authPos = packet->pos;
+        if (packet->overflow) {
+            TPM2_ForceZero(&authRsp, sizeof(authRsp));
+            rc = TPM_RC_SIZE;
+            break;
         }
 
         if (session->sessionHandle != TPM_RS_PW) {
@@ -449,7 +502,18 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
-            if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+            if (TPM2_IS_POLICY_SESSION(session->sessionHandle) &&
+                session->policyPass)
+            {
+                /* the TPM answers a PolicyPassword authorization with an
+                 * empty HMAC */
+                if (authRsp.hmac.size != 0) {
+                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
+                    rc = TPM_RC_HMAC;
+                    break;
+                }
+            }
+            else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
                 TPM2_IS_POLICY_SESSION(session->sessionHandle))
             {
                 UINT16 expectedHmacSz = TPM2_GetHashDigestSize(session->authHash);
@@ -540,14 +604,14 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
              * rpHash covers the encrypted response parameter */
             if (decParam && encIdx < 0 &&
                     (authRsp.sessionAttributes & TPMA_SESSION_encrypt)) {
-                encIdx = i;
+                encIdx = slots[i];
             }
             /* Retire a one-shot session: when the TPM clears
              * continueSession the session is consumed, so clear the local
              * slot to prevent reuse of a stale handle. */
             if ((authRsp.sessionAttributes & TPMA_SESSION_continueSession)
                     == 0) {
-                if (i == encIdx) {
+                if (slots[i] == encIdx) {
                     retireEnc = 1; /* still needed to decrypt */
                 }
                 else {
@@ -563,8 +627,13 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     if (encIdx >= 0) {
         if (rc == TPM_RC_SUCCESS) {
             /* Decrypt the first response parameter */
+            bind = ctx->session[encIdx].bind;
+            if (!TPM2_IsAuthSlot(info, encIdx)) {
+                ctx->session[encIdx].bind = NULL;
+            }
             rc = TPM2_ParamDec_CmdResponse(&ctx->session[encIdx], decParam,
                 decParamSz);
+            ctx->session[encIdx].bind = bind;
         #ifdef DEBUG_WOLFTPM
             if (rc != TPM_RC_SUCCESS) {
                 printf("Response parameter decryption failed\n");
@@ -611,7 +680,9 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return TPM_RC_FAILURE;
     }
 
-    if (tpmRespSz > MAX_RESPONSE_SIZE) {
+    if (tpmRespSz > MAX_RESPONSE_SIZE || packet->size < 0 ||
+            tpmRespSz > (word32)packet->size ||
+            tpmRespSz < TPM2_HEADER_SIZE) {
         TPM2_ForceZero(tpmResp, sizeof(tpmResp));
         return TPM_RC_SIZE;
     }
@@ -1728,6 +1799,9 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
             #if defined(WOLFTPM_NATIONS) || defined(WOLFTPM_AUTODETECT) || \
                 defined(WOLFTPM_SPDM)
                 case TPM_CAP_PUB_KEYS:
+                    /* TPML_PUB_KEY is not parsed, TPMU_CAPABILITIES has no
+                     * member for it. The TPM answered: a refusal of its own
+                     * carries parameter or handle bits with TPM_RC_VALUE. */
                     rc = TPM_RC_VALUE;
                     break;
             #endif
@@ -2456,6 +2530,7 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
 {
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
         return BAD_FUNC_ARG;
@@ -2463,8 +2538,14 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
+
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->handle);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
         TPM2_Packet_AppendU16(&packet, in->credential.size);
         TPM2_Packet_AppendBytes(&packet, in->credential.buffer,
@@ -2474,12 +2555,17 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->objectName.name,
             in->objectName.size);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
-            TPM_CC_MakeCredential);
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_MakeCredential);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
+
             TPM2_Packet_ParseU16Buf(&packet, &out->credentialBlob.size,
                 out->credentialBlob.buffer,
                 (UINT16)sizeof(out->credentialBlob.buffer));
@@ -2488,6 +2574,9 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
                 out->secret.secret,
                 (UINT16)sizeof(out->secret.secret));
         }
+
+        /* the credential is in the shared command buffer */
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
 
         TPM2_ReleaseLock(ctx);
     }
@@ -2643,6 +2732,7 @@ TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out)
                 (UINT16)sizeof(out->outSymSeed.secret));
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -3792,7 +3882,7 @@ TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in, EC_Ephemeral_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
@@ -3832,7 +3922,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4236,7 +4326,7 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4690,7 +4780,7 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4819,7 +4909,7 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4908,7 +4998,7 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4950,7 +5040,7 @@ TPM_RC TPM2_PolicyTransportSPDM(PolicyTransportSPDM_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5058,7 +5148,7 @@ TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5125,7 +5215,7 @@ TPM_RC TPM2_PolicyCpHash(PolicyCpHash_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5159,7 +5249,7 @@ TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5194,7 +5284,7 @@ TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5235,7 +5325,7 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5335,7 +5425,7 @@ TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->policySession);
@@ -5400,7 +5490,7 @@ TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->policySession);
@@ -5828,7 +5918,7 @@ TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in, FieldUpgradeData_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
-        info.flags = (CMD_FLAG_ENC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5877,7 +5967,7 @@ TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -6258,7 +6348,7 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_DEC2);
+        info.flags = CMD_FLAG_NONE;
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -6654,6 +6744,7 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
 
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
         TPM2_ReleaseLock(ctx);
     }
     return rc;
@@ -7467,7 +7558,7 @@ const char* TPM2_GetRCString(int rc)
          *     6: 1=Parameter Number, 0=Session or Handle
          *     7: Format selector
          *  8-11: Number of handle, session or parameter
-         *    11: 1=Handle
+         *    11: 1=Session, 0=Handle
          */
         if (rc & 0x40) { /* bit 6 */
             /* bits 8-11 */

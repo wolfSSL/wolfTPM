@@ -1,0 +1,2 @@
+SKIP: build lacks FWTPM_DA_USED_RETRY
+SKIP tests/fwtpm_da_retry.sh (exit status: 77)

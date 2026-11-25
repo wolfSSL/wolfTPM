@@ -262,6 +262,10 @@ WOLFTPM_TEST_API int TPM2_Packet_RetryRestore(TPM_RC rc, int* retries,
 
 
 WOLFTPM_LOCAL int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info);
+WOLFTPM_LOCAL int TPM2_GetCmdAuthSlots(TPM2_CTX* ctx, const CmdInfo_t* info,
+    byte* slots);
+WOLFTPM_LOCAL void TPM2_GetCmdInfoSlots(TPM2_CTX* ctx, const CmdInfo_t* info,
+    byte* slots);
 WOLFTPM_TEST_API int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 respSz);
 

@@ -173,22 +173,12 @@ Example `user_settings.h` for wolfTPM:
 !!! warning
     The `NO_*` macros disable algorithms. wolfTPM wrappers and sessions need SHA-256, so never define `NO_SHA256` in this file.
 
-If you use `CUSTOM_RAND_GENERATE_SEED`, implement your own RNG seed function. This example gets the seed from the TPM with parameter encryption enabled:
+If you use `CUSTOM_RAND_GENERATE_SEED`, implement your own RNG seed function. This example gets the seed from the TPM. `TPM2_GetRandom` is sent without a session, so the seed is not parameter encrypted. Use it only where the bus to the TPM is physically protected:
 
 ```c
 int my_rng_seed(byte* seed, word32 sz)
 {
-    int rc;
-
-    /* enable parameter encryption for the RNG request */
-    rc = wolfTPM2_SetAuthSession(&wolftpm_dev, 0, &wolftpm_session,
-        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
-        TPMA_SESSION_continueSession));
-    if (rc == 0) {
-        rc = wolfTPM2_GetRandom(&wolftpm_dev, seed, sz);
-    }
-    wolfTPM2_UnsetAuthSession(&wolftpm_dev, 0, &wolftpm_session);
-    return rc;
+    return wolfTPM2_GetRandom(&wolftpm_dev, seed, sz);
 }
 ```
 

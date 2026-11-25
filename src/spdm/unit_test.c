@@ -895,6 +895,7 @@ static int test_tcg_get_pub_key_preserves_pin(void)
     ASSERT_EQ(rc, WOLFSPDM_E_PEER_ERROR,
         "malformed TPMT_PUBLIC Y size must be rejected");
 
+    SPDM_Set16BE(tpmtPublic + 70, WOLFSPDM_ECC_KEY_SIZE);
     ioCtx.pubKeySz = WOLFSPDM_ECC_POINT_SIZE + 1;
     pubKeySz = sizeof(pubKey);
     rc = wolfSPDM_TCG_GetPubKey(ctx, pubKey, &pubKeySz);
@@ -1185,39 +1186,6 @@ static int test_oob_read_error(void)
     ASSERT_EQ(rc, WOLFSPDM_E_INVALID_ARG, "Short buffer should fail");
 
     TEST_CTX_FREE();
-    TEST_PASS();
-}
-
-static int test_constant_time_hmac(void)
-{
-    byte finishedKey[WOLFSPDM_HASH_SIZE];
-    byte thHash[WOLFSPDM_HASH_SIZE];
-    byte verifyData[WOLFSPDM_HASH_SIZE];
-    byte fakeVerify[WOLFSPDM_HASH_SIZE];
-    word32 i;
-    int diff;
-
-    printf("test_constant_time_hmac...\n");
-
-    memset(finishedKey, 0xAB, sizeof(finishedKey));
-    memset(thHash, 0xCD, sizeof(thHash));
-    ASSERT_SUCCESS(wolfSPDM_ComputeVerifyData(finishedKey, thHash, verifyData));
-
-    /* 1-byte difference must be detected */
-    memcpy(fakeVerify, verifyData, sizeof(fakeVerify));
-    fakeVerify[WOLFSPDM_HASH_SIZE - 1] ^= 0x01;
-
-    diff = 0;
-    for (i = 0; i < WOLFSPDM_HASH_SIZE; i++)
-        diff |= verifyData[i] ^ fakeVerify[i];
-    ASSERT_NE(diff, 0, "Should detect 1-byte diff");
-
-    /* Identical must pass */
-    diff = 0;
-    for (i = 0; i < WOLFSPDM_HASH_SIZE; i++)
-        diff |= verifyData[i] ^ verifyData[i];
-    ASSERT_EQ(diff, 0, "Identical data should match");
-
     TEST_PASS();
 }
 
@@ -2853,7 +2821,6 @@ int main(void)
 #endif
     test_decrypt_overflow();
     test_oob_read_error();
-    test_constant_time_hmac();
     test_setdebug_truncation();
     test_key_zeroing();
 

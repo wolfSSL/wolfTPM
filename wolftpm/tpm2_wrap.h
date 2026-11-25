@@ -42,6 +42,7 @@ typedef struct WOLFTPM2_HANDLE {
     unsigned int    policyPass : 1;
     unsigned int    policyAuth : 1; /* Handle requires policy auth */
     unsigned int    nameLoaded : 1; /* flag to indicate if "name" was loaded and computed */
+    unsigned int    noSessionKey : 1; /* Session is not salted or bound, so it has no session key */
 } WOLFTPM2_HANDLE;
 
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
@@ -1158,6 +1159,7 @@ WOLFTPM_API int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index, const W
     \ingroup wolfTPM2_Wrappers
     \brief Create a TPM session, Policy, HMAC or Trial
     \note This wrapper can also be used to start TPM session for parameter encryption, see wolfTPM nvram or keygen example
+    \note An HMAC or policy session already set in authorization slot 0 is kept; otherwise slot 0 is reset to a password session
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
@@ -1180,6 +1182,7 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     \ingroup wolfTPM2_Wrappers
     \brief Create a TPM session selecting the session auth/hash algorithm
     \note Use this instead of wolfTPM2_StartSession when the session digest must match a non-default hash, such as SHA-512 policy digests in post-quantum environments
+    \note An HMAC or policy session already set in authorization slot 0 is kept; otherwise slot 0 is reset to a password session
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
@@ -1456,8 +1459,9 @@ WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Single function to import an external private key and load it into the TPM in one step
+    \brief Import an external private key under a parent key. The key is returned as a key blob and is not loaded.
     \note The primary key material needs to be prepared in a format that the TPM expects, see the 'sens' argument
+    \note Use wolfTPM2_LoadKey to load the returned key blob, or wolfTPM2_LoadPrivateKey to import and load in one step
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -1469,6 +1473,8 @@ WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
     \param pub pointer to a populated structure of TPM2B_PUBLIC type
     \param sens pointer to a populated structure of TPM2B_SENSITIVE type
 
+    \sa wolfTPM2_LoadKey
+    \sa wolfTPM2_LoadPrivateKey
     \sa wolfTPM2_ImportRsaPrivateKey
     \sa wolfTPM2_ImportEccPrivateKey
 */
@@ -2857,7 +2863,7 @@ WOLFTPM_API int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     \param privKey pointer to a structure of WOLFTPM2_KEY type
     \param pubPoint pointer to an empty structure of TPM2B_ECC_POINT type
     \param out pointer to a byte buffer, to store the generated shared secret
-    \param outSz integer value, specifying the size of the shared secret, in bytes
+    \param outSz integer value, on input the size of the out buffer, on output the size of the shared secret in bytes, which is the curve size with leading zeros kept
 
     \sa wolfTPM2_ECDHGenZ
     \sa wolfTPM2_ECDHGenKey
@@ -2879,7 +2885,7 @@ WOLFTPM_API int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     \param privKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle
     \param pubPoint pointer to a populated structure of TPM2B_ECC_POINT type
     \param out pointer to a byte buffer, to store the computed shared secret
-    \param outSz integer value, specifying the size of the shared secret, in bytes
+    \param outSz integer value, on input the size of the out buffer, on output the size of the shared secret in bytes, which is the curve size with leading zeros kept
 
     \sa wolfTPM2_ECDHGen
     \sa wolfTPM2_ECDHGenKey
@@ -2922,9 +2928,9 @@ WOLFTPM_API int wolfTPM2_ECDHEGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     \param dev pointer to a TPM2_DEV struct
     \param parentKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle of a primary key
     \param ecdhKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle
-    \param pubPoint pointer to an empty struct of TPM2B_ECC_POINT type
+    \param pubPoint pointer to a populated struct of TPM2B_ECC_POINT type, the public point of the peer
     \param out pointer to a byte buffer, to store the computed shared secret
-    \param outSz integer value, specifying the size of the shared secret, in bytes
+    \param outSz integer value, on input the size of the out buffer, on output the size of the shared secret in bytes, which is the curve size with leading zeros kept
 
     \sa wolfTPM2_ECDHEGenKey
     \sa wolfTPM2_ECDHGen
@@ -3094,10 +3100,12 @@ WOLFTPM_API int wolfTPM2_SetLocality(WOLFTPM2_DEV* dev, int locality);
     \ingroup wolfTPM2_Wrappers
     \brief Extend a PCR register with a user provided digest
     \note Make sure to specify the correct hashing algorithm
+    \note A digest shorter than the hash algorithm size is zero padded
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: digestLen is larger than the hash algorithm size
 
     \param dev pointer to a TPM2_DEV struct
     \param pcrIndex integer value, specifying a valid PCR index, between 0 and 23 (TPM locality could have an impact on successful access)
@@ -3343,6 +3351,7 @@ WOLFTPM_API int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: dataSz is larger than MAX_NV_BUFFER_SIZE
 
     \param dev pointer to a TPM2_DEV struct
     \param nv pointer to a populated structure of WOLFTPM2_NV type
@@ -4712,6 +4721,10 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
+    \warning With WOLFTPM2_USE_HW_RNG the new auth value is read from the TPM
+        with TPM2_GetRandom, which is not parameter encrypted, before the
+        session protects it in TPM2_HierarchyChangeAuth.
+
     \param dev pointer to a TPM2_DEV struct
     \param session the current session, a session is required to protect the new platform auth
     \param authHandle the auth hierarchy (example: TPM_RH_PLATFORM or TPM_RH_LOCKOUT)
@@ -5162,12 +5175,16 @@ WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     \brief Restart the policy digest for a policy session
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
     \param sessionHandle the handle of the current session, a session is required to use policy pcr
 
+    \note The caller's WOLFTPM2_SESSION is not changed. After
+    wolfTPM2_PolicyPassword or wolfTPM2_PolicyAuthValue use
+    wolfTPM2_PolicyRestart_ex so it is not set again with the old mode.
+
+    \sa wolfTPM2_PolicyRestart_ex
     \sa wolfTPM2_GetPolicyDigest
     \sa wolfTPM2_PolicyPCR
     \sa wolfTPM2_PolicyAuthorize
@@ -5177,11 +5194,31 @@ WOLFTPM_API int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHand
 /*!
     \ingroup wolfTPM2_Wrappers
 
+    \brief Restart the policy digest for a policy session and clear the
+    PolicyPassword or PolicyAuthValue mode and authValue held in the session
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to a WOLFTPM2_SESSION struct for the policy session
+
+    \sa wolfTPM2_PolicyRestart
+    \sa wolfTPM2_PolicyPassword
+    \sa wolfTPM2_PolicyAuthValue
+*/
+WOLFTPM_API int wolfTPM2_PolicyRestart_ex(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* tpmSession);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
     \brief Get the policy digest of the session that was passed in
     wolfTPM2_GetPolicyDigest
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: policyDigestSz is too small to hold the returned digest
+    \return LENGTH_ONLY_E: policyDigest is NULL, policyDigestSz is set to the digest size
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5202,7 +5239,6 @@ WOLFTPM_API int wolfTPM2_GetPolicyDigest(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHa
     \brief Apply the PCR's to the policy digest for the policy session.
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5252,16 +5288,16 @@ WOLFTPM_API int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
 
-    \brief Apply the PCR's to the policy digest for the policy session.
+    \brief Approve the policy digest of the policy session with a policy signed by an external key (TPM2_PolicyAuthorize).
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: pcrDigestSz or policyRefSz is too large
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param sessionHandle the handle of the current policy session, a session is required to use policy PCR
-    \param pub pointer to a populated structure of TPM2B_PUBLIC type
-    \param checkTicket returns the validation ticket proving the signature for digest was checked
+    \param sessionHandle the handle of the current policy session
+    \param pub pointer to a populated structure of TPM2B_PUBLIC type, the key that signed the approved policy
+    \param checkTicket validation ticket from wolfTPM2_VerifyHashTicket, proving the signature over the approved policy was checked
     \param pcrDigest digest for the PCR(s) collected with wolfTPM2_PCRGetDigest
     \param pcrDigestSz size of the PCR digest
     \param policyRef optional nonce
@@ -5284,7 +5320,6 @@ WOLFTPM_API int wolfTPM2_PolicyAuthorize(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHa
     \brief Get a cumulative digest of the PCR's specified
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -5307,7 +5342,7 @@ WOLFTPM_API int wolfTPM2_PCRGetDigest(WOLFTPM2_DEV* dev, TPM_ALG_ID pcrAlg,
         (nonce) used then just rehash the provided digest again (update -> final)
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: digestSz is smaller than the hash size
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param pcrAlg the hash algorithm to use with pcr policy
@@ -5421,11 +5456,10 @@ WOLFTPM_API int wolfTPM2_PolicyCommandCodeMake(TPM_ALG_ID hashAlg,
     policyDigestnew = hash(policyDigestOld || [cc] || [Input])
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param hashAlg the hash algorithm to use with pcr policy
-    \param digest input/out digest (input "old" / output "new")
+    \param digest input/out digest (input "old" / output "new"), the buffer must hold the hash size
     \param digestSz input/out digest size
     \param cc is the command code used
     \param input pointer to a array to use (optional)
@@ -5443,7 +5477,7 @@ WOLFTPM_API int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
     \brief Utility for generating a policy authorization digest based on a public key
 
     \return TPM_RC_SUCCESS: successful
-    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BUFFER_E: digestSz is smaller than the hash size
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param pcrAlg the hash algorithm to use with pcr policy
@@ -5670,6 +5704,8 @@ WOLFTPM_LOCAL int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
 
 WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer(byte* out, int* outSz,
     const TPM2B_ECC_PARAMETER* z);
+WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer_ex(byte* out, int* outSz,
+    const TPM2B_ECC_PARAMETER* z, int curveSize);
 
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
