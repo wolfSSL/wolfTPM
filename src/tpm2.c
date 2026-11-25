@@ -4981,6 +4981,12 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
         TPM2_Packet_AppendBytes(&packet, in->authName.name,
             in->authName.size);
 
+        TPM2_Packet_AppendU16(&packet, in->ticket.tag);
+        TPM2_Packet_AppendU32(&packet, in->ticket.hierarchy);
+        TPM2_Packet_AppendU16(&packet, in->ticket.digest.size);
+        TPM2_Packet_AppendBytes(&packet, in->ticket.digest.buffer,
+            in->ticket.digest.size);
+
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTicket);
 
         /* send command */

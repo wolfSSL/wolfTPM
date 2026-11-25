@@ -1953,6 +1953,125 @@ static void test_wolfTPM2_PolicyOR_success(void)
 #endif /* WOLFTPM_SWTPM && !WOLFTPM2_NO_WOLFCRYPT */
 }
 
+/* A ticket from TPM2_PolicySigned with a negative expiration must satisfy
+ * the same policy on a second session through TPM2_PolicyTicket. */
+static void test_TPM2_PolicyTicket(void)
+{
+#ifdef WOLFTPM_SWTPM
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    WOLFTPM2_SESSION sess;
+    WOLFTPM2_SESSION sess2;
+    TPMT_PUBLIC publicTemplate;
+    Hash_In hashCmd;
+    Hash_Out hashOut;
+    Sign_In signCmd;
+    Sign_Out signOut;
+    PolicySigned_In signedCmd;
+    PolicySigned_Out signedOut;
+    PolicyTicket_In ticketCmd;
+    byte digest1[TPM_MAX_DIGEST_SIZE];
+    byte digest2[TPM_MAX_DIGEST_SIZE];
+    word32 digest1Sz, digest2Sz;
+    const INT32 expiration = -60;
+    int i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(&sess2, 0, sizeof(sess2));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &key, TPM_RH_OWNER, &publicTemplate,
+        NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &sess, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+
+    /* aHash = H(nonceTPM || expiration), no cpHashA and no policyRef */
+    XMEMSET(&hashCmd, 0, sizeof(hashCmd));
+    XMEMSET(&hashOut, 0, sizeof(hashOut));
+    XMEMCPY(hashCmd.data.buffer, sess.nonceTPM.buffer, sess.nonceTPM.size);
+    for (i = 0; i < 4; i++) {
+        hashCmd.data.buffer[sess.nonceTPM.size + i] =
+            (byte)((UINT32)expiration >> (24 - (i * 8)));
+    }
+    hashCmd.data.size = (UINT16)(sess.nonceTPM.size + 4);
+    hashCmd.hashAlg = TPM_ALG_SHA256;
+    hashCmd.hierarchy = TPM_RH_NULL;
+    rc = TPM2_Hash(&hashCmd, &hashOut);
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_SetAuthHandle(&dev, 0, &key.handle);
+    XMEMSET(&signCmd, 0, sizeof(signCmd));
+    XMEMSET(&signOut, 0, sizeof(signOut));
+    signCmd.keyHandle = key.handle.hndl;
+    signCmd.digest = hashOut.outHash;
+    signCmd.inScheme.scheme = TPM_ALG_ECDSA;
+    signCmd.inScheme.details.ecdsa.hashAlg = TPM_ALG_SHA256;
+    signCmd.validation.tag = TPM_ST_HASHCHECK;
+    signCmd.validation.hierarchy = TPM_RH_NULL;
+    rc = TPM2_Sign(&signCmd, &signOut);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&signedCmd, 0, sizeof(signedCmd));
+    XMEMSET(&signedOut, 0, sizeof(signedOut));
+    signedCmd.authObject = key.handle.hndl;
+    signedCmd.policySession = sess.handle.hndl;
+    signedCmd.nonceTPM = sess.nonceTPM;
+    signedCmd.expiration = expiration;
+    signedCmd.auth = signOut.signature;
+    rc = TPM2_PolicySigned(&signedCmd, &signedOut);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(signedOut.policyTicket.tag, TPM_ST_AUTH_SIGNED);
+    AssertIntGT(signedOut.policyTicket.digest.size, 0);
+    digest1Sz = (word32)sizeof(digest1);
+    rc = wolfTPM2_GetPolicyDigest(&dev, sess.handle.hndl, digest1, &digest1Sz);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &sess2, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&ticketCmd, 0, sizeof(ticketCmd));
+    ticketCmd.policySession = sess2.handle.hndl;
+    ticketCmd.timeout = signedOut.timeout;
+    ticketCmd.authName = key.handle.name;
+    ticketCmd.ticket = signedOut.policyTicket;
+    rc = TPM2_PolicyTicket(&ticketCmd);
+    AssertIntEQ(rc, 0);
+    digest2Sz = (word32)sizeof(digest2);
+    rc = wolfTPM2_GetPolicyDigest(&dev, sess2.handle.hndl, digest2,
+        &digest2Sz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digest2Sz, (int)digest1Sz);
+    AssertIntEQ(XMEMCMP(digest2, digest1, digest1Sz), 0);
+
+    /* a ticket that was not issued by the TPM is refused */
+    ticketCmd.ticket.digest.buffer[0] ^= 0x01;
+    rc = TPM2_PolicyTicket(&ticketCmd);
+    AssertIntNE(rc, 0);
+
+    wolfTPM2_UnloadHandle(&dev, &sess2.handle);
+    wolfTPM2_UnloadHandle(&dev, &sess.handle);
+    wolfTPM2_UnloadHandle(&dev, &key.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test PolicyTicket: %-39s Passed\n", "PolicySigned Ticket:");
+#else
+    printf("Test PolicyTicket: %-39s Skipped (requires SWTPM)\n",
+        "PolicySigned Ticket:");
+#endif /* WOLFTPM_SWTPM */
+}
+
 static void test_wolfTPM2_GetRandom(void)
 {
     int rc;
@@ -13979,6 +14098,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_IsPcrBankAllocated();
     test_wolfTPM2_AllocatePCRBanks();
     test_wolfTPM2_PolicyOR_success();
+    test_TPM2_PolicyTicket();
     #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
     /* Run non-TPM-dependent tests first */
     test_wolfTPM2_PQC_KeyTemplates();
