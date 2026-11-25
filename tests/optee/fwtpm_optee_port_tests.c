@@ -177,6 +177,8 @@ static void test_nv_key_selection(void)
     int rc;
 
     printf("NV integrity key selection\n");
+    XMEMSET(k1, 0, sizeof(k1));
+    XMEMSET(k2, 0, sizeof(k2));
     XMEMSET(derived, 0x11, sizeof(derived));
     XMEMSET(zero, 0, sizeof(zero));
 
@@ -334,10 +336,12 @@ static void test_ta_sessions(void)
         TA_OpenSessionEntryPoint(0, p, &b) == TEE_SUCCESS && a != b,
         "each session gets its own client id");
 
-    Submit(a, rsp, sizeof(rsp), TEE_PARAM_TYPE_MEMREF_OUTPUT, &out);
-    CHECK(stubProcessClient == (UINT32)(size_t)a, "A's command runs as A");
-    Submit(b, rsp, sizeof(rsp), TEE_PARAM_TYPE_MEMREF_OUTPUT, &out);
-    CHECK(stubProcessClient == (UINT32)(size_t)b, "B's command runs as B");
+    CHECK(Submit(a, rsp, sizeof(rsp), TEE_PARAM_TYPE_MEMREF_OUTPUT, &out) ==
+        TEE_SUCCESS && stubProcessClient == (UINT32)(size_t)a,
+        "A's command runs as A");
+    CHECK(Submit(b, rsp, sizeof(rsp), TEE_PARAM_TYPE_MEMREF_OUTPUT, &out) ==
+        TEE_SUCCESS && stubProcessClient == (UINT32)(size_t)b,
+        "B's command runs as B");
 
     stubFlushCount = 0;
     CHECK(TA_InvokeCommandEntryPoint(b, FWTPM_OPTEE_CMD_RESET, 0, p) ==
@@ -348,8 +352,8 @@ static void test_ta_sessions(void)
     TA_CloseSessionEntryPoint(a);
     CHECK(stubFlushCount == 1 && WasFlushed((UINT32)(size_t)a),
         "closing A flushes only A");
-    TA_OpenSessionEntryPoint(0, p, &a);
-    CHECK(a != b && (UINT32)(size_t)a != 0, "a reopened session is new");
+    CHECK(TA_OpenSessionEntryPoint(0, p, &a) == TEE_SUCCESS && a != b &&
+        (UINT32)(size_t)a != 0, "a reopened session is new");
 
     p[0].value.a = p[0].value.b = 0;
     CHECK(TA_InvokeCommandEntryPoint(b, FWTPM_OPTEE_CMD_GET_INFO,
@@ -386,8 +390,9 @@ static void test_ta_buffers(void)
     printf("TA command and response buffers\n");
     MockTee_Reset();
     XMEMSET(p, 0, sizeof(p));
-    TA_CreateEntryPoint();
-    TA_OpenSessionEntryPoint(0, p, &s);
+    CHECK(TA_CreateEntryPoint() == TEE_SUCCESS &&
+        TA_OpenSessionEntryPoint(0, p, &s) == TEE_SUCCESS,
+        "TA created and session opened");
     stubRspLen = 64;
 
     before = stubProcessCalls;
@@ -418,17 +423,17 @@ static void test_ta_buffers(void)
     CHECK(res == TEE_SUCCESS && stubBuffersClean,
         "previous response not left in the staging buffer");
 
-    if (full > FWTPM_OPTEE_MIN_RSP_SIZE) {
-        stubRspLen = FWTPM_OPTEE_MIN_RSP_SIZE + 100;
-        res = Submit(s, rsp, FWTPM_OPTEE_MIN_RSP_SIZE,
-            TEE_PARAM_TYPE_MEMREF_INOUT, &out);
-        CHECK(res == TEE_ERROR_SHORT_BUFFER && out == (size_t)stubRspLen,
-            "oversized response reports the size it needs");
-        res = Submit(s, rsp, full, TEE_PARAM_TYPE_MEMREF_OUTPUT, &out);
-        CHECK(res == TEE_SUCCESS && out == (size_t)stubRspLen,
-            "full-size buffer receives it");
-        stubRspLen = 64;
-    }
+#if FWTPM_MAX_COMMAND_SIZE > FWTPM_OPTEE_MIN_RSP_SIZE
+    stubRspLen = FWTPM_OPTEE_MIN_RSP_SIZE + 100;
+    res = Submit(s, rsp, FWTPM_OPTEE_MIN_RSP_SIZE,
+        TEE_PARAM_TYPE_MEMREF_INOUT, &out);
+    CHECK(res == TEE_ERROR_SHORT_BUFFER && out == (size_t)stubRspLen,
+        "oversized response reports the size it needs");
+    res = Submit(s, rsp, full, TEE_PARAM_TYPE_MEMREF_OUTPUT, &out);
+    CHECK(res == TEE_SUCCESS && out == (size_t)stubRspLen,
+        "full-size buffer receives it");
+    stubRspLen = 64;
+#endif
 
     stubProcessRc = TPM_RC_FAILURE;
     res = Submit(s, rsp, full, TEE_PARAM_TYPE_MEMREF_OUTPUT, &out);
