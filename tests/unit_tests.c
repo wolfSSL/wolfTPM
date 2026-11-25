@@ -4073,6 +4073,8 @@ static void test_wolfTPM2_NoAuthCmd_ParamEnc(void)
     ECDH_ZGen_Out zGenOut;
     Hash_In hashCmd;
     Hash_Out hashOut;
+    WOLFTPM2_HASH hashSeq;
+    word32 digestSz;
     MakeCredential_In makeCredIn;
     MakeCredential_Out makeCredOut;
     byte secret[MAX_ECC_BYTES];
@@ -4156,6 +4158,23 @@ static void test_wolfTPM2_NoAuthCmd_ParamEnc(void)
         sizeof(nonceTPM)), 0);
     AssertIntEQ(wc_Sha256Hash(data, (word32)sizeof(data), digest), 0);
     AssertIntEQ(hashOut.outHash.size, (int)sizeof(digest));
+    AssertIntEQ(XMEMCMP(hashOut.outHash.buffer, digest, sizeof(digest)), 0);
+
+    /* HashSequenceStart: the sequence auth goes out encrypted */
+    XMEMSET(&hashSeq, 0, sizeof(hashSeq));
+    XMEMCPY(&nonceTPM, &dev.session[1].nonceTPM, sizeof(nonceTPM));
+    rc = wolfTPM2_HashStart(&dev, &hashSeq, TPM_ALG_SHA256,
+        (const byte*)"seqauth", 7);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    rc = wolfTPM2_HashUpdate(&dev, &hashSeq, data, (word32)sizeof(data));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    digestSz = (word32)sizeof(hashOut.outHash.buffer);
+    rc = wolfTPM2_HashFinish(&dev, &hashSeq, hashOut.outHash.buffer,
+        &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)digestSz, (int)sizeof(digest));
     AssertIntEQ(XMEMCMP(hashOut.outHash.buffer, digest, sizeof(digest)), 0);
 
     /* LoadExternal: the private part goes out encrypted */
