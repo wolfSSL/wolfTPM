@@ -559,7 +559,8 @@ typedef int64_t  INT64;
 #if defined(WOLFTPM_AUTODETECT) && defined(__linux__) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
     !defined(WOLFTPM_OPTEE) && !defined(WOLFTPM_PIKEOS) && \
-    !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_FWTPM_HAL)
+    !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_FWTPM_HAL) && \
+    !defined(WOLFTPM_USER_TRANSPORT)
     #define WOLFTPM_LINUX_DEV_AUTODETECT
 #endif
 
@@ -652,7 +653,7 @@ typedef int64_t  INT64;
 #ifndef TPM_TIMEOUT_TRIES
     #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
         defined(WOLFTPM_OPTEE) || defined(WOLFTPM_WINAPI) || \
-        defined(WOLFTPM_PIKEOS)
+        defined(WOLFTPM_PIKEOS) || defined(WOLFTPM_USER_TRANSPORT)
     #define TPM_TIMEOUT_TRIES 0
     #else
     #define TPM_TIMEOUT_TRIES 1000000

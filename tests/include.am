@@ -4,10 +4,13 @@
 
 # unit.test requires a running TPM server. When fwtpm_check.sh is used
 # (BUILD_FWTPM), it manages the server and runs unit.test internally —
-# so exclude unit.test from check_PROGRAMS in that case.
+# so exclude unit.test from check_PROGRAMS in that case. A user transport
+# build has no TPM to run it against.
 if BUILD_EXAMPLES
 if !BUILD_FWTPM
+if !BUILD_USERTRANSPORT
 check_PROGRAMS += tests/unit.test
+endif
 endif
 noinst_PROGRAMS += tests/unit.test
 tests_unit_test_SOURCES      = tests/unit_tests.c \
@@ -72,6 +75,17 @@ tests_pikeos_unit_test_DEPENDENCIES = src/libwolftpm.la
 endif
 endif
 EXTRA_DIST += tests/pikeos_stub/p4.h tests/pikeos_stub/vm.h
+
+# --enable-fwtpm-only does not build the client library this links against.
+if BUILD_USERTRANSPORT
+if !BUILD_FWTPM_ONLY
+check_PROGRAMS += tests/user_transport_unit.test
+tests_user_transport_unit_test_SOURCES = tests/user_transport_unit_tests.c
+tests_user_transport_unit_test_CFLAGS = $(AM_CFLAGS)
+tests_user_transport_unit_test_LDADD = src/libwolftpm.la $(LIB_STATIC_ADD)
+tests_user_transport_unit_test_DEPENDENCIES = src/libwolftpm.la
+endif
+endif
 
 if BUILD_FWTPM_TIS
 check_PROGRAMS += tests/fwtpm_hal_unit.test
@@ -165,6 +179,8 @@ endif
 
 if BUILD_EXAMPLES
 if BUILD_WRAPPER
+# These swap out the transport send, which a user transport build does not have
+if !BUILD_USERTRANSPORT
 # Run the real signature wrappers and response decoder against wire fixtures.
 check_PROGRAMS += tests/signature_padding.test
 noinst_PROGRAMS += tests/signature_padding.test
@@ -185,5 +201,6 @@ tests_transient_unload_test_CFLAGS = $(AM_CFLAGS)
 tests_transient_unload_test_LDADD = $(signature_padding_support_objects) \
     $(src_libwolftpm_la_LIBADD) $(LIB_STATIC_ADD)
 tests_transient_unload_test_DEPENDENCIES = src/libwolftpm.la
+endif
 endif
 endif

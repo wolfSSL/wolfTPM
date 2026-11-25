@@ -93,10 +93,46 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #elif defined(WOLFTPM_PIKEOS)
 #define INTERNAL_SEND_COMMAND      TPM2_PIKEOS_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
+#elif defined(WOLFTPM_USER_TRANSPORT)
+#define INTERNAL_SEND_COMMAND      TPM2_USER_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
 #else
 #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #endif
+
+#ifdef WOLFTPM_USER_TRANSPORT
+static int TPM2_USER_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    int rc;
+    UINT32 rspSz = 0;
+    UINT32 declared;
+
+    if (ctx == NULL || packet == NULL || packet->buf == NULL ||
+            packet->pos <= 0 || packet->size <= 0 ||
+            packet->pos > packet->size)
+        return BAD_FUNC_ARG;
+    if (ctx->ioCb == NULL)
+        return TPM_RC_FAILURE;
+
+    rc = ctx->ioCb(ctx, packet->buf, (UINT32)packet->pos, packet->buf,
+        (UINT32)packet->size, &rspSz, ctx->userCtx);
+    if (rc != 0 || rspSz < TPM2_HEADER_SIZE || rspSz > (UINT32)packet->size)
+        return TPM_RC_FAILURE;
+
+    declared = ((UINT32)packet->buf[2] << 24) |
+               ((UINT32)packet->buf[3] << 16) |
+               ((UINT32)packet->buf[4] << 8) |
+                (UINT32)packet->buf[5];
+    if (declared != rspSz)
+        return TPM_RC_FAILURE;
+
+    /* Bind the parser to the bytes actually received */
+    packet->size = (int)rspSz;
+
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_USER_TRANSPORT */
 
 #define TPM2_LOCALITY_UNINITIALIZED (-1)
 
@@ -1046,6 +1082,12 @@ int TPM2_GetSessionAuthCount(TPM2_CTX* ctx)
 
 TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
 {
+#ifdef WOLFTPM_USER_TRANSPORT
+    /* No TIS layer: the transport owns chip startup and locality */
+    (void)ctx;
+    (void)timeoutTries;
+    return NOT_COMPILED_IN;
+#else
     TPM_RC rc;
 
     if (ctx == NULL) {
@@ -1078,6 +1120,7 @@ TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
     }
 
     return rc;
+#endif /* WOLFTPM_USER_TRANSPORT */
 }
 
 TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
@@ -1223,8 +1266,13 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         && ctx->fd < 0 && ctx->ioCb != NULL
     #endif
     ) {
+    #ifdef WOLFTPM_USER_TRANSPORT
+        /* No TIS layer: the transport owns chip startup and locality */
+        rc = BAD_FUNC_ARG;
+    #else
         /* Perform chip startup and assign locality */
         rc = TPM2_ChipStartup(ctx, timeoutTries);
+    #endif
     }
     else {
         /* use existing locality */

@@ -25,6 +25,9 @@
 
 #include <wolftpm/tpm2_tis.h>
 
+/* A user transport carries whole commands, so there is no TIS layer */
+#ifndef WOLFTPM_USER_TRANSPORT
+
 /******************************************************************************/
 /* --- BEGIN TPM Interface Specification (TIS) Layer */
 /******************************************************************************/
@@ -611,6 +614,9 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 
 /* Validate a TPM-reported response size from the wire header against the
  * caller buffer before the receive loop writes into it. */
+#endif /* !WOLFTPM_USER_TRANSPORT */
+
+/* Public and transport independent, so a user transport build keeps it */
 int TPM2_TIS_ValidateRspSz(int rspSz, int packetSize)
 {
     int rc = TPM_RC_SUCCESS;
@@ -621,6 +627,7 @@ int TPM2_TIS_ValidateRspSz(int rspSz, int packetSize)
     return rc;
 }
 
+#ifndef WOLFTPM_USER_TRANSPORT
 int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     int rc;
@@ -773,3 +780,5 @@ exit:
 /******************************************************************************/
 /* --- END TPM Interface Layer -- */
 /******************************************************************************/
+
+#endif /* !WOLFTPM_USER_TRANSPORT */

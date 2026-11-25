@@ -4905,6 +4905,8 @@ WOLFTPM_API int wolfTPM_PK_SetCbCtx(WOLFSSL* ssl, void* userCtx);
     An SPDM-only TPM requires a caller-allocated WOLFTPM2_DEV initialized with
     wolfTPM2_InitWithSpdmKey, wolfTPM2_InitWithSpdmKey_ex, or
     wolfTPM2_InitWithSpdmPsk instead.
+    \note With WOLFTPM_USER_TRANSPORT it always returns NULL, since it cannot
+    take the transport callback. Allocate a WOLFTPM2_DEV and call wolfTPM2_Init.
 
     \return pointer to new device struct
     \return NULL: on any error

@@ -74,6 +74,9 @@ jobs:
           - name: "Interface SPI"
             os: ubuntu-latest
             options: "-DWOLFTPM_INTERFACE=SPI"
+          - name: "Interface USER"
+            os: ubuntu-latest
+            options: "-DWOLFTPM_INTERFACE=USER"
           # Test Advanced IO
           - name: "Advanced IO"
             os: ubuntu-latest

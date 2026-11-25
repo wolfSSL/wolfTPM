@@ -1,6 +1,6 @@
 # System Interfaces
 
-Besides talking directly to a TPM chip over SPI or I2C, wolfTPM can reach a TPM through an operating system interface or a software simulator. This page covers the three of them: the software TPM simulators (SWTPM), the Linux kernel device (`/dev/tpmX`), and the Windows TBS API. Only one transport can be enabled in a given build.
+Besides talking directly to a TPM chip over SPI or I2C, wolfTPM can reach a TPM through an operating system interface or a software simulator. This page covers the software TPM simulators (SWTPM), the Linux kernel device (`/dev/tpmX`), the Windows TBS API, and the application transport, where your own code carries each command to the TPM. Only one transport can be enabled in a given build.
 
 ## Software simulator (SWTPM)
 
@@ -511,6 +511,82 @@ cd ..
 ### Running on Windows
 
 To confirm the presence and status of the TPM on the machine, run `tpm.msc`. See `examples/README.md` in the source tree for running the examples.
+
+## Application transport
+
+Use the application transport when TPM commands reach the TPM over a channel wolfTPM does not provide, such as a TrustZone secure call, a hypervisor or IPC message, an RPC link, or a test harness. wolfTPM still marshals every command and parses every response. Your callback only moves the bytes.
+
+### Building
+
+```sh
+./configure --enable-transport=user
+```
+
+```sh
+cmake -B build -DWOLFTPM_INTERFACE=USER
+```
+
+`--enable-usertransport` is the same as `--enable-transport=user`. All three define `WOLFTPM_USER_TRANSPORT`. The build has no TIS layer and no other transport, so configure rejects it with swTPM, devtpm, PikeOS, OP-TEE, the Windows TBS API, a SPI, I2C or MMIO bus, `--enable-hal-reset` and `--enable-spdm`. Selecting it also turns off the default swTPM and fwTPM builds. CMake rejects `WOLFTPM_INTERFACE=USER` with `WOLFTPM_I2C` or `WOLFTPM_MMIO`.
+
+### Passing the transport
+
+The transport is the IO callback you already pass to `wolfTPM2_Init()` or `TPM2_Init()`. In this build `TPM2HalIoCb` carries a whole command instead of a TIS register access, so there is no new registration API. The callback and its context are stored in the `TPM2_CTX`, so each context can use its own link. `TPM2_SetHalIoCb()` replaces them later.
+
+```c
+rc = wolfTPM2_Init(dev, app_send, link);
+```
+
+Initialization fails with `BAD_FUNC_ARG` if the callback is `NULL`. `wolfTPM2_Init()` sends `TPM2_Startup` through it before returning.
+
+### The callback
+
+```c
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* cmd, UINT32 cmdSz,
+    BYTE* rsp, UINT32 rspMax, UINT32* rspSz, void* userCtx);
+```
+
+- `cmd` holds one complete command of `cmdSz` bytes.
+- `rsp` is the same buffer as `cmd`, `rspMax` bytes long. Copy the command out before writing the response into it, and write only the response bytes.
+- Return 0 and set `*rspSz` to the response length. Return non-zero only for a transport failure. A TPM error code travels inside the response header, not as the return value.
+- wolfTPM fails the command with `TPM_RC_FAILURE` if the callback returns non-zero, or if `*rspSz` is shorter than the 10-byte TPM header, larger than `rspMax`, or different from the size field in the response header.
+- Do not resend a command from inside the callback. With retries enabled by `TPM2_SetCommandRetries()`, wolfTPM resends a command that got `TPM_RC_RETRY` by calling the callback again with the same command.
+- With locking enabled, the callback runs while wolfTPM holds its TPM lock, so it must not call any wolfTPM API. Builds with `WOLFTPM2_NO_WOLFCRYPT` or `WOLFTPM_NO_LOCK` take no lock, so the application must serialize access to a shared transport.
+- `ctx` identifies the calling context, and `userCtx` is the pointer passed at initialization. wolfTPM never frees it.
+
+### Example
+
+```c
+#include <wolftpm/tpm2_wrap.h>
+
+static int app_send(TPM2_CTX* ctx, const BYTE* cmd, UINT32 cmdSz,
+    BYTE* rsp, UINT32 rspMax, UINT32* rspSz, void* userCtx)
+{
+    int len;
+
+    (void)ctx;
+    /* app_link_transact copies cmd out before it writes rsp */
+    len = app_link_transact(userCtx, cmd, cmdSz, rsp, rspMax);
+    if (len < 0)
+        return -1;
+    *rspSz = (UINT32)len;
+    return 0;
+}
+
+int app_tpm_start(WOLFTPM2_DEV* dev, void* link)
+{
+    return wolfTPM2_Init(dev, app_send, link);
+}
+```
+
+When finished, call `wolfTPM2_Cleanup(dev)`, then close the link yourself. wolfTPM does not own it. `tests/user_transport_unit_tests.c` exercises each rule above against a stub TPM.
+
+### Limitations
+
+- There is no locality control. `wolfTPM2_SetLocality()` returns `NOT_COMPILED_IN`, and the transport owns locality.
+- There is no chip startup or TIS timeout. `TPM2_Init_ex()` rejects a positive `timeoutTries`, and `TPM2_ChipStartup()` returns `NOT_COMPILED_IN`.
+- `WOLFTPM_ADV_IO` and the fwTPM TIS transport cannot be combined with it, since both redefine `TPM2HalIoCb`.
+- `wolfTPM2_New()` has no callback argument, so it returns `NULL`. Allocate a `WOLFTPM2_DEV` and call `wolfTPM2_Init()`.
+- SPDM is not available, because it needs the TIS path.
 
 ## See Also
 

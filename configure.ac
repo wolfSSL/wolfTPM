@@ -182,6 +182,33 @@ else
 fi
 AC_MSG_NOTICE([wolfCrypt path: ${wcpath}])
 
+# Shorthand that names the transport with the CMake WOLFTPM_INTERFACE values.
+# Each value turns on the matching --enable-<option>, which still works alone.
+AC_ARG_ENABLE([transport],
+    [AS_HELP_STRING([--enable-transport=TYPE],[Shorthand for one transport option: auto, swtpm, devtpm, winapi, optee, pikeos, user, spi, i2c or mmio. Each acts exactly like the matching --enable-<type> option, user is --enable-usertransport (default: auto)])],
+    [ ENABLED_TRANSPORT=$enableval ],
+    [ ENABLED_TRANSPORT=auto ]
+    )
+
+case "$ENABLED_TRANSPORT" in
+    auto|no) _wt_transport= ;;
+    swtpm|devtpm|winapi|optee|pikeos|spi|i2c|mmio)
+            _wt_transport=$ENABLED_TRANSPORT ;;
+    user)   _wt_transport=usertransport ;;
+    *)      AC_MSG_ERROR([Unknown --enable-transport=$ENABLED_TRANSPORT; use auto, swtpm, devtpm, winapi, optee, pikeos, user, spi, i2c or mmio]) ;;
+esac
+
+if test -n "$_wt_transport"
+then
+    eval "_wt_transport_val=\$enable_$_wt_transport"
+    if test "x$_wt_transport_val" = "xno"
+    then
+        AC_MSG_ERROR([--enable-transport=$ENABLED_TRANSPORT conflicts with --disable-$_wt_transport])
+    fi
+    # Keep a value given directly, such as --enable-swtpm=uart
+    test -n "$_wt_transport_val" || eval "enable_$_wt_transport=yes"
+fi
+
 
 # SPI transport — this is the default when no other bus is selected.
 # The flag itself is an intent signal (so hardware-builds can say
@@ -267,6 +294,35 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PIKEOS"
 fi
 
+# Application-supplied command transport through the TPM2_Init IO callback
+AC_ARG_ENABLE([usertransport],
+    [AS_HELP_STRING([--enable-usertransport],[Enable an application-supplied TPM command transport (default: disabled)])],
+    [ ENABLED_USERTRANSPORT=$enableval ],
+    [ ENABLED_USERTRANSPORT=no ]
+    )
+
+if test "x$ENABLED_USERTRANSPORT" = "xyes"
+then
+    if test "x$ENABLED_DEVTPM" = "xyes" || test "x$ENABLED_PIKEOS" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable usertransport with devtpm or pikeos])
+    fi
+    if test "x$enable_winapi" = "xyes" || test "x$enable_wintbs" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both usertransport and the Windows TBS API])
+    fi
+    if test "x$enable_spi" = "xyes" || test "x$enable_i2c" = "xyes" || \
+       test "x$enable_mmio" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable usertransport with spi, i2c or mmio])
+    fi
+    if test "x$ENABLED_ADVIO" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both usertransport and advio])
+    fi
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_USER_TRANSPORT"
+fi
+
 # If the user explicitly picked any hardware path (vendor, bus, kernel
 # driver, autodetect), don't default-enable the software TPMs — the SPI HAL
 # in hal/tpm_io_linux.c is excluded when WOLFTPM_SWTPM is defined.
@@ -276,7 +332,8 @@ for _wt_v in "$enable_infineon" "$enable_st" "$enable_st33" \
              "$enable_nuvoton" "$enable_nations" "$enable_sealsq" \
              "$enable_spi" "$enable_i2c" "$enable_mmio" \
              "$enable_devtpm" "$enable_autodetect" "$enable_optee" \
-             "$enable_pikeos" "$enable_winapi" "$enable_wintbs"; do
+             "$enable_pikeos" "$enable_winapi" "$enable_wintbs" \
+             "$enable_usertransport"; do
     if test -n "$_wt_v" && test "x$_wt_v" != "xno"; then
         WOLFTPM_HW_SELECTED=yes
     fi
@@ -329,6 +386,10 @@ then
     if test "x$ENABLED_PIKEOS" = "xyes"
     then
         AC_MSG_ERROR([Cannot enable both swtpm and pikeos])
+    fi
+    if test "x$ENABLED_USERTRANSPORT" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both swtpm and usertransport])
     fi
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
@@ -383,6 +444,10 @@ then
     if test "x$ENABLED_PIKEOS" = "xyes"
     then
         AC_MSG_ERROR([Cannot enable both optee and pikeos])
+    fi
+    if test "x$ENABLED_USERTRANSPORT" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both optee and usertransport])
     fi
     # swtpm is the default on Linux x86_64/aarch64, which is where an OP-TEE
     # client runs, so say which flag to pass rather than just refusing.
@@ -479,6 +544,11 @@ then
     fi
 fi
 
+if test "x$ENABLED_USERTRANSPORT" = "xyes" && test "x$ENABLED_FWTPM_TIS" = "xyes"
+then
+    AC_MSG_ERROR([Cannot enable usertransport with the fwTPM TIS transport])
+fi
+
 # POSIX TIS/shared-memory consumers need the platform's semaphore link flags.
 # Keep these target-scoped instead of adding them to LIBS.
 FWTPM_TIS_LIBS=""
@@ -571,9 +641,9 @@ then
     # reject those combinations rather than report "yes" with no callable API.
     # Note swtpm is the default on Linux x86_64/aarch64, so the hardware reset
     # HAL requires explicitly selecting a hardware interface (--enable-spi/-i2c).
-    if test "x$ENABLED_DEVTPM" = "xyes" || test "x$ENABLED_PIKEOS" = "xyes" || test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"
+    if test "x$ENABLED_DEVTPM" = "xyes" || test "x$ENABLED_PIKEOS" = "xyes" || test "x$ENABLED_USERTRANSPORT" = "xyes" || test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"
     then
-        AC_MSG_ERROR([--enable-hal-reset needs the SPI/I2C hardware HAL; it is not available with the swtpm simulator (default on Linux x86_64/aarch64), --enable-devtpm or --enable-pikeos. Select a hardware interface, e.g. --enable-spi or --enable-i2c.])
+        AC_MSG_ERROR([--enable-hal-reset needs the SPI/I2C hardware HAL; it is not available with the swtpm simulator (default on Linux x86_64/aarch64), --enable-devtpm, --enable-pikeos or --enable-usertransport. Select a hardware interface, e.g. --enable-spi or --enable-i2c.])
     fi
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_HAL_RESET"
     case "x$ENABLED_HAL_RESET" in
@@ -827,6 +897,9 @@ if test "x$ENABLED_SPDM" = "xyes"
 then
     if test "x$ENABLED_FWTPM_ONLY" = "xyes"; then
         AC_MSG_ERROR([--enable-spdm requires the client library (incompatible with --enable-fwtpm-only)])
+    fi
+    if test "x$ENABLED_USERTRANSPORT" = "xyes"; then
+        AC_MSG_ERROR([--enable-spdm has no I/O path with --enable-usertransport])
     fi
     AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM support])
     if test ! -f "$srcdir/lib/wolfSPDM/src/spdm_context.c"; then
@@ -1170,6 +1243,7 @@ AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"])
 AM_CONDITIONAL([BUILD_SWTPM_UART], [test "x$ENABLED_SWTPM" = "xuart"])
 AM_CONDITIONAL([BUILD_PIKEOS], [test "x$ENABLED_PIKEOS" = "xyes"])
+AM_CONDITIONAL([BUILD_USERTRANSPORT], [test "x$ENABLED_USERTRANSPORT" = "xyes"])
 AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_NATIONS], [test "x$ENABLED_NATIONS" = "xyes"])
@@ -1321,6 +1395,7 @@ if test "x$ENABLED_I2C" = "xyes"     || \
    test "x$ENABLED_SWTPM" = "xyes"   || test "x$ENABLED_SWTPM" = "xuart" || \
    test "x$ENABLED_DEVTPM" = "xyes"  || \
    test "x$ENABLED_PIKEOS" = "xyes"  || \
+   test "x$ENABLED_USERTRANSPORT" = "xyes" || \
    test "x$ENABLED_WINAPI" = "xyes"
 then
     SPI_ACTUAL=no
@@ -1329,6 +1404,7 @@ echo "   * SPI:                       $SPI_ACTUAL"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * PikeOS TPM driver:         $ENABLED_PIKEOS"
+echo "   * User command transport:    $ENABLED_USERTRANSPORT"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
 echo "   * OP-TEE fwTPM TA:           $ENABLED_OPTEE"
 if test "x$ENABLED_SWTPM" = "xyes"; then
