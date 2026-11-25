@@ -2475,7 +2475,7 @@ WOLFTPM_API int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Start a signing sequence with context support
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param key Signing key
     \param context Signature context (for PQ algorithms like ML-DSA)
@@ -2504,7 +2504,7 @@ WOLFTPM_API int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Update a signing sequence with data
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param sequenceHandle Sequence handle from SignSequenceStart
     \param data Data to add to sequence
@@ -2527,7 +2527,7 @@ WOLFTPM_API int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
     \brief Post-Quantum Cryptography: Complete a signing sequence
     \note ECC signatures contain fixed-width R followed by S, each padded
     to the signing key curve size.
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param sequenceHandle Sequence handle from SignSequenceStart
     \param key Signing key
@@ -2553,7 +2553,7 @@ WOLFTPM_API int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Start a verification sequence with context support
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param key Verification key
     \param context Signature context (for PQ algorithms like ML-DSA)
@@ -2577,7 +2577,7 @@ WOLFTPM_API int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ke
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Update a verification sequence with data
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param sequenceHandle Sequence handle from VerifySequenceStart
     \param data Data to add to sequence
@@ -2597,7 +2597,7 @@ WOLFTPM_API int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Complete a verification sequence
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param sequenceHandle Sequence handle from VerifySequenceStart
     \param key Verification key
@@ -2629,7 +2629,7 @@ WOLFTPM_API int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
     \brief Post-Quantum Cryptography: Sign a digest with context support
     \note ECC signatures contain fixed-width R followed by S, each padded
     to the signing key curve size.
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param key Signing key
     \param digest Digest to sign
@@ -2657,7 +2657,7 @@ WOLFTPM_API int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Verify a digest signature with context support
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param key Verification key
     \param digest Digest that was signed
@@ -2684,7 +2684,7 @@ WOLFTPM_API int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* 
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: KEM Encapsulate (public key operation)
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param key Public key for encapsulation
     \param ciphertext Output ciphertext buffer
@@ -2708,7 +2708,7 @@ WOLFTPM_API int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: KEM Decapsulate (private key operation)
-    \return 0 on success, negative on error
+    \return 0 on success, a negative error or a positive TPM_RC_* code
     \param dev Device structure
     \param key Private key for decapsulation
     \param ciphertext Ciphertext to decapsulate
