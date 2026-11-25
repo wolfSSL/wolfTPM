@@ -136,6 +136,10 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     (void)ioCb;
     (void)userCtx;
     (void)timeoutTries;
+#elif defined(WOLFTPM_USER_TRANSPORT)
+    /* The transport owns chip startup, so skip the TIS wait */
+    rc = TPM2_Init_ex(ctx, ioCb, userCtx, 0);
+    (void)timeoutTries;
 #else
     rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
 #endif
@@ -7388,10 +7392,11 @@ int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
 int wolfTPM2_SetLocality(WOLFTPM2_DEV* dev, int locality)
 {
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_WINAPI) || \
-    defined(WOLFTPM_OPTEE) || defined(WOLFTPM_PIKEOS)
-    /* The Linux kernel driver, Windows TBS and the PikeOS driver own the TPM
-     * locality, and the OP-TEE trusted application fixes it at
-     * FWTPM_OPTEE_LOCALITY */
+    defined(WOLFTPM_OPTEE) || defined(WOLFTPM_PIKEOS) || \
+    defined(WOLFTPM_USER_TRANSPORT)
+    /* The Linux kernel driver, Windows TBS, the PikeOS driver and a user
+     * transport own the TPM locality, and the OP-TEE trusted application
+     * fixes it at FWTPM_OPTEE_LOCALITY */
     (void)dev;
     (void)locality;
     return NOT_COMPILED_IN;
@@ -12547,7 +12552,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_OPTEE) && !defined(WOLFTPM_WINAPI) && \
-        !defined(WOLFTPM_PIKEOS)
+        !defined(WOLFTPM_PIKEOS) && !defined(WOLFTPM_USER_TRANSPORT)
         /* Do chip startup and request locality again */
     #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
         if (dev->ctx.fd < 0) /* Only needed for SPI path */
@@ -12664,7 +12669,7 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_OPTEE) && !defined(WOLFTPM_WINAPI) && \
-        !defined(WOLFTPM_PIKEOS)
+        !defined(WOLFTPM_PIKEOS) && !defined(WOLFTPM_USER_TRANSPORT)
         /* Do chip startup and request locality again */
     #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
         if (dev->ctx.fd < 0) /* Only needed for SPI path */
@@ -13195,7 +13200,7 @@ static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_OPTEE) && !defined(WOLFTPM_WINAPI) && \
-        !defined(WOLFTPM_PIKEOS)
+        !defined(WOLFTPM_PIKEOS) && !defined(WOLFTPM_USER_TRANSPORT)
         /* Do chip startup and request locality again */
     #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
         if (dev->ctx.fd < 0) /* Only needed for SPI path */
@@ -13321,7 +13326,7 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev, TPM_CC ccData,
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_OPTEE) && !defined(WOLFTPM_WINAPI) && \
-        !defined(WOLFTPM_PIKEOS)
+        !defined(WOLFTPM_PIKEOS) && !defined(WOLFTPM_USER_TRANSPORT)
         /* Do chip startup and request locality again */
     #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
         if (dev->ctx.fd < 0) /* Only needed for SPI path */

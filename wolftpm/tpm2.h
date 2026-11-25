@@ -2311,7 +2311,15 @@ struct wolfTPM_winContext {
     #define WOLFTPM_ADV_IO
 #endif
 
-#ifdef WOLFTPM_ADV_IO
+#if defined(WOLFTPM_USER_TRANSPORT) && defined(WOLFTPM_ADV_IO)
+    #error WOLFTPM_USER_TRANSPORT and WOLFTPM_ADV_IO define different IO callbacks
+#endif
+
+#ifdef WOLFTPM_USER_TRANSPORT
+/* Carries one whole command; rsp is the same buffer as cmd */
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* cmd, UINT32 cmdSz,
+    BYTE* rsp, UINT32 rspMax, UINT32* rspSz, void* userCtx);
+#elif defined(WOLFTPM_ADV_IO)
 typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, INT32 isRead, UINT32 addr,
     BYTE* xferBuf, UINT16 xferSz, void* userCtx);
 #else
@@ -3840,6 +3848,7 @@ WOLFTPM_API int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t
     \ingroup TPM2_Proprietary
     \brief Initializes a TPM with HAL IO callback and user supplied context.
     When using wolfTPM with --enable-devtpm or --enable-swtpm configuration, the ioCb and userCtx are not used.
+    With --enable-usertransport the ioCb carries each complete command and response instead of TIS register access.
     \note TPM2_Init_minimal() calls TPM2_Init_ex() with both ioCb and userCtx set to NULL.
     In other modes, the ioCb shall be set in order to use TIS.
     Example ioCB for baremetal and RTOS applications are provided in hal/tpm_io.c
@@ -3883,7 +3892,7 @@ WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
     \param ctx pointer to a TPM2_CTX struct
     \param ioCb pointer to TPM2HalIoCb (HAL IO) callback function
     \param userCtx pointer to the user's context that will be stored as a member of the ctx struct
-    \param timeoutTries specifies the number of attempts to confirm that TPM2 startup has completed. Must not be positive with WOLFTPM_PIKEOS, which has no TIS layer; use TPM2_Init or TPM2_Init_minimal
+    \param timeoutTries specifies the number of attempts to confirm that TPM2 startup has completed. Must not be positive with WOLFTPM_PIKEOS or WOLFTPM_USER_TRANSPORT, which have no TIS layer. With WOLFTPM_PIKEOS use TPM2_Init or TPM2_Init_minimal. With WOLFTPM_USER_TRANSPORT use TPM2_Init, or pass 0 with a non-NULL ioCb
 
     \sa TPM2_GetRCString
     \sa TPM2_Init_minimal

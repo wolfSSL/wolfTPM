@@ -1,0 +1,104 @@
+name: User Transport Build (WOLFTPM_USER_TRANSPORT)
+
+# Build and host test of the application-supplied command transport
+# (--enable-usertransport). tests/user_transport_unit.test passes a stub
+# transport, so no TPM is needed.
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '**' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  user-transport:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Configure (user transport, no wolfCrypt)
+        run: |
+          ./autogen.sh
+          ./configure --enable-usertransport --disable-wolfcrypt --disable-examples
+
+      - name: Build library and run transport test
+        run: |
+          make src/libwolftpm.la CFLAGS="-Werror"
+          make tests/user_transport_unit.test CFLAGS="-Werror"
+          ./tests/user_transport_unit.test
+
+      - name: Build library and run transport test (debug)
+        run: |
+          make clean
+          make src/libwolftpm.la tests/user_transport_unit.test \
+            CFLAGS="-Werror -DDEBUG_WOLFTPM -DWOLFTPM_DEBUG_VERBOSE"
+          ./tests/user_transport_unit.test
+
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          ref: master
+          configure-flags: --enable-wolftpm --enable-pkcallbacks
+
+      - name: Reject options that conflict with the user transport
+        run: |
+          make distclean
+          for opt in --enable-advio --enable-fwtpm --enable-swtpm --enable-spi; do
+            if ./configure --enable-usertransport $opt > conflict.log 2>&1 || \
+               ! grep -q "error:.*usertransport" conflict.log; then
+              echo "configure did not reject --enable-usertransport $opt"
+              exit 1
+            fi
+          done
+          if ./configure --enable-transport=bogus > /dev/null 2>&1 || \
+             ./configure --enable-transport=user --disable-usertransport \
+               > /dev/null 2>&1; then
+            echo "configure accepted a bad --enable-transport"
+            exit 1
+          fi
+
+      - name: Check each --enable-transport value matches its option
+        run: |
+          # A configure that fails, such as optee without libteec, must fail both ways
+          flags() {
+            if ./configure "$@" > /dev/null 2>&1; then
+              grep '^AM_CFLAGS =' Makefile
+            else
+              echo "configure failed"
+            fi
+          }
+          check() {
+            if [ "$(flags $1)" != "$(flags $2)" ]; then
+              echo "$1 differs from ${2:-the default}"
+              exit 1
+            fi
+          }
+          check --enable-transport=auto ""
+          check --disable-transport ""
+          for t in swtpm devtpm winapi optee pikeos user spi i2c mmio; do
+            o=$t
+            if [ "$t" = user ]; then o=usertransport; fi
+            check --enable-transport=$t --enable-$o
+          done
+          ./configure --enable-transport=swtpm --enable-swtpm=uart > /dev/null
+          grep -q WOLFTPM_SWTPM_UART Makefile
+          make distclean > /dev/null
+
+      - name: Build everything and run transport test (wolfCrypt)
+        run: |
+          ./configure --enable-transport=user
+          make CFLAGS="-Werror"
+          make check CFLAGS="-Werror"

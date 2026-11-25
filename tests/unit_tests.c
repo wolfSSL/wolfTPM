@@ -5866,7 +5866,16 @@ static void test_TPM2_Packet_RetryRestore(void)
     (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
 /* Counts transport calls so the test can prove nothing was transmitted */
 static int test_ovf_ioCalls;
-#ifdef WOLFTPM_ADV_IO
+#ifdef WOLFTPM_USER_TRANSPORT
+static int test_ovf_ioCb(TPM2_CTX* ctx, const BYTE* cmd, UINT32 cmdSz,
+    BYTE* rsp, UINT32 rspMax, UINT32* rspSz, void* userCtx)
+{
+    (void)ctx; (void)cmd; (void)cmdSz; (void)rsp; (void)rspMax; (void)rspSz;
+    (void)userCtx;
+    test_ovf_ioCalls++;
+    return TPM_RC_FAILURE;
+}
+#elif defined(WOLFTPM_ADV_IO)
 static int test_ovf_ioCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
     BYTE* xferBuf, UINT16 xferSz, void* userCtx)
 {

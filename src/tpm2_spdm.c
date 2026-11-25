@@ -45,7 +45,8 @@
 #if defined(WOLFTPM_SPDM_TCG) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
     !defined(WOLFTPM_OPTEE) && !defined(WOLFTPM_WINAPI) && \
-    !defined(WOLFTPM_PIKEOS)
+    !defined(WOLFTPM_PIKEOS) && \
+    !defined(WOLFTPM_USER_TRANSPORT)
     #include <wolftpm/tpm2_tis.h>
     #include <wolftpm/tpm2_packet.h>
     #define WOLFTPM_SPDM_TIS_IO

@@ -3,7 +3,7 @@
 This page is the reference for the Autotools (`./configure`) options and the preprocessor defines that control how wolfTPM is built. Each configure switch lists the macro it defines when one exists. `configure.ac` in the wolfTPM source tree is the authoritative source.
 
 !!! note
-    This page documents the Autotools build. The CMake build differs: fwTPM is off by default and the TPM interface is chosen with the `WOLFTPM_INTERFACE` cache variable (`auto`, `SWTPM`, `WINAPI`, `DEVTPM`, `SPI`, `I2C` or `MMIO`) instead of `--enable-*` flags. See [Building wolfTPM](building.md) for CMake.
+    This page documents the Autotools build. The CMake build differs: fwTPM is off by default and the TPM interface is chosen with the `WOLFTPM_INTERFACE` cache variable (`auto`, `SWTPM`, `WINAPI`, `DEVTPM`, `OPTEE`, `PIKEOS`, `USER`, `SPI`, `I2C` or `MMIO`) instead of `--enable-*` flags. See [Building wolfTPM](building.md) for CMake.
 
 ## Reading the tables
 
@@ -42,7 +42,7 @@ This page is the reference for the Autotools (`./configure`) options and the pre
 | `--enable-checkwaitstate` | depends on chip | TIS and SPI check-wait-state support. Defines `WOLFTPM_CHECK_WAIT_STATE`. Configure turns it on for autodetect and for every build that is not Infineon-only. |
 | `--enable-tislock` | disabled | Defines `WOLFTPM_TIS_LOCK`. Uses a named semaphore to serialize TIS commands across processes. Linux only. |
 
-`--enable-hal-reset` needs the SPI or I2C hardware HAL. Configure rejects it together with swTPM or `--enable-devtpm`. Because swTPM is the default on common hosts, pass `--enable-spi` or `--enable-i2c` with it.
+`--enable-hal-reset` needs the SPI or I2C hardware HAL. Configure rejects it together with swTPM, `--enable-devtpm`, `--enable-pikeos` or `--enable-usertransport`. Because swTPM is the default on common hosts, pass `--enable-spi` or `--enable-i2c` with it.
 
 !!! note
     For I2C support on a Raspberry Pi you may need to enable I2C first:
@@ -72,6 +72,8 @@ Selecting an Infineon device with its argument looks like this:
 
 ## Operating system transports and simulators
 
+`--enable-transport=TYPE` is a shorthand that names the transport with the CMake `-DWOLFTPM_INTERFACE` values. `TYPE` is `auto` (the default), `swtpm`, `devtpm`, `winapi`, `optee`, `pikeos`, `user`, `spi`, `i2c` or `mmio`. Each value acts exactly like the matching `--enable-<type>` option (`user` is `--enable-usertransport`), and those options still work. A value given directly, such as `--enable-swtpm=uart`, is kept. Like `--enable-spi`, the `spi`, `i2c` and `mmio` values leave autodetect on, so on Linux a kernel TPM device still wins unless you also pass `--disable-autodetect`.
+
 | Option | Default | Effect and macros |
 | --- | --- | --- |
 | `--enable-devtpm` | disabled | Use the Linux kernel driver (`/dev/tpmrm0` or `/dev/tpm0`). Defines `WOLFTPM_LINUX_DEV`. Cannot be combined with swTPM. |
@@ -80,6 +82,7 @@ Selecting an Infineon device with its argument looks like this:
 | `--enable-swtpm=uart` | disabled | swtpm protocol over a UART serial port, for fwTPM on embedded targets such as STM32H5. Defines `WOLFTPM_SWTPM`, `WOLFTPM_SWTPM_UART` and `TPM2_SWTPM_PORT`, where the port value is the baud rate (default 115200). |
 | `--with-swtpm-port=PORT` | 2321 | Sets `TPM2_SWTPM_PORT`. For `--enable-swtpm=uart` it sets the baud rate instead. |
 | `--enable-fwtpm` | see below | Build the firmware TPM (fwTPM) server. Requires wolfCrypt. |
+| `--enable-usertransport` | disabled | The application carries each command to the TPM through the IO callback passed to `wolfTPM2_Init()`. Defines `WOLFTPM_USER_TRANSPORT`. CMake: `-DWOLFTPM_INTERFACE=USER`. Cannot be combined with any other transport, a SPI, I2C or MMIO bus, or `--enable-spdm`. See [Application transport](system-interfaces.md#application-transport). |
 | `--enable-winapi` (alias `--enable-wintbs`) | disabled | Use the Windows TBS API. Defines `WOLFTPM_WINAPI`. Cannot be combined with swTPM or devtpm. |
 
 ### Default simulator behavior
@@ -89,7 +92,7 @@ Selecting an Infineon device with its argument looks like this:
 - the host CPU is x86_64, amd64 or aarch64;
 - the host OS is not Windows (mingw, cygwin, msys, win32);
 - wolfCrypt is enabled;
-- no hardware path was selected with any of `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-devtpm`, `--enable-pikeos`, `--enable-autodetect`, `--enable-winapi`, `--enable-infineon`, `--enable-st`, `--enable-st33`, `--enable-microchip`, `--enable-nuvoton`, `--enable-nations` or `--enable-sealsq`.
+- no hardware path was selected with any of `--enable-spi`, `--enable-i2c`, `--enable-mmio`, `--enable-devtpm`, `--enable-pikeos`, `--enable-autodetect`, `--enable-winapi`, `--enable-usertransport`, `--enable-infineon`, `--enable-st`, `--enable-st33`, `--enable-microchip`, `--enable-nuvoton`, `--enable-nations` or `--enable-sealsq`.
 
 This applies to macOS and BSD as well as Linux. Everywhere else the default is off.
 
