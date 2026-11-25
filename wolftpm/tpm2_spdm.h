@@ -129,7 +129,7 @@ WOLFTPM_API int wolfTPM2_SPDM_SetTPMCtx(
  * NOTE: This is a Nuvoton-specific feature.
  *
  * @param ctx       wolfTPM2 SPDM context
- * @return 0 on success, negative on error
+ * @return 0 on success, BAD_FUNC_ARG or a positive TPM_RC_* code on error
  */
 WOLFTPM_API int wolfTPM2_SPDM_Enable(
     WOLFTPM2_SPDM_CTX* ctx
@@ -140,7 +140,7 @@ WOLFTPM_API int wolfTPM2_SPDM_Enable(
  * Sets Cfg_H bit 1 to disable SPDM. Requires TPM reset to take effect.
  *
  * @param ctx       wolfTPM2 SPDM context
- * @return 0 on success, negative on error
+ * @return 0 on success, BAD_FUNC_ARG or a positive TPM_RC_* code on error
  */
 WOLFTPM_API int wolfTPM2_SPDM_Disable(
     WOLFTPM2_SPDM_CTX* ctx
