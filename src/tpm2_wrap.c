@@ -8935,16 +8935,19 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     return rc;
 }
 
-int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
-    byte* digest, word32* digestSz)
+int wolfTPM2_HashFinishData(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    const byte* data, word32 dataSz, byte* digest, word32* digestSz)
 {
     int rc;
     SequenceComplete_In in;
     SequenceComplete_Out out;
 
     if (dev == NULL || hash == NULL || digest == NULL || digestSz == NULL ||
-            hash->handle.hndl == 0) {
+            hash->handle.hndl == 0 || (data == NULL && dataSz > 0)) {
         return BAD_FUNC_ARG;
+    }
+    if (dataSz > sizeof(in.buffer.buffer)) {
+        return BUFFER_E;
     }
 
     /* set session auth for hash handle */
@@ -8952,6 +8955,10 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 
     XMEMSET(&in, 0, sizeof(in));
     in.sequenceHandle = hash->handle.hndl;
+    in.buffer.size = (UINT16)dataSz;
+    if (dataSz > 0) {
+        XMEMCPY(in.buffer.buffer, data, dataSz);
+    }
     in.hierarchy = TPM_RH_NULL;
     rc = TPM2_SequenceComplete(&in, &out);
 
@@ -8992,8 +8999,16 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 #endif
 
 exit:
+    /* holds a copy of the hashed input */
+    TPM2_ForceZero(&in, sizeof(in));
     TPM2_ForceZero(&out, sizeof(out));
     return rc;
+}
+
+int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    byte* digest, word32* digestSz)
+{
+    return wolfTPM2_HashFinishData(dev, hash, NULL, 0, digest, digestSz);
 }
 
 

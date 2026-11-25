@@ -5715,6 +5715,12 @@ WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer(byte* out, int* outSz,
 WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer_ex(byte* out, int* outSz,
     const TPM2B_ECC_PARAMETER* z, int curveSize);
 
+/* wolfTPM2_HashFinish with a last chunk of up to MAX_DIGEST_BUFFER bytes
+ * carried in the TPM2_SequenceComplete */
+WOLFTPM_LOCAL int wolfTPM2_HashFinishData(WOLFTPM2_DEV* dev,
+    WOLFTPM2_HASH* hash, const byte* data, word32 dataSz, byte* digest,
+    word32* digestSz);
+
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 typedef int (*wolfTPM2FwDataCb)(
