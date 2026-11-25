@@ -16959,7 +16959,7 @@ static TPM_RC FwCmd_PolicyCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte operandA[TPM_MAX_DIGEST_SIZE + 8];
     int operandASz = 0;
     FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
-    enum wc_HashType wcHash;
+    enum wc_HashType wcHash = WC_HASH_TYPE_NONE;
     int dSz;
     byte argsHash[TPM_MAX_DIGEST_SIZE];
     byte newDigest[TPM_MAX_DIGEST_SIZE];
