@@ -53,9 +53,6 @@ enum wc_HashType FwGetWcHashType(UINT16 hashAlg);
 int FwGetMgfType(UINT16 hashAlg);
 #endif
 
-int FwComputeUniqueHash(TPMI_ALG_HASH nameAlg, const byte* keyData,
-    int keyDataSz, byte* outBuf);
-
 /* hashUnique = H(sensitiveCreate.data || unique_bytes) for primary derivation.
  * Returns the digest size, TPM_RC_MEMORY on allocation failure, or 0 for any
  * other error. */
@@ -63,6 +60,12 @@ int FwComputeHashUnique(TPMI_ALG_HASH nameAlg,
     const byte* sensData, int sensDataSz,
     const byte* uniqueData, int uniqueDataSz,
     byte* hashOut);
+
+/* unique of a KEYEDHASH or SYMCIPHER object from its sensitive area. Returns
+ * as FwComputeHashUnique does. */
+int FwComputeSymUnique(const TPMT_PUBLIC* pub,
+    const byte* seed, int seedSz, const byte* key, int keySz,
+    byte* uniqueOut);
 
 /* Derive symmetric primary key via KDFa (KEYEDHASH / SYMCIPHER) */
 TPM_RC FwDeriveSymmetricPrimaryKey(TPMI_ALG_HASH nameAlg,
@@ -250,27 +253,32 @@ int FwDeriveWrapKey(FWTPM_CTX* ctx, const FWTPM_Object* parent,
 
 int FwMarshalSensitive(byte* buf, int bufSz,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
-    const byte* privKeyDer, int privKeyDerSz);
+    const byte* privKeyDer, int privKeyDerSz,
+    const TPM2B_DIGEST* seedValue);
 
 int FwMarshalSensitiveStd(byte* buf, int bufSz,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
+    const TPM2B_DIGEST* seedValue,
     const byte* sensData, int sensDataSz);
 
 int FwUnmarshalSensitive(const byte* buf, int bufSz,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
-    byte* privKeyDer, int* privKeyDerSz);
+    byte* privKeyDer, int* privKeyDerSz,
+    TPM2B_DIGEST* seedValue);
 
 int FwWrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent, WC_RNG* rng,
     const TPM2B_NAME* name,
     UINT16 sensitiveType, const TPM2B_AUTH* auth,
     const byte* privKeyDer, int privKeyDerSz,
+    const TPM2B_DIGEST* seedValue,
     TPM2B_PRIVATE* outPriv);
 
 int FwUnwrapPrivate(FWTPM_CTX* ctx, FWTPM_Object* parent,
     const TPM2B_NAME* name,
     const TPM2B_PRIVATE* inPriv,
     UINT16* sensitiveType, TPM2B_AUTH* auth,
-    byte* privKeyDer, int* privKeyDerSz);
+    byte* privKeyDer, int* privKeyDerSz,
+    TPM2B_DIGEST* seedValue);
 
 /* --- Context blob wrap/unwrap (ContextSave/Load) --- */
 
@@ -318,6 +326,7 @@ TPM_RC FwImportVerifyAndDecrypt(
 TPM_RC FwImportParseSensitive(
     const byte* plainSens, int plainSensSz,
     UINT16* sensType, TPM2B_AUTH* importedAuth,
+    const byte** seedOut, UINT16* seedSzOut,
     UINT16* primeSzOut, byte* primeBuf, int primeBufSz);
 
 TPM_RC FwImportReconstructKey(
@@ -340,6 +349,9 @@ int FwGetRsaHashOid(UINT16 hashAlg);
 
 #ifdef HAVE_ECC
 int FwImportEccKeyFromDer(const FWTPM_Object* obj, ecc_key* key);
+TPM_RC FwEccImportUnsigned(ecc_key* key, const byte* x, word32 xSz,
+    const byte* y, word32 ySz, const byte* d, word32 dSz, int wcCurve);
+TPM_RC FwEccCheckBinding(ecc_key* key, WC_RNG* rng);
 int FwImportEccPubFromPublic(const TPMT_PUBLIC* pub, ecc_key* key);
 int FwImportEccKey(const FWTPM_Object* obj, ecc_key* key);
 #if !defined(FWTPM_NO_ZGEN_2PHASE) || !defined(FWTPM_NO_ECC_ENCRYPT)
@@ -368,6 +380,9 @@ int FwComputeNvName(FWTPM_NvIndex* nv, byte* buf, UINT16* sz);
 void FwResolveSignScheme(FWTPM_Object* obj, UINT16* sigScheme,
     UINT16* sigHashAlg);
 
+TPM_RC FwCheckSignScheme(const FWTPM_Object* obj, UINT16 sigScheme,
+    UINT16 sigHashAlg);
+
 #ifndef FWTPM_NO_ATTESTATION
 TPM_RC FwBuildAttestResponse(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     UINT16 cmdTag, FWTPM_Object* sigObj, UINT16 sigScheme, UINT16 sigHashAlg,
@@ -395,7 +410,7 @@ TPM_RC FwCredentialWrap(
     TPMI_ALG_HASH nameAlg,
     const byte* credential, UINT16 credSz,
     const byte* name, int nameSz,
-    byte* encCred, word32* encCredSz,
+    byte* encCred, int encCredBufSz, word32* encCredSz,
     byte* outerHmac);
 
 TPM_RC FwCredentialUnwrap(

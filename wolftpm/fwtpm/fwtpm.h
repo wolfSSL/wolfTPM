@@ -233,8 +233,9 @@
 #endif
 
 /* Maximum sensitive area buffer: private key DER + wire-format overhead
- * (sensitiveType(2) + authValue(2+64) + seedValue(2+48) + size(2) = ~120) */
-#define FWTPM_MAX_SENSITIVE_SIZE  (FWTPM_MAX_PRIVKEY_DER + 128)
+ * (size(2) + sensitiveType(2) + authValue(2+64) + seedValue(2+64) + size(2)
+ * = 138) */
+#define FWTPM_MAX_SENSITIVE_SIZE  (FWTPM_MAX_PRIVKEY_DER + 144)
 
 /* Maximum concurrent hash sequences */
 #ifndef FWTPM_MAX_HASH_SEQ
@@ -481,7 +482,7 @@
     #endif
 #endif
 
-/* Max digest size we track (SHA-384 = 48 bytes) */
+/* Max digest size we track (SHA-512 = 64 bytes) */
 #ifndef TPM_MAX_DIGEST_SIZE
 #define TPM_MAX_DIGEST_SIZE    64
 #endif
@@ -531,8 +532,13 @@
      * the memset and leaking stack data into the output. */
     #define FWTPM_CALLOC_VAR(name, type) \
         do { \
-            (name) = (type*)XMALLOC(sizeof(type), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (type*)XMALLOC(sizeof(type), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
             else { XMEMSET((name), 0, sizeof(type)); } \
         } while (0)
@@ -547,8 +553,13 @@
         do { \
             typedef char _fwtpm_bufchk_##name[((sz) > 8) ? 1 : -1]; \
             (void)sizeof(_fwtpm_bufchk_##name); \
-            (name) = (byte*)XMALLOC((sz), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (byte*)XMALLOC((sz), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
         } while (0)
     /* Allocate AND zero-initialize byte buffer. */
@@ -556,8 +567,13 @@
         do { \
             typedef char _fwtpm_bufchk_##name[((sz) > 8) ? 1 : -1]; \
             (void)sizeof(_fwtpm_bufchk_##name); \
-            (name) = (byte*)XMALLOC((sz), NULL, \
-                DYNAMIC_TYPE_TMP_BUFFER); \
+            if (FWTPM_TEST_ALLOC_FAIL()) { \
+                (name) = NULL; \
+            } \
+            else { \
+                (name) = (byte*)XMALLOC((sz), NULL, \
+                    DYNAMIC_TYPE_TMP_BUFFER); \
+            } \
             if ((name) == NULL) { rc = TPM_RC_MEMORY; } \
             else { XMEMSET((name), 0, (sz)); } \
         } while (0)
@@ -598,6 +614,9 @@ typedef struct FWTPM_Object {
     byte privKey[FWTPM_MAX_PRIVKEY_DER]; /* DER-encoded private key */
     int privKeySize;
     TPM2B_NAME name;                /* Object name = nameAlg || H(publicArea) */
+    TPM2B_NAME qualifiedName;       /* nameAlg || H(parent QN || name) */
+    TPM2B_DIGEST seedValue;         /* TPMT_SENSITIVE seedValue, may be empty */
+    int publicOnly;                 /* Loaded without a sensitive area */
 } FWTPM_Object;
 
 /* Hash sequence slot (for HashSequenceStart/SequenceUpdate/SequenceComplete) */
@@ -860,7 +879,8 @@ typedef struct FWTPM_CTX {
     int shutdownStateSaved;     /* Previous Shutdown(STATE), persisted */
     int pendingClear;           /* Deferred clear (after response auth) */
     int disableClear;           /* ClearControl: 1 = Clear is disabled */
-    int globalNvWriteLock;      /* NV_GlobalWriteLock (reset on Startup CLEAR) */
+    int globalNvWriteLock;      /* NV flag of an older image: GLOBALLOCK
+                                 * indexes are write locked on load */
     /* HierarchyControl enable state (0 = enabled). Re-enabled on Startup
      * CLEAR per TPM 2.0 Part 1 (TPMS_STARTUP_CLEAR). */
     int shDisabled;             /* !shEnable:   owner hierarchy */
@@ -1091,7 +1111,9 @@ typedef struct FWTPM_CTX {
     default file backend.
 
     \return 0 on success
-    \return TPM_RC_MEMORY if RNG initialization fails
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return the wolfCrypt or NV error code if wolfCrypt, RNG or NV
+        initialization fails
 
     \param ctx pointer to caller-allocated FWTPM_CTX (must be zeroed)
 

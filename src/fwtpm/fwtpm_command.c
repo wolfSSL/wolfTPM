@@ -80,7 +80,7 @@
 /* --- Forward declarations for command-local helpers --- */
 #ifndef FWTPM_NO_ATTESTATION
 static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
-    UINT16 cmdTag, TPM2B_DATA* qualifyingData,
+    UINT16 cmdTag, const FWTPM_Object* sigObj, TPM2B_DATA* qualifyingData,
     UINT16* sigScheme, UINT16* sigHashAlg);
 #endif /* !FWTPM_NO_ATTESTATION */
 
@@ -449,6 +449,9 @@ static TPM_RC FwValidatePcrSelection(TPM2_Packet* cmd, int cmdSize)
 
     check = *cmd;
     TPM2_Packet_ParseU32(&check, &count);
+    if (count > HASH_COUNT) {
+        return TPM_RC_SIZE;
+    }
     if (count > (UINT32)(cmdSize - check.pos) / 3U) {
         return TPM_RC_COMMAND_SIZE;
     }
@@ -1168,6 +1171,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     FWTPM_DECLARE_BUF(oldNvData, FWTPM_MAX_NV_DATA);
     int oldNvDataAllocated = 0;
 #endif
+    FWTPM_DECLARE_BUF(oldPcrAuth, sizeof(ctx->pcrAuth));
 
     int wasOrderly = ctx->nvOrderly;
 
@@ -1424,6 +1428,29 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             TPM2_ForceZero(&oldPlatformPolicy, sizeof(oldPlatformPolicy));
         }
 
+        /* PCR authValues are state-clear data (Part 3 Sec.22.7): kept by
+         * Startup(STATE), reset to the Empty Auth by Startup(CLEAR). */
+        if (rc == 0 && startupType == TPM_SU_CLEAR) {
+            for (i = 0; i < IMPLEMENTATION_PCR; i++) {
+                if (ctx->pcrAuth[i].size > 0)
+                    break;
+            }
+            if (i < IMPLEMENTATION_PCR) {
+                FWTPM_ALLOC_BUF(oldPcrAuth, sizeof(ctx->pcrAuth));
+                if (rc == 0) {
+                    XMEMCPY(oldPcrAuth, ctx->pcrAuth, sizeof(ctx->pcrAuth));
+                    TPM2_ForceZero(ctx->pcrAuth, sizeof(ctx->pcrAuth));
+                    rc = FWTPM_NV_SavePcrAuth(ctx);
+                    if (rc != 0) {
+                        XMEMCPY(ctx->pcrAuth, oldPcrAuth,
+                            sizeof(ctx->pcrAuth));
+                    }
+                    TPM2_ForceZero(oldPcrAuth, sizeof(ctx->pcrAuth));
+                }
+                FWTPM_FREE_BUF(oldPcrAuth);
+            }
+        }
+
         /* phEnable is SET on every _TPM_Init/Startup (TPM 2.0 Part 2
          * TPMS_STARTUP_CLEAR), regardless of CLEAR vs STATE. */
         ctx->phDisabled = 0;
@@ -1464,6 +1491,12 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         if (shutdownType != TPM_SU_CLEAR && shutdownType != TPM_SU_STATE) {
             rc = TPM_RC_VALUE;
         }
+    }
+
+    /* A staged PCR_Allocate needs a TPM Reset, so the state cannot be saved
+     * for a Resume (Part 3 Sec.22.5). */
+    if (rc == 0 && shutdownType == TPM_SU_STATE && ctx->pcrAllocPending) {
+        rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_1;
     }
 
     if (rc == 0) {
@@ -1514,6 +1547,9 @@ static TPM_RC FwCmd_SelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         TPM2_Packet_ParseU8(cmd, &fullTest);
+        if (fullTest > 1) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+        }
 
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: SelfTest(fullTest=%d)\n", fullTest);
@@ -1743,6 +1779,7 @@ static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset);
 #define FW_PCR_KIND_RESET       1  /* reset allowed at loc */
 #define FW_PCR_KIND_SAVE        2  /* saved across power cycles (PCR 0-15) */
 #define FW_PCR_KIND_DRTM_RESET  3  /* reset allowed at locality 4 */
+#define FW_PCR_KIND_AUTH        4  /* takes a policy or authValue (every PCR) */
 
 /* Overwrite a big-endian UINT32 already appended at buf[pos]. Used to
  * back-patch a TPML count with the number of entries actually emitted, so a
@@ -1948,7 +1985,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramSzPos, paramStart;
     int moreDataPos;
 
-    if (cmdSize < TPM2_HEADER_SIZE + 12) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 12) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -1969,6 +2009,15 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         return TPM_RC_VALUE;
     }
 #endif
+    if (capability == TPM_CAP_AUTH_POLICIES &&
+            (property & HR_RANGE_MASK) != HR_PERMANENT) {
+        return TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+    }
+    /* TPM_CAP_PCRS always reports every bank, so property has to be zero
+     * (Part 3 Sec.30.2) */
+    if (capability == TPM_CAP_PCRS && property != 0) {
+        return TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+    }
 
     paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
@@ -2543,7 +2592,9 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_PCR_RESET_L3,   FW_PCR_KIND_RESET,      3 },
                 { TPM_PT_PCR_EXTEND_L4,  FW_PCR_KIND_EXTEND,     4 },
                 { TPM_PT_PCR_RESET_L4,   FW_PCR_KIND_RESET,      4 },
-                { TPM_PT_PCR_DRTM_RESET, FW_PCR_KIND_DRTM_RESET, 4 }
+                { TPM_PT_PCR_DRTM_RESET, FW_PCR_KIND_DRTM_RESET, 4 },
+                { TPM_PT_PCR_POLICY,     FW_PCR_KIND_AUTH,       0 },
+                { TPM_PT_PCR_AUTH,       FW_PCR_KIND_AUTH,       0 }
             };
             int totalProps = (int)(sizeof(pcrProps) / sizeof(pcrProps[0]));
             int startIdx = 0;
@@ -2578,6 +2629,8 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         set = (p < FWTPM_PCR_SAVE_COUNT);
                     else if (kind == FW_PCR_KIND_DRTM_RESET)
                         set = FwPcrLocalityAllowed(p, WOLFTPM_LOCALITY_MAX, 1);
+                    else if (kind == FW_PCR_KIND_AUTH)
+                        set = 1;
                     else
                         set = FwPcrLocalityAllowed(p, (int)loc, (int)kind);
                     if (set)
@@ -2690,6 +2743,59 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_Packet_AppendU32(rsp, 0);
             break;
 
+        /* TPML_TAGGED_POLICY: the hierarchy policies in handle order. One
+         * that is not set is reported as TPM_ALG_NULL with no digest. */
+        case TPM_CAP_AUTH_POLICIES: {
+            static const UINT32 policyHandles[] = {
+                TPM_RH_OWNER, TPM_RH_LOCKOUT, TPM_RH_ENDORSEMENT,
+                TPM_RH_PLATFORM
+            };
+            TPM2B_DIGEST* pol;
+            TPMI_ALG_HASH polAlg;
+            int countPos = rsp->pos;
+            UINT32 emitted = 0;
+            int h;
+
+            TPM2_Packet_AppendU32(rsp, 0); /* back-patched below */
+            for (h = 0; h < (int)(sizeof(policyHandles) /
+                    sizeof(policyHandles[0])); h++) {
+                if (policyHandles[h] < property) {
+                    continue;
+                }
+                if (emitted >= propertyCount) {
+                    FwPatchMoreData(rsp, moreDataPos, 1);
+                    break;
+                }
+                if (policyHandles[h] == TPM_RH_OWNER) {
+                    pol = &ctx->ownerPolicy;
+                    polAlg = ctx->ownerPolicyAlg;
+                }
+                else if (policyHandles[h] == TPM_RH_LOCKOUT) {
+                    pol = &ctx->lockoutPolicy;
+                    polAlg = ctx->lockoutPolicyAlg;
+                }
+                else if (policyHandles[h] == TPM_RH_ENDORSEMENT) {
+                    pol = &ctx->endorsementPolicy;
+                    polAlg = ctx->endorsementPolicyAlg;
+                }
+                else {
+                    pol = &ctx->platformPolicy;
+                    polAlg = ctx->platformPolicyAlg;
+                }
+                TPM2_Packet_AppendU32(rsp, policyHandles[h]);
+                if (pol->size == 0) {
+                    TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL);
+                }
+                else {
+                    TPM2_Packet_AppendU16(rsp, polAlg);
+                    TPM2_Packet_AppendBytes(rsp, pol->buffer, pol->size);
+                }
+                emitted++;
+            }
+            FwPatchU32BE(rsp, countPos, emitted);
+            break;
+        }
+
         /* Settable feature configuration written by TPM2_SetCapability.
          * TPML_TAGGED_CONFIG: count then configuration/enable/lock triples,
          * starting at the requested TPM_PT_CONFIG and capped by
@@ -2741,6 +2847,12 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #endif /* WOLFTPM_SPDM */
 
         default:
+            /* A TPM_CAP with nothing to report here is an empty list; a
+             * value outside TPM_CAP does not unmarshal (Part 2 Sec.6.12)
+             * and there are no vendor properties. */
+            if (capability > TPM_CAP_LAST) {
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+            }
             TPM2_Packet_AppendU32(rsp, 0);
             break;
     }
@@ -3119,6 +3231,81 @@ static TPM_RC FwValidatePublicTemplate(const TPMT_PUBLIC* pub,
     return rc;
 }
 
+/* Usage checks that hold however the object arrives: created, loaded or
+ * imported. */
+static TPM_RC FwValidateKeyUsage(const TPMT_PUBLIC* pub)
+{
+    int sign = (pub->objectAttributes & TPMA_OBJECT_sign) != 0;
+    int decrypt = (pub->objectAttributes & TPMA_OBJECT_decrypt) != 0;
+
+#ifdef WOLFTPM_MLDSA
+    /* Part 2 Sec.12.2.3.7: an ML-DSA key is a signing key only */
+    if ((pub->type == TPM_ALG_MLDSA || pub->type == TPM_ALG_HASH_MLDSA) &&
+            decrypt) {
+        return TPM_RC_ATTRIBUTES;
+    }
+#endif
+#ifdef WOLFTPM_MLKEM
+    /* Part 2 Sec.12.2.3.7: an ML-KEM key is a decryption key only */
+    if (pub->type == TPM_ALG_MLKEM && sign) {
+        return TPM_RC_ATTRIBUTES;
+    }
+#endif
+    /* Part 3 Sec.12.1.1: a keyedHash object with sign and decrypt both SET
+     * or both CLEAR has no scheme */
+    if (pub->type == TPM_ALG_KEYEDHASH && sign == decrypt &&
+            pub->parameters.keyedHashDetail.scheme.scheme != TPM_ALG_NULL) {
+        return TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* The authValue of a new object, less its trailing zeros, is no larger than
+ * the nameAlg digest (Part 3 Sec.12.1). */
+static TPM_RC FwCheckCreateAuthSize(const TPM2B_AUTH* auth,
+    TPMI_ALG_HASH nameAlg)
+{
+    int digestSz = TPM2_GetHashDigestSize(nameAlg);
+    int authSz = (int)auth->size;
+
+    while (authSz > 0 && auth->buffer[authSz - 1] == 0) {
+        authSz--;
+    }
+    if (digestSz > 0 && authSz > digestSz) {
+        return TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/* A caller-supplied key for a KEYEDHASH signing or decryption object is no
+ * larger than the block size of the scheme hash (Part 3 Sec.12.1). */
+static TPM_RC FwCheckCreateKeyedHashSize(const TPMT_PUBLIC* pub,
+    UINT16 dataSz)
+{
+    UINT16 scheme = pub->parameters.keyedHashDetail.scheme.scheme;
+    TPMI_ALG_HASH hashAlg;
+    int blockSz;
+
+    if ((pub->objectAttributes &
+            (TPMA_OBJECT_sign | TPMA_OBJECT_decrypt)) == 0) {
+        return TPM_RC_SUCCESS;
+    }
+    if (scheme == TPM_ALG_NULL) {
+        hashAlg = pub->nameAlg;
+    }
+    else if (scheme == TPM_ALG_XOR) {
+        hashAlg = pub->parameters.keyedHashDetail.scheme.details.xorr.hashAlg;
+    }
+    else {
+        hashAlg = pub->parameters.keyedHashDetail.scheme.details.hmac.hashAlg;
+    }
+    blockSz = wc_HashGetBlockSize(FwGetWcHashType(hashAlg));
+    if (blockSz <= 0 || (int)dataSz > blockSz) {
+        return TPM_RC_SIZE;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 static TPM_RC FwValidateCreateAttributes(const TPMT_PUBLIC* pub,
     const FWTPM_Object* parent, UINT16 sensitiveDataSz)
 {
@@ -3204,8 +3391,7 @@ static TPM_RC FwValidateCreateAttributes(const TPMT_PUBLIC* pub,
         return TPM_RC_ATTRIBUTES;
     }
 #endif
-
-    return TPM_RC_SUCCESS;
+    return FwValidateKeyUsage(pub);
 }
 
 #ifdef WOLFTPM_V185
@@ -3457,6 +3643,7 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     if (selections[s].pcrSelect[j] & (1 << pcr)) {
                         int pcrIndex = j * 8 + pcr;
                         if (bank < 0 || pcrIndex >= IMPLEMENTATION_PCR ||
+                                (ctx->pcrAllocatedBanks & (1u << bank)) == 0 ||
                                 totalDigests >= 8) {
                             selections[s].pcrSelect[j] &= (byte)~(1 << pcr);
                         }
@@ -3663,7 +3850,7 @@ static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_COMMAND_SIZE;
             break;
         }
-        if (bank < 0) {
+        if (bank < 0 || (ctx->pcrAllocatedBanks & (1u << bank)) == 0) {
             /* Known algorithm but unsupported bank — skip the digest bytes */
             cmd->pos += dSize;
             continue;
@@ -3904,6 +4091,9 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidatePcrSelection(cmd, cmdSize);
     }
     if (rc == 0) {
+        /* Only the listed banks change; the others keep their current
+         * allocation (Part 3 Sec.22.5). */
+        newBanks = ctx->pcrAllocatedBanks;
         TPM2_Packet_ParseU32(cmd, &count);
         if (count > FWTPM_PCR_BANKS * 4) {
             rc = TPM_RC_SIZE;
@@ -3930,10 +4120,13 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
 
             bank = FwGetPcrBankIndex(hashAlg);
-            if (bank >= 0 && anySelected) {
-                newBanks |= (UINT8)(1 << bank);
-                sizeNeeded += (UINT32)(IMPLEMENTATION_PCR *
-                    TPM2_GetHashDigestSize(hashAlg));
+            if (bank >= 0) {
+                if (anySelected) {
+                    newBanks |= (UINT8)(1 << bank);
+                }
+                else {
+                    newBanks &= (UINT8)~(1 << bank);
+                }
             }
             /* Unsupported hash algorithms are silently ignored per spec */
         }
@@ -3945,6 +4138,12 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #endif
         sizeAvailable = (UINT32)(IMPLEMENTATION_PCR * FWTPM_PCR_BANKS *
             TPM_MAX_DIGEST_SIZE);
+        for (b = 0; b < FWTPM_PCR_BANKS; b++) {
+            if (newBanks & (1u << b)) {
+                sizeNeeded += (UINT32)(IMPLEMENTATION_PCR *
+                    TPM2_GetHashDigestSize(FwGetPcrBankAlg(b)));
+            }
+        }
 
         /* Storing an empty result would persist "no banks at all" to NV */
         if (newBanks == 0) {
@@ -4310,6 +4509,52 @@ static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle)
     return NULL;
 }
 
+/* Qualified Name of an object whose Name is set (Part 1 Sec.16):
+ * nameAlg || H(parent QN || Name). The parent QN of a primary object is the
+ * handle of its hierarchy. An external object has no parent and its
+ * Qualified Name is its Name. */
+static TPM_RC FwComputeQualifiedName(const FWTPM_Object* obj,
+    const FWTPM_Object* parent, TPM_HANDLE hierarchy, int external,
+    TPM2B_NAME* qualifiedName)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    enum wc_HashType wcHash = FwGetWcHashType(obj->pub.nameAlg);
+    int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+    byte data[2 * sizeof(obj->name.name)];
+    word32 dataSz = 0;
+
+    if (external) {
+        *qualifiedName = obj->name;
+        return TPM_RC_SUCCESS;
+    }
+    if (wcHash == WC_HASH_TYPE_NONE || digestSz <= 0 ||
+            digestSz + 2 > (int)sizeof(qualifiedName->name) ||
+            obj->name.size > sizeof(obj->name.name) ||
+            (parent != NULL &&
+             parent->qualifiedName.size > sizeof(obj->name.name))) {
+        return TPM_RC_HASH;
+    }
+    if (parent != NULL) {
+        XMEMCPY(data, parent->qualifiedName.name, parent->qualifiedName.size);
+        dataSz = parent->qualifiedName.size;
+    }
+    else {
+        FwStoreU32BE(data, hierarchy);
+        dataSz = 4;
+    }
+    XMEMCPY(data + dataSz, obj->name.name, obj->name.size);
+    dataSz += obj->name.size;
+    if (wc_Hash(wcHash, data, dataSz, qualifiedName->name + 2,
+            (word32)digestSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        FwStoreU16BE(qualifiedName->name, obj->pub.nameAlg);
+        qualifiedName->size = (UINT16)(digestSz + 2);
+    }
+    return rc;
+}
+
 /** \brief Free an object slot, securely zeroing all key material. */
 static void FwFreeObject(FWTPM_Object* obj)
 {
@@ -4512,6 +4757,168 @@ void FWTPM_FlushCommandClient(FWTPM_CTX* ctx, UINT32 clientId)
 #endif
 }
 
+/* Append TPMS_CREATION_DATA (Part 2 Sec.15.1). creationPcr points at the
+ * TPML_PCR_SELECTION of the command, already checked against its size, and
+ * parent is NULL when parentHandle is a permanent handle. */
+static TPM_RC FwAppendCreationData(FWTPM_CTX* ctx, TPM2_Packet* rsp,
+    TPM_HANDLE parentHandle, FWTPM_Object* parent, TPMI_ALG_HASH nameAlg,
+    const byte* creationPcr, const byte* outsideInfo, UINT16 outsideInfoSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
+    enum wc_HashType wcHash = FwGetWcHashType(nameAlg);
+    int dSz = TPM2_GetHashDigestSize(nameAlg);
+    byte pcrDigest[TPM_MAX_DIGEST_SIZE];
+    UINT32 count = FwLoadU32BE(creationPcr);
+    UINT32 s;
+    int hashInit = 0;
+
+    FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+
+    if (rc == 0 && (wcHash == WC_HASH_TYPE_NONE || dSz <= 0)) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0) {
+        if (wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            hashInit = 1;
+        }
+    }
+
+    /* pcrSelect, less the PCR that are not implemented or allocated, and
+     * pcrDigest over the PCR that are left */
+    if (rc == 0) {
+        creationPcr += 4;
+        TPM2_Packet_AppendU32(rsp, count);
+    }
+    for (s = 0; s < count && rc == 0; s++) {
+        UINT16 hashAlg = FwLoadU16BE(creationPcr);
+        UINT8 sizeofSelect = creationPcr[2];
+        int bank = FwGetPcrBankIndex(hashAlg);
+        int bankDSz = TPM2_GetHashDigestSize(hashAlg);
+        int j, bit;
+
+        if (bank >= 0 && (ctx->pcrAllocatedBanks & (1u << bank)) == 0) {
+            bank = -1;
+        }
+        creationPcr += 3;
+        TPM2_Packet_AppendU16(rsp, hashAlg);
+        TPM2_Packet_AppendU8(rsp, sizeofSelect);
+        for (j = 0; j < (int)sizeofSelect && rc == 0; j++) {
+            byte sel = creationPcr[j];
+            if (bank < 0 || j >= (int)PCR_SELECT_MAX) {
+                sel = 0;
+            }
+            TPM2_Packet_AppendU8(rsp, sel);
+            for (bit = 0; bit < 8 && rc == 0; bit++) {
+                if ((sel & (1 << bit)) != 0 &&
+                        wc_HashUpdate(hashCtx, wcHash,
+                            ctx->pcrDigest[j * 8 + bit][bank],
+                            (word32)bankDSz) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+            }
+        }
+        creationPcr += sizeofSelect;
+    }
+    if (rc == 0 && wc_HashFinal(hashCtx, wcHash, pcrDigest) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (hashInit) {
+        wc_HashFree(hashCtx, wcHash);
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_AppendU16(rsp, (UINT16)dSz);
+        TPM2_Packet_AppendBytes(rsp, pcrDigest, dSz);
+        /* TPMA_LOCALITY: one bit for each of localities 0-4 */
+        TPM2_Packet_AppendU8(rsp, (ctx->activeLocality < 5) ?
+            (UINT8)(1 << ctx->activeLocality) : (UINT8)ctx->activeLocality);
+        if (parent == NULL) {
+            TPM2_Packet_AppendU16(rsp, TPM_ALG_NULL);
+            TPM2_Packet_AppendU16(rsp, 4); /* parentName */
+            TPM2_Packet_AppendU32(rsp, parentHandle);
+            TPM2_Packet_AppendU16(rsp, 4); /* parentQualifiedName */
+            TPM2_Packet_AppendU32(rsp, parentHandle);
+        }
+        else {
+            if (parent->name.size == 0) {
+                rc = FwComputeObjectName(parent);
+            }
+            TPM2_Packet_AppendU16(rsp, parent->pub.nameAlg);
+            TPM2_Packet_AppendU16(rsp, parent->name.size);
+            TPM2_Packet_AppendBytes(rsp, (byte*)parent->name.name,
+                parent->name.size);
+            TPM2_Packet_AppendU16(rsp, parent->qualifiedName.size);
+            TPM2_Packet_AppendBytes(rsp, (byte*)parent->qualifiedName.name,
+                parent->qualifiedName.size);
+        }
+        TPM2_Packet_AppendU16(rsp, outsideInfoSz);
+        TPM2_Packet_AppendBytes(rsp, (byte*)outsideInfo, outsideInfoSz);
+    }
+
+    FWTPM_FREE_VAR(hashCtx);
+    return rc;
+}
+
+/* Set the seedValue of a primary object, for the object types that have one
+ * (see FwCreateSeedValue). It is derived from the hierarchy seed so that the
+ * same template gives the same object, and unique of a KEYEDHASH or
+ * SYMCIPHER primary is computed from it. A cached KEYEDHASH or SYMCIPHER
+ * primary whose unique is not the one it gives was created without a
+ * seedValue and stays as it is. */
+static TPM_RC FwPrimarySeedValue(const byte* seed, const byte* hashUnique,
+    int hashUniqueSz, int cached, FWTPM_Object* obj)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPMT_PUBLIC* pub = &obj->pub;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int isSym = (pub->type == TPM_ALG_KEYEDHASH ||
+        pub->type == TPM_ALG_SYMCIPHER);
+    int uSz;
+    byte unique[TPM_MAX_DIGEST_SIZE];
+
+    if (!isSym && ((pub->objectAttributes & TPMA_OBJECT_restricted) == 0 ||
+            (pub->objectAttributes & TPMA_OBJECT_sign) != 0)) {
+        return TPM_RC_SUCCESS;
+    }
+    if (digestSz <= 0 || digestSz > (int)sizeof(obj->seedValue.buffer)) {
+        rc = TPM_RC_HASH;
+    }
+    else if (TPM2_KDFa_ex(pub->nameAlg, seed, FWTPM_SEED_SIZE, "SEEDVALUE",
+            hashUnique, (UINT32)hashUniqueSz, NULL, 0,
+            obj->seedValue.buffer, (UINT32)digestSz) != digestSz) {
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        obj->seedValue.size = (UINT16)digestSz;
+    }
+    if (rc == 0 && isSym) {
+        /* keyedHash and sym share the layout of unique */
+        uSz = FwComputeSymUnique(pub, obj->seedValue.buffer,
+            obj->seedValue.size, obj->privKey, obj->privKeySize, unique);
+        if (uSz == (int)TPM_RC_MEMORY) {
+            rc = TPM_RC_MEMORY;
+        }
+        else if (uSz != digestSz) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (!cached) {
+            pub->unique.keyedHash.size = (UINT16)uSz;
+            XMEMCPY(pub->unique.keyedHash.buffer, unique, (size_t)uSz);
+        }
+        else if ((int)pub->unique.keyedHash.size != uSz ||
+                XMEMCMP(pub->unique.keyedHash.buffer, unique,
+                    (size_t)uSz) != 0) {
+            TPM2_ForceZero(&obj->seedValue, sizeof(obj->seedValue));
+        }
+    }
+    TPM2_ForceZero(unique, sizeof(unique));
+    return rc;
+}
+
 /* --- TPM2_CreatePrimary (CC 0x0131) --- */
 static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -4530,6 +4937,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_PrimaryCache* cached = NULL;
     int cacheIdx;
     int cdStart;
+    int outsideInfoPos = 0, creationPcrPos = 0;
     FWTPM_DECLARE_BUF(sensData, FWTPM_MAX_DATA_BUF);
     UINT16 sensDataSize = 0;
     byte hashUnique[TPM_MAX_DIGEST_SIZE];
@@ -4569,6 +4977,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM2_Packet_ParseSensitiveCreate(cmd, cmdSize, &userAuth,
             sensData, (int)FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF), &sensDataSize);
     }
+    /* A TPM2B_SENSITIVE_DATA holds at most MAX_SYM_DATA octets */
+    if (rc == 0 && sensDataSize > MAX_SYM_DATA) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
 
     /* Parse inPublic (TPM2B_PUBLIC) */
     if (rc == 0) {
@@ -4590,7 +5002,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidateLimitedAttributes(&inPublic->publicArea);
     }
 #endif /* WOLFTPM_V185 */
-    /* Parse outsideInfo (TPM2B_DATA) - skip */
+    if (rc == 0) {
+        rc = FwCheckCreateAuthSize(&userAuth, inPublic->publicArea.nameAlg);
+    }
+    /* Parse outsideInfo (TPM2B_DATA) */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -4601,12 +5016,16 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (cmd->pos + outsideInfoSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
+        else if (outsideInfoSize > sizeof(((TPM2B_DATA*)0)->buffer)) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
     }
     if (rc == 0) {
+        outsideInfoPos = cmd->pos;
         cmd->pos += outsideInfoSize;
     }
 
-    /* Parse creationPCR (TPML_PCR_SELECTION) - skip */
+    /* Parse creationPCR (TPML_PCR_SELECTION) */
     if (rc == 0) {
         if (cmd->pos + 4 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -4614,15 +5033,28 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         UINT32 s;
+        creationPcrPos = cmd->pos;
         TPM2_Packet_ParseU32(cmd, &creationPcrCount);
+        if (creationPcrCount > HASH_COUNT) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_4;
+        }
         for (s = 0; s < creationPcrCount && rc == 0; s++) {
+            UINT16 pcrHashAlg;
             UINT8 selectSize;
             if (cmd->pos + 3 > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
             }
-            cmd->pos += 2; /* hashAlg */
+            TPM2_Packet_ParseU16(cmd, &pcrHashAlg);
             TPM2_Packet_ParseU8(cmd, &selectSize);
+            if (FwGetWcHashType(pcrHashAlg) == WC_HASH_TYPE_NONE) {
+                rc = TPM_RC_HASH | TPM_RC_P | TPM_RC_4;
+                break;
+            }
+            if (selectSize < PCR_SELECT_MIN || selectSize > PCR_SELECT_MAX) {
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_4;
+                break;
+            }
             if (cmd->pos + selectSize > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
@@ -4891,6 +5323,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
+                        rc = FwCheckCreateKeyedHashSize(
+                            &inPublic->publicArea, sensDataSize);
+                    }
+                    if (rc == 0) {
                         XMEMCPY(obj->privKey, sensData, sensDataSize);
                         obj->privKeySize = (int)sensDataSize;
                     }
@@ -4904,14 +5340,6 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     if (rc == 0) {
                         obj->privKeySize = keySz;
                     }
-                }
-
-                /* unique = H(key bytes) */
-                if (rc == 0) {
-                    obj->pub.unique.keyedHash.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            obj->privKey, obj->privKeySize,
-                            obj->pub.unique.keyedHash.buffer);
                 }
                 break;
             }
@@ -4927,7 +5355,15 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     rc = TPM_RC_KEY_SIZE;
                 }
 
-                if (rc == 0) {
+                if (rc == 0 && sensDataSize > 0) {
+                    if ((int)sensDataSize != keySz) {
+                        rc = TPM_RC_KEY_SIZE;
+                    }
+                    else {
+                        XMEMCPY(obj->privKey, sensData, sensDataSize);
+                    }
+                }
+                else if (rc == 0) {
                     rc = FwDeriveSymmetricPrimaryKey(
                         inPublic->publicArea.nameAlg, seed,
                         hashUnique, hashUniqueSz,
@@ -4935,12 +5371,6 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 if (rc == 0) {
                     obj->privKeySize = keySz;
-
-                    /* unique = H(key bytes) */
-                    obj->pub.unique.sym.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            obj->privKey, keySz,
-                            obj->pub.unique.sym.buffer);
                 }
                 break;
             }
@@ -4950,6 +5380,11 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_TYPE;
                 break;
         }
+    }
+
+    if (rc == 0) {
+        rc = FwPrimarySeedValue(seed, hashUnique, hashUniqueSz,
+            cached != NULL, obj);
     }
 
     /* Store in primary key cache */
@@ -4976,6 +5411,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         rc = FwComputeObjectName(obj);
     }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, NULL, primaryHandle, 0,
+            &obj->qualifiedName);
+    }
 
     /* --- Build response --- */
     if (rc == 0) {
@@ -4995,16 +5434,9 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* creationData (TPM2B_CREATION_DATA) */
         TPM2_Packet_MarkU16(rsp, &cdMarkPos);
         cdStart = rsp->pos; /* start of TPMS_CREATION_DATA */
-        /* TPMS_CREATION_DATA */
-        TPM2_Packet_AppendU32(rsp, 0); /* pcrSelect count = 0 */
-        TPM2_Packet_AppendU16(rsp, 0); /* pcrDigest size = 0 */
-        TPM2_Packet_AppendU8(rsp, 0);  /* locality */
-        TPM2_Packet_AppendU16(rsp, TPM_ALG_SHA256); /* parentNameAlg */
-        TPM2_Packet_AppendU16(rsp, 4); /* parentName */
-        TPM2_Packet_AppendU32(rsp, primaryHandle);
-        TPM2_Packet_AppendU16(rsp, 4); /* parentQualifiedName */
-        TPM2_Packet_AppendU32(rsp, primaryHandle);
-        TPM2_Packet_AppendU16(rsp, 0); /* outsideInfo */
+        rc = FwAppendCreationData(ctx, rsp, primaryHandle, NULL,
+            obj->pub.nameAlg, cmd->buf + creationPcrPos,
+            cmd->buf + outsideInfoPos, outsideInfoSize);
         TPM2_Packet_PlaceU16(rsp, cdMarkPos);
 
         FwAppendCreationHashAndTicket(ctx, rsp, primaryHandle,
@@ -5264,21 +5696,6 @@ static int FwCopyHmacContext(Hmac* src, Hmac* dst)
 #endif
 #endif
 
-#ifndef FWTPM_NO_CONTEXT
-#define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
-#define FWTPM_CTX_VER    1u
-#define FWTPM_CTX_SAVED_STCLEAR (TRANSIENT_FIRST + 2u)
-#define FWTPM_OBJ_CTX_WRAPPED_MAX \
-    ((MAX_CONTEXT_SIZE - 8 < FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26) ? \
-        MAX_CONTEXT_SIZE - 8 : FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26)
-#define FWTPM_OBJ_CTX_PLAIN_MAX \
-    (FWTPM_OBJ_CTX_WRAPPED_MAX - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
-
-#define FWTPM_CTX_SAVED_SEQUENCE (TRANSIENT_FIRST + 1u)
-#define FWTPM_SEQ_CTX_PLAIN_MAX \
-    (MAX_CONTEXT_SIZE - 8 - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
-#define FWTPM_SEQ_CTX_WRAPPED_MAX (MAX_CONTEXT_SIZE - 8)
-
 static int FwIsSequenceHandle(FWTPM_CTX* ctx, TPM_HANDLE handle)
 {
     (void)ctx;
@@ -5295,6 +5712,21 @@ static int FwIsSequenceHandle(FWTPM_CTX* ctx, TPM_HANDLE handle)
 #endif
     return 0;
 }
+
+#ifndef FWTPM_NO_CONTEXT
+#define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
+#define FWTPM_CTX_VER    1u
+#define FWTPM_CTX_SAVED_STCLEAR (TRANSIENT_FIRST + 2u)
+#define FWTPM_OBJ_CTX_WRAPPED_MAX \
+    ((MAX_CONTEXT_SIZE - 8 < FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26) ? \
+        MAX_CONTEXT_SIZE - 8 : FWTPM_MAX_COMMAND_SIZE - TPM2_HEADER_SIZE - 26)
+#define FWTPM_OBJ_CTX_PLAIN_MAX \
+    (FWTPM_OBJ_CTX_WRAPPED_MAX - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
+
+#define FWTPM_CTX_SAVED_SEQUENCE (TRANSIENT_FIRST + 1u)
+#define FWTPM_SEQ_CTX_PLAIN_MAX \
+    (MAX_CONTEXT_SIZE - 8 - AES_BLOCK_SIZE - WC_SHA256_DIGEST_SIZE)
+#define FWTPM_SEQ_CTX_WRAPPED_MAX (MAX_CONTEXT_SIZE - 8)
 
 #define FWTPM_SEQ_CTX_HASH 1u
 #define FWTPM_SEQ_CTX_SIGN 2u
@@ -6099,6 +6531,7 @@ static TPM_RC FwSerializeObjectContext(FWTPM_CTX* ctx, FWTPM_Object* obj,
 
     *plainSz = 0;
     if (obj->authValue.size > sizeof(obj->authValue.buffer) ||
+            obj->seedValue.size > sizeof(obj->seedValue.buffer) ||
             obj->privKeySize < 0 ||
             obj->privKeySize > (int)sizeof(obj->privKey)) {
         return TPM_RC_FAILURE;
@@ -6123,6 +6556,13 @@ static TPM_RC FwSerializeObjectContext(FWTPM_CTX* ctx, FWTPM_Object* obj,
     TPM2_Packet_AppendBytes(&packet, obj->authValue.buffer, obj->authValue.size);
     TPM2_Packet_AppendU16(&packet, (UINT16)obj->privKeySize);
     TPM2_Packet_AppendBytes(&packet, obj->privKey, obj->privKeySize);
+    TPM2_Packet_AppendU16(&packet, obj->qualifiedName.size);
+    TPM2_Packet_AppendBytes(&packet, (byte*)obj->qualifiedName.name,
+        obj->qualifiedName.size);
+    TPM2_Packet_AppendU16(&packet, obj->seedValue.size);
+    TPM2_Packet_AppendBytes(&packet, obj->seedValue.buffer,
+        obj->seedValue.size);
+    TPM2_Packet_AppendU8(&packet, (UINT8)(obj->publicOnly != 0));
     if (packet.overflow) {
         rc = TPM_RC_SIZE;
     }
@@ -6141,12 +6581,13 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
     FWTPM_DECLARE_VAR(pub, TPM2B_PUBLIC);
     FWTPM_Object* obj = NULL;
     byte proof[WC_SHA256_DIGEST_SIZE];
-    UINT16 pubSz, authSz = 0, privateSz = 0;
-    int authPos = 0, privatePos = 0, publicEnd;
+    UINT16 pubSz, authSz = 0, privateSz = 0, qnSz = 0, seedSz = 0;
+    int authPos = 0, privatePos = 0, qnPos = 0, seedPos = 0, publicEnd;
+    int flagPos = 0;
     UINT32 expectedMarker;
 
-    /* hierarchy + proof + public/auth/private size fields */
-    if (plainSz < 4 + (int)sizeof(proof) + 6 ||
+    /* hierarchy + proof + public/auth/private/qualifiedName size fields */
+    if (plainSz < 4 + (int)sizeof(proof) + 8 ||
             FwLoadU32BE(plain) != hierarchy) {
         return TPM_RC_INTEGRITY;
     }
@@ -6168,7 +6609,7 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         packet.pos = 4 + sizeof(proof);
         pubSz = FwLoadU16BE(plain + packet.pos);
         publicEnd = packet.pos + 2 + pubSz;
-        if (publicEnd > plainSz - 4) {
+        if (publicEnd > plainSz - 6) {
             rc = TPM_RC_INTEGRITY;
         }
         else {
@@ -6192,7 +6633,7 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         TPM2_Packet_ParseU16(&packet, &authSz);
         authPos = packet.pos;
         if (authSz > sizeof(((FWTPM_Object*)0)->authValue.buffer) ||
-                authPos + authSz > plainSz - 2) {
+                authPos + authSz > plainSz - 4) {
             rc = TPM_RC_INTEGRITY;
         }
     }
@@ -6201,7 +6642,40 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         TPM2_Packet_ParseU16(&packet, &privateSz);
         privatePos = packet.pos;
         if (privateSz > FWTPM_MAX_PRIVKEY_DER ||
-                privatePos + privateSz != plainSz) {
+                privatePos + privateSz > plainSz - 2) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    if (rc == 0) {
+        packet.pos += privateSz;
+        TPM2_Packet_ParseU16(&packet, &qnSz);
+        qnPos = packet.pos;
+        if (qnSz > sizeof(((FWTPM_Object*)0)->qualifiedName.name) ||
+                qnPos + qnSz > plainSz) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    /* The seedValue trails the Qualified Name; a blob saved without it ends
+     * there */
+    if (rc == 0 && qnPos + qnSz != plainSz) {
+        packet.pos += qnSz;
+        if (packet.pos + 2 > plainSz) {
+            rc = TPM_RC_INTEGRITY;
+        }
+        else {
+            TPM2_Packet_ParseU16(&packet, &seedSz);
+            seedPos = packet.pos;
+            if (seedSz > sizeof(((FWTPM_Object*)0)->seedValue.buffer) ||
+                    seedPos + seedSz > plainSz) {
+                rc = TPM_RC_INTEGRITY;
+            }
+        }
+    }
+    /* The public-only flag trails the seedValue; a blob saved without it
+     * ends there */
+    if (rc == 0 && seedPos != 0 && seedPos + seedSz != plainSz) {
+        flagPos = seedPos + seedSz;
+        if (flagPos + 1 != plainSz) {
             rc = TPM_RC_INTEGRITY;
         }
     }
@@ -6218,6 +6692,14 @@ static TPM_RC FwRestoreObjectContext(FWTPM_CTX* ctx, byte* plain,
         XMEMCPY(obj->authValue.buffer, plain + authPos, authSz);
         obj->privKeySize = privateSz;
         XMEMCPY(obj->privKey, plain + privatePos, privateSz);
+        obj->qualifiedName.size = qnSz;
+        XMEMCPY(obj->qualifiedName.name, plain + qnPos, qnSz);
+        obj->seedValue.size = seedSz;
+        XMEMCPY(obj->seedValue.buffer, plain + seedPos, seedSz);
+        /* Without the flag only an object that has no private data is taken
+         * to be public-only */
+        obj->publicOnly = (flagPos != 0) ? (plain[flagPos] != 0) :
+            (privateSz == 0);
         rc = FwComputePublicName(&obj->pub, &obj->name);
         if (rc != 0) {
             wc_ForceZero(obj, sizeof(*obj));
@@ -6344,6 +6826,9 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
              * if wrapping failed so client can retry */
             if (rc == 0) {
                 TPM2_ForceZero(sess, sizeof(FWTPM_Session));
+            }
+            else {
+                ctx->contextLiveCount--;
             }
         }
         else if (isSequence) {
@@ -6711,7 +7196,9 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         obj = FwFindObject(ctx, objectHandle);
         if (obj == NULL) {
-            rc = TPM_RC_HANDLE;
+            /* Part 3 Sec.12.4.1: a sequence object has no public area */
+            rc = FwIsSequenceHandle(ctx, objectHandle) ?
+                TPM_RC_SEQUENCE : TPM_RC_HANDLE;
         }
     }
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
@@ -6729,9 +7216,10 @@ static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_AppendU16(rsp, obj->name.size);
         TPM2_Packet_AppendBytes(rsp, obj->name.name, obj->name.size);
 
-        /* qualifiedName - same as name for primary keys */
-        TPM2_Packet_AppendU16(rsp, obj->name.size);
-        TPM2_Packet_AppendBytes(rsp, obj->name.name, obj->name.size);
+        /* qualifiedName */
+        TPM2_Packet_AppendU16(rsp, obj->qualifiedName.size);
+        TPM2_Packet_AppendBytes(rsp, obj->qualifiedName.name,
+            obj->qualifiedName.size);
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
@@ -6898,12 +7386,12 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             ctx->shDisabled = 0;
             ctx->ehDisabled = 0;
 
-        #ifndef FWTPM_NO_DA
-            /* Clear resets lockoutAuth and DA state to defaults
-             * (Part 3 Sec.24.6) */
+            /* Clear resets lockoutAuth (Part 3 Sec.24.6) */
             TPM2_ForceZero(ctx->lockoutAuth.buffer,
                 sizeof(ctx->lockoutAuth.buffer));
             ctx->lockoutAuth.size = 0;
+        #ifndef FWTPM_NO_DA
+            /* Clear resets the DA state to defaults (Part 3 Sec.24.6) */
             ctx->daFailedTries = 0;
             ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
             ctx->daRecoveryTime = FWTPM_DA_DEFAULT_RECOVERY;
@@ -6980,6 +7468,17 @@ static TPM_RC FwCmd_ChangeEPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
 
+            /* Persistent endorsement objects are flushed with the seed
+             * (Part 3 Sec.24.5). The compacting FWTPM_NV_Save in the
+             * pendingClear path drops the freed slots. */
+            for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+                if (ctx->persistent[i].used &&
+                    ctx->persistent[i].hierarchy == TPM_RH_ENDORSEMENT) {
+                    TPM2_ForceZero(&ctx->persistent[i],
+                        sizeof(ctx->persistent[i]));
+                }
+            }
+
             /* A new endorsement seed re-enables the hierarchy (Part 3
              * Sec.24.5). */
             ctx->ehDisabled = 0;
@@ -7040,6 +7539,26 @@ static TPM_RC FwCmd_ChangePPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
 
+            /* platformPolicy and the PCR policies return to their defaults
+             * (Part 3 Sec.24.4) */
+            XMEMSET(&ctx->platformPolicy, 0, sizeof(ctx->platformPolicy));
+            ctx->platformPolicyAlg = TPM_ALG_NULL;
+            XMEMSET(ctx->pcrPolicy, 0, sizeof(ctx->pcrPolicy));
+            for (i = 0; i < IMPLEMENTATION_PCR; i++) {
+                ctx->pcrPolicyAlg[i] = TPM_ALG_NULL;
+            }
+
+            /* Persistent platform objects are flushed with the seed
+             * (Part 3 Sec.24.4). The compacting FWTPM_NV_Save in the
+             * pendingClear path drops the freed slots. */
+            for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+                if (ctx->persistent[i].used &&
+                    ctx->persistent[i].hierarchy == TPM_RH_PLATFORM) {
+                    TPM2_ForceZero(&ctx->persistent[i],
+                        sizeof(ctx->persistent[i]));
+                }
+            }
+
             /* Defer object flush until after response auth */
             ctx->pendingClear = 1;
 
@@ -7051,8 +7570,8 @@ static TPM_RC FwCmd_ChangePPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 
 /* --- TPM2_ClearControl (CC 0x0127) --- */
-/* Set or clear the disableClear flag. Only TPM_RH_PLATFORM can set
- * disable=YES. Both platform and lockout can set disable=NO. */
+/* Set or clear the disableClear flag. Both platform and lockout can set
+ * disable=YES. Only TPM_RH_PLATFORM can set disable=NO. */
 static TPM_RC FwCmd_ClearControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -7068,6 +7587,9 @@ static TPM_RC FwCmd_ClearControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         TPM2_Packet_ParseU8(cmd, &disable);
+        if (disable > 1) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
+        }
     }
 
     if (rc == 0 && authHandle != TPM_RH_PLATFORM &&
@@ -7075,9 +7597,9 @@ static TPM_RC FwCmd_ClearControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_HIERARCHY;
     }
 
-    /* Only platform can SET disable (disable=YES=1) */
-    if (rc == 0 && disable == 1 && authHandle != TPM_RH_PLATFORM) {
-        rc = TPM_RC_AUTH_TYPE;
+    /* Only platform can CLEAR disable (disable=NO=0) */
+    if (rc == 0 && disable == 0 && authHandle == TPM_RH_LOCKOUT) {
+        rc = TPM_RC_AUTH_FAIL;
     }
 
     if (rc == 0) {
@@ -7141,18 +7663,20 @@ static TPM_RC FwCmd_HierarchyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * this handler, so a set request can only be an idempotent no-op. */
 
     /* Authorization (TPM 2.0 Part 3 Sec.24.3): platformAuth may set or clear
-     * any hierarchy; ownerAuth/endorsementAuth may only CLEAR their own
-     * hierarchy. Platform enables can only be changed by the platform. */
+     * any hierarchy; ownerAuth/endorsementAuth may only select their own
+     * hierarchy and cannot enable it once it is disabled. Platform enables
+     * can only be changed by the platform. */
     if (rc == 0) {
         if (authHandle == TPM_RH_PLATFORM) {
             /* allowed for all combinations */
         }
         else if (authHandle == TPM_RH_OWNER && enable == TPM_RH_OWNER &&
-                 state == 0) {
+                 (state == 0 || !ctx->shDisabled)) {
             /* owner may disable itself */
         }
         else if (authHandle == TPM_RH_ENDORSEMENT &&
-                 enable == TPM_RH_ENDORSEMENT && state == 0) {
+                 enable == TPM_RH_ENDORSEMENT &&
+                 (state == 0 || !ctx->ehDisabled)) {
             /* endorsement may disable itself */
         }
         else {
@@ -7714,7 +8238,7 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         if (rc == 0 && (obj->hierarchy == TPM_RH_NULL ||
-                obj->privKeySize == 0 ||
+                obj->publicOnly ||
                 (obj->pub.objectAttributes & TPMA_OBJECT_stClear) != 0)) {
             rc = TPM_RC_ATTRIBUTES;
         }
@@ -7782,6 +8306,51 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* Create, Load, Sign, Verify, RSA Encrypt/Decrypt                     */
 /* ================================================================== */
 
+/* Generate the seedValue of a new object as the reference implementation
+ * does: nameAlg digest sized for a KEYEDHASH or SYMCIPHER object and for an
+ * asymmetric storage key, none for any other asymmetric key. unique of a
+ * KEYEDHASH or SYMCIPHER object is computed from it. */
+static TPM_RC FwCreateSeedValue(FWTPM_CTX* ctx, TPMT_PUBLIC* pub,
+    const byte* key, int keySz, TPM2B_DIGEST* seedValue)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int isSym = (pub->type == TPM_ALG_KEYEDHASH ||
+        pub->type == TPM_ALG_SYMCIPHER);
+    int uSz;
+
+    seedValue->size = 0;
+    if (!isSym && ((pub->objectAttributes & TPMA_OBJECT_restricted) == 0 ||
+            (pub->objectAttributes & TPMA_OBJECT_sign) != 0)) {
+        return TPM_RC_SUCCESS;
+    }
+    if (digestSz <= 0 || digestSz > (int)sizeof(seedValue->buffer)) {
+        rc = TPM_RC_HASH;
+    }
+    else if (wc_RNG_GenerateBlock(&ctx->rng, seedValue->buffer,
+            (word32)digestSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        seedValue->size = (UINT16)digestSz;
+    }
+    if (rc == 0 && isSym) {
+        /* keyedHash and sym share the layout of unique */
+        uSz = FwComputeSymUnique(pub, seedValue->buffer, seedValue->size,
+            key, keySz, pub->unique.keyedHash.buffer);
+        if (uSz == (int)TPM_RC_MEMORY) {
+            rc = TPM_RC_MEMORY;
+        }
+        else if (uSz != digestSz) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            pub->unique.keyedHash.size = (UINT16)uSz;
+        }
+    }
+    return rc;
+}
+
 /* --- TPM2_Create (CC 0x0153) --- */
 static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -7798,10 +8367,12 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_VAR(outPrivate, TPM2B_PRIVATE);
     FWTPM_DECLARE_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     int privKeyDerSz = 0;
+    TPM2B_DIGEST seedValue;
     int paramSzPos = 0, paramStart = 0;
     FWTPM_DECLARE_VAR(outPub, TPM2B_PUBLIC);
     int cdMarkPos = 0;
     int cdStart2;
+    int outsideInfoPos = 0, creationPcrPos = 0;
     UINT32 s;
     UINT8 selectSize = 0;
 
@@ -7814,6 +8385,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Zero stack-resident locals (heap-allocated TPM2B vars are pre-zeroed
      * via FWTPM_CALLOC_VAR/BUF above). */
     XMEMSET(&userAuth, 0, sizeof(userAuth));
+    XMEMSET(&seedValue, 0, sizeof(seedValue));
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -7841,6 +8413,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             sensData, (int)FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF),
             &sensDataSize);
     }
+    /* A TPM2B_SENSITIVE_DATA holds at most MAX_SYM_DATA octets */
+    if (rc == 0 && sensDataSize > MAX_SYM_DATA) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
 
     /* Parse inPublic */
     if (rc == 0) {
@@ -7862,7 +8438,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwValidateLimitedAttributes(&inPublic->publicArea);
     }
 #endif /* WOLFTPM_V185 */
-    /* Skip outsideInfo */
+    if (rc == 0) {
+        rc = FwCheckCreateAuthSize(&userAuth, inPublic->publicArea.nameAlg);
+    }
+    /* Parse outsideInfo (TPM2B_DATA) */
     if (rc == 0) {
         if (cmd->pos + 2 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -7873,26 +8452,43 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (cmd->pos + outsideInfoSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
+        else if (outsideInfoSize > sizeof(((TPM2B_DATA*)0)->buffer)) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
         else {
+            outsideInfoPos = cmd->pos;
             cmd->pos += outsideInfoSize;
         }
     }
 
-    /* Parse creationPCR (TPML_PCR_SELECTION) - skip */
+    /* Parse creationPCR (TPML_PCR_SELECTION) */
     if (rc == 0) {
         if (cmd->pos + 4 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
     }
     if (rc == 0) {
+        creationPcrPos = cmd->pos;
         TPM2_Packet_ParseU32(cmd, &creationPcrCount);
+        if (creationPcrCount > HASH_COUNT) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_4;
+        }
         for (s = 0; s < creationPcrCount && rc == 0; s++) {
+            UINT16 pcrHashAlg;
             if (cmd->pos + 3 > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
             }
-            cmd->pos += 2; /* hashAlg */
+            TPM2_Packet_ParseU16(cmd, &pcrHashAlg);
             TPM2_Packet_ParseU8(cmd, &selectSize);
+            if (FwGetWcHashType(pcrHashAlg) == WC_HASH_TYPE_NONE) {
+                rc = TPM_RC_HASH | TPM_RC_P | TPM_RC_4;
+                break;
+            }
+            if (selectSize < PCR_SELECT_MIN || selectSize > PCR_SELECT_MAX) {
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_4;
+                break;
+            }
             if (cmd->pos + selectSize > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
                 break;
@@ -8018,8 +8614,12 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
                 if (rc == 0 && sensDataSize > 0) {
                     /* Use caller-supplied key material */
-                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
+                    }
+                    if (rc == 0) {
+                        rc = FwCheckCreateKeyedHashSize(
+                            &inPublic->publicArea, sensDataSize);
                     }
                     if (rc == 0) {
                         XMEMCPY(privKeyDer, sensData, sensDataSize);
@@ -8036,14 +8636,6 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         privKeyDerSz = keySz;
                     }
                 }
-
-                /* unique = H(key bytes) */
-                if (rc == 0) {
-                    inPublic->publicArea.unique.keyedHash.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, privKeyDerSz,
-                            inPublic->publicArea.unique.keyedHash.buffer);
-                }
                 break;
             }
             case TPM_ALG_SYMCIPHER: {
@@ -8056,7 +8648,15 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     rc = TPM_RC_KEY_SIZE;
                 }
 
-                if (rc == 0) {
+                if (rc == 0 && sensDataSize > 0) {
+                    if ((int)sensDataSize != keySz) {
+                        rc = TPM_RC_KEY_SIZE;
+                    }
+                    else {
+                        XMEMCPY(privKeyDer, sensData, sensDataSize);
+                    }
+                }
+                else if (rc == 0) {
                     rc = wc_RNG_GenerateBlock(&ctx->rng, privKeyDer,
                         (word32)keySz);
                     if (rc != 0) {
@@ -8065,12 +8665,6 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 if (rc == 0) {
                     privKeyDerSz = keySz;
-
-                    /* unique = H(key bytes) */
-                    inPublic->publicArea.unique.sym.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, keySz,
-                            inPublic->publicArea.unique.sym.buffer);
                 }
                 break;
             }
@@ -8078,6 +8672,11 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_TYPE;
                 break;
         }
+    }
+
+    if (rc == 0) {
+        rc = FwCreateSeedValue(ctx, &inPublic->publicArea, privKeyDer,
+            privKeyDerSz, &seedValue);
     }
 
     /* Wrap private key into TPM2B_PRIVATE, bound to the child's Name */
@@ -8088,7 +8687,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) {
             rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
-                privKeyDer, privKeyDerSz, outPrivate);
+                privKeyDer, privKeyDerSz, &seedValue, outPrivate);
         }
     }
 
@@ -8115,15 +8714,9 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* creationData (TPM2B_CREATION_DATA) */
         TPM2_Packet_MarkU16(rsp, &cdMarkPos);
         cdStart2 = rsp->pos;
-        TPM2_Packet_AppendU32(rsp, 0); /* pcrSelect count = 0 */
-        TPM2_Packet_AppendU16(rsp, 0); /* pcrDigest size = 0 */
-        TPM2_Packet_AppendU8(rsp, 0);  /* locality */
-        TPM2_Packet_AppendU16(rsp, inPublic->publicArea.nameAlg);
-        TPM2_Packet_AppendU16(rsp, 4); /* parentName */
-        TPM2_Packet_AppendU32(rsp, parentHandle);
-        TPM2_Packet_AppendU16(rsp, 4); /* parentQualifiedName */
-        TPM2_Packet_AppendU32(rsp, parentHandle);
-        TPM2_Packet_AppendU16(rsp, 0); /* outsideInfo */
+        rc = FwAppendCreationData(ctx, rsp, parentHandle, parent,
+            inPublic->publicArea.nameAlg, cmd->buf + creationPcrPos,
+            cmd->buf + outsideInfoPos, outsideInfoSize);
         TPM2_Packet_PlaceU16(rsp, cdMarkPos);
 
         /* Compute object name from public area for creation ticket */
@@ -8143,8 +8736,8 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 if (hashRc == 0)
                     objNameSz = 2 + nameDigSz;
             }
-            FWTPM_FREE_BUF(pubBuf2);
         }
+        FWTPM_FREE_BUF(pubBuf2);
 
         /* Creation ticket hierarchy = parent's hierarchy per Part 2
          * Sec.10.6.5 Table 112. */
@@ -8159,6 +8752,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(sensData, FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF));
     FWTPM_FREE_BUF(sensData);
     /* outPrivate carries an HMAC-protected blob; XFREE alone is sufficient. */
+    TPM2_ForceZero(&seedValue, sizeof(seedValue));
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     FWTPM_FREE_VAR(inPublic);
@@ -8180,6 +8774,7 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Object* obj = NULL;
     FWTPM_Object* parent = NULL;
     TPM2B_PRIVATE outPrivate;
+    TPM2B_NAME parentCheck;
     int paramSzPos = 0, paramStart = 0;
 
     XMEMSET(&newAuth, 0, sizeof(newAuth));
@@ -8240,10 +8835,22 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* parentHandle has to be the parent of the object: its Qualified Name
+     * gives the Qualified Name of the object */
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, parent, 0, 0, &parentCheck);
+    }
+    if (rc == 0 && (parentCheck.size != obj->qualifiedName.size ||
+            XMEMCMP(parentCheck.name, obj->qualifiedName.name,
+                parentCheck.size) != 0)) {
+        rc = TPM_RC_TYPE | TPM_RC_H | TPM_RC_2;
+    }
+
     /* Re-wrap the private key; the loaded object keeps its current auth. */
     if (rc == 0) {
         rc = FwWrapPrivate(ctx, parent, &ctx->rng, &obj->name, obj->pub.type,
-            &newAuth, obj->privKey, obj->privKeySize, &outPrivate);
+            &newAuth, obj->privKey, obj->privKeySize, &obj->seedValue,
+            &outPrivate);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -8360,12 +8967,16 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         obj->hierarchy = parent->hierarchy;
         rc = FwComputeObjectName(obj);
     }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, parent, 0, 0,
+            &obj->qualifiedName);
+    }
 
     /* Unwrap private */
     if (rc == 0) {
         rc = FwUnwrapPrivate(ctx, parent, &obj->name, &inPrivate,
             &sensitiveType, &obj->authValue,
-            obj->privKey, &obj->privKeySize);
+            obj->privKey, &obj->privKeySize, &obj->seedValue);
     #ifdef DEBUG_WOLFTPM
         if (rc != TPM_RC_SUCCESS) {
             printf("fwTPM: Load unwrap failed rc=%d (0x%x)\n", rc, rc);
@@ -8376,7 +8987,7 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify type matches */
     if (rc == 0) {
         if (sensitiveType != inPublic.publicArea.type) {
-            rc = TPM_RC_TYPE;
+            rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -8401,6 +9012,66 @@ static TPM_RC FwCmd_Load(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+/* Part 3 Sec.12.3.1 binding of an external KEYEDHASH or SYMCIPHER sensitive
+ * area: the seedValue has the nameAlg digest size and unique is the one the
+ * seedValue and key give. */
+static TPM_RC FwCheckExternalSymUnique(const TPMT_PUBLIC* pub,
+    const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int hRc;
+    byte unique[TPM_MAX_DIGEST_SIZE];
+
+    if (pub->nameAlg == TPM_ALG_NULL) {
+        return TPM_RC_SUCCESS;
+    }
+    if (digestSz <= 0 || (int)seedSz != digestSz) {
+        rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
+    }
+    else {
+        hRc = FwComputeSymUnique(pub, seed, seedSz, key, keySz, unique);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+        else if ((int)pub->unique.keyedHash.size != digestSz ||
+                TPM2_ConstantCompare(pub->unique.keyedHash.buffer, unique,
+                    (word32)digestSz) != 0) {
+            rc = TPM_RC_BINDING;
+        }
+    }
+    return rc;
+}
+
+/* Part 3 Sec.12.3.1 checks on an external KEYEDHASH sensitive area: the key
+ * fits its scheme and unique is bound to it. */
+static TPM_RC FwCheckExternalKeyedHash(const TPMT_PUBLIC* pub,
+    const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 scheme = pub->parameters.keyedHashDetail.scheme.scheme;
+    int maxSz = 128;
+
+    if (scheme == TPM_ALG_HMAC) {
+        maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+            pub->parameters.keyedHashDetail.scheme.details.hmac.hashAlg));
+    }
+    else if (scheme == TPM_ALG_XOR) {
+        maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+            pub->parameters.keyedHashDetail.scheme.details.xorr.hashAlg));
+    }
+    else if (scheme != TPM_ALG_NULL) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
+    if (rc == 0 && (maxSz <= 0 || (int)keySz > maxSz)) {
+        rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
+    }
+    if (rc == 0) {
+        rc = FwCheckExternalSymUnique(pub, seed, seedSz, key, keySz);
+    }
+    return rc;
+}
+
 /* --- TPM2_LoadExternal (CC 0x167) ---
  * Load an external key (public-only or public+private) without a parent.
  * Response: objectHandle | [paramSz] | name */
@@ -8414,6 +9085,8 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_BUF(qBuf, FWTPM_MAX_DER_SIG_BUF);
     UINT16 qSz = 0;
     UINT16 seedSz = 0;
+    int seedPos = 0;
+    TPM2B_DIGEST seedValue;
     TPM2B_PUBLIC inPublic;
     UINT32 hierarchy = 0;
     FWTPM_Object* obj = NULL;
@@ -8448,6 +9121,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     XMEMSET(&authValue, 0, sizeof(authValue));
+    XMEMSET(&seedValue, 0, sizeof(seedValue));
     if (rc == 0 && inPrivSize > 0) {
         /* sensitiveType */
         if (cmd->pos + 2 > cmdSize) {
@@ -8476,7 +9150,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 TPM2_Packet_ParseBytes(cmd, authValue.buffer, authValue.size);
             }
         }
-        /* seedValue (skip) */
+        /* seedValue */
         if (rc == 0) {
             if (cmd->pos + 2 > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
@@ -8489,6 +9163,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         if (rc == 0) {
+            seedPos = cmd->pos;
             cmd->pos += seedSz;
         }
         /* sensitive.any (prime q for RSA) */
@@ -8534,6 +9209,20 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* seedValue (present only with inPrivate) must not exceed the object
+     * nameAlg digest size */
+    if (rc == 0 && inPrivSize > 0) {
+        int digestSz = TPM2_GetHashDigestSize(inPublic.publicArea.nameAlg);
+        if (seedSz > sizeof(seedValue.buffer) ||
+                (digestSz > 0 && (int)seedSz > digestSz)) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+        else {
+            seedValue.size = seedSz;
+            XMEMCPY(seedValue.buffer, cmd->buf + seedPos, seedSz);
+        }
+    }
+
     /* Parse hierarchy */
     if (rc == 0) {
         if (cmd->pos + 4 > cmdSize) {
@@ -8555,11 +9244,28 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    if (rc == 0) {
+        rc = FwValidateKeyUsage(&inPublic.publicArea);
+    }
+
     /* Validate ML public parameters and the supplied public key size before
      * the object is created (Part 3 Sec.18.4). */
     if (rc == 0) {
         rc = FwValidatePublicTemplate(&inPublic.publicArea, 1);
     }
+#ifdef HAVE_ECC
+    /* The coordinates of a public-only ECC key are curve sized */
+    if (rc == 0 && inPrivSize == 0 &&
+            inPublic.publicArea.type == TPM_ALG_ECC) {
+        int keySz = wc_ecc_get_curve_size_from_id(FwGetWcCurveId(
+            inPublic.publicArea.parameters.eccDetail.curveID));
+        if (keySz > 0 &&
+                ((int)inPublic.publicArea.unique.ecc.x.size != keySz ||
+                 (int)inPublic.publicArea.unique.ecc.y.size != keySz)) {
+            rc = TPM_RC_KEY | TPM_RC_P | TPM_RC_2;
+        }
+    }
+#endif
 
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
@@ -8567,6 +9273,12 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             inPublic.publicArea.type, inPrivSize);
     }
 #endif
+
+    /* The sensitive area is of the type of the public area */
+    if (rc == 0 && inPrivSize > 0 &&
+            sensitiveType != inPublic.publicArea.type) {
+        rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_1;
+    }
 
     /* Reconstruct/store private key if private area was provided */
     if (rc == 0 && inPrivSize > 0 && sensitiveType == TPM_ALG_SYMCIPHER &&
@@ -8580,6 +9292,20 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (qSz != 16 && qSz != 24 && qSz != 32) {
             rc = TPM_RC_SIZE;
         }
+        if (rc == 0) {
+            rc = FwCheckExternalSymUnique(&inPublic.publicArea,
+                cmd->buf + seedPos, seedSz, qBuf, qSz);
+        }
+        if (rc == 0) {
+            XMEMCPY(privKeyDer, qBuf, qSz);
+            privKeyDerSz = (int)qSz;
+        }
+    }
+    else if (rc == 0 && inPrivSize > 0 &&
+            sensitiveType == TPM_ALG_KEYEDHASH && qSz > 0) {
+        /* For KEYEDHASH, qBuf is the HMAC key or the data */
+        rc = FwCheckExternalKeyedHash(&inPublic.publicArea,
+            cmd->buf + seedPos, seedSz, qBuf, qSz);
         if (rc == 0) {
             XMEMCPY(privKeyDer, qBuf, qSz);
             privKeyDerSz = (int)qSz;
@@ -8605,19 +9331,21 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         if (rc == 0) {
-            rc = wc_ecc_import_unsigned(eccKey,
+            rc = FwEccImportUnsigned(eccKey,
                 inPublic.publicArea.unique.ecc.x.buffer,
+                inPublic.publicArea.unique.ecc.x.size,
                 inPublic.publicArea.unique.ecc.y.buffer,
-                qBuf, wcCurveExt);
+                inPublic.publicArea.unique.ecc.y.size,
+                qBuf, qSz, wcCurveExt);
+            if (rc == 0) {
+                rc = FwEccCheckBinding(eccKey, &ctx->rng);
+            }
             if (rc == 0) {
                 privKeyDerSz = wc_EccKeyToDer(eccKey, privKeyDer,
                     FWTPM_MAX_PRIVKEY_DER);
                 if (privKeyDerSz <= 0) {
                     rc = TPM_RC_FAILURE;
                 }
-            }
-            else {
-                rc = TPM_RC_FAILURE;
             }
             wc_ecc_free(eccKey);
         }
@@ -8698,10 +9426,12 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         XMEMCPY(&obj->pub, &inPublic.publicArea, sizeof(TPMT_PUBLIC));
         XMEMCPY(&obj->authValue, &authValue, sizeof(TPM2B_AUTH));
+        XMEMCPY(&obj->seedValue, &seedValue, sizeof(TPM2B_DIGEST));
         if (privKeyDerSz > 0) {
             XMEMCPY(obj->privKey, privKeyDer, (size_t)privKeyDerSz);
         }
         obj->privKeySize = privKeyDerSz;
+        obj->publicOnly = (inPrivSize == 0);
         /* Per Part 3 Sec.12.3.1, the supplied hierarchy field controls which
          * proofValue (if any) signs tickets produced by this key; default
          * to TPM_RH_NULL when caller passed 0 so the resulting object
@@ -8711,6 +9441,9 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         rc = FwComputeObjectName(obj);
+    }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, NULL, 0, 1, &obj->qualifiedName);
     }
 
     /* --- Build response --- */
@@ -8736,13 +9469,336 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     TPM2_ForceZero(&authValue, sizeof(authValue));
+    TPM2_ForceZero(&seedValue, sizeof(seedValue));
     return rc;
 }
 
 
 #ifndef FWTPM_NO_KEY_MIGRATION
+/* Add a parameter or handle number to a format-one response code that has
+ * none. */
+static TPM_RC FwRcAddIndex(TPM_RC rc, TPM_RC index)
+{
+    if ((rc & RC_FMT1) != 0 && (rc & (TPM_RC_P | 0xF00)) == 0) {
+        rc |= index;
+    }
+    return rc;
+}
+
+/* Marshal the TPM2B_SENSITIVE of an object for duplication: one prime for
+ * RSA, the private scalar for ECC and the stored key octets for the other
+ * types. The authValue is zero padded to the nameAlg digest size. */
+static TPM_RC FwDupMarshalSensitive(const FWTPM_Object* obj, byte* buf,
+    int bufSz, int* outSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPM2B_AUTH auth;
+    const byte* sens = obj->privKey;
+    int sensSz = obj->privKeySize;
+    int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+    int sz;
+    FWTPM_DECLARE_BUF(comp, FWTPM_MAX_DER_SIG_BUF);
+
+    FWTPM_CALLOC_BUF(comp, FWTPM_MAX_DER_SIG_BUF);
+
+    XMEMSET(&auth, 0, sizeof(auth));
+    if (rc == 0 && obj->authValue.size > sizeof(auth.buffer)) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        auth.size = obj->authValue.size;
+        XMEMCPY(auth.buffer, obj->authValue.buffer, auth.size);
+        if (digestSz > (int)auth.size && digestSz <= (int)sizeof(auth.buffer)) {
+            auth.size = (UINT16)digestSz;
+        }
+    }
+
+#ifndef NO_RSA
+    if (rc == 0 && obj->pub.type == TPM_ALG_RSA) {
+        FWTPM_DECLARE_VAR(rsaKey, RsaKey);
+        FWTPM_ALLOC_VAR(rsaKey, RsaKey);
+        if (rc == 0) {
+            if (FwImportRsaKeyFromDer(obj, rsaKey) != 0) {
+                rc = TPM_RC_KEY;
+            }
+            else {
+                sensSz = mp_unsigned_bin_size(&rsaKey->p);
+                if (sensSz <= 0 || sensSz > (int)FWTPM_MAX_DER_SIG_BUF) {
+                    rc = TPM_RC_KEY;
+                }
+                else if (mp_to_unsigned_bin(&rsaKey->p, comp) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                wc_FreeRsaKey(rsaKey);
+            }
+        }
+        FWTPM_FREE_VAR(rsaKey);
+        sens = comp;
+    }
+#endif
+#ifdef HAVE_ECC
+    if (rc == 0 && obj->pub.type == TPM_ALG_ECC) {
+        word32 dSz = (word32)FWTPM_MAX_DER_SIG_BUF;
+        FWTPM_DECLARE_VAR(eccKey, ecc_key);
+        FWTPM_ALLOC_VAR(eccKey, ecc_key);
+        if (rc == 0) {
+            if (FwImportEccKeyFromDer(obj, eccKey) != 0) {
+                rc = TPM_RC_KEY;
+            }
+            else {
+                if (wc_ecc_export_private_only(eccKey, comp, &dSz) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                sensSz = (int)dSz;
+                wc_ecc_free(eccKey);
+            }
+        }
+        FWTPM_FREE_VAR(eccKey);
+        sens = comp;
+    }
+#endif
+
+    if (rc == 0) {
+        sz = FwMarshalSensitiveStd(buf, bufSz, obj->pub.type, &auth,
+            &obj->seedValue, sens, sensSz);
+        if (sz < 0) {
+            rc = TPM_RC_SIZE;
+        }
+        else {
+            *outSz = sz;
+        }
+    }
+
+    TPM2_ForceZero(&auth, sizeof(auth));
+    TPM2_ForceZero(comp, FWTPM_MAX_DER_SIG_BUF);
+    FWTPM_FREE_BUF(comp);
+    return rc;
+}
+
+/* Inner wrap of a duplication blob (Part 1 Sec.23.3.2.2). buf holds dataSz
+ * octets of sensitive after room for a TPM2B_DIGEST of the object nameAlg.
+ * The digest of sensitive || Name is stored there and both are encrypted
+ * with AES-CFB under a zero IV. */
+static TPM_RC FwDupInnerWrap(TPMI_ALG_HASH nameAlg, const byte* name,
+    int nameSz, const byte* key, int keySz, byte* buf, int dataSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(nameAlg);
+    int hRc;
+
+    if (digestSz <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0) {
+        hRc = FwComputeHashUnique(nameAlg, buf + 2 + digestSz, dataSz,
+            name, nameSz, buf + 2);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        FwStoreU16BE(buf, (UINT16)digestSz);
+        if (TPM2_AesCfbEncrypt(key, keySz, NULL, buf,
+                (word32)(2 + digestSz + dataSz)) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    return rc;
+}
+
+/* Remove the inner wrap of a duplication blob in place: decrypt, then check
+ * the leading TPM2B_DIGEST against the digest of sensitive || Name. sensOff
+ * receives the offset of the sensitive. */
+static TPM_RC FwDupInnerUnwrap(TPMI_ALG_HASH nameAlg, const byte* name,
+    int nameSz, const byte* key, int keySz, byte* buf, int bufSz,
+    int* sensOff)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(nameAlg);
+    int integSz = 0;
+    int hRc;
+    int cmpSz;
+    int sizeMismatch;
+    int digestDiff;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+
+    if (digestSz <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0 && TPM2_AesCfbDecrypt(key, keySz, NULL, buf,
+            (word32)bufSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && bufSz < 2) {
+        rc = TPM_RC_INSUFFICIENT;
+    }
+    if (rc == 0) {
+        integSz = (int)FwLoadU16BE(buf);
+        if (integSz > (int)sizeof(digest)) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (2 + integSz > bufSz) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+    }
+    if (rc == 0) {
+        hRc = FwComputeHashUnique(nameAlg, buf + 2 + integSz,
+            bufSz - 2 - integSz, name, nameSz, digest);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        cmpSz = (integSz < digestSz) ? integSz : digestSz;
+        sizeMismatch = (integSz != digestSz);
+        digestDiff = TPM2_ConstantCompare(buf + 2, digest, (word32)cmpSz);
+        if (sizeMismatch | digestDiff) {
+            rc = TPM_RC_INTEGRITY;
+        }
+    }
+    if (rc == 0) {
+        *sensOff = 2 + integSz;
+    }
+    TPM2_ForceZero(digest, sizeof(digest));
+    return rc;
+}
+
+/* Outer wrap of a duplication blob (Part 1 Sec.23.3.2.3). buf holds dataSz
+ * octets after room for a TPM2B_DIGEST of the new parent nameAlg. The data
+ * is encrypted with AES-CFB under a zero IV and the HMAC of the encrypted
+ * data || Name is stored in front of it. */
+static TPM_RC FwDupOuterWrap(const FWTPM_Object* newParent, const byte* seed,
+    int seedSz, const byte* name, int nameSz, byte* buf, int dataSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPMI_ALG_HASH parentNameAlg = newParent->pub.nameAlg;
+    int digestSz = TPM2_GetHashDigestSize(parentNameAlg);
+    int symKeySz = 0;
+    byte aesKey[FWTPM_MAX_SYM_KEY_SIZE];
+    byte hmacKey[FWTPM_MAX_HMAC_KEY_SIZE];
+
+    if (digestSz <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    if (rc == 0) {
+        if (newParent->pub.type == TPM_ALG_RSA) {
+            symKeySz = (int)(newParent->pub.parameters.rsaDetail
+                .symmetric.keyBits.sym / 8);
+        }
+        else {
+            symKeySz = (int)(newParent->pub.parameters.eccDetail
+                .symmetric.keyBits.sym / 8);
+        }
+        if (symKeySz <= 0) {
+            symKeySz = 16; /* default AES-128 */
+        }
+        if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
+            rc = TPM_RC_SYMMETRIC;
+        }
+    }
+    if (rc == 0) {
+        if (TPM2_KDFa_ex(parentNameAlg, seed, seedSz, "STORAGE", name,
+                (UINT32)nameSz, NULL, 0, aesKey, symKeySz) != symKeySz) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        if (TPM2_KDFa_ex(parentNameAlg, seed, seedSz, "INTEGRITY", NULL, 0,
+                NULL, 0, hmacKey, digestSz) != digestSz) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        if (TPM2_AesCfbEncrypt(aesKey, symKeySz, NULL, buf + 2 + digestSz,
+                (word32)dataSz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        FwStoreU16BE(buf, (UINT16)digestSz);
+        if (TPM2_HmacCompute(parentNameAlg, hmacKey, (word32)digestSz,
+                buf + 2 + digestSz, (word32)dataSz, name, (word32)nameSz,
+                buf + 2, NULL) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    TPM2_ForceZero(aesKey, sizeof(aesKey));
+    TPM2_ForceZero(hmacKey, sizeof(hmacKey));
+    return rc;
+}
+
+/* Check an imported KEYEDHASH or SYMCIPHER sensitive area and return its
+ * key: the key fits the public parameters and unique is the one its
+ * seedValue and key give. An object duplicated before this TPM kept a
+ * seedValue arrives with an empty one. */
+static TPM_RC FwImportSymSensitive(const TPMT_PUBLIC* pub, UINT16 sensType,
+    const byte* seed, UINT16 seedSz, const byte* key, UINT16 keySz,
+    byte* privKey, int privKeyBufSz, int* privKeySz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int digestSz = TPM2_GetHashDigestSize(pub->nameAlg);
+    int maxSz = 128;
+    int hRc;
+    UINT16 scheme;
+    byte unique[TPM_MAX_DIGEST_SIZE];
+
+    if (sensType != pub->type) {
+        rc = TPM_RC_TYPE | TPM_RC_P | TPM_RC_3;
+    }
+    else if (pub->type == TPM_ALG_SYMCIPHER) {
+        if ((int)keySz * 8 != (int)pub->parameters.symDetail.sym.keyBits.sym) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+    }
+    else {
+        scheme = pub->parameters.keyedHashDetail.scheme.scheme;
+        if (scheme == TPM_ALG_HMAC) {
+            maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+                pub->parameters.keyedHashDetail.scheme.details.hmac.hashAlg));
+        }
+        else if (scheme == TPM_ALG_XOR) {
+            maxSz = wc_HashGetBlockSize(FwGetWcHashType(
+                pub->parameters.keyedHashDetail.scheme.details.xorr.hashAlg));
+        }
+        else if (scheme != TPM_ALG_NULL) {
+            rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+        }
+        if (rc == 0 && (maxSz <= 0 || (int)keySz > maxSz)) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+    }
+    if (rc == 0 && (int)keySz > privKeyBufSz) {
+        rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+    }
+    if (rc == 0) {
+        if (digestSz <= 0 || (seedSz != 0 && (int)seedSz != digestSz)) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+    }
+    if (rc == 0) {
+        hRc = FwComputeSymUnique(pub, seed, seedSz, key, keySz, unique);
+        if (hRc != digestSz) {
+            rc = (hRc == (int)TPM_RC_MEMORY) ? TPM_RC_MEMORY : TPM_RC_FAILURE;
+        }
+        else if ((int)pub->unique.keyedHash.size != digestSz ||
+                TPM2_ConstantCompare(pub->unique.keyedHash.buffer, unique,
+                    (word32)digestSz) != 0) {
+            rc = TPM_RC_BINDING;
+        }
+    }
+    if (rc == 0) {
+        if (keySz > 0) {
+            XMEMCPY(privKey, key, keySz);
+        }
+        *privKeySz = (int)keySz;
+    }
+    TPM2_ForceZero(unique, sizeof(unique));
+    return rc;
+}
+
 /* --- TPM2_Import (CC 0x156) ---
- * Import an externally created key (outer-wrapped) under a parent key.
+ * Import a duplicate, with or without its inner and outer wrap, under a
+ * parent key.
  * Response: [paramSz] | outPrivate */
 static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -8781,9 +9837,12 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int plainSensSz = 0;
     UINT16 sensType = 0;
     UINT16 primeSz = 0;
-    FWTPM_DECLARE_VAR(innerHashCtx, wc_HashAlg);
+    const byte* sensSeed = NULL;
+    UINT16 sensSeedSz = 0;
+    int innerOff = 0;
     FWTPM_DECLARE_BUF(primeBuf, FWTPM_MAX_DER_SIG_BUF);
     TPM2B_AUTH importedAuth;
+    TPM2B_DIGEST importedSeed;
     TPM_RC rc = TPM_RC_SUCCESS;
 
     FWTPM_ALLOC_BUF(dupBuf, FWTPM_MAX_PRIVKEY_DER + 256);
@@ -8792,9 +9851,9 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_BUF(pubAreaBuf, FWTPM_MAX_PUB_BUF);
     FWTPM_ALLOC_BUF(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_ALLOC_BUF(primeBuf, FWTPM_MAX_DER_SIG_BUF);
-    FWTPM_ALLOC_VAR(innerHashCtx, wc_HashAlg);
     FWTPM_CALLOC_VAR(objectPublic, TPM2B_PUBLIC);
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
+    XMEMSET(&importedSeed, 0, sizeof(importedSeed));
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -8834,7 +9893,6 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_Packet_ParseBytes(cmd, encKeyBuf, encKeySz);
         }
     }
-    /* encKeyBuf used later for inner decryption if symmetricAlg != NULL */
 
     /* Parse objectPublic */
     if (rc == 0) {
@@ -8844,6 +9902,9 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         rc = FwValidatePublicTemplate(&objectPublic->publicArea, 0);
+    }
+    if (rc == 0) {
+        rc = FwValidateKeyUsage(&objectPublic->publicArea);
     }
     if (rc == 0 && (objectPublic->publicArea.objectAttributes &
             (TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent)) != 0) {
@@ -8919,10 +9980,33 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     (void)symMode;
 
-    if (rc == 0 && (objectPublic->publicArea.objectAttributes &
-            TPMA_OBJECT_encryptedDuplication) != 0 &&
-            (encKeySz == 0 || symSeedSz == 0 || symAlg == TPM_ALG_NULL)) {
-        rc = TPM_RC_ATTRIBUTES;
+    /* The inner wrap key matches symmetricAlg, and an encryptedDuplication
+     * object arrives under both wraps (Part 3 Sec.13.3). */
+    if (rc == 0 && symAlg != TPM_ALG_NULL) {
+        if (symAlg != TPM_ALG_AES) {
+            rc = TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_5;
+        }
+        else if (symKeyBits != 128 && symKeyBits != 192 &&
+                symKeyBits != 256) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_5;
+        }
+        else if (encKeySz != symKeyBits / 8) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+    }
+    else if (rc == 0) {
+        if (encKeySz != 0) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+        else if ((objectPublic->publicArea.objectAttributes &
+                TPMA_OBJECT_encryptedDuplication) != 0) {
+            rc = TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_1;
+        }
+    }
+    if (rc == 0 && symSeedSz == 0 &&
+            (objectPublic->publicArea.objectAttributes &
+            TPMA_OBJECT_encryptedDuplication) != 0) {
+        rc = TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_4;
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -8959,12 +10043,14 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_KEY;
     }
 
-    /* Decrypt inSymSeed with parent key */
-    if (rc == 0) {
+    /* Decrypt inSymSeed with parent key. An empty inSymSeed means the
+     * duplicate has no outer wrap. */
+    if (rc == 0 && symSeedSz != 0) {
         rc = FwDecryptSeed(ctx, parent,
             symSeedBuf, symSeedSz,
             (const byte*)"DUPLICATE", 10, "DUPLICATE",
             seedBuf, (int)sizeof(seedBuf), &seedSz);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_4);
     }
 
     /* Compute name of objectPublic: nameAlg(2) || Hash(publicArea) */
@@ -8997,7 +10083,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* KDFa for storage key (AES wrap key) */
-    if (rc == 0) {
+    if (rc == 0 && symSeedSz != 0) {
         rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
             "STORAGE", nameBuf, nameSz, NULL, 0, aesKey, symKeySz);
         if (rc != symKeySz) {
@@ -9009,7 +10095,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* KDFa for integrity key (HMAC key) */
-    if (rc == 0) {
+    if (rc == 0 && symSeedSz != 0) {
         rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
             "INTEGRITY", NULL, 0, NULL, 0, hmacKeyBuf, digestSz);
         if (rc != digestSz) {
@@ -9022,117 +10108,79 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
 
     /* Verify integrity and decrypt duplicate */
-    if (rc == 0) {
+    if (rc == 0 && symSeedSz != 0) {
         rc = FwImportVerifyAndDecrypt(parentNameAlg,
             hmacKeyBuf, digestSz, aesKey, symKeySz,
             nameBuf, nameSz, dupBuf, dupSz,
             plainSens, (int)(FWTPM_MAX_SENSITIVE_SIZE), &plainSensSz);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_3);
+    }
+    else if (rc == 0) {
+        if (dupSz > (UINT16)FWTPM_MAX_SENSITIVE_SIZE) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+        else {
+            XMEMCPY(plainSens, dupBuf, dupSz);
+            plainSensSz = dupSz;
+        }
     }
 
-
-    /* Inner decryption: if symmetricAlg != NULL and encryptionKey provided,
-     * the plainSens contains inner wrapping that must be removed.
-     * Per TPM spec Part 1 Section 23.4:
-     *   innerWrapped = innerIntegrity(TPM2B) || AES-CFB(encryptionKey, sens)
-     * innerIntegrity = HMAC(nameAlg, sensitive || objectName) */
-    if (rc == 0 && symAlg != TPM_ALG_NULL && encKeySz > 0 &&
-        plainSensSz > 2) {
-        UINT16 innerIntegSz;
-        int innerStart;
-        byte* encInner;
-        int encInnerSz;
-        byte innerHash[TPM_MAX_DIGEST_SIZE];
-        int ihRc;
-
-        /* Parse inner integrity size */
-        innerIntegSz = FwLoadU16BE(plainSens);
-        innerStart = 2 + innerIntegSz;
-
-        if (innerStart >= plainSensSz) {
-        #ifdef DEBUG_WOLFTPM
-            printf("fwTPM: Import inner integrity fail: "
-                "innerIntegSz=%d, innerStart=%d, plainSensSz=%d\n",
-                innerIntegSz, innerStart, plainSensSz);
-        #endif
-            rc = TPM_RC_INTEGRITY;
-        }
-
-        /* AES-CFB decrypt inner sensitive using encryptionKey */
-        if (rc == 0) {
-            encInner = plainSens + innerStart;
-            encInnerSz = plainSensSz - innerStart;
-            rc = TPM2_AesCfbDecrypt(encKeyBuf, encKeySz,
-                NULL, encInner, (word32)encInnerSz);
-            if (rc != 0) {
-                rc = TPM_RC_FAILURE;
-            }
-        }
-
-        /* Verify inner integrity: Hash(decryptedSensitive || objectName)
-         * Per TPM 2.0 Part 1 Section 23.4 */
-        if (rc == 0 && objDigestSz > 0 &&
-            (UINT16)objDigestSz != innerIntegSz) {
-            rc = TPM_RC_INTEGRITY;
-        }
-        if (rc == 0) {
-            ihRc = wc_HashInit(innerHashCtx, objWcHash);
-            if (ihRc == 0) {
-                ihRc = wc_HashUpdate(innerHashCtx, objWcHash,
-                    encInner, (word32)encInnerSz);
-            }
-            if (ihRc == 0) {
-                ihRc = wc_HashUpdate(innerHashCtx, objWcHash,
-                    nameBuf, (word32)nameSz);
-            }
-            if (ihRc == 0) {
-                ihRc = wc_HashFinal(innerHashCtx, objWcHash, innerHash);
-            }
-            wc_HashFree(innerHashCtx, objWcHash);
-            if (ihRc != 0) {
-                rc = TPM_RC_FAILURE;
-            }
-            if (rc == 0) {
-                if (TPM2_ConstantCompare(innerHash, plainSens + 2,
-                        innerIntegSz) != 0) {
-                    rc = TPM_RC_INTEGRITY;
-                }
-            }
-            TPM2_ForceZero(innerHash, sizeof(innerHash));
-        }
-
-        /* Shift decrypted sensitive to beginning of plainSens buffer */
-        if (rc == 0) {
-            XMEMMOVE(plainSens, plainSens + innerStart, encInnerSz);
-            plainSensSz = encInnerSz;
-        }
-
-    #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: Import inner decrypt: rc=0x%x, innerIntegSz=%d, "
-            "plainSensSz=%d, first4=0x%02x%02x%02x%02x\n",
-            rc, innerIntegSz, plainSensSz,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[0] : 0,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[1] : 0,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[2] : 0,
-            (rc == 0 && plainSensSz >= 4) ? plainSens[3] : 0);
-    #endif
+    /* Remove the inner wrap: innerIntegrity || sensitive encrypted with
+     * encryptionKey, innerIntegrity = H_nameAlg(sensitive || Name)
+     * (Part 1 Sec.23.3.2.2) */
+    if (rc == 0 && symAlg != TPM_ALG_NULL) {
+        rc = FwDupInnerUnwrap(objNameAlg, nameBuf, nameSz, encKeyBuf,
+            encKeySz, plainSens, plainSensSz, &innerOff);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_3);
     }
-    (void)encKeyBuf;
 
     /* Parse decrypted sensitive area */
     if (rc == 0) {
-        rc = FwImportParseSensitive(plainSens, plainSensSz,
-            &sensType, &importedAuth,
+        rc = FwImportParseSensitive(plainSens + innerOff,
+            plainSensSz - innerOff, &sensType, &importedAuth,
+            &sensSeed, &sensSeedSz,
             &primeSz, primeBuf, (int)FWTPM_MAX_DER_SIG_BUF);
+        rc = FwRcAddIndex(rc, TPM_RC_P | TPM_RC_3);
     }
 
+    /* The seedValue is no larger than the nameAlg digest and, when a
+     * storage key has one, no smaller than half of it */
+    if (rc == 0) {
+        if ((int)sensSeedSz > objDigestSz) {
+            rc = TPM_RC_KEY_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+        else if (sensSeedSz != 0 && (int)sensSeedSz < objDigestSz / 2 &&
+                (objectPublic->publicArea.objectAttributes &
+                    TPMA_OBJECT_restricted) != 0 &&
+                (objectPublic->publicArea.objectAttributes &
+                    TPMA_OBJECT_decrypt) != 0) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_3;
+        }
+        else {
+            importedSeed.size = sensSeedSz;
+            XMEMCPY(importedSeed.buffer, sensSeed, sensSeedSz);
+        }
+    }
 
     /* Reconstruct private key from sensitive data */
-    if (rc == 0 && primeSz > 0) {
+    if (rc == 0 && (objectPublic->publicArea.type == TPM_ALG_KEYEDHASH ||
+            objectPublic->publicArea.type == TPM_ALG_SYMCIPHER)) {
+        rc = FwImportSymSensitive(&objectPublic->publicArea, sensType,
+            sensSeed, sensSeedSz, primeBuf, primeSz,
+            privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz);
+    }
+    else if (rc == 0 && primeSz > 0) {
         rc = FwImportReconstructKey(objectPublic, sensType,
             primeBuf, primeSz,
             privKeyDer, (int)FWTPM_MAX_PRIVKEY_DER, &privKeyDerSz, &ctx->rng);
     }
 
+    /* Trailing zeros of an authValue are not significant; a duplicate
+     * carries it padded to the nameAlg digest size. */
+    while (rc == 0 && importedAuth.size > 0 &&
+            importedAuth.buffer[importedAuth.size - 1] == 0) {
+        importedAuth.size--;
+    }
 
     /* Wrap private for output, bound to the imported object's Name */
     if (rc == 0) {
@@ -9141,7 +10189,8 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwComputePublicName(&objectPublic->publicArea, &childName);
         if (rc == 0) {
             rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName, sensType,
-                &importedAuth, privKeyDer, privKeyDerSz, outPrivate);
+                &importedAuth, privKeyDer, privKeyDerSz, &importedSeed,
+                outPrivate);
         }
     }
 
@@ -9158,6 +10207,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(hmacKeyBuf, sizeof(hmacKeyBuf));
     TPM2_ForceZero(encKeyBuf, sizeof(encKeyBuf));
     TPM2_ForceZero(&importedAuth, sizeof(importedAuth));
+    TPM2_ForceZero(&importedSeed, sizeof(importedSeed));
     FWTPM_FREE_BUF(dupBuf);
     FWTPM_FREE_BUF(symSeedBuf);
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
@@ -9167,7 +10217,6 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(plainSens);
     TPM2_ForceZero(primeBuf, FWTPM_MAX_DER_SIG_BUF);
     FWTPM_FREE_BUF(primeBuf);
-    FWTPM_FREE_VAR(innerHashCtx);
     FWTPM_FREE_VAR(objectPublic);
     FWTPM_FREE_VAR(outPrivate);
     return rc;
@@ -9196,18 +10245,24 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int seedSz = 0;
     FWTPM_DECLARE_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
     int encSeedSz = 0;
+    byte innerKey[32];
+    int innerKeySz = 0;
+    int innerDigestSz = 0;
+    int innerOff = 0;
+    int sensOff = 0;
+    int dataSz = 0;
 
     FWTPM_ALLOC_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
 
     TPM2_Packet_ParseU32(cmd, &objectHandle);
     TPM2_Packet_ParseU32(cmd, &newParentHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse encryptionKeyIn (TPM2B) - save for inner wrapping */
     TPM2_Packet_ParseU16(cmd, &encKeyInSz);
     if (encKeyInSz > sizeof(encKeyIn)) {
-        rc = TPM_RC_SIZE;
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
     }
     else if (cmd->pos + encKeyInSz > cmdSize) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -9245,19 +10300,40 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPMA_OBJECT_fixedParent)) {
         rc = TPM_RC_ATTRIBUTES;
     }
+    if (rc == 0) {
+        innerDigestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+        if (innerDigestSz <= 0) {
+            rc = TPM_RC_TYPE | TPM_RC_1;
+        }
+    }
     /* Per TPM 2.0 Part 3 Section 13.1: encryptedDuplication needs both an
-     * inner wrap and an outer wrap to a new parent. The outer-wrap path below
-     * does not also apply the inner wrap, so no new parent is accepted yet. */
+     * inner wrap and an outer wrap to a new parent. */
     if (rc == 0 && (obj->pub.objectAttributes &
         TPMA_OBJECT_encryptedDuplication)) {
         if (symAlg == TPM_ALG_NULL) {
-            rc = TPM_RC_SYMMETRIC;
+            rc = TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_2;
         }
         else if (newParentHandle == TPM_RH_NULL) {
             rc = TPM_RC_HIERARCHY | TPM_RC_2;
         }
-        else {
-            rc = TPM_RC_SYMMETRIC;
+    }
+    /* encryptionKeyIn is empty or the size of the inner wrap key */
+    if (rc == 0 && symAlg == TPM_ALG_NULL) {
+        if (encKeyInSz != 0) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+        }
+    }
+    else if (rc == 0) {
+        innerKeySz = symKeyBits / 8;
+        if (symAlg != TPM_ALG_AES) {
+            rc = TPM_RC_SYMMETRIC | TPM_RC_P | TPM_RC_2;
+        }
+        else if (symKeyBits != 128 && symKeyBits != 192 &&
+                symKeyBits != 256) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if (encKeyInSz != 0 && (int)encKeyInSz != innerKeySz) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -9269,316 +10345,64 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Wrap the object's private data for export */
+    /* Ensure object name is computed */
+    if (rc == 0 && obj->name.size == 0) {
+        FwComputeObjectName(obj);
+    }
+
+    /* The duplicate is built in place per TPM 2.0 Part 1 Section 23.3:
+     * [outer integrity] [inner integrity] TPM2B_SENSITIVE, each integrity
+     * a TPM2B_DIGEST present only when that wrap is applied. */
     if (rc == 0) {
         if (newParent != NULL) {
-            /* Outer wrapping under new parent per TPM 2.0 Part 1 Section 24:
-             * 1. Encrypt seed to newParent's public key → outSymSeed
-             * 2. KDFa(seed, "STORAGE") → AES key
-             * 3. KDFa(seed, "INTEGRITY") → HMAC key
-             * 4. AES-CFB encrypt sensitive, HMAC for integrity */
-            TPMI_ALG_HASH parentNameAlg = newParent->pub.nameAlg;
-            int digestSz = TPM2_GetHashDigestSize(parentNameAlg);
-            int symKeySz;
-            byte aesKey[FWTPM_MAX_SYM_KEY_SIZE];
-            byte hmacKey[FWTPM_MAX_HMAC_KEY_SIZE];
-            FWTPM_DECLARE_BUF(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
-            int sensSz = 0;
-            byte hmacDigest[FWTPM_MAX_HMAC_DIGEST_SIZE];
-            int outPos = 0;
-
-            FWTPM_ALLOC_BUF(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
-
-            if (digestSz <= 0) {
+            innerOff = TPM2_GetHashDigestSize(newParent->pub.nameAlg);
+            if (innerOff <= 0) {
                 rc = TPM_RC_HASH;
             }
-
-            /* Get parent's symmetric key size from its public template */
-            if (rc == 0) {
-                if (newParent->pub.type == TPM_ALG_RSA) {
-                    symKeySz = (int)(newParent->pub.parameters.rsaDetail
-                        .symmetric.keyBits.sym / 8);
-                }
-                else {
-                    symKeySz = (int)(newParent->pub.parameters.eccDetail
-                        .symmetric.keyBits.sym / 8);
-                }
-                if (symKeySz <= 0) {
-                    symKeySz = 16; /* default AES-128 */
-                }
-                if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
-                    rc = TPM_RC_SYMMETRIC;
-                }
-            }
-
-            /* Ensure object name is computed */
-            if (rc == 0 && obj->name.size == 0) {
-                FwComputeObjectName(obj);
-            }
-
-            /* Encrypt seed to newParent's public key */
-            if (rc == 0) {
-                rc = FwEncryptSeed(ctx, newParent,
-                    (const byte*)"DUPLICATE", 10, "DUPLICATE",
-                    seedBuf, (int)sizeof(seedBuf), &seedSz,
-                    encSeedBuf, FWTPM_MAX_PUB_BUF, &encSeedSz);
-            }
-
-            /* KDFa for AES wrap key */
-            if (rc == 0) {
-                rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                    "STORAGE",
-                    (const byte*)obj->name.name, obj->name.size,
-                    NULL, 0, aesKey, symKeySz);
-                if (rc != symKeySz) {
-                    rc = TPM_RC_FAILURE;
-                }
-                else {
-                    rc = 0;
-                }
-            }
-
-            /* KDFa for HMAC integrity key */
-            if (rc == 0) {
-                rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                    "INTEGRITY", NULL, 0, NULL, 0,
-                    hmacKey, digestSz);
-                if (rc != digestSz) {
-                    rc = TPM_RC_FAILURE;
-                }
-                else {
-                    rc = 0;
-                }
-            }
-
-            /* Extract raw sensitive component from DER key:
-             * RSA: prime p, ECC: private scalar d */
-            if (rc == 0) {
-                byte sensComp[FWTPM_MAX_DER_SIG_BUF];
-                int sensCompSz = 0;
-            #ifndef NO_RSA
-                if (obj->pub.type == TPM_ALG_RSA) {
-                    FWTPM_DECLARE_VAR(tmpRsa, RsaKey);
-                    FWTPM_ALLOC_VAR(tmpRsa, RsaKey);
-                    rc = FwImportRsaKeyFromDer(obj, tmpRsa);
-                    if (rc == 0) {
-                        word32 pSz = (word32)sizeof(sensComp);
-                        rc = mp_to_unsigned_bin(&tmpRsa->p, sensComp);
-                        if (rc == 0) {
-                            pSz = (word32)mp_unsigned_bin_size(&tmpRsa->p);
-                            sensCompSz = (int)pSz;
-                        }
-                        else {
-                            rc = TPM_RC_FAILURE;
-                        }
-                        wc_FreeRsaKey(tmpRsa);
-                    }
-                    else {
-                        rc = TPM_RC_KEY;
-                    }
-                    FWTPM_FREE_VAR(tmpRsa);
-                }
-                else
-            #endif
-            #ifdef HAVE_ECC
-                if (obj->pub.type == TPM_ALG_ECC) {
-                    FWTPM_DECLARE_VAR(tmpEcc, ecc_key);
-                    FWTPM_ALLOC_VAR(tmpEcc, ecc_key);
-                    if (rc == 0) {
-                        rc = FwImportEccKeyFromDer(obj, tmpEcc);
-                    }
-                    if (rc == 0) {
-                        word32 dSz = (word32)sizeof(sensComp);
-                        rc = wc_ecc_export_private_only(tmpEcc,
-                            sensComp, &dSz);
-                        if (rc == 0) {
-                            sensCompSz = (int)dSz;
-                        }
-                        else {
-                            rc = TPM_RC_FAILURE;
-                        }
-                        wc_ecc_free(tmpEcc);
-                    }
-                    else {
-                        rc = TPM_RC_KEY;
-                    }
-                    FWTPM_FREE_VAR(tmpEcc);
-                }
-                else
-            #endif
-                {
-                    rc = TPM_RC_KEY;
-                }
-
-                /* Marshal in standard TPM 2.0 format */
-                if (rc == 0) {
-                    sensSz = FwMarshalSensitiveStd(sensBuf,
-                        FWTPM_MAX_SENSITIVE_SIZE,
-                        obj->pub.type, &obj->authValue,
-                        sensComp, sensCompSz);
-                    if (sensSz < 0) {
-                        rc = TPM_RC_SIZE;
-                    }
-                }
-                TPM2_ForceZero(sensComp, sizeof(sensComp));
-            }
-
-            /* AES-CFB encrypt (zero IV) */
-            if (rc == 0) {
-                rc = TPM2_AesCfbEncrypt(aesKey, symKeySz,
-                    NULL, sensBuf, (word32)sensSz);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* HMAC(hmacKey, encSens || objectName) */
-            if (rc == 0) {
-                rc = TPM2_HmacCompute(parentNameAlg,
-                    hmacKey, (word32)digestSz,
-                    sensBuf, (word32)sensSz,
-                    (byte*)obj->name.name, obj->name.size,
-                    hmacDigest, NULL);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* Pack outPrivate: integritySize(2) + integrity + encSens */
-            if (rc == 0) {
-                FwStoreU16BE(outPrivate->buffer + outPos, (UINT16)digestSz);
-                outPos += 2;
-                XMEMCPY(outPrivate->buffer + outPos, hmacDigest, digestSz);
-                outPos += digestSz;
-                if (outPos + sensSz > (int)sizeof(outPrivate->buffer)) {
-                    rc = TPM_RC_SIZE;
-                }
-            }
-            if (rc == 0) {
-                XMEMCPY(outPrivate->buffer + outPos, sensBuf, sensSz);
-                outPos += sensSz;
-                outPrivate->size = (UINT16)outPos;
-            }
-
-            TPM2_ForceZero(seedBuf, sizeof(seedBuf));
-            TPM2_ForceZero(aesKey, sizeof(aesKey));
-            TPM2_ForceZero(hmacKey, sizeof(hmacKey));
-            TPM2_ForceZero(sensBuf, FWTPM_MAX_SENSITIVE_SIZE);
-            FWTPM_FREE_BUF(sensBuf);
+            innerOff += 2;
         }
-        else if (symAlg != TPM_ALG_NULL) {
-            /* Inner wrapping with AES-CFB + HMAC integrity per
-             * TPM 2.0 Part 3 Section 12.5 */
-            byte innerKey[32];
-            int innerKeySz = symKeyBits / 8;
-            FWTPM_DECLARE_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 64);
-            int sensSz;
-            byte innerHmac[TPM_SHA256_DIGEST_SIZE];
-            int innerHmacSz = TPM_SHA256_DIGEST_SIZE;
-            int outPos = 0;
-
-            FWTPM_ALLOC_BUF(sensBuf, FWTPM_MAX_PRIVKEY_DER + 64);
-
-            if (innerKeySz <= 0 || innerKeySz > (int)sizeof(innerKey)) {
-                rc = TPM_RC_KEY_SIZE;
-            }
-
-            /* Get or generate inner key */
-            if (rc == 0) {
-                if (encKeyInSz > 0) {
-                    XMEMCPY(innerKey, encKeyIn, encKeyInSz);
-                    innerKeySz = encKeyInSz;
-                }
-                else {
-                    rc = wc_RNG_GenerateBlock(&ctx->rng, innerKey,
-                        (word32)innerKeySz);
-                    /* Save generated key for response encryptionKeyOut */
-                    if (rc == 0) {
-                        XMEMCPY(encKeyIn, innerKey, innerKeySz);
-                    }
-                }
-            }
-
-            /* Marshal sensitive */
-            if (rc == 0) {
-                sensSz = FwMarshalSensitive(sensBuf,
-                    FWTPM_MAX_PRIVKEY_DER + 64,
-                    obj->pub.type, &obj->authValue,
-                    obj->privKey, obj->privKeySize);
-                if (sensSz < 0) {
-                    rc = TPM_RC_SIZE;
-                }
-            }
-
-            /* AES-CFB encrypt (zero IV) */
-            if (rc == 0) {
-                rc = TPM2_AesCfbEncrypt(innerKey, innerKeySz,
-                    NULL, sensBuf, (word32)sensSz);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* HMAC(innerKey, encSens || objectName) */
-            if (rc == 0) {
-                if (obj->name.size == 0) {
-                    FwComputeObjectName(obj);
-                }
-                rc = TPM2_HmacCompute(TPM_ALG_SHA256,
-                    innerKey, (word32)innerKeySz,
-                    sensBuf, (word32)sensSz,
-                    (byte*)obj->name.name, obj->name.size,
-                    innerHmac, NULL);
-                if (rc != 0)
-                    rc = TPM_RC_FAILURE;
-            }
-
-            /* Pack: integritySize(2) || integrity || encSens */
-            if (rc == 0) {
-                FwStoreU16BE(outPrivate->buffer + outPos, (UINT16)innerHmacSz);
-                outPos += 2;
-                XMEMCPY(outPrivate->buffer + outPos, innerHmac, innerHmacSz);
-                outPos += innerHmacSz;
-                if (outPos + sensSz > (int)sizeof(outPrivate->buffer)) {
-                    rc = TPM_RC_SIZE;
-                }
-            }
-            if (rc == 0) {
-                XMEMCPY(outPrivate->buffer + outPos, sensBuf, sensSz);
-                outPos += sensSz;
-                outPrivate->size = (UINT16)outPos;
-            }
-
-            TPM2_ForceZero(innerKey, sizeof(innerKey));
-            TPM2_ForceZero(sensBuf, FWTPM_MAX_PRIVKEY_DER + 64);
-            FWTPM_FREE_BUF(sensBuf);
+        sensOff = innerOff;
+        if (symAlg != TPM_ALG_NULL) {
+            sensOff += 2 + innerDigestSz;
         }
-        else {
-            /* symAlg == NULL and newParent == NULL: output plaintext
-             * sensitive (no wrapping) */
-            int pos = 0;
-            if (obj->privKeySize + 6 + (int)obj->authValue.size >
-                (int)sizeof(outPrivate->buffer)) {
-                rc = TPM_RC_SIZE;
-            }
-            if (rc == 0) {
-                FwStoreU16BE(outPrivate->buffer + pos, obj->pub.type);
-                pos += 2;
-                FwStoreU16BE(outPrivate->buffer + pos, obj->authValue.size);
-                pos += 2;
-                if (obj->authValue.size > 0) {
-                    XMEMCPY(outPrivate->buffer + pos,
-                        obj->authValue.buffer, obj->authValue.size);
-                    pos += obj->authValue.size;
-                }
-                FwStoreU16BE(outPrivate->buffer + pos,
-                    (UINT16)obj->privKeySize);
-                pos += 2;
-                if (obj->privKeySize > 0) {
-                    XMEMCPY(outPrivate->buffer + pos, obj->privKey,
-                        obj->privKeySize);
-                    pos += obj->privKeySize;
-                }
-                outPrivate->size = (UINT16)pos;
-            }
+    }
+    if (rc == 0) {
+        rc = FwDupMarshalSensitive(obj, outPrivate->buffer + sensOff,
+            (int)sizeof(outPrivate->buffer) - sensOff, &dataSz);
+    }
+
+    /* Inner wrap with the caller's key or one generated here */
+    if (rc == 0 && symAlg != TPM_ALG_NULL) {
+        if (encKeyInSz > 0) {
+            XMEMCPY(innerKey, encKeyIn, encKeyInSz);
         }
+        else if (wc_RNG_GenerateBlock(&ctx->rng, innerKey,
+                (word32)innerKeySz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        if (rc == 0) {
+            rc = FwDupInnerWrap(obj->pub.nameAlg,
+                (const byte*)obj->name.name, obj->name.size,
+                innerKey, innerKeySz, outPrivate->buffer + innerOff, dataSz);
+            dataSz += 2 + innerDigestSz;
+        }
+    }
+
+    /* Outer wrap: the seed is encrypted to newParent's public key */
+    if (rc == 0 && newParent != NULL) {
+        rc = FwEncryptSeed(ctx, newParent,
+            (const byte*)"DUPLICATE", 10, "DUPLICATE",
+            seedBuf, (int)sizeof(seedBuf), &seedSz,
+            encSeedBuf, FWTPM_MAX_PUB_BUF, &encSeedSz);
+        if (rc == 0) {
+            rc = FwDupOuterWrap(newParent, seedBuf, seedSz,
+                (const byte*)obj->name.name, obj->name.size,
+                outPrivate->buffer, dataSz);
+            dataSz += innerOff;
+        }
+    }
+    if (rc == 0) {
+        outPrivate->size = (UINT16)dataSz;
     }
 
     if (rc == 0) {
@@ -9591,11 +10415,9 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
         /* encryptionKeyOut (TPM2B) - return generated key if we made one */
-        if (newParentHandle == TPM_RH_NULL && symAlg != TPM_ALG_NULL &&
-            encKeyInSz == 0) {
-            int innerKeySz2 = symKeyBits / 8;
-            TPM2_Packet_AppendU16(rsp, (UINT16)innerKeySz2);
-            TPM2_Packet_AppendBytes(rsp, encKeyIn, innerKeySz2);
+        if (symAlg != TPM_ALG_NULL && encKeyInSz == 0) {
+            TPM2_Packet_AppendU16(rsp, (UINT16)innerKeySz);
+            TPM2_Packet_AppendBytes(rsp, innerKey, innerKeySz);
         }
         else {
             TPM2_Packet_AppendU16(rsp, 0);
@@ -9620,9 +10442,10 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     TPM2_ForceZero(encKeyIn, sizeof(encKeyIn));
-    /* outPrivate is the encrypted/HMAC-protected blob — no zero needed. */
+    TPM2_ForceZero(innerKey, sizeof(innerKey));
     TPM2_ForceZero(seedBuf, sizeof(seedBuf));
     FWTPM_FREE_BUF(encSeedBuf);
+    TPM2_ForceZero(outPrivate, sizeof(*outPrivate));
     FWTPM_FREE_VAR(outPrivate);
     return rc;
 }
@@ -9666,7 +10489,7 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse handles */
     TPM2_Packet_ParseU32(cmd, &oldParentH);
     TPM2_Packet_ParseU32(cmd, &newParentH);
-    if (cmdTag == TPM_ST_SESSIONS)
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS)
         rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse inDuplicate (TPM2B) */
@@ -9799,23 +10622,10 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* === Re-wrap under newParent === */
     if (rc == 0 && newParent != NULL) {
-        TPMI_ALG_HASH parentNameAlg = newParent->pub.nameAlg;
-        int symKeySz, digestSz;
+        int digestSz;
         int encSeedSz = 0;
-        byte hmacDigest[TPM_MAX_DIGEST_SIZE];
-        int outPos = 0;
 
-        if (newParent->pub.type == TPM_ALG_RSA) {
-            symKeySz = (int)(newParent->pub.parameters.rsaDetail.symmetric.keyBits.sym / 8);
-        }
-        else {
-            symKeySz = (int)(newParent->pub.parameters.eccDetail.symmetric.keyBits.sym / 8);
-        }
-        if (symKeySz <= 0) symKeySz = 16;
-        if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
-            rc = TPM_RC_SYMMETRIC;
-        }
-        digestSz = TPM2_GetHashDigestSize(parentNameAlg);
+        digestSz = TPM2_GetHashDigestSize(newParent->pub.nameAlg);
         if (digestSz <= 0)
             rc = TPM_RC_HASH;
 
@@ -9826,48 +10636,17 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 seedBuf, (int)sizeof(seedBuf), &seedSz,
                 encSeedBuf, (int)FWTPM_MAX_PUB_BUF, &encSeedSz);
         }
-        /* Derive new AES + HMAC keys */
-        if (rc == 0) {
-            rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                "STORAGE", nameBuf, nameSz, NULL, 0, aesKey, symKeySz);
-            rc = (rc == symKeySz) ? 0 : TPM_RC_FAILURE;
-        }
-        if (rc == 0) {
-            rc = TPM2_KDFa_ex(parentNameAlg, seedBuf, seedSz,
-                "INTEGRITY", NULL, 0, NULL, 0, hmacKeyBuf, digestSz);
-            rc = (rc == digestSz) ? 0 : TPM_RC_FAILURE;
-        }
-        /* AES-CFB encrypt plainSens */
-        if (rc == 0) {
-            rc = TPM2_AesCfbEncrypt(aesKey, symKeySz,
-                NULL, plainSens, (word32)plainSensSz);
-            if (rc != 0)
-                rc = TPM_RC_FAILURE;
-        }
-        /* HMAC(hmacKey, encSens || name) */
-        if (rc == 0) {
-            rc = TPM2_HmacCompute(parentNameAlg,
-                hmacKeyBuf, (word32)digestSz,
-                plainSens, (word32)plainSensSz,
-                (nameSz > 0) ? nameBuf : NULL, (word32)nameSz,
-                hmacDigest, NULL);
-            if (rc != 0)
-                rc = TPM_RC_FAILURE;
-        }
-        /* Pack outDuplicate: integritySize(2) || integrity || encSens */
+        /* outDuplicate: integritySize(2) || integrity || encSens */
         if (rc == 0) {
             if (2 + digestSz + plainSensSz > (int)(FWTPM_MAX_PRIVKEY_DER + 256)) {
                 rc = TPM_RC_SIZE;
             }
         }
         if (rc == 0) {
-            FwStoreU16BE(dupBuf + outPos, (UINT16)digestSz);
-            outPos += 2;
-            XMEMCPY(dupBuf + outPos, hmacDigest, digestSz);
-            outPos += digestSz;
-            XMEMCPY(dupBuf + outPos, plainSens, plainSensSz);
-            outPos += plainSensSz;
-            dupSz = (UINT16)outPos;
+            XMEMCPY(dupBuf + 2 + digestSz, plainSens, plainSensSz);
+            dupSz = (UINT16)(2 + digestSz + plainSensSz);
+            rc = FwDupOuterWrap(newParent, seedBuf, seedSz, nameBuf, nameSz,
+                dupBuf, plainSensSz);
         }
 
         /* Build response: outDuplicate(TPM2B) + outSymSeed(TPM2B) */
@@ -9881,11 +10660,10 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         TPM2_ForceZero(seedBuf, sizeof(seedBuf));
-        TPM2_ForceZero(aesKey, sizeof(aesKey));
-        TPM2_ForceZero(hmacKeyBuf, sizeof(hmacKeyBuf));
     }
 
     TPM2_ForceZero(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
+    TPM2_ForceZero(dupBuf, FWTPM_MAX_PRIVKEY_DER + 256);
     FWTPM_FREE_BUF(dupBuf);
     FWTPM_FREE_BUF(symSeedBuf);
     FWTPM_FREE_BUF(plainSens);
@@ -9916,6 +10694,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramSzPos = 0;
     int paramStart = 0;
     FWTPM_DECLARE_VAR(outPub, TPM2B_PUBLIC);
+    TPM2B_DIGEST seedValue;
 
     FWTPM_CALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_CALLOC_BUF(sensData, FWTPM_MAX_DATA_BUF);
@@ -9923,6 +10702,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
     FWTPM_CALLOC_VAR(outPub, TPM2B_PUBLIC);
     XMEMSET(&userAuth, 0, sizeof(userAuth));
+    XMEMSET(&seedValue, 0, sizeof(seedValue));
 
     (void)ret;
 
@@ -9952,6 +10732,10 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             sensData, (int)FWTPM_SIZEOF_BUF(sensData, FWTPM_MAX_DATA_BUF),
             &sensDataSize);
     }
+    /* A TPM2B_SENSITIVE_DATA holds at most MAX_SYM_DATA octets */
+    if (rc == 0 && sensDataSize > MAX_SYM_DATA) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
+    }
 
     /* Parse inPublic (TPM2B_TEMPLATE = TPM2B_PUBLIC) */
     if (rc == 0) {
@@ -9969,12 +10753,8 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif /* WOLFTPM_V185 */
 
-    /* userAuth must not exceed the object nameAlg digest size */
-    if (rc == 0 && userAuth.size > 0) {
-        int digestSz = TPM2_GetHashDigestSize(inPublic->publicArea.nameAlg);
-        if (digestSz > 0 && (int)userAuth.size > digestSz) {
-            rc = TPM_RC_SIZE;
-        }
+    if (rc == 0) {
+        rc = FwCheckCreateAuthSize(&userAuth, inPublic->publicArea.nameAlg);
     }
 
     /* Note: CreateLoaded does NOT include outsideInfo or creationPCR
@@ -10102,8 +10882,12 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
-                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
+                    }
+                    if (rc == 0) {
+                        rc = FwCheckCreateKeyedHashSize(
+                            &inPublic->publicArea, sensDataSize);
                     }
                     if (rc == 0) {
                         XMEMCPY(privKeyDer, sensData, sensDataSize);
@@ -10119,13 +10903,6 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     else {
                         privKeyDerSz = keySz;
                     }
-                }
-
-                if (rc == 0) {
-                    inPublic->publicArea.unique.keyedHash.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, privKeyDerSz,
-                            inPublic->publicArea.unique.keyedHash.buffer);
                 }
                 break;
             }
@@ -10139,8 +10916,8 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
-                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
-                        rc = TPM_RC_SIZE;
+                    if ((int)sensDataSize != keySz) {
+                        rc = TPM_RC_KEY_SIZE;
                     }
                     if (rc == 0) {
                         XMEMCPY(privKeyDer, sensData, sensDataSize);
@@ -10157,19 +10934,17 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         privKeyDerSz = keySz;
                     }
                 }
-
-                if (rc == 0) {
-                    inPublic->publicArea.unique.sym.size = (UINT16)
-                        FwComputeUniqueHash(inPublic->publicArea.nameAlg,
-                            privKeyDer, keySz,
-                            inPublic->publicArea.unique.sym.buffer);
-                }
                 break;
             }
             default:
                 rc = TPM_RC_TYPE;
                 break;
         }
+    }
+
+    if (rc == 0) {
+        rc = FwCreateSeedValue(ctx, &inPublic->publicArea, privKeyDer,
+            privKeyDerSz, &seedValue);
     }
 
     /* Wrap private key, bound to the child's Name */
@@ -10179,7 +10954,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) {
             rc = FwWrapPrivate(ctx, parent, &ctx->rng, &childName,
                 inPublic->publicArea.type, &userAuth,
-                privKeyDer, privKeyDerSz, outPrivate);
+                privKeyDer, privKeyDerSz, &seedValue, outPrivate);
         }
     }
 
@@ -10196,9 +10971,14 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(obj->privKey, privKeyDer, (size_t)privKeyDerSz);
         obj->privKeySize = privKeyDerSz;
         XMEMCPY(&obj->authValue, &userAuth, sizeof(TPM2B_AUTH));
+        XMEMCPY(&obj->seedValue, &seedValue, sizeof(TPM2B_DIGEST));
         obj->hierarchy = parent->hierarchy;
 
         rc = FwComputeObjectName(obj);
+    }
+    if (rc == 0) {
+        rc = FwComputeQualifiedName(obj, parent, 0, 0,
+            &obj->qualifiedName);
     }
 
     /* --- Build response --- */
@@ -10234,6 +11014,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(sensData);
     /* outPrivate is the wrapped (HMAC-protected) private blob, not raw key
      * material — XFREE alone is sufficient. */
+    TPM2_ForceZero(&seedValue, sizeof(seedValue));
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     FWTPM_FREE_VAR(inPublic);
@@ -10343,8 +11124,13 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Part 3 Sec.20.2: an inScheme has to agree with the scheme and hash
+     * of a key that has them, and a key that has none needs an inScheme */
+    if (rc == 0 && FwCheckSignScheme(obj, sigScheme, sigHashAlg) != 0) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
     if (rc == 0) {
-        /* Use key's scheme if command scheme is NULL */
+        /* A NULL inScheme takes the key's scheme */
         FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
     }
     /* Part 3 Sec.20.2.1: digest size MUST match the scheme hashAlg digest
@@ -11017,6 +11803,7 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int digestSz = 0;
     FWTPM_Object* obj;
     FWTPM_DECLARE_VAR(hmac, Hmac);
+    int hmacInit = 0;
     int wcHashType = WC_HASH_TYPE_NONE;
     int paramSzPos, paramStart;
     enum wc_HashType ht;
@@ -11111,6 +11898,12 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* For KEYEDHASH objects the HMAC key is in privKey. */
     if (rc == 0) {
+        rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            hmacInit = 1;
+        }
+    }
+    if (rc == 0) {
         rc = wc_HmacSetKey(hmac, wcHashType,
             obj->privKey, (word32)obj->privKeySize);
     }
@@ -11138,6 +11931,9 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
+    if (hmacInit) {
+        wc_HmacFree(hmac);
+    }
     TPM2_ForceZero(digest, sizeof(digest));
     FWTPM_FREE_BUF(dataBuf);
     FWTPM_FREE_VAR(hmac);
@@ -11311,8 +12107,11 @@ static TPM_RC FwCmd_HMAC_Start(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* Initialize HMAC with the KEYEDHASH key material */
         if (rc == 0) {
-            rc = wc_HmacSetKey(&seq->ctx.hmac, wcHashType,
-                seq->hmacKey, seq->hmacKeySz);
+            rc = wc_HmacInit(&seq->ctx.hmac, NULL, INVALID_DEVID);
+            if (rc == 0) {
+                rc = wc_HmacSetKey(&seq->ctx.hmac, wcHashType,
+                    seq->hmacKey, seq->hmacKeySz);
+            }
             if (rc != 0) {
                 rc = TPM_RC_FAILURE;
             }
@@ -11352,13 +12151,17 @@ static TPM_RC FwCmd_HashSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT8 eventBanks = 0;
     int bank;
 
-    (void)cmdSize;
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
 
     /* Parse auth (TPM2B_AUTH) */
     XMEMSET(&auth, 0, sizeof(auth));
-    TPM2_Packet_ParseU16(cmd, &authSize);
-    if (authSize > sizeof(auth.buffer)) {
-        rc = TPM_RC_SIZE;
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &authSize);
+        if (authSize > sizeof(auth.buffer)) {
+            rc = TPM_RC_SIZE;
+        }
     }
     if (rc == 0) {
         auth.size = authSize;
@@ -12266,12 +13069,10 @@ static TPM_RC FwCmd_ECDH_ZGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        rc = wc_ecc_import_unsigned(peerPub,
-            inPoint->point.x.buffer, inPoint->point.y.buffer,
-            NULL, wcCurve);
-        if (rc != 0) {
-            rc = TPM_RC_FAILURE;
-        }
+        rc = FwEccImportUnsigned(peerPub,
+            inPoint->point.x.buffer, inPoint->point.x.size,
+            inPoint->point.y.buffer, inPoint->point.y.size,
+            NULL, 0, wcCurve);
     }
     /* Validate peer point is on the expected curve (invalid curve attack) */
     if (rc == 0) {
@@ -12895,7 +13696,7 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* A session-tagged command with no auth handles still carries an auth
      * area between the handles and parameters; skip it before parsing */
-    if (cmdTag == TPM_ST_SESSIONS) {
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
         rc = FwSkipAuthArea(cmd, cmdSize);
     }
 
@@ -13010,6 +13811,12 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* encryptedSalt is an Empty Buffer without a tpmKey (Part 3
+     * Sec.11.1.1) */
+    if (rc == 0 && tpmKey == TPM_RH_NULL && encSaltSize != 0) {
+        rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+    }
+
     /* If tpmKey is specified, decrypt the encrypted salt */
     if (rc == 0 && tpmKey != TPM_RH_NULL) {
         FWTPM_Object* keyObj = FwFindObject(ctx, tpmKey);
@@ -13025,7 +13832,7 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_ATTRIBUTES;
         }
         else if (encSaltSize == 0) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
         }
         if (rc == 0) {
             rc = FwDecryptSeed(ctx, keyObj,
@@ -13033,8 +13840,14 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 (const byte*)"SECRET", 7, "SECRET",
                 salt, (int)sizeof(salt), &saltSize);
             if (rc != 0 && rc != TPM_RC_KEY) {
-                rc = TPM_RC_VALUE;
+                rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
             }
+        }
+        /* An RSA salt is no larger than the digest of the tpmKey nameAlg
+         * (Part 3 Sec.11.1.1) */
+        if (rc == 0 && keyObj->pub.type == TPM_ALG_RSA &&
+                saltSize > TPM2_GetHashDigestSize(keyObj->pub.nameAlg)) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
         }
     }
 
@@ -13317,7 +14130,7 @@ static TPM_RC FwCmd_PolicyPCR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &sessHandle);
 
     /* Skip auth area if present */
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse pcrDigest (TPM2B) */
     if (rc == 0) {
@@ -13619,7 +14432,8 @@ static FWTPM_Session* FwPolicyParseSession(FWTPM_CTX* ctx,
 }
 
 /* --- TPM2_PolicyPassword (CC 0x018C) --- */
-/* policyDigest = H(policyDigest || TPM_CC_PolicyPassword) */
+/* policyDigest = H(policyDigest || TPM_CC_PolicyAuthValue), the same digest
+ * as PolicyAuthValue (Part 3 Sec.23.18) */
 static TPM_RC FwCmd_PolicyPassword(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -13640,7 +14454,7 @@ static TPM_RC FwCmd_PolicyPassword(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PolicyPassword(session=0x%x)\n", sess->handle);
     #endif
-        if (FwPolicyExtend(sess, TPM_CC_PolicyPassword, NULL, 0,
+        if (FwPolicyExtend(sess, TPM_CC_PolicyAuthValue, NULL, 0,
                 NULL, 0, 0) != 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -13765,7 +14579,7 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
     TPM2_Packet_ParseU32(cmd, &sessHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &digestCount);
@@ -13773,7 +14587,7 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_COMMAND_SIZE;
         }
         else if (digestCount < 2 || digestCount > 8) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
     if (rc == 0) {
@@ -13788,15 +14602,14 @@ static TPM_RC FwCmd_PolicyOR(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_AUTH_TYPE;
         }
     }
-    /* Per TPM 2.0 Part 3 Section 23.5: each digest must be the size of
-     * the session's hash algorithm digest */
+    /* Per TPM 2.0 Part 3 Section 23.6: a digest of another size is not an
+     * error, it only cannot match policyDigest */
     if (rc == 0) {
-        dSz = TPM2_GetHashDigestSize(sess->authHash);
         for (i = 0; i < (int)digestCount; i++) {
             rc = FwPolicyParseTpm2b(cmd, cmdSize, digests[i],
                 (UINT16)sizeof(digests[i]), &digestSizes[i]);
-            if (rc == 0 && digestSizes[i] != (UINT16)dSz) {
-                rc = TPM_RC_SIZE;
+            if (rc == TPM_RC_SIZE) {
+                rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
             }
             if (rc != 0) {
                 break;
@@ -13959,7 +14772,7 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (nonceTpmSz != sess->nonceTPM.size ||
                 TPM2_ConstantCompare(nonceTpmBuf, sess->nonceTPM.buffer,
                     nonceTpmSz) != 0) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_NONCE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -14610,6 +15423,7 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT64 wireTimeout = 0;
     UINT64 now = 0;
     UINT32 ticketHierarchy = TPM_RH_NULL;
+    UINT16 aHashAlg = TPM_ALG_NULL;
     int entityNameSz = 0;
     int ticketDataSz = 0;
     int ticketHmacSz = 0;
@@ -14687,7 +15501,7 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (nonceTpmSz != sess->nonceTPM.size ||
                 TPM2_ConstantCompare(nonceBuf, sess->nonceTPM.buffer,
                     nonceTpmSz) != 0) {
-            rc = TPM_RC_VALUE;
+            rc = TPM_RC_NONCE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -14717,14 +15531,31 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_SIZE;
     }
 
+    /* aHash uses the hash of the signature, which need not be the session
+     * hash (Part 3 Sec.23.3). A signature that carries no hash keeps the
+     * session hash. */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        aHashAlg = sess->authHash;
+        if (sig.sigAlg == TPM_ALG_RSASSA || sig.sigAlg == TPM_ALG_RSAPSS ||
+                sig.sigAlg == TPM_ALG_ECDSA || sig.sigAlg == TPM_ALG_SM2 ||
+                sig.sigAlg == TPM_ALG_ECSCHNORR ||
+                sig.sigAlg == TPM_ALG_HMAC) {
+            aHashAlg = sig.signature.any.hashAlg;
+        }
+        if (FwGetWcHashType(aHashAlg) == WC_HASH_TYPE_NONE ||
+                TPM2_GetHashDigestSize(aHashAlg) <= 0) {
+            rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_5;
+        }
+    }
+
     /* For policy sessions (not trial): verify signature per TPM 2.0 Part 3
      * Section 23.3. Compute aHash = H(nonceTPM || expiration || cpHashA ||
      * policyRef), then verify signature against aHash using authObject's
      * public key. */
     if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
         FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
-        enum wc_HashType wcHash = FwGetWcHashType(sess->authHash);
-        int dSz = TPM2_GetHashDigestSize(sess->authHash);
+        enum wc_HashType wcHash = FwGetWcHashType(aHashAlg);
+        int dSz = TPM2_GetHashDigestSize(aHashAlg);
         byte aHash[TPM_MAX_DIGEST_SIZE];
         byte expBuf[4];
         int hrc;
@@ -14896,7 +15727,7 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &sessHandle);
 
     /* Skip auth area */
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     /* Parse operandB (TPM2B) */
     TPM2_Packet_ParseU16(cmd, &operandBSz);
@@ -14929,15 +15760,6 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Verify caller is authorized to read the NV index */
-    if (rc == 0) {
-        rc = FwNvCheckAccess(authHandle, nvIndex,
-            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
-    }
-    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
-
     /* Find policy session */
     if (rc == 0) {
         sess = FwFindSession(ctx, sessHandle);
@@ -14959,17 +15781,24 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Validate range */
-    if (rc == 0) {
-        if ((UINT32)offset + operandBSz > nv->nvPublic.dataSize) {
-            rc = TPM_RC_NV_RANGE;
-        }
+    /* A trial session only updates policyDigest, so read access, the index
+     * state and the range are not validated for it (Part 3 Sec.23.9) */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        rc = FwNvCheckAccess(authHandle, nvIndex,
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
-
-    /* NV must have been written */
-    if (rc == 0) {
-        if (!nv->written) {
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        if (nv->nvPublic.attributes & TPMA_NV_READLOCKED) {
+            rc = TPM_RC_NV_LOCKED;
+        }
+        else if (!nv->written) {
             rc = TPM_RC_NV_UNINITIALIZED;
+        }
+        else if (offset > nv->nvPublic.dataSize) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if (operandBSz > nv->nvPublic.dataSize - offset) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -15452,9 +16281,6 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     UINT16 nameHashSz = 0;
     byte nameHashBuf[TPM_MAX_DIGEST_SIZE];
-    int sizeMismatch;
-    int nameDiff;
-    word32 cmpSz;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
     if (sess == NULL) {
@@ -15475,22 +16301,12 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* cpHash, nameHash, templateHash and paramHash share one slot */
-        if (sess->cpHashA.size > 0 || sess->templateHash.size > 0 ||
-                sess->paramHash.size > 0) {
+        /* cpHash, nameHash, templateHash and paramHash share one slot.
+         * Unlike PolicyCpHash, a repeat of the same nameHash is refused
+         * (Part 3 Sec.23.14). */
+        if (sess->cpHashA.size > 0 || sess->nameHash.size > 0 ||
+                sess->templateHash.size > 0 || sess->paramHash.size > 0) {
             rc = TPM_RC_CPHASH;
-        }
-        /* If nameHash already set, must be identical — always run
-         * TPM2_ConstantCompare so timing doesn't leak size match */
-        else if (sess->nameHash.size > 0) {
-            sizeMismatch = (sess->nameHash.size != nameHashSz);
-            cmpSz = (sess->nameHash.size < nameHashSz) ?
-                sess->nameHash.size : nameHashSz;
-            nameDiff = TPM2_ConstantCompare(sess->nameHash.buffer, nameHashBuf,
-                cmpSz);
-            if (sizeMismatch | nameDiff) {
-                rc = TPM_RC_CPHASH;
-            }
         }
     }
     if (rc == 0) {
@@ -15720,7 +16536,10 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwStoreU32BE(timeInfo + p, ctx->restartCount); p += 4;
         timeInfo[p++] = (byte)ctx->clockSafe;
 
-        if ((UINT32)offset + operandBSz > (UINT32)p) {
+        if ((UINT32)offset > (UINT32)p) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if ((UINT32)offset + operandBSz > (UINT32)p) {
             rc = TPM_RC_RANGE;
         }
     }
@@ -16472,10 +17291,8 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte ccBuf[4];
     UINT32 cc = TPM_CC_PolicyAuthorizeNV;
     int hashInit = 0;
-    int nvSizeMismatch;
-    int sessSizeMismatch;
-    int policyDiff;
-    word32 policyCmpSz;
+    UINT16 nvHashAlg;
+    int nvHashSz;
 
     (void)cmdSize;
 
@@ -16484,25 +17301,12 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &authHandle);
     TPM2_Packet_ParseU32(cmd, &nvHandle);
     TPM2_Packet_ParseU32(cmd, &sessHandle);
-    if (cmdTag == TPM_ST_SESSIONS)
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS)
         rc = FwSkipAuthArea(cmd, cmdSize);
 
     nv = FwFindNvIndex(ctx, nvHandle);
     if (nv == NULL) {
         rc = FW_NV_HANDLE_ERR_2;
-    }
-
-    /* Verify caller is authorized to read the NV index */
-    if (rc == 0) {
-        rc = FwNvCheckAccess(authHandle, nvHandle,
-            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
-    }
-    if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_READLOCKED)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
-
-    if (rc == 0 && !nv->written) {
-        rc = TPM_RC_NV_UNINITIALIZED;
     }
 
     sess = FwFindSession(ctx, sessHandle);
@@ -16520,20 +17324,45 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HASH;
     }
 
-    /* For policy sessions (not trial): verify policyDigest == NV data.
-     * Always run TPM2_ConstantCompare over min(sizes) so timing doesn't
-     * leak size match. */
+    /* A trial session only updates policyDigest, so read access and the
+     * index state are not validated for it (Part 3 Sec.23.22) */
     if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
-        nvSizeMismatch = ((int)nv->nvPublic.dataSize != dSz);
-        sessSizeMismatch = ((int)sess->policyDigest.size != dSz);
-        policyCmpSz = (sess->policyDigest.size < nv->nvPublic.dataSize) ?
-            sess->policyDigest.size : nv->nvPublic.dataSize;
-        if (policyCmpSz > (word32)dSz)
-            policyCmpSz = (word32)dSz;
-        policyDiff = TPM2_ConstantCompare(sess->policyDigest.buffer,
-            nv->data, policyCmpSz);
-        if (nvSizeMismatch | sessSizeMismatch | policyDiff) {
-            rc = TPM_RC_POLICY_FAIL;
+        rc = FwNvCheckAccess(authHandle, nvHandle,
+            nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
+    }
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        if (nv->nvPublic.attributes & TPMA_NV_READLOCKED) {
+            rc = TPM_RC_NV_LOCKED;
+        }
+        else if (!nv->written) {
+            rc = TPM_RC_NV_UNINITIALIZED;
+        }
+    }
+
+    /* For policy sessions (not trial): the index holds a TPMT_HA, the
+     * session hash algorithm then the approved policyDigest. Octets after
+     * it are ignored (Part 3 Sec.23.22). */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        if (nv->nvPublic.dataSize < sizeof(UINT16)) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+    }
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        nvHashAlg = FwLoadU16BE(nv->data);
+        nvHashSz = TPM2_GetHashDigestSize(nvHashAlg);
+        if (nvHashSz <= 0) {
+            rc = TPM_RC_HASH;
+        }
+        else if ((int)nv->nvPublic.dataSize < (int)sizeof(UINT16) + nvHashSz) {
+            rc = TPM_RC_INSUFFICIENT;
+        }
+        else if (nvHashAlg != sess->authHash) {
+            rc = TPM_RC_HASH;
+        }
+        else if ((int)sess->policyDigest.size != dSz ||
+                TPM2_ConstantCompare(sess->policyDigest.buffer,
+                    nv->data + sizeof(UINT16), (word32)dSz) != 0) {
+            rc = TPM_RC_VALUE;
         }
     }
 
@@ -16542,10 +17371,6 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         printf("fwTPM: PolicyAuthorizeNV(auth=0x%x, nv=0x%x, sess=0x%x)\n",
             authHandle, nvHandle, sessHandle);
     #endif
-        /* Step 1: Reset policyDigest to zero */
-        XMEMSET(sess->policyDigest.buffer, 0, dSz);
-        sess->policyDigest.size = (UINT16)dSz;
-
         /* Compute nvIndexName */
         FwComputeNvName(nv, nvName, &nvNameSz);
 
@@ -16558,6 +17383,10 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             hashInit = 1;
         }
         if (rc == 0) {
+            /* Step 1: Reset policyDigest to zero */
+            XMEMSET(sess->policyDigest.buffer, 0, dSz);
+            sess->policyDigest.size = (UINT16)dSz;
+
             wc_HashUpdate(hashCtx, wcHash,
                 sess->policyDigest.buffer, sess->policyDigest.size);
             FwStoreU32BE(ccBuf, cc);
@@ -16655,8 +17484,6 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
         else if (authHandle == TPM_RH_OWNER) {
             if (!(attributes & TPMA_NV_OWNERWRITE))
                 return TPM_RC_NV_AUTHORIZATION;
-            if (attributes & TPMA_NV_PLATFORMCREATE)
-                return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
             UINT32 requiredAttr = authIsPolicy ?
@@ -16675,8 +17502,6 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
         }
         else if (authHandle == TPM_RH_OWNER) {
             if (!(attributes & TPMA_NV_OWNERREAD))
-                return TPM_RC_NV_AUTHORIZATION;
-            if (attributes & TPMA_NV_PLATFORMCREATE)
                 return TPM_RC_NV_AUTHORIZATION;
         }
         else if (authHandle == (TPM_HANDLE)nvHandle) {
@@ -16786,6 +17611,19 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* nvIndex and nameAlg are checked as the public area unmarshals, ahead
+     * of every check on what was unmarshaled */
+    if (rc == 0) {
+        UINT32 nvIdx = publicInfo.nvPublic.nvIndex;
+        if (nvIdx < NV_INDEX_FIRST || nvIdx > NV_INDEX_LAST) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        /* nameAlg is a TPMI_ALG_HASH, so TPM_ALG_NULL is not allowed */
+        else if (TPM2_GetHashDigestSize(publicInfo.nvPublic.nameAlg) <= 0) {
+            rc = TPM_RC_HASH | TPM_RC_P | TPM_RC_2;
+        }
+    }
+
     /* A platform NV index cannot be created while phEnableNV is clear, even
      * though the new index handle is not yet in the handle area for the
      * generic disabled-hierarchy gate (TPM 2.0 Part 3 Sec.31.3). */
@@ -16829,11 +17667,14 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Validate NV index handle range */
+    /* auth, less trailing zeros, must fit the nameAlg digest size */
     if (rc == 0) {
-        UINT32 nvIdx = publicInfo.nvPublic.nvIndex;
-        if (nvIdx < NV_INDEX_FIRST || nvIdx > NV_INDEX_LAST) {
-            rc = TPM_RC_NV_RANGE;
+        while (auth.size > 0 && auth.buffer[auth.size - 1] == 0) {
+            auth.size--;
+        }
+        if ((int)auth.size >
+                TPM2_GetHashDigestSize(publicInfo.nvPublic.nameAlg)) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
     }
 
@@ -16856,6 +17697,24 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* TPM 2.0 Part 3 Sec.31.3: an index is defined unwritten and unlocked,
+     * with some way to read it and some way to write it. CLEAR_STCLEAR
+     * cannot be combined with a counter or with WRITEDEFINE. */
+    if (rc == 0) {
+        UINT32 attrs = publicInfo.nvPublic.attributes;
+        if ((attrs & (TPMA_NV_WRITTEN | TPMA_NV_WRITELOCKED |
+                TPMA_NV_READLOCKED)) != 0 ||
+            (attrs & (TPMA_NV_PPREAD | TPMA_NV_OWNERREAD |
+                TPMA_NV_AUTHREAD | TPMA_NV_POLICYREAD)) == 0 ||
+            (attrs & (TPMA_NV_PPWRITE | TPMA_NV_OWNERWRITE |
+                TPMA_NV_AUTHWRITE | TPMA_NV_POLICYWRITE)) == 0 ||
+            ((attrs & TPMA_NV_CLEAR_STCLEAR) != 0 &&
+                ((attrs & TPMA_NV_WRITEDEFINE) != 0 ||
+                 ((attrs & TPMA_NV_TPM_NT) >> 4) == TPM_NT_COUNTER))) {
+            rc = TPM_RC_ATTRIBUTES | TPM_RC_P | TPM_RC_2;
+        }
+    }
+
     /* TPMA_NV_PLATFORMCREATE must be set under platform auth and clear under
      * any other hierarchy (TPM 2.0 Part 3, NV_DefineSpace). */
     if (rc == 0 && authHandle == TPM_RH_PLATFORM &&
@@ -16872,6 +17731,13 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && authHandle != TPM_RH_PLATFORM &&
         (publicInfo.nvPublic.attributes & TPMA_NV_POLICY_DELETE)) {
         rc = TPM_RC_ATTRIBUTES;
+    }
+
+    /* A WRITEALL index has to fit one NV_Write */
+    if (rc == 0 &&
+        (publicInfo.nvPublic.attributes & TPMA_NV_WRITEALL) != 0 &&
+        publicInfo.nvPublic.dataSize > MAX_NV_BUFFER_SIZE) {
+        rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_2;
     }
 
     /* Check for duplicate */
@@ -16905,21 +17771,20 @@ static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         slot->written = 0;
 
-        /* Counter is not written until its first increment. */
+        /* A counter, bits or extend index starts from zero but is not
+         * written until its first Increment, SetBits or Extend. */
         nt = (int)((slot->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4);
         if (nt == TPM_NT_COUNTER) {
             XMEMSET(slot->data, 0, 8);
         }
         else if (nt == TPM_NT_BITS) {
             XMEMSET(slot->data, 0, 8);
-            slot->written = 1;
         }
         else if (nt == TPM_NT_EXTEND) {
             int hSz = TPM2_GetHashDigestSize(slot->nvPublic.nameAlg);
             if (hSz > 0) {
                 XMEMSET(slot->data, 0, hSz);
             }
-            slot->written = 1;
         }
 
         rc = FWTPM_NV_SaveNvIndex(ctx,
@@ -17201,16 +18066,12 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
     }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
 
     /* Parse: TPM2B data + offset */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &dataSize);
-        if (dataSize > FWTPM_MAX_NV_DATA) {
-            rc = TPM_RC_SIZE;
+        if (dataSize > MAX_NV_BUFFER_SIZE || dataSize > FWTPM_MAX_NV_DATA) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
         else if (cmd->pos + dataSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -17220,7 +18081,10 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
         TPM2_Packet_ParseU16(cmd, &offset);
 
-        if ((UINT32)offset + dataSize > nv->nvPublic.dataSize) {
+        if (offset > nv->nvPublic.dataSize) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if ((UINT32)offset + dataSize > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }
     }
@@ -17306,10 +18170,13 @@ static TPM_RC FwCmd_NV_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &readSize);
         TPM2_Packet_ParseU16(cmd, &offset);
 
-        if (readSize == 0) {
-            readSize = nv->nvPublic.dataSize;
+        if (readSize > MAX_NV_BUFFER_SIZE) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_1;
         }
-        if ((UINT32)offset + readSize > nv->nvPublic.dataSize) {
+        else if (offset > nv->nvPublic.dataSize) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_2;
+        }
+        else if ((UINT32)offset + readSize > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }
     }
@@ -17333,7 +18200,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPMI_RH_NV_INDEX nvHandle;
     FWTPM_NvIndex* nv;
     UINT16 dataSize = 0;
-    byte dataBuf[TPM_MAX_DIGEST_SIZE * 2]; /* input data */
+    const byte* data = NULL;
     int hSz = 0;
     FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
     enum wc_HashType wcHash;
@@ -17346,7 +18213,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     TPM2_Packet_ParseU32(cmd, &authHandle);
     TPM2_Packet_ParseU32(cmd, &nvHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
     nv = FwFindNvIndex(ctx, nvHandle);
     if (nv == NULL) {
@@ -17367,10 +18234,6 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
     }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
     if (rc == 0 && ((nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4)
         != TPM_NT_EXTEND) {
         rc = TPM_RC_ATTRIBUTES;
@@ -17378,15 +18241,16 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &dataSize);
-        if (dataSize > sizeof(dataBuf)) {
-            rc = TPM_RC_SIZE;
+        if (dataSize > MAX_NV_BUFFER_SIZE) {
+            rc = TPM_RC_SIZE | TPM_RC_P | TPM_RC_1;
         }
         else if (cmd->pos + dataSize > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
     }
     if (rc == 0) {
-        TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
+        data = cmd->buf + cmd->pos;
+        cmd->pos += dataSize;
 
         hSz = TPM2_GetHashDigestSize(nv->nvPublic.nameAlg);
         if (hSz <= 0 || hSz > FWTPM_MAX_NV_DATA) {
@@ -17412,7 +18276,7 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(oldData, nv->data, hSz);
         hashRc = wc_HashUpdate(hashCtx, wcHash, nv->data, hSz);
         if (hashRc == 0) {
-            hashRc = wc_HashUpdate(hashCtx, wcHash, dataBuf, dataSize);
+            hashRc = wc_HashUpdate(hashCtx, wcHash, data, dataSize);
         }
         if (hashRc == 0) {
             hashRc = wc_HashFinal(hashCtx, wcHash, newVal);
@@ -17473,10 +18337,6 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
         rc = TPM_RC_NV_LOCKED;
     }
     if (rc == 0 && ((nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4)
@@ -17682,10 +18542,6 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
     }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
     if (rc == 0 && ((nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4)
         != TPM_NT_BITS) {
         rc = TPM_RC_ATTRIBUTES;
@@ -17801,13 +18657,14 @@ static TPM_RC FwCmd_NV_ChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 
 /* --- TPM2_NV_GlobalWriteLock (CC 0x0132) --- */
-/* Set the global NV write lock. All NV indices with TPMA_NV_GLOBALLOCK
- * become write-locked until the next Startup(CLEAR). */
+/* Set TPMA_NV_WRITELOCKED on every NV index that has TPMA_NV_GLOBALLOCK.
+ * An index defined afterwards is not locked until the command runs again. */
 static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 authHandle = 0;
+    int i;
 
     (void)cmdSize;
 
@@ -17821,17 +18678,23 @@ static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        int oldGlobalNvWriteLock = ctx->globalNvWriteLock;
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: NV_GlobalWriteLock(auth=0x%x)\n", authHandle);
     #endif
-        ctx->globalNvWriteLock = 1;
-        /* Persist so the lock survives a daemon restart (Resume) */
-        rc = FWTPM_NV_SaveFlags(ctx);
+        for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+            const FWTPM_NvIndex* nv = &ctx->nvIndices[i];
+
+            if (nv->inUse &&
+                    (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK) != 0 &&
+                    (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED) == 0) {
+                /* One journal record locks every index, or none of them
+                 * when it cannot be saved */
+                rc = FWTPM_NV_GlobalWriteLock(ctx);
+                break;
+            }
+        }
         if (rc == 0)
             FwRspNoParams(rsp, cmdTag);
-        else
-            ctx->globalNvWriteLock = oldGlobalNvWriteLock;
     }
 
     return rc;
@@ -18315,9 +19178,10 @@ static void FwAppendClockInfo(FWTPM_CTX* ctx, TPM2_Packet* pkt,
     TPM2_Packet_AppendU8(pkt, (UINT8)ctx->clockSafe); /* safe */
 }
 
+/* signer is NULL when signHandle is TPM_RH_NULL: the handle is then the
+ * qualifiedSigner. */
 static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
     UINT16 type, const FWTPM_Object* signer,
-    const TPM2B_NAME* qualifiedSigner,
     const TPM2B_DATA* extraData)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -18326,9 +19190,19 @@ static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
     UINT32 restartObfuscation = 0;
     byte proof[TPM_MAX_DIGEST_SIZE];
     byte obfuscation[16];
+    TPM2B_NAME nullSigner;
+    const TPM2B_NAME* qualifiedSigner = &nullSigner;
 
-    if (signer->hierarchy != TPM_RH_ENDORSEMENT &&
-            signer->hierarchy != TPM_RH_PLATFORM) {
+    if (signer != NULL) {
+        qualifiedSigner = &signer->qualifiedName;
+    }
+    else {
+        nullSigner.size = 4;
+        FwStoreU32BE(nullSigner.name, TPM_RH_NULL);
+    }
+
+    if (signer == NULL || (signer->hierarchy != TPM_RH_ENDORSEMENT &&
+            signer->hierarchy != TPM_RH_PLATFORM)) {
         int proofSz = TPM2_GetHashDigestSize(CONTEXT_INTEGRITY_HASH_ALG);
 
         if (proofSz <= 0) {
@@ -18338,7 +19212,7 @@ static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
             rc = FwComputeProofValue(ctx, TPM_RH_OWNER,
                 CONTEXT_INTEGRITY_HASH_ALG, proof, proofSz);
         }
-        if (rc == 0 && TPM2_KDFa_ex(signer->pub.nameAlg,
+        if (rc == 0 && TPM2_KDFa_ex(CONTEXT_INTEGRITY_HASH_ALG,
                 proof, (UINT32)proofSz, "OBFUSCATE",
                 qualifiedSigner->name, qualifiedSigner->size,
                 NULL, 0, obfuscation, sizeof(obfuscation)) !=
@@ -18384,9 +19258,12 @@ static TPM_RC FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
 #ifndef FWTPM_NO_ATTESTATION
 /* Helper: parse common attestation command parameters.
  * Skips auth area, parses qualifyingData (TPM2B_DATA), and inScheme
- * (sigScheme + sigHashAlg). Called after handle parsing is complete. */
+ * (sigScheme + sigHashAlg), which has to suit the signing key sigObj. With
+ * no signing key (signHandle TPM_RH_NULL) the scheme is TPM_ALG_NULL
+ * whatever inScheme asks for.
+ * Called after handle parsing is complete. */
 static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
-    UINT16 cmdTag, TPM2B_DATA* qualifyingData,
+    UINT16 cmdTag, const FWTPM_Object* sigObj, TPM2B_DATA* qualifyingData,
     UINT16* sigScheme, UINT16* sigHashAlg)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
@@ -18433,6 +19310,15 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
                 (void)ecdaaCount;
             }
         }
+    }
+    if (rc == 0 && sigObj == NULL) {
+        *sigScheme = TPM_ALG_NULL;
+        *sigHashAlg = TPM_ALG_NULL;
+    }
+    /* A key that cannot sign is left for FwSignAttest to reject */
+    else if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
+            FwCheckSignScheme(sigObj, *sigScheme, *sigHashAlg) != 0) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
     }
 
     return rc;
@@ -18495,28 +19381,27 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &signHandle);
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
-    /* Quote requires a restricted signing key (Part 3 Sec.18.4) */
-    if (rc == 0) {
+    /* Quote requires a signing key (Part 3 Sec.18.4) */
+    if (rc == 0 && sigObj != NULL) {
         if (!(sigObj->pub.objectAttributes & TPMA_OBJECT_sign))
             rc = TPM_RC_KEY;
     }
-    if (rc == 0) {
-        if (!(sigObj->pub.objectAttributes & TPMA_OBJECT_restricted))
-            rc = TPM_RC_ATTRIBUTES;
-    }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
     /* PCRselect */
     if (rc == 0) {
         rc = FwValidatePcrSelection(cmd, cmdSize);
+        if (rc == TPM_RC_SIZE) {
+            rc |= TPM_RC_P | TPM_RC_3;
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &pcrSelCount);
@@ -18534,6 +19419,11 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Without a signing key there is no scheme hash for pcrDigest */
+    if (rc == 0 && sigObj == NULL) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_2;
+    }
+
     /* Build TPMS_ATTEST for QUOTE */
     if (rc == 0) {
         XMEMSET(attestBuf, 0, FWTPM_MAX_ATTEST_BUF);
@@ -18542,7 +19432,7 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_QUOTE, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_QUOTE, sigObj, &qualifyingData);
 
         /* attested.quote: pcrSelect (TPML_PCR_SELECTION) +
          * pcrDigest (TPM2B_DIGEST) */
@@ -18558,11 +19448,13 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         /* pcrDigest = hash of the selected PCR values under the signature's
          * hash so a verifier agrees. ML-DSA keys resolve to nameAlg (no scheme
-         * hash on the wire); classical keys honor the wire hash then PCR bank. */
+         * hash on the wire); classical keys use the hash of the selected
+         * signing scheme (Part 3 Sec.18.4). */
         pcrHashAlg = FwAttestMldsaHashAlg(sigObj);
         if (pcrHashAlg == TPM_ALG_NULL) {
-            pcrHashAlg = (sigHashAlg != TPM_ALG_NULL) ? sigHashAlg :
-                (numSel > 0 ? selections[0].hashAlg : (UINT16)TPM_ALG_SHA256);
+            UINT16 keyScheme = sigScheme;
+            pcrHashAlg = sigHashAlg;
+            FwResolveSignScheme(sigObj, &keyScheme, &pcrHashAlg);
         }
         wcH = FwGetWcHashType(pcrHashAlg);
         dSz = TPM2_GetHashDigestSize(pcrHashAlg);
@@ -18654,13 +19546,13 @@ static TPM_RC FwCmd_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
@@ -18676,16 +19568,16 @@ static TPM_RC FwCmd_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_CERTIFY, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_CERTIFY, sigObj, &qualifyingData);
 
         /* attested.certify: name + qualifiedName */
         TPM2_Packet_AppendU16(&attestPkt, objToSign->name.size);
         TPM2_Packet_AppendBytes(&attestPkt, (byte*)objToSign->name.name,
             objToSign->name.size);
-        /* qualifiedName = same as name in our simple hierarchy */
-        TPM2_Packet_AppendU16(&attestPkt, objToSign->name.size);
-        TPM2_Packet_AppendBytes(&attestPkt, (byte*)objToSign->name.name,
-            objToSign->name.size);
+        TPM2_Packet_AppendU16(&attestPkt, objToSign->qualifiedName.size);
+        TPM2_Packet_AppendBytes(&attestPkt,
+            (byte*)objToSign->qualifiedName.name,
+            objToSign->qualifiedName.size);
 
         /* Build response */
         if (rc == 0) {
@@ -18727,7 +19619,7 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &objectHandle);
 
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -18792,6 +19684,15 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 (void)ecdaaCount;
             }
         }
+    }
+    if (rc == 0 && sigObj == NULL) {
+        sigScheme = TPM_ALG_NULL;
+        sigHashAlg = TPM_ALG_NULL;
+    }
+    /* A key that cannot sign is left for FwSignAttest to reject */
+    else if (rc == 0 && (sigObj->pub.objectAttributes & TPMA_OBJECT_sign) &&
+            FwCheckSignScheme(sigObj, sigScheme, sigHashAlg) != 0) {
+        rc = TPM_RC_SCHEME | TPM_RC_P | TPM_RC_3;
     }
 
     /* creationTicket verification per TPM 2.0 Part 3 Section 18.3 */
@@ -18878,7 +19779,7 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_CREATION, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_CREATION, sigObj, &qualifyingData);
 
         /* attested.creation: objectName (TPM2B_NAME) +
          * creationHash (TPM2B_DIGEST) */
@@ -18922,16 +19823,20 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &privHandle);
         TPM2_Packet_ParseU32(cmd, &signHandle);
-        (void)privHandle;
-
+        /* privacyAdminHandle is a TPMI_RH_ENDORSEMENT (Part 3 Sec.18.7) */
+        if (privHandle != TPM_RH_ENDORSEMENT) {
+            rc = TPM_RC_VALUE | TPM_RC_1;
+        }
+    }
+    if (rc == 0) {
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
@@ -18943,7 +19848,7 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_PUB_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt,
-            TPM_ST_ATTEST_TIME, sigObj, &sigObj->name, &qualifyingData);
+            TPM_ST_ATTEST_TIME, sigObj, &qualifyingData);
 
         /* attested.time: TPMS_TIME_INFO (time + clockInfo) +
          * firmwareVersion */
@@ -18998,7 +19903,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &nvHandle);
 
         sigObj = FwFindObject(ctx, signHandle);
-        if (sigObj == NULL) {
+        if (sigObj == NULL && signHandle != TPM_RH_NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -19020,7 +19925,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        rc = FwParseAttestParams(cmd, cmdSize, cmdTag,
+        rc = FwParseAttestParams(cmd, cmdSize, cmdTag, sigObj,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
@@ -19041,14 +19946,11 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             digestMode = 1;
             readSize = nv->nvPublic.dataSize;
         }
-        else if (readSize == 0) {
-            readSize = nv->nvPublic.dataSize - readOffset;
-        }
         if ((UINT32)(readOffset + readSize) > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }
-        if (rc == 0 && !digestMode && readSize > FWTPM_MAX_NV_DATA) {
-            rc = TPM_RC_SIZE;
+        if (rc == 0 && !digestMode && readSize > MAX_NV_BUFFER_SIZE) {
+            rc = TPM_RC_VALUE | TPM_RC_P | TPM_RC_3;
         }
     }
 
@@ -19091,7 +19993,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
         rc = FwAppendAttestCommonHeader(ctx, &attestPkt, attestType,
-            sigObj, &sigObj->name, &qualifyingData);
+            sigObj, &qualifyingData);
 
         if (digestMode) {
             /* attested.nvDigest: indexName + nvDigest
@@ -19104,20 +20006,24 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* ML-DSA keys have no scheme hash, so resolve nvDigest's hash from
              * nameAlg (TCG v185 errata) before the classical
              * FwResolveSignScheme fallback. */
-            if (hashAlg == TPM_ALG_NULL) {
+            if (hashAlg == TPM_ALG_NULL && sigObj != NULL) {
                 hashAlg = FwAttestMldsaHashAlg(sigObj);
             }
-            if (hashAlg == TPM_ALG_NULL) {
+            if (hashAlg == TPM_ALG_NULL && sigObj != NULL) {
                 UINT16 keyScheme = TPM_ALG_NULL;
                 FwResolveSignScheme(sigObj, &keyScheme, &hashAlg);
                 (void)keyScheme;
             }
             wcDigH = FwGetWcHashType(hashAlg);
             hashSz = TPM2_GetHashDigestSize(hashAlg);
-            if (wcDigH == WC_HASH_TYPE_NONE || hashSz <= 0) {
+            if (sigObj == NULL) {
+                /* no scheme hash: nvDigest is the Empty Buffer */
+                hashSz = 0;
+            }
+            else if (wcDigH == WC_HASH_TYPE_NONE || hashSz <= 0) {
                 rc = TPM_RC_HASH;
             }
-            if (rc == 0) {
+            if (rc == 0 && sigObj != NULL) {
                 if (wc_Hash(wcDigH, nv->data, nv->nvPublic.dataSize,
                         nvDigest, hashSz) != 0) {
                     rc = TPM_RC_FAILURE;
@@ -19218,8 +20124,6 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_BUF(encCred, FWTPM_MAX_NV_DATA + 2);
     word32 encCredSz = 0;
     byte outerHmac[TPM_MAX_DIGEST_SIZE];
-    byte oaepLabel[64];
-    int oaepLabelSz = 0;
 
     FWTPM_ALLOC_BUF(encSeed, FWTPM_MAX_PUB_BUF);
     FWTPM_ALLOC_BUF(encCred, FWTPM_MAX_NV_DATA + 2);
@@ -19307,25 +20211,10 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif
 
-    /* Build OAEP label: "IDENTITY\0" + objectName */
-    if (rc == 0) {
-        XMEMCPY(oaepLabel, "IDENTITY", 8);
-        oaepLabelSz = 8;
-        oaepLabel[oaepLabelSz++] = 0x00;
-        if (objectName.size + oaepLabelSz > (int)sizeof(oaepLabel)) {
-            rc = TPM_RC_SIZE;
-        }
-        else {
-            XMEMCPY(oaepLabel + oaepLabelSz, objectName.name,
-                objectName.size);
-            oaepLabelSz += objectName.size;
-        }
-    }
-
     /* Generate seed and encrypt to key's public key */
     if (rc == 0) {
         rc = FwEncryptSeed(ctx, keyObj,
-            oaepLabel, oaepLabelSz, "IDENTITY",
+            (const byte*)"IDENTITY", 9, "IDENTITY",
             seed, (int)sizeof(seed), &seedSz,
             encSeed, FWTPM_MAX_PUB_BUF, &encSeedSz);
     }
@@ -19345,7 +20234,8 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             hmacKey, hmacKeySz, keyObj->pub.nameAlg,
             credential.buffer, credential.size,
             objectName.name, objectName.size,
-            encCred, &encCredSz, outerHmac);
+            encCred, (int)FWTPM_SIZEOF_BUF(encCred, FWTPM_MAX_NV_DATA + 2),
+            &encCredSz, outerHmac);
     }
 
     /* Build response */
@@ -19417,8 +20307,6 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte hmacKey[TPM_MAX_DIGEST_SIZE];
     int symKeySz = 0;
     int hmacKeySz = 0;
-    byte oaepLabel[64];
-    int oaepLabelSz = 0;
     byte credOut[sizeof(TPMU_HA)];
     UINT16 credSz = 0;
     TPM2B_NAME* objName;
@@ -19491,7 +20379,7 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             keyObj->pub.type != TPM_ALG_MLKEM &&
 #endif
             keyObj->pub.type != TPM_ALG_ECC) {
-            rc = TPM_RC_KEY;
+            rc = TPM_RC_TYPE | TPM_RC_2;
         }
     }
     /* Part 3 Sec.24: keyHandle MUST be restricted decryption (Storage). An
@@ -19500,7 +20388,7 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 &&
         (((keyObj->pub.objectAttributes & TPMA_OBJECT_restricted) == 0) ||
          ((keyObj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0))) {
-        rc = TPM_RC_ATTRIBUTES;
+        rc = TPM_RC_TYPE | TPM_RC_2;
     }
     /* Credential protection derives the HMAC under the key's nameAlg and the
      * symmetric key at its declared AES-CFB size (Part 1 Sec.24). Reject a key
@@ -19529,26 +20417,11 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Build OAEP label: "IDENTITY\0" + activateObj->name */
-    if (rc == 0) {
-        objName = &activateObj->name;
-        XMEMCPY(oaepLabel, "IDENTITY", 8);
-        oaepLabelSz = 8;
-        oaepLabel[oaepLabelSz++] = 0x00;
-        if (objName->size + oaepLabelSz > (int)sizeof(oaepLabel)) {
-            rc = TPM_RC_SIZE;
-        }
-        else {
-            XMEMCPY(oaepLabel + oaepLabelSz, objName->name, objName->size);
-            oaepLabelSz += objName->size;
-        }
-    }
-
     /* Decrypt seed using keyHandle's private key */
     if (rc == 0) {
         rc = FwDecryptSeed(ctx, keyObj,
             secretBuf, secretSz,
-            oaepLabel, oaepLabelSz, "IDENTITY",
+            (const byte*)"IDENTITY", 9, "IDENTITY",
             seed, (int)sizeof(seed), &seedSzInt);
     }
 
@@ -19757,11 +20630,12 @@ static TPM_RC FwCmd_EC_Ephemeral(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     word32 derSz;
     int keyInit = 0;
 
-    (void)cmdSize;
-
     FWTPM_ALLOC_VAR(ephKey, ecc_key);
 
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -19876,7 +20750,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Parse keyA handle */
     TPM2_Packet_ParseU32(cmd, &keyAHandle);
-    if (cmdTag == TPM_ST_SESSIONS)
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS)
         rc = FwSkipAuthArea(cmd, cmdSize);
 
     keyA = FwFindObject(ctx, keyAHandle);
@@ -19980,8 +20854,9 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) peerInit = 1;
     }
     if (rc == 0) {
-        rc = wc_ecc_import_unsigned(peerPub,
-            inQsB.point.x.buffer, inQsB.point.y.buffer, NULL, wcCurve);
+        rc = FwEccImportUnsigned(peerPub,
+            inQsB.point.x.buffer, inQsB.point.x.size,
+            inQsB.point.y.buffer, inQsB.point.y.size, NULL, 0, wcCurve);
     }
     if (rc == 0) {
         rc = wc_ecc_check_key(peerPub);
@@ -20016,8 +20891,9 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0) peerInit = 1;
     }
     if (rc == 0) {
-        rc = wc_ecc_import_unsigned(peerPub,
-            inQeB.point.x.buffer, inQeB.point.y.buffer, NULL, wcCurve);
+        rc = FwEccImportUnsigned(peerPub,
+            inQeB.point.x.buffer, inQeB.point.x.size,
+            inQeB.point.y.buffer, inQeB.point.y.size, NULL, 0, wcCurve);
     }
     if (rc == 0) {
         rc = wc_ecc_check_key(peerPub);
@@ -20090,7 +20966,10 @@ static TPM_RC FwCmd_Vendor_TCG_Test(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     (void)ctx;
 
-    if (cmdSize < TPM2_HEADER_SIZE + 2) {
+    if (cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmdSize - cmd->pos < 2) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -22147,7 +23026,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_Shutdown,           FwCmd_Shutdown,            0, 0, 0, FW_CMD_MOD_NV },
     { TPM_CC_SelfTest,           FwCmd_SelfTest,            0, 0, 0, FW_CMD_MOD_NV },
     { TPM_CC_IncrementalSelfTest, FwCmd_IncrementalSelfTest, 0, 0, 0, FW_CMD_MOD_NV },
-    { TPM_CC_GetTestResult,      FwCmd_GetTestResult,       0, 0, 0, 0 },
+    { TPM_CC_GetTestResult,      FwCmd_GetTestResult,       0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_GetRandom,          FwCmd_GetRandom,           0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_StirRandom,         FwCmd_StirRandom,          0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
     { TPM_CC_GetCapability,      FwCmd_GetCapability,       0, 0, 0, 0 },
@@ -22194,7 +23073,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_RO_DENY },
     { TPM_CC_Load,               FwCmd_Load,                 1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Sign,               FwCmd_Sign,                 1, 1, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_VerifySignature,    FwCmd_VerifySignature,      1, 0, 0, 0 },
+    { TPM_CC_VerifySignature,    FwCmd_VerifySignature,      1, 0, 0, FW_CMD_FLAG_ENC },
 #ifndef NO_RSA
     { TPM_CC_RSA_Encrypt,        FwCmd_RSA_Encrypt,          1, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_RSA_Decrypt,        FwCmd_RSA_Decrypt,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
@@ -22236,7 +23115,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
 #endif
     /* --- Sessions --- */
-    { TPM_CC_StartAuthSession,   FwCmd_StartAuthSession,     2, 0, 1, 0 },
+    { TPM_CC_StartAuthSession,   FwCmd_StartAuthSession,     2, 0, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Unseal,             FwCmd_Unseal,               1, 1, 0, FW_CMD_FLAG_DEC },
     /* --- Policy --- */
 #ifndef FWTPM_NO_POLICY
@@ -22247,13 +23126,13 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_PolicyAuthValue,    FwCmd_PolicyAuthValue,      1, 0, 0, 0 },
     { TPM_CC_PolicyCommandCode,  FwCmd_PolicyCommandCode,    1, 0, 0, 0 },
     { TPM_CC_PolicyOR,           FwCmd_PolicyOR,             1, 0, 0, 0 },
-    { TPM_CC_PolicySecret,       FwCmd_PolicySecret,         2, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_PolicySecret,       FwCmd_PolicySecret,         2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_PolicyAuthorize,    FwCmd_PolicyAuthorize,      1, 0, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_PolicyLocality,     FwCmd_PolicyLocality,       1, 0, 0, 0 },
 #ifdef WOLFTPM_SPDM
     { TPM_CC_PolicyTransportSPDM, FwCmd_PolicyTransportSPDM, 1, 0, 0, FW_CMD_FLAG_ENC },
 #endif
-    { TPM_CC_PolicySigned,       FwCmd_PolicySigned,         2, 0, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_PolicySigned,       FwCmd_PolicySigned,         2, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_NV
     { TPM_CC_PolicyNV,           FwCmd_PolicyNV,             3, 1, 0, FW_CMD_FLAG_ENC },
 #endif
@@ -22277,14 +23156,14 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_LoadExternal,       FwCmd_LoadExternal,         0, 0, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_KEY_MIGRATION
     { TPM_CC_Import,             FwCmd_Import,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_DUP },
-    { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, 0 },
+    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_DUP },
+    { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif /* !FWTPM_NO_KEY_MIGRATION */
     { TPM_CC_CreateLoaded,       FwCmd_CreateLoaded,         1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_RO_DENY },
     /* --- Symmetric --- */
 #ifndef NO_AES
 #ifndef FWTPM_NO_SYM_ENCRYPT
-    { TPM_CC_EncryptDecrypt,     FwCmd_EncryptDecrypt,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_EncryptDecrypt,     FwCmd_EncryptDecrypt,        1, 1, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_EncryptDecrypt2,    FwCmd_EncryptDecrypt2,       1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif /* !FWTPM_NO_SYM_ENCRYPT */
 #endif
@@ -22314,18 +23193,18 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
     /* --- Attestation --- */
 #ifndef FWTPM_NO_ATTESTATION
-    { TPM_CC_Quote,              FwCmd_Quote,                1, 1, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
-    { TPM_CC_CertifyCreation,   FwCmd_CertifyCreation,      2, 1, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_GetTime,            FwCmd_GetTime,              2, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_Quote,              FwCmd_Quote,                1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_Certify,            FwCmd_Certify,              2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
+    { TPM_CC_CertifyCreation,   FwCmd_CertifyCreation,      2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_GetTime,            FwCmd_GetTime,              2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_NV
-    { TPM_CC_NV_Certify,         FwCmd_NV_Certify,           3, 2, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_NV_Certify,         FwCmd_NV_Certify,           3, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif
 #endif /* !FWTPM_NO_ATTESTATION */
     /* --- Credentials --- */
 #ifndef FWTPM_NO_CREDENTIAL
-    { TPM_CC_MakeCredential,     FwCmd_MakeCredential,       1, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
+    { TPM_CC_MakeCredential,     FwCmd_MakeCredential,       1, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_ActivateCredential, FwCmd_ActivateCredential,   2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
 #endif /* !FWTPM_NO_CREDENTIAL */
     /* --- Dictionary Attack --- */
 #ifndef FWTPM_NO_DA
@@ -22499,7 +23378,8 @@ static int FwAuthSlotDAUse(FWTPM_CTX* ctx, TPM_HANDLE entityH,
               (sess->isPasswordPolicy || sess->isAuthValuePolicy)))) {
         usesEntityAuth = 1;
     }
-    usesBindAuth = sess != NULL && cmdHmacSize > 0 && sess->isBound;
+    usesBindAuth = sess != NULL && sess->isBound &&
+        (cmdHmacSize > 0 || sess->sessionType == TPM_SE_HMAC);
     if (usesEntityAuth) {
         if (entityH == TPM_RH_LOCKOUT) {
             daUse |= FW_AUTH_USES_LOCKOUT;
@@ -22558,6 +23438,12 @@ static void FwDaSelfHeal(FWTPM_CTX* ctx)
     UINT64 now;
     UINT64 elapsedSec, heals;
 
+    /* A daRecoveryTime of zero disables DA protection (Part 3 Sec.25.3):
+     * failures are not counted and those already counted are forgotten. */
+    if (ctx->daRecoveryTime == 0) {
+        ctx->daFailedTries = 0;
+    }
+
     /* Only after Startup, which seeds the baselines: running before then would
      * measure elapsed time from an unseeded (zero) baseline and wrongly heal.
      * No clock HAL means reboot/LockReset-only recovery. */
@@ -22600,7 +23486,7 @@ static void FwDaSelfHeal(FWTPM_CTX* ctx)
 static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
 {
     /* Platform authorization is not DA-protected. The other exempt permanent
-     * hierarchies are handled by FwHandleIsNoDA below. */
+     * hierarchies are left out by FwAuthSlotDAUse. */
     if (entityH == TPM_RH_PLATFORM) {
         return 0;
     }
@@ -22616,19 +23502,21 @@ static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
         }
         return 0;
     }
-    if (!FwHandleIsNoDA(ctx, entityH)) {
-        /* Cap at maxTries so a command that bypasses the lockout gate (e.g. a
-         * noDA primary handle with a DA-protected secondary auth) cannot grow
-         * the counter or append NV entries without bound while already
-         * locked. */
-        if (ctx->daFailedTries < ctx->daMaxTries) {
-            ctx->daFailedTries++;
-            ctx->orderly = 0;
-            (void)FWTPM_NV_SaveFlags(ctx);
-        }
-        if (ctx->daFailedTries >= ctx->daMaxTries) {
-            return 1;
-        }
+    /* The caller found the authValue DA protected (FwAuthSlotDAUse). For a
+     * bound session that was settled when the session started, so whatever
+     * holds the bind handle now is not looked at again.
+     * Cap at maxTries so a command that bypasses the lockout gate (e.g. a
+     * noDA primary handle with a DA-protected secondary auth) cannot grow
+     * the counter or append NV entries without bound while already
+     * locked. */
+    if (ctx->daRecoveryTime != 0 &&
+            ctx->daFailedTries < ctx->daMaxTries) {
+        ctx->daFailedTries++;
+        ctx->orderly = 0;
+        (void)FWTPM_NV_SaveFlags(ctx);
+    }
+    if (ctx->daFailedTries >= ctx->daMaxTries) {
+        return 1;
     }
     return 0;
 }
@@ -22842,6 +23730,55 @@ static int FwAllowPreStartupSpdmProbe(FWTPM_CTX* ctx, TPM_CC cmdCode)
 #endif
 }
 
+/* TPMA_SESSION consistency rules for one session (Part 3 Sec.5.5): a
+ * password session carries no use attribute, auditExclusive and auditReset
+ * need audit, only one session audits, decrypt and encrypt need a sized
+ * first command or response parameter, and a session that authorizes no
+ * handle must be there to decrypt, encrypt or audit. A password session
+ * always authorizes a handle (Part 1 Sec.19.4). */
+static TPM_RC FwCheckSessionAttributes(const FWTPM_CMD_ENTRY* entry,
+    UINT32 sessHandle, UINT8 attribs, int sessIdx, int* auditCnt)
+{
+    UINT8 use = attribs & (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+        TPMA_SESSION_audit);
+    UINT16 flags = entry->encDecFlags;
+
+#ifdef FWTPM_NO_PARAM_ENC
+    flags &= (UINT16)~(FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC);
+#endif
+    if (sessHandle == TPM_RS_PW) {
+        if (sessIdx >= (int)entry->authHandleCnt) {
+            return TPM_RC_HANDLE;
+        }
+        if (use != 0 || (attribs & (TPMA_SESSION_auditExclusive |
+                TPMA_SESSION_auditReset)) != 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+    }
+    else {
+        if ((attribs & (TPMA_SESSION_auditExclusive |
+                TPMA_SESSION_auditReset)) != 0 &&
+                (attribs & TPMA_SESSION_audit) == 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+        if ((attribs & TPMA_SESSION_decrypt) != 0 &&
+                (flags & FW_CMD_FLAG_ENC) == 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+        if ((attribs & TPMA_SESSION_encrypt) != 0 &&
+                (flags & FW_CMD_FLAG_DEC) == 0) {
+            return TPM_RC_ATTRIBUTES;
+        }
+        if ((attribs & TPMA_SESSION_audit) != 0 && ++(*auditCnt) > 1) {
+            return TPM_RC_ATTRIBUTES;
+        }
+    }
+    if (sessIdx >= (int)entry->authHandleCnt && use == 0) {
+        return TPM_RC_ATTRIBUTES;
+    }
+    return TPM_RC_SUCCESS;
+}
+
 int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     const byte* cmdBuf, int cmdSize,
     byte* rspBuf, int* rspSize, int locality)
@@ -22860,6 +23797,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int doEncCmd = 0;               /* Decrypt incoming encrypted param */
     int doEncRsp = 0;               /* Encrypt outgoing response param */
 #endif
+    int auditCnt = 0;
     int pj, hj;                     /* Loop indices for auth validation */
     int transientIdx;
     TPM_HANDLE transientHandle;
@@ -23114,6 +24052,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     UINT16 nonceSize, hmacSize;
                     UINT8 attribs;
                     byte nonceBuf[TPM_MAX_DIGEST_SIZE];
+                    /* Session number of a format-one response code */
+                    TPM_RC rcSession = TPM_RC_S |
+                        (TPM_RC)(TPM_RC_1 * (cmdAuthCnt + 1));
 
                     TPM2_Packet_ParseU32(&cmdPkt, &sessHandle);
                     TPM2_Packet_ParseU16(&cmdPkt, &nonceSize);
@@ -23159,6 +24100,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         break;
                     }
 
+                    rc = FwCheckSessionAttributes(entry, sessHandle, attribs,
+                        cmdAuthCnt, &auditCnt);
+                    if (rc != 0) {
+                        rc |= rcSession;
+                        break;
+                    }
+
                     if (sessHandle != TPM_RS_PW) {
                         FWTPM_Session* sess = FwFindSession(ctx, sessHandle);
                         if (sess != NULL) {
@@ -23179,13 +24127,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                                     decSess != NULL) ||
                                 ((attribs & TPMA_SESSION_encrypt) != 0 &&
                                     encSess != NULL)) {
-                                rc = TPM_RC_ATTRIBUTES;
+                                rc = TPM_RC_ATTRIBUTES | rcSession;
                                 break;
                             }
                             if ((attribs & (TPMA_SESSION_decrypt |
                                     TPMA_SESSION_encrypt)) != 0 &&
                                     sess->symmetric.algorithm == TPM_ALG_NULL) {
-                                rc = TPM_RC_SYMMETRIC;
+                                rc = TPM_RC_SYMMETRIC | rcSession;
                                 break;
                             }
                             /* The first authHandleCnt handles are the ones
@@ -23225,18 +24173,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             rc = TPM_RC_REFERENCE_S0 + cmdAuthCnt;
                             break;
                         }
-                    }
-
-                    /* HMAC sessions require a non-empty HMAC per TPM 2.0
-                     * Part 1 Section 19.6. Accepting hmacSize=0 would
-                     * bypass command HMAC verification. Policy sessions
-                     * may have empty HMAC when PolicyAuthValue/PolicyPassword
-                     * has not been called. */
-                    if (rc == 0 && cmdAuths[cmdAuthCnt].sess != NULL &&
-                        cmdAuths[cmdAuthCnt].sess->sessionType == TPM_SE_HMAC &&
-                        cmdAuths[cmdAuthCnt].cmdHmacSize == 0) {
-                        rc = TPM_RC_AUTH_FAIL;
-                        break;
                     }
 
                     cmdAuthCnt++;
@@ -23298,22 +24234,16 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             int policyDiff;
             word32 cmpSz;
 
-            /* PCR values changed since PolicyPCR: the session no longer
-             * reflects the PCR state it was evaluated against. */
-            if (pSess->hasPcrUpdateCounter &&
-                pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
-                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_PCR_CHANGED);
-                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
-                return TPM_RC_SUCCESS;
-            }
-
-            if (pSess->timeout != 0 &&
-                    pSess->timeout < FWTPM_Clock_GetMs(ctx)) {
-                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_EXPIRED);
-                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
-                return TPM_RC_SUCCESS;
+            /* An object loaded without its sensitive area has no authPolicy
+             * to authorize with (Part 3 Sec.18.2). */
+            if ((entityH & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000)) {
+                FWTPM_Object* pubObj = FwFindObject(ctx, entityH);
+                if (pubObj != NULL && pubObj->publicOnly) {
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                        TPM_ST_NO_SESSIONS, TPM_RC_AUTH_UNAVAILABLE);
+                    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                    return TPM_RC_SUCCESS;
+                }
             }
 
             /* Find entity's authPolicy by handle type */
@@ -23357,6 +24287,53 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             else if (entityH <= PCR_LAST) {
                 authPolicy = &ctx->pcrPolicy[entityH - PCR_FIRST];
                 authPolicyAlg = ctx->pcrPolicyAlg[entityH - PCR_FIRST];
+            }
+
+            if (authPolicy != NULL && authPolicy->size == 0) {
+                /* A policy session cannot authorize an entity that has no
+                 * authPolicy (Part 1 Sec.19.7.1). The empty authPolicy of an
+                 * object or a PCR never equals a policyDigest; any other
+                 * entity has no policy authorization available, which is
+                 * reported ahead of the session checks. */
+                TPM_RC noPolicyRc = TPM_RC_AUTH_UNAVAILABLE;
+                if ((entityH & 0xFF000000) ==
+                        (TRANSIENT_FIRST & 0xFF000000) ||
+                    (entityH & 0xFF000000) ==
+                        (PERSISTENT_FIRST & 0xFF000000) ||
+                    entityH <= PCR_LAST) {
+                    noPolicyRc = TPM_RC_POLICY_FAIL;
+                    if (pSess->hasPcrUpdateCounter &&
+                        pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
+                        noPolicyRc = TPM_RC_PCR_CHANGED;
+                    }
+                }
+            #ifdef DEBUG_WOLFTPM
+                printf("fwTPM: Policy session rejected for "
+                    "handle 0x%x without authPolicy (CC=0x%x)\n",
+                    entityH, cmdCode);
+            #endif
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, noPolicyRc);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
+            }
+
+            /* PCR values changed since PolicyPCR: the session no longer
+             * reflects the PCR state it was evaluated against. */
+            if (pSess->hasPcrUpdateCounter &&
+                pSess->pcrUpdateCounter != ctx->pcrUpdateCounter) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_PCR_CHANGED);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
+            }
+
+            if (pSess->timeout != 0 &&
+                    pSess->timeout < FWTPM_Clock_GetMs(ctx)) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_EXPIRED);
+                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                return TPM_RC_SUCCESS;
             }
 
             /* If entity has a non-empty authPolicy, it must match */
@@ -23403,6 +24380,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     if (!FwSpdmSessionNames(ctx, &scReq, &scTpm)) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_CHANNEL);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                         return TPM_RC_SUCCESS;
                     }
                     if ((pSess->checkReqKey || pSess->checkTpmKey) &&
@@ -23415,6 +24393,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             scHash, (word32)scHashSz) != 0)) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_CHANNEL_KEY);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
                         return TPM_RC_SUCCESS;
                     }
                 }
@@ -23430,22 +24409,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     return TPM_RC_SUCCESS;
                 }
 #endif /* !FWTPM_NO_PP */
-            }
-            else if (authPolicy != NULL && authPolicy->size == 0 &&
-                    (cmdAuths[pj].cmdHmacSize == 0 ||
-                     (!pSess->isPasswordPolicy && !pSess->isAuthValuePolicy))) {
-                /* A policy session authorizes an empty-authPolicy entity only
-                 * via PolicyPassword or PolicyAuthValue; otherwise the entity
-                 * auth is excluded and an unbound/empty HMAC would authorize. */
-            #ifdef DEBUG_WOLFTPM
-                printf("fwTPM: Policy session empty-HMAC rejected for "
-                    "handle 0x%x without authPolicy (CC=0x%x)\n",
-                    entityH, cmdCode);
-            #endif
-                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
-                TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
-                return TPM_RC_SUCCESS;
             }
             else if (authPolicy == NULL) {
                 /* A policy session cannot authorize a handle whose authPolicy
@@ -23489,11 +24452,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * daLockoutRecovery seconds, so lockoutAuth cannot be brute-forced
      * (Part 1 Sec.19.8.2). Reject any authorization slot that uses
      * lockoutAuth, directly or through a bound session, but not Clear via
-     * platformAuth, which is the recovery path. */
+     * platformAuth, which is the recovery path. A session that authorizes
+     * no handle still uses the authValue it is bound to. */
     if (ctx->lockoutAuthFailed) {
-        for (pj = 0; pj < cmdAuthCnt &&
-                pj < (int)entry->authHandleCnt; pj++) {
-            if ((FwAuthSlotDAUse(ctx, cmdHandles[pj],
+        for (pj = 0; pj < cmdAuthCnt; pj++) {
+            if ((FwAuthSlotDAUse(ctx,
+                    pj < (int)entry->authHandleCnt ?
+                        cmdHandles[pj] : (TPM_HANDLE)TPM_RH_NULL,
                     cmdAuths[pj].handle == TPM_RS_PW,
                     cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize,
                     NULL) & FW_AUTH_USES_LOCKOUT) != 0) {
@@ -23507,16 +24472,29 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
     if (ctx->daFailedTries >= ctx->daMaxTries && ctx->daMaxTries > 0) {
         int hasDaAuth = 0;
+        int hasDaSess = 0;
 
-        for (pj = 0; pj < cmdAuthCnt &&
-                pj < (int)entry->authHandleCnt; pj++) {
-            if ((FwAuthSlotDAUse(ctx, cmdHandles[pj],
+        for (pj = 0; pj < cmdAuthCnt; pj++) {
+            int authSlot = pj < (int)entry->authHandleCnt;
+            int daUse = FwAuthSlotDAUse(ctx,
+                    authSlot ? cmdHandles[pj] : (TPM_HANDLE)TPM_RH_NULL,
                     cmdAuths[pj].handle == TPM_RS_PW,
-                    cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize, NULL) &
-                    (FW_AUTH_USES_ENTITY_DA | FW_AUTH_USES_BIND_DA)) != 0) {
-                hasDaAuth = 1;
-                break;
+                    cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize, NULL);
+            if ((daUse & FW_AUTH_USES_BIND_DA) != 0) {
+                hasDaSess = 1;
             }
+            else if ((daUse & FW_AUTH_USES_ENTITY_DA) != 0) {
+                hasDaAuth = 1;
+            }
+        }
+        /* A session bound to a DA protected entity is refused for every
+         * command and in every slot, or its HMAC would keep testing guesses
+         * of the bind authValue. */
+        if (hasDaSess) {
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+            TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+            return TPM_RC_SUCCESS;
         }
         /* Startup/Shutdown are lifecycle commands and must never be DA-gated:
          * with failedTries persisted, gating Startup would brick a TPM that
@@ -23550,9 +24528,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * regardless of the macro. */
     if (!ctx->daUsed) {
         int armDa = 0;
-        for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
+        for (pj = 0; pj < cmdAuthCnt; pj++) {
             int daUse;
-            TPM_HANDLE entityH = cmdHandles[pj];
+            TPM_HANDLE entityH = pj < (int)entry->authHandleCnt ?
+                cmdHandles[pj] : (TPM_HANDLE)TPM_RH_NULL;
             TPM_HANDLE bindH = cmdAuths[pj].sess != NULL ?
                 cmdAuths[pj].sess->bindHandle : 0;
             int entityIsObj =
@@ -23610,6 +24589,19 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
         return TPM_RC_SUCCESS;
     }
+    if ((entry->encDecFlags & FW_CMD_FLAG_AUTH_DUP) && cmdAuthCnt > 0 &&
+            cmdAuths[0].sess != NULL &&
+            cmdAuths[0].sess->commandCode != cmdCode) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: DUP role requires PolicyCommandCode (CC=0x%x)\n",
+            cmdCode);
+    #endif
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
+            (cmdAuths[0].sess->commandCode == 0) ?
+                TPM_RC_POLICY_FAIL : TPM_RC_POLICY_CC);
+        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+        return TPM_RC_SUCCESS;
+    }
 
     /* ADMIN-role authorization requires a policy session when the object
      * sets adminWithPolicy, and always for an NV index. A policy used for
@@ -23661,8 +24653,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             printf("fwTPM: ADMIN role requires PolicyCommandCode (CC=0x%x)\n",
                 cmdCode);
         #endif
-            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                TPM_ST_NO_SESSIONS, TPM_RC_POLICY_CC);
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
+                (adminSess->commandCode == 0) ?
+                    TPM_RC_POLICY_FAIL : TPM_RC_POLICY_CC);
             TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
             return TPM_RC_SUCCESS;
         }
@@ -23671,7 +24664,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* userWithAuth enforcement: per TPM 2.0 spec Part 1, Section 19.7.1,
      * if an object has authPolicy set and userWithAuth is CLEAR, only a
      * policy session can authorize the object. Reject password and HMAC
-     * sessions for such objects. */
+     * sessions for such objects. An object loaded without its sensitive area
+     * has no authValue to authorize with either (Part 3 Sec.18.2). */
     for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
         if (cmdAuths[pj].handle == TPM_RS_PW ||
             (cmdAuths[pj].sess != NULL &&
@@ -23682,8 +24676,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 (entityH & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000)) {
                 uwObj = FwFindObject(ctx, entityH);
             }
-            if (uwObj != NULL && uwObj->pub.authPolicy.size > 0 &&
-                !(uwObj->pub.objectAttributes & TPMA_OBJECT_userWithAuth)) {
+            if (uwObj != NULL && (uwObj->publicOnly ||
+                (uwObj->pub.authPolicy.size > 0 &&
+                 !(uwObj->pub.objectAttributes & TPMA_OBJECT_userWithAuth)))) {
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: Password/HMAC auth rejected for handle "
                     "0x%x — policy required (userWithAuth clear)\n", entityH);
@@ -23732,6 +24727,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     }
                 }
             #endif
+                authRc |= TPM_RC_S | (TPM_RC)(TPM_RC_1 * (pj + 1));
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, authRc);
                 TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
@@ -23746,6 +24742,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     for (hj = 0; hj < cmdAuthCnt; hj++) {
         int isAuthSess = (hj < (int)entry->authHandleCnt);
         if (cmdAuths[hj].sess != NULL && (cmdAuths[hj].cmdHmacSize > 0 ||
+                cmdAuths[hj].sess->sessionType == TPM_SE_HMAC ||
                 (!isAuthSess && cmdAuths[hj].sess->sessionKey.size > 0) ||
                 (cmdAuths[hj].sess->sessionType == TPM_SE_POLICY &&
                  (cmdAuths[hj].sess->isPasswordPolicy ||
@@ -23824,6 +24821,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         }
                     }
                 #endif
+                    authRc |= TPM_RC_S | (TPM_RC)(TPM_RC_1 * (hj + 1));
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, authRc);
                     TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
@@ -23888,7 +24886,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                if (isAuthSess && FwAuthSlotDAUse(ctx, entityH, 0, hSess,
+                if (FwAuthSlotDAUse(ctx, entityH, 0, hSess,
                         cmdAuths[hj].cmdHmacSize, &daHandle) != 0) {
                     authRc = TPM_RC_AUTH_FAIL;
                     if (FwDaRegisterFailure(ctx, daHandle)) {
@@ -23899,6 +24897,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     }
                 }
             #endif
+                authRc |= TPM_RC_S | (TPM_RC)(TPM_RC_1 * (hj + 1));
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, authRc);
                 TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));

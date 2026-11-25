@@ -73,7 +73,9 @@
 #define FWTPM_NV_NAME_EST       66   /* 2 (alg) + 64 (SHA-512 digest) */
 #define FWTPM_NV_AUTH_EST       68   /* 2 (size) + 2 (alg) + 64 (digest) */
 
-/* Maximum single TLV entry value size (PCR state is largest) */
+/* Initial size of the TLV entry value buffer, sized for the PCR state. The
+ * saver and the loader grow it for a larger record (PCR auth, NV index,
+ * persistent object). */
 #define FWTPM_NV_MAX_ENTRY (IMPLEMENTATION_PCR * FWTPM_PCR_BANKS * \
                             TPM_MAX_DIGEST_SIZE + 4)
 
@@ -123,12 +125,17 @@ typedef struct FWTPM_NV_HEADER {
 /* Hierarchy policies (value: UINT32 hierarchy + UINT16 alg + digest) */
 #define FWTPM_NV_TAG_HIERARCHY_POLICY  0x0035
 
-/* Clock offset (value: UINT64 clockOffset, survives reboot) */
+/* Clock checkpoint (value: UINT64 Clock in ms, HAL time plus clockOffset,
+ * survives reboot) */
 #define FWTPM_NV_TAG_CLOCK             0x0038
 
 /* NV indices (value starts with UINT32 nvHandle) */
 #define FWTPM_NV_TAG_NV_INDEX          0x0040
 #define FWTPM_NV_TAG_NV_INDEX_DEL      0x0041
+/* TPM2_NV_GlobalWriteLock (no value): sets TPMA_NV_WRITELOCKED on every
+ * TPMA_NV_GLOBALLOCK index replayed before it. One record, so the lock is
+ * committed for all of them or for none. */
+#define FWTPM_NV_TAG_NV_GLOBAL_LOCK    0x0042
 
 /* Persistent objects (value starts with UINT32 handle) */
 #define FWTPM_NV_TAG_PERSISTENT        0x0050
@@ -227,7 +234,8 @@ WOLFTPM_API int FWTPM_NV_SaveSeeds(FWTPM_CTX* ctx);
 
     \return 0 on success
     \return a nonzero error code on I/O error
-    \return BAD_FUNC_ARG for unknown hierarchy
+    \return BAD_FUNC_ARG if ctx is NULL
+    \return TPM_RC_HIERARCHY for unknown hierarchy
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param hierarchy one of TPM_RH_OWNER, TPM_RH_ENDORSEMENT,
@@ -268,8 +276,8 @@ WOLFTPM_API int FWTPM_NV_SaveConfigs(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV
-    \brief Append the TPM clock offset to the NV journal so that time
-    survives a reboot.
+    \brief Append a checkpoint of the TPM Clock (HAL time plus the clock
+    offset, in ms) to the NV journal so that time survives a reboot.
 
     \return 0 on success; a nonzero error code on I/O error
 
@@ -313,6 +321,19 @@ WOLFTPM_API int FWTPM_NV_SaveNvIndex(FWTPM_CTX* ctx, int slot);
     \param nvHandle NV index handle (0x01xxxxxx)
 */
 WOLFTPM_API int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle);
+
+/*!
+    \ingroup wolfTPM_fwTPM_NV
+    \brief Set TPMA_NV_WRITELOCKED on every NV index that has
+    TPMA_NV_GLOBALLOCK. The change is appended to the NV journal as one
+    record and applied to ctx->nvIndices only once that record is committed,
+    so on error no index is locked.
+
+    \return 0 on success; a nonzero error code on I/O error
+
+    \param ctx pointer to an initialized FWTPM_CTX
+*/
+WOLFTPM_API int FWTPM_NV_GlobalWriteLock(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV

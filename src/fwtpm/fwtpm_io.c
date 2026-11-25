@@ -549,6 +549,7 @@ static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
             /* Per wolfSPDM_RespHandleMessage's contract, an E_FRAMING
              * return MUST drop the connection - it indicates a plaintext
              * bypass attempt or other malformed inbound frame. */
+            TPM2_ForceZero(ctx->cmdBuf, cmdSize);
             return -1;
         }
         if (procRc != WOLFSPDM_SUCCESS) {
@@ -592,6 +593,10 @@ static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
                 TPM_RC_FAILURE);
         }
     }
+
+    /* The command carries password authorizations in the clear, and the
+     * dispatcher decrypts session-encrypted parameters in place. */
+    TPM2_ForceZero(ctx->cmdBuf, cmdSize);
 
     if (isSwtpm) {
         /* swtpm protocol: raw TPM response only (no framing) */
@@ -664,6 +669,7 @@ static int HandleCommandConnection(FWTPM_CTX* ctx, SOCKET_T clientFd)
         rc = TransportRecv(ctx, FWTPM_IO_TYPE_COMMAND, clientFd,
             ctx->cmdBuf + 4, 6);
         if (rc != TPM_RC_SUCCESS) {
+            TPM2_ForceZero(ctx->cmdBuf, TPM2_HEADER_SIZE);
             return rc;
         }
         cmdSize = FwLoadU32BE(ctx->cmdBuf + 2);
@@ -681,6 +687,7 @@ static int HandleCommandConnection(FWTPM_CTX* ctx, SOCKET_T clientFd)
             rc = TransportRecv(ctx, FWTPM_IO_TYPE_COMMAND, clientFd,
                 ctx->cmdBuf + TPM2_HEADER_SIZE, (int)remaining);
             if (rc != TPM_RC_SUCCESS) {
+                TPM2_ForceZero(ctx->cmdBuf, cmdSize);
                 return rc;
             }
         }
@@ -744,6 +751,7 @@ static int HandleCommandConnection(FWTPM_CTX* ctx, SOCKET_T clientFd)
     rc = TransportRecv(ctx, FWTPM_IO_TYPE_COMMAND, clientFd, ctx->cmdBuf,
         (int)cmdSize);
     if (rc != TPM_RC_SUCCESS) {
+        TPM2_ForceZero(ctx->cmdBuf, cmdSize);
         return rc;
     }
 

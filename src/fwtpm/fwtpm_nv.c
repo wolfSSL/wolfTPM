@@ -418,7 +418,8 @@ static int FwNvMarshalPublic(byte* buf, word32* pos, word32 maxSz,
     XMEMCPY(&pub2b.publicArea, pub, sizeof(TPMT_PUBLIC));
     TPM2_Packet_AppendPublic(&pkt, &pub2b);
 
-    if (pkt.pos <= 0 || (word32)pkt.pos > (maxSz - *pos)) {
+    if (pkt.overflow || pkt.pos <= 0 ||
+            (word32)pkt.pos > (maxSz - *pos)) {
         return TPM_RC_FAILURE;
     }
     *pos += pkt.pos;
@@ -671,6 +672,16 @@ static int FwNvMarshalObject(byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvMarshalU32(buf, pos, maxSz, obj->hierarchy);
     }
+    /* Appended last so an older record still parses */
+    if (rc == 0) {
+        rc = FwNvMarshalName(buf, pos, maxSz, &obj->qualifiedName);
+    }
+    if (rc == 0) {
+        rc = FwNvMarshalDigest(buf, pos, maxSz, &obj->seedValue);
+    }
+    if (rc == 0) {
+        rc = FwNvMarshalU8(buf, pos, maxSz, (UINT8)(obj->publicOnly != 0));
+    }
     return rc;
 }
 
@@ -680,6 +691,7 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     int rc;
     int skipEntry = 0;
     UINT16 privSz;
+    UINT8 publicOnly = 0;
 
     XMEMSET(obj, 0, sizeof(FWTPM_Object));
 
@@ -721,6 +733,27 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     else if (rc == 0 && obj->handle >= PLATFORM_PERSISTENT) {
         obj->hierarchy = TPM_RH_PLATFORM;
+    }
+    /* Optional trailing Qualified Name. A record written without it does
+     * not say what the parent was, so the Name stands in. */
+    if (rc == 0 && *pos + 2 <= maxSz) {
+        rc = FwNvUnmarshalName(buf, pos, maxSz, &obj->qualifiedName);
+    }
+    else if (rc == 0) {
+        obj->qualifiedName = obj->name;
+    }
+    /* Optional trailing seedValue, empty in a record written without it */
+    if (rc == 0 && *pos + 2 <= maxSz) {
+        rc = FwNvUnmarshalDigest(buf, pos, maxSz, &obj->seedValue);
+    }
+    /* Optional trailing public-only flag. A record written without it holds
+     * a public-only object when it has no private data. */
+    if (rc == 0 && *pos + 1 <= maxSz) {
+        rc = FwNvUnmarshalU8(buf, pos, maxSz, &publicOnly);
+        obj->publicOnly = (publicOnly != 0);
+    }
+    else if (rc == 0) {
+        obj->publicOnly = (obj->privKeySize == 0);
     }
     if (rc == 0) {
         /* Validate the handle after consuming the complete record so a
@@ -907,7 +940,10 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
 #endif /* !NO_FILESYSTEM */
 
 /* Resolve the journal integrity key: a platform-provided device secret if
- * the HAL supplies one, else the default file backend's key file. */
+ * the HAL supplies one, else the default file backend's key file. Returns 1
+ * with a key and 0 when there is none. A HAL key callback that fails returns
+ * a negative value: the journal it authenticates must then be neither loaded
+ * nor written. */
 static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
 {
     *keySz = 0;
@@ -916,7 +952,9 @@ static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
                 *keySz > 0) {
             return 1;
         }
-        return 0;
+        TPM2_ForceZero(key, FWTPM_NV_KEY_SIZE);
+        *keySz = 0;
+        return -1;
     }
 #if !defined(NO_FILESYSTEM)
     if (ctx->nvHal.read == FwNvFileRead) {
@@ -1053,15 +1091,14 @@ static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
 /* Journal Operations                                                        */
 /* ========================================================================= */
 
-/* Write NV header at offset 0 */
-static int FwNvWriteHeader(FWTPM_CTX* ctx)
+/* Write NV header at offset 0. The caller resolves the integrity key, as it
+ * has to be there before the journal is touched; keySz is 0 without one. */
+static int FwNvWriteHeader(FWTPM_CTX* ctx, const byte* key, word32 keySz)
 {
     byte hdr[sizeof(FWTPM_NV_HEADER)]; /* 4 x UINT32 = 16 bytes */
     FWTPM_NV_HAL* hal = &ctx->nvHal;
 
-    byte key[FWTPM_NV_KEY_SIZE];
     byte mac[FWTPM_NV_MAC_SIZE];
-    word32 keySz = 0;
     int rc;
 
     FwStoreU32LE(hdr + 0,  FWTPM_NV_MAGIC);
@@ -1073,13 +1110,11 @@ static int FwNvWriteHeader(FWTPM_CTX* ctx)
 
     /* Rewrite the trailing MAC in place (byte-addressable only; append-only
      * commits integrity via FwNvAppendCheckpoint instead). */
-    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) &&
-            FwNvGetIntegrityKey(ctx, key, &keySz)) {
+    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) && keySz > 0) {
         rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
         if (rc == TPM_RC_SUCCESS) {
             rc = FwNvHalWrite(ctx, ctx->nvWritePos, mac, sizeof(mac));
         }
-        TPM2_ForceZero(key, sizeof(key));
     }
     return rc;
 }
@@ -1111,6 +1146,9 @@ static int FwNvAppendCheckpoint(FWTPM_CTX* ctx)
 
     /* MAC over [header .. current writePos) (this entry not included). */
     haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
     if (haveKey) {
         rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
         TPM2_ForceZero(key, sizeof(key));
@@ -1177,6 +1215,8 @@ static int FwNvAppendEntryEx(FWTPM_CTX* ctx, UINT16 tag,
     word32 entrySize = TLV_HDR_SIZE + valueLen;
     word32 reserve = FWTPM_NV_MAC_SIZE;
     byte tlvHdr[TLV_HDR_SIZE];
+    byte key[FWTPM_NV_KEY_SIZE];
+    word32 keySz = 0;
     word32 savedWritePos;
     int rc;
 
@@ -1236,6 +1276,13 @@ static int FwNvAppendEntryEx(FWTPM_CTX* ctx, UINT16 tag,
         }
     }
 
+    /* The entry overwrites the journal MAC of a byte-addressable backend, so
+     * the key for the new MAC has to be there first */
+    if (!FW_NV_APPEND_ONLY(hal) &&
+            FwNvGetIntegrityKey(ctx, key, &keySz) < 0) {
+        return TPM_RC_FAILURE;
+    }
+
     /* Write TLV header */
     FwStoreU16LE(tlvHdr, tag);
     FwStoreU16LE(tlvHdr + 2, valueLen);
@@ -1264,9 +1311,11 @@ static int FwNvAppendEntryEx(FWTPM_CTX* ctx, UINT16 tag,
         else
 #endif
         {
-            rc = FwNvWriteHeader(ctx); /* byte-addressable: header + MAC */
+            /* byte-addressable: header + MAC */
+            rc = FwNvWriteHeader(ctx, key, keySz);
         }
     }
+    TPM2_ForceZero(key, sizeof(key));
     if (rc != TPM_RC_SUCCESS) {
         /* A failed append must leave no committable remnant. On a byte-
          * addressable backend roll the write cursor back so the partial entry
@@ -1349,6 +1398,22 @@ static int FwNvFindOrAllocCacheSlot(FWTPM_CTX* ctx, UINT32 hierarchy,
     }
     return freeSlot;
 }
+
+#ifndef FWTPM_NO_NV
+/* Write-lock every NV index that has TPMA_NV_GLOBALLOCK */
+static void FwNvApplyGlobalLock(FWTPM_CTX* ctx)
+{
+    int i;
+
+    for (i = 0; i < FWTPM_MAX_NV_INDICES; i++) {
+        if (ctx->nvIndices[i].inUse &&
+                (ctx->nvIndices[i].nvPublic.attributes &
+                    TPMA_NV_GLOBALLOCK) != 0) {
+            ctx->nvIndices[i].nvPublic.attributes |= TPMA_NV_WRITELOCKED;
+        }
+    }
+}
+#endif /* !FWTPM_NO_NV */
 
 /* Process a single TLV entry during journal scan */
 static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
@@ -1833,6 +1898,15 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             }
             break;
         }
+
+        case FWTPM_NV_TAG_NV_GLOBAL_LOCK:
+            if (valueLen != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                FwNvApplyGlobalLock(ctx);
+            }
+            break;
     #endif /* !FWTPM_NO_NV */
 
         case FWTPM_NV_TAG_PERSISTENT: {
@@ -2114,6 +2188,9 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
     int rc = TPM_RC_SUCCESS;
 
     haveKey = FwNvGetIntegrityKey(ctx, vKey, &vKeySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
 
     /* Pass 1: locate the last authenticated MAC checkpoint. */
     scanPos = (word32)sizeof(FWTPM_NV_HEADER);
@@ -2258,6 +2335,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
     word32 valueBufSz = FWTPM_NV_MAX_ENTRY;
     byte vKey[FWTPM_NV_KEY_SIZE];
     word32 vKeySz = 0;
+    int haveKey;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -2338,7 +2416,11 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         hdr.magic == FWTPM_NV_MAGIC &&
         hdr.version == FWTPM_NV_VERSION) {
         ctx->nvWritePos = hdr.writePos;
-        if (FwNvGetIntegrityKey(ctx, vKey, &vKeySz)) {
+        haveKey = FwNvGetIntegrityKey(ctx, vKey, &vKeySz);
+        if (haveKey < 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (haveKey) {
             byte storedMac[FWTPM_NV_MAC_SIZE];
             byte calcMac[FWTPM_NV_MAC_SIZE];
             if (ctx->nvWritePos + FWTPM_NV_MAC_SIZE > hal->maxSize) {
@@ -2464,6 +2546,14 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         rc = FwNvGenFreshState(ctx);
     }
 
+#ifndef FWTPM_NO_NV
+    /* An image saved with the global write lock flag set has no lock record
+     * and its indexes do not carry the lock */
+    if (rc == TPM_RC_SUCCESS && ctx->globalNvWriteLock) {
+        FwNvApplyGlobalLock(ctx);
+    }
+#endif
+
     TPM2_ForceZero(valueBuf, valueBufSz);
     XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
@@ -2483,6 +2573,9 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     byte* buf = NULL;
     word32 bufSz = FWTPM_NV_MAX_ENTRY;
     word32 pos;
+    byte key[FWTPM_NV_KEY_SIZE];
+    word32 keySz = 0;
+    int haveKey;
     UINT64 clockValue = 0;
     int clockSafe;
 
@@ -2500,9 +2593,16 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         return TPM_RC_FAILURE;
     }
 
+    /* Keep the journal when the new one could not be authenticated */
+    haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
+
     /* Allocate marshal buffer for largest single entry */
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {
+        TPM2_ForceZero(key, sizeof(key));
         return TPM_RC_MEMORY;
     }
 
@@ -2515,8 +2615,10 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
 
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
     /* Freshly erased: reset the pending granule so the rewrite streams from 0. */
-    ctx->nvGranuleBase = 0;
-    ctx->nvGranuleFill = 0;
+    if (rc == 0) {
+        ctx->nvGranuleBase = 0;
+        ctx->nvGranuleFill = 0;
+    }
 #endif
 
     /* Reset write position to after header (only if erase succeeded) */
@@ -2526,8 +2628,9 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
 
     /* Write header (will be updated at end with final writePos) */
     if (rc == 0) {
-        rc = FwNvWriteHeader(ctx);
+        rc = FwNvWriteHeader(ctx, key, keySz);
     }
+    TPM2_ForceZero(key, sizeof(key));
 
     /* --- Seeds --- */
     if (rc == 0) {
@@ -2591,7 +2694,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
         if (hasPcrAuth || ctx->pcrAllocPending ||
                 ctx->pcrAllocatedBanks != FWTPM_PCR_ALLOC_DEFAULT) {
-            word32 needed = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2);
+            word32 needed = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2) +
+                2;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -2608,18 +2712,28 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             }
             if (rc == 0) {
                 pos = 0;
-                FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
-                for (i = 0; i < IMPLEMENTATION_PCR; i++) {
-                    FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
-                    FwNvMarshalDigest(buf, &pos, bufSz,
+                rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
+            }
+            for (i = 0; i < IMPLEMENTATION_PCR && rc == 0; i++) {
+                rc = FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
+                if (rc == 0) {
+                    rc = FwNvMarshalDigest(buf, &pos, bufSz,
                         &ctx->pcrPolicy[i]);
-                    FwNvMarshalU16(buf, &pos, bufSz,
+                }
+                if (rc == 0) {
+                    rc = FwNvMarshalU16(buf, &pos, bufSz,
                         ctx->pcrPolicyAlg[i]);
                 }
-                /* Appended last so an older record still parses */
-                FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
-                FwNvMarshalU8(buf, &pos, bufSz,
+            }
+            /* Appended last so an older record still parses */
+            if (rc == 0) {
+                rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
+            }
+            if (rc == 0) {
+                rc = FwNvMarshalU8(buf, &pos, bufSz,
                     ctx->pcrAllocatedBanksPending);
+            }
+            if (rc == 0) {
                 rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH,
                     buf, (UINT16)pos);
             }
@@ -2784,7 +2898,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             word32 needed;
             pos = 0;
             needed = 4 + FWTPM_NV_PUBAREA_EST + FWTPM_NV_NAME_EST + 2 +
-                     ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST;
+                     ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST +
+                     2 + FWTPM_NV_NAME_EST + FWTPM_NV_AUTH_EST + 1;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -2988,7 +3103,7 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
     int i;
     byte* buf;
     word32 pos = 0;
-    word32 bufSz = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2);
+    word32 bufSz = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2) + 2;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -2999,17 +3114,27 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
         return TPM_RC_MEMORY;
     }
 
-    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
-    for (i = 0; i < IMPLEMENTATION_PCR; i++) {
-        FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
-        FwNvMarshalDigest(buf, &pos, bufSz, &ctx->pcrPolicy[i]);
-        FwNvMarshalU16(buf, &pos, bufSz, ctx->pcrPolicyAlg[i]);
+    rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanks);
+    for (i = 0; i < IMPLEMENTATION_PCR && rc == 0; i++) {
+        rc = FwNvMarshalAuth(buf, &pos, bufSz, &ctx->pcrAuth[i]);
+        if (rc == 0) {
+            rc = FwNvMarshalDigest(buf, &pos, bufSz, &ctx->pcrPolicy[i]);
+        }
+        if (rc == 0) {
+            rc = FwNvMarshalU16(buf, &pos, bufSz, ctx->pcrPolicyAlg[i]);
+        }
     }
     /* Appended last so an older record still parses */
-    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
-    FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanksPending);
+    if (rc == 0) {
+        rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocPending);
+    }
+    if (rc == 0) {
+        rc = FwNvMarshalU8(buf, &pos, bufSz, ctx->pcrAllocatedBanksPending);
+    }
 
-    rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH, buf, (UINT16)pos);
+    if (rc == 0) {
+        rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_PCR_AUTH, buf, (UINT16)pos);
+    }
 
     TPM2_ForceZero(buf, bufSz);
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -3252,6 +3377,37 @@ int FWTPM_NV_DeleteNvIndex(FWTPM_CTX* ctx, UINT32 nvHandle)
 #endif /* FWTPM_NO_NV */
 }
 
+int FWTPM_NV_GlobalWriteLock(FWTPM_CTX* ctx)
+{
+#ifdef FWTPM_NO_NV
+    (void)ctx;
+    return NOT_COMPILED_IN;
+#else
+    int rc;
+    int compacted = 0;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = FwNvAppendEntryEx(ctx, FWTPM_NV_TAG_NV_GLOBAL_LOCK, NULL, 0,
+        &compacted);
+    /* A compaction rewrote the indexes as they are and left the record out,
+     * so the lock is still to be committed. */
+    if (rc == TPM_RC_SUCCESS && compacted) {
+        rc = FwNvAppendEntryEx(ctx, FWTPM_NV_TAG_NV_GLOBAL_LOCK, NULL, 0,
+            &compacted);
+        if (rc == TPM_RC_SUCCESS && compacted) {
+            rc = TPM_RC_NV_SPACE;
+        }
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        FwNvApplyGlobalLock(ctx);
+    }
+    return rc;
+#endif /* FWTPM_NO_NV */
+}
+
 int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
 {
     int rc;
@@ -3270,7 +3426,8 @@ int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
     }
 
     bufSz = 4 + FWTPM_NV_PUBAREA_EST + 2 + FWTPM_NV_NAME_EST + 2 +
-            obj->privKeySize + 2 + FWTPM_NV_AUTH_EST;
+            obj->privKeySize + 2 + FWTPM_NV_AUTH_EST +
+            2 + FWTPM_NV_NAME_EST + FWTPM_NV_AUTH_EST + 1;
 
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {
