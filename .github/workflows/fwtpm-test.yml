@@ -120,21 +120,29 @@ jobs:
             build_only: true
             extra_cflags: -DWOLFSSL_NO_ML_DSA_44
 
-          # Build-only: PQC with one half of each algorithm left out, so the
-          # examples and tests must not reference a wrapper that is not built.
-          # The handler and wrapper tests assume every operation is present,
-          # so make check cannot run here.
+          # PQC with one half of each algorithm left out. The examples and
+          # tests must not reference a wrapper that is not built, the fwTPM
+          # must neither advertise nor dispatch the missing commands, and
+          # the tests for the half that is built still run.
           - name: fwtpm-pqc-verify-enc
             os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm --enable-pqc --enable-mldsa=verify-only --enable-mlkem=enc
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
-            build_only: true
+            build_only: false
 
           - name: fwtpm-pqc-sign-dec
             os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm --enable-pqc --enable-mldsa=sign-only --enable-mlkem=dec
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
-            build_only: true
+            build_only: false
+
+          # PQC without pre-hash ML-DSA: TPM_ALG_HASH_MLDSA keys are rejected
+          # and the Hash-ML-DSA key template is not built.
+          - name: fwtpm-pqc-no-hash-mldsa
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-pqc --disable-hash-mldsa
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            build_only: false
 
           # Build-only: fwTPM with RSA disabled
           - name: fwtpm-no-rsa
