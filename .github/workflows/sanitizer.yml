@@ -55,6 +55,18 @@ jobs:
             asan_options: "detect_leaks=0"
             wolftpm_extra_config: "--enable-smallstack"
             wolfssl_extra_config: "--enable-smallstack"
+          - name: "UBSan (small stack)"
+            cflags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
+            ldflags: "-fsanitize=undefined"
+            ubsan_options: "halt_on_error=1:print_stacktrace=1"
+            wolftpm_extra_config: "--enable-smallstack"
+            wolfssl_extra_config: "--enable-smallstack"
+          # Symmetric algorithms through the TPM in the crypto callback.
+          # cflags also reach the wolfSSL build, which does not use the macro.
+          - name: "ASan (symmetric)"
+            cflags: "-fsanitize=address -fno-omit-frame-pointer -g -O1 -DWOLFTPM_USE_SYMMETRIC"
+            ldflags: "-fsanitize=address"
+            asan_options: "detect_leaks=0"
 
           # Same base sanitizers, but linked against the latest wolfSSL -stable
           # release instead of master.

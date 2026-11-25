@@ -41,6 +41,13 @@
 /* Configuration */
 #define TPM2_BENCH_DURATION_SEC         1
 #define TPM2_BENCH_DURATION_KEYGEN_SEC  15
+/* Verify needs the signature from sign, and decap the ciphertext from encap */
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
+    #define BENCH_MLDSA
+#endif
+#if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
+    #define BENCH_MLKEM
+#endif
 static int gUseBase2 = 1;
 
 /* Fixed-iteration mode (-iter=N). Zero keeps the default duration mode, where
@@ -320,7 +327,7 @@ exit:
     return rc;
 }
 
-#ifdef WOLFTPM_MLDSA
+#ifdef BENCH_MLDSA
 /* Benchmark Pure ML-DSA: key gen, sign and verify (sign/verify sequence). */
 static int bench_pqc_mldsa(WOLFTPM2_DEV* dev, double maxDuration,
     double maxKeyGenDurSec, int level)
@@ -410,9 +417,9 @@ exit:
     wolfTPM2_UnloadHandle(dev, &mldsaKey.handle);
     return rc;
 }
-#endif /* WOLFTPM_MLDSA */
+#endif /* BENCH_MLDSA */
 
-#ifdef WOLFTPM_MLKEM
+#ifdef BENCH_MLKEM
 /* Benchmark ML-KEM: key gen, encapsulate and decapsulate. */
 static int bench_pqc_mlkem(WOLFTPM2_DEV* dev, double maxDuration,
     double maxKeyGenDurSec, int level)
@@ -480,7 +487,7 @@ exit:
     wolfTPM2_UnloadHandle(dev, &mlkemKey.handle);
     return rc;
 }
-#endif /* WOLFTPM_MLKEM */
+#endif /* BENCH_MLKEM */
 
 static void usage(void)
 {
@@ -563,14 +570,14 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
      * entry, which can repeat a later one */
     TPM_ECC_CURVE eccDone[sizeof(eccCurves)/sizeof(eccCurves[0])];
     int eccDoneCnt = 0;
-#if defined(WOLFTPM_MLDSA) || defined(WOLFTPM_MLKEM)
+#if defined(BENCH_MLDSA) || defined(BENCH_MLKEM)
     int i;
 #endif
-#ifdef WOLFTPM_MLDSA
+#ifdef BENCH_MLDSA
     static const int mldsaLevels[] = {
         TPM_MLDSA_44, TPM_MLDSA_65, TPM_MLDSA_87 };
 #endif
-#ifdef WOLFTPM_MLKEM
+#ifdef BENCH_MLKEM
     static const int mlkemLevels[] = {
         TPM_MLKEM_512, TPM_MLKEM_768, TPM_MLKEM_1024 };
 #endif
@@ -931,14 +938,14 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
     } /* ECC curves */
 
-#if defined(WOLFTPM_MLDSA) || defined(WOLFTPM_MLKEM)
+#if defined(BENCH_MLDSA) || defined(BENCH_MLKEM)
     /* Post-quantum (TPM 2.0 v1.85). Skipped under parameter encryption: the
      * large PQC public-key responses exceed the parameter-decryption buffer
      * (TPM_RC_... BUFFER_E). Free the storage key first so the larger PQC keys
      * fit within the TPM's transient object slots. */
     if (paramEncAlg == TPM_ALG_NULL) {
         wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
-    #ifdef WOLFTPM_MLDSA
+    #ifdef BENCH_MLDSA
         for (i = 0; i < (int)(sizeof(mldsaLevels)/sizeof(mldsaLevels[0]));
                 i++) {
             rc = bench_pqc_mldsa(&dev, maxDuration, maxKeyGenDurSec,
@@ -946,7 +953,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
             if (rc != 0) goto exit;
         }
     #endif
-    #ifdef WOLFTPM_MLKEM
+    #ifdef BENCH_MLKEM
         for (i = 0; i < (int)(sizeof(mlkemLevels)/sizeof(mlkemLevels[0]));
                 i++) {
             rc = bench_pqc_mlkem(&dev, maxDuration, maxKeyGenDurSec,

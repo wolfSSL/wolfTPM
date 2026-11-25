@@ -1052,6 +1052,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
         if (info->hash.digest != NULL) { /* Final */
             word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
+            const byte* last = NULL;
+            word32 lastSz = 0;
             if (rc == 0 && hash.handle.hndl == 0) {
                 rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg,
                     NULL, 0);
@@ -1061,12 +1063,20 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             }
             if (rc == 0 && hashCtx &&
                     (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
+                /* the last chunk is sent with the sequence complete */
+                lastSz = hashCtx->cacheSz % MAX_DIGEST_BUFFER;
+                if (lastSz == 0 && hashCtx->cacheSz > 0) {
+                    lastSz = MAX_DIGEST_BUFFER;
+                }
                 rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
-                        hashCtx->cacheBuf, hashCtx->cacheSz);
+                        hashCtx->cacheBuf, hashCtx->cacheSz - lastSz);
+                if (lastSz > 0) {
+                    last = &hashCtx->cacheBuf[hashCtx->cacheSz - lastSz];
+                }
             }
             if (rc == 0) {
-                rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
-                    &digestSz);
+                rc = wolfTPM2_HashFinishData(tlsCtx->dev, &hash, last, lastSz,
+                    info->hash.digest, &digestSz);
             }
         }
         /* if final or failure cleanup */
@@ -1271,7 +1281,7 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
         }
     }
     /* determine if we need to grow buffer */
-    else if ((hashCtx->cacheSz + inSz) > hashCtx->cacheBufSz) {
+    else if (inSz > hashCtx->cacheBufSz - hashCtx->cacheSz) {
         byte* oldIn = hashCtx->cacheBuf;
         word32 oldBufSz = hashCtx->cacheBufSz;
         word32 newSz;

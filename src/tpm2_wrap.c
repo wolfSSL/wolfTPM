@@ -6175,7 +6175,7 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
     byte* sig, int* sigSz)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     SignSequenceComplete_In signSeqCompleteIn;
     SignSequenceComplete_Out signSeqCompleteOut;
     WOLFTPM2_HANDLE seqHandleObj;
@@ -6187,15 +6187,26 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     int moved = 0;
 #endif
 
-    if (dev == NULL || key == NULL || sig == NULL || sigSz == NULL) {
+    if (dev == NULL) {
         return BAD_FUNC_ARG;
     }
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
 
-    if (dataSz < 0 || dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
-        return BUFFER_E;
+    if (key == NULL || sig == NULL || sigSz == NULL) {
+        rc = BAD_FUNC_ARG;
     }
-    if (dataSz > 0 && data == NULL) {
-        return BAD_FUNC_ARG;
+    else if (dataSz < 0 ||
+            dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
+        rc = BUFFER_E;
+    }
+    else if (dataSz > 0 && data == NULL) {
+        rc = BAD_FUNC_ARG;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        /* the sequence is not left loaded on any failure */
+        wolfTPM2_UnloadHandle(dev, &seqHandleObj);
+        return rc;
     }
 
     /* Part 3 Sec.20.6 Table 124: sequenceHandle is the 1st auth handle (slot 0),
@@ -6204,8 +6215,6 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
      * slot 0 carries an empty auth value; slot 1 carries the signing key's
      * auth. Missing the slot-1 assignment silently signs with the wrong auth
      * area when the key has a non-empty auth value. */
-    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
-    seqHandleObj.hndl = sequenceHandle;
     wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
 #if MAX_SESSION_NUM > 1
     /* SetAuthHandle resets slot 1 to password auth; restore the caller's
@@ -6322,6 +6331,10 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
             rc = BUFFER_E;
         }
     }
+    else {
+        /* the TPM keeps the sequence object when the command fails */
+        wolfTPM2_UnloadHandle(dev, &seqHandleObj);
+    }
 
     TPM2_ForceZero(&signSeqCompleteIn, sizeof(signSeqCompleteIn));
 
@@ -6406,7 +6419,7 @@ int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
+static int wolfTPM2_VerifySequenceFinish(WOLFTPM2_DEV* dev,
     TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
     const byte* sig, int sigSz, TPMT_TK_VERIFIED* validation)
 {
@@ -6579,10 +6592,25 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
                 sizeof(TPMT_TK_VERIFIED));
         }
     }
-    else {
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    const byte* sig, int sigSz, TPMT_TK_VERIFIED* validation)
+{
+    int rc;
+    WOLFTPM2_HANDLE seqHandleObj;
+
+    rc = wolfTPM2_VerifySequenceFinish(dev, sequenceHandle, key, data, dataSz,
+        sig, sigSz, validation);
+    if (rc != TPM_RC_SUCCESS && dev != NULL) {
         /* On an error return (e.g. TPM_RC_SIGNATURE) the TPM does not consume
          * the sequence object. Flush it so repeated failed verifies do not
          * exhaust transient memory (TPM_RC_OBJECT_MEMORY). */
+        XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+        seqHandleObj.hndl = sequenceHandle;
         wolfTPM2_UnloadHandle(dev, &seqHandleObj);
     }
 
@@ -8126,6 +8154,10 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             && pcrArray == NULL && dataSz > MAX_NV_BUFFER_SIZE) {
         return BUFFER_E;
     }
+    /* the NV offset is a UINT16 on the wire */
+    if (!extend && (offset > 0xFFFF || dataSz > 0xFFFF - offset)) {
+        return BAD_FUNC_ARG;
+    }
     hierAuth = wolfTPM2_NVIsHierarchyAuth(nv->handle.hndl);
 
     while (dataSz > 0) {
@@ -8285,6 +8317,10 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     if (tpmSession != NULL && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)
             && pcrArray == NULL && dataSz > MAX_NV_BUFFER_SIZE) {
         return BUFFER_E;
+    }
+    /* the NV offset is a UINT16 on the wire */
+    if (offset > 0xFFFF || dataSz > 0xFFFF - offset) {
+        return BAD_FUNC_ARG;
     }
     hierAuth = wolfTPM2_NVIsHierarchyAuth(nv->handle.hndl);
 
@@ -8899,16 +8935,19 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     return rc;
 }
 
-int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
-    byte* digest, word32* digestSz)
+int wolfTPM2_HashFinishData(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    const byte* data, word32 dataSz, byte* digest, word32* digestSz)
 {
     int rc;
     SequenceComplete_In in;
     SequenceComplete_Out out;
 
     if (dev == NULL || hash == NULL || digest == NULL || digestSz == NULL ||
-            hash->handle.hndl == 0) {
+            hash->handle.hndl == 0 || (data == NULL && dataSz > 0)) {
         return BAD_FUNC_ARG;
+    }
+    if (dataSz > sizeof(in.buffer.buffer)) {
+        return BUFFER_E;
     }
 
     /* set session auth for hash handle */
@@ -8916,6 +8955,10 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 
     XMEMSET(&in, 0, sizeof(in));
     in.sequenceHandle = hash->handle.hndl;
+    in.buffer.size = (UINT16)dataSz;
+    if (dataSz > 0) {
+        XMEMCPY(in.buffer.buffer, data, dataSz);
+    }
     in.hierarchy = TPM_RH_NULL;
     rc = TPM2_SequenceComplete(&in, &out);
 
@@ -8956,8 +8999,16 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 #endif
 
 exit:
+    /* holds a copy of the hashed input */
+    TPM2_ForceZero(&in, sizeof(in));
     TPM2_ForceZero(&out, sizeof(out));
     return rc;
+}
+
+int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    byte* digest, word32* digestSz)
+{
+    return wolfTPM2_HashFinishData(dev, hash, NULL, 0, digest, digestSz);
 }
 
 
@@ -9731,6 +9782,11 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
     if (rc == 0) {
         rc = TPM2_HierarchyChangeAuth(&in);
+        /* hand the rolled nonceTPM back for continued use of the session */
+        if (session != NULL) {
+            XMEMCPY(&session->nonceTPM, &dev->session[1].nonceTPM,
+                sizeof(TPM2B_NONCE));
+        }
     }
 #ifdef DEBUG_WOLFTPM
     desc = TPM2_GetHierarchyDesc(authHandle);
@@ -11148,7 +11204,7 @@ typedef struct CSRKey {
  *   0 on success
  *   BAD_FUNC_ARG on invalid parameters
  *   NOT_COMPILED_IN if key type not supported
- *   Other negative values on TPM errors
+ *   A positive TPM_RC_* code on TPM errors
  */
 static int wolfTPM2_SignCertCb(const byte* in, word32 inLen,
     byte* out, word32* outLen, int sigAlgo, int keyType, void* ctx)
@@ -11873,6 +11929,20 @@ int wolfTPM2_GetPolicyDigest(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     return rc;
 }
 
+/* TPM2_SetupPCRSelArray skips an index it cannot select, which would leave
+ * a policy bound to fewer PCRs than the caller asked for */
+static int wolfTPM2_CheckPcrArray(const byte* pcrArray, word32 pcrArraySz)
+{
+    word32 i;
+
+    for (i = 0; i < pcrArraySz; i++) {
+        if ((int)pcrArray[i] > (int)PCR_LAST) {
+            return BAD_FUNC_ARG;
+        }
+    }
+    return TPM_RC_SUCCESS;
+}
+
 int wolfTPM2_PolicyPCR(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz)
 {
@@ -11881,6 +11951,9 @@ int wolfTPM2_PolicyPCR(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
 
     if (dev == NULL || pcrArray == NULL || pcrArraySz == 0)
         return BAD_FUNC_ARG;
+    rc = wolfTPM2_CheckPcrArray(pcrArray, pcrArraySz);
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
 
     XMEMSET(policyPcr, 0, sizeof(PolicyPCR_In));
 
@@ -12328,6 +12401,10 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     if (digest == NULL || digestSz == NULL || pcrArray == NULL ||
         pcrArraySz == 0 || (pcrDigest == NULL && pcrDigestSz > 0)) {
         return BAD_FUNC_ARG;
+    }
+    rc = wolfTPM2_CheckPcrArray(pcrArray, pcrArraySz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
     hashSz = TPM2_GetHashDigestSize(pcrAlg);
     if (hashSz <= 0) {

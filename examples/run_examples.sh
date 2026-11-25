@@ -56,6 +56,21 @@ if [ -z "$ENABLE_V185" ]; then
         fi
     fi
 fi
+# An ML-KEM salted session needs the client to encapsulate, which a build
+# with WOLFTPM_NO_MLKEM_ENCAP (--enable-mlkem=dec) leaves out.
+# ENABLE_MLKEM_ENCAP may be set by the caller to override.
+if [ -z "$ENABLE_MLKEM_ENCAP" ]; then
+    ENABLE_MLKEM_ENCAP=$ENABLE_V185
+    for cfg in src/config.h config.h ../src/config.h ../config.h \
+               wolftpm/options.h wolftpm/version.h; do
+        if [ -f "$cfg" ] && grep -qE \
+                '^[[:space:]]*#[[:space:]]*define[[:space:]]+WOLFTPM_NO_MLKEM_ENCAP([[:space:]]|$)' \
+                "$cfg"; then
+            ENABLE_MLKEM_ENCAP=0
+            break
+        fi
+    done
+fi
 rm -f run.out
 touch run.out
 
@@ -442,21 +457,27 @@ if [ $ENABLE_V185 -eq 1 ]; then
     # The ML-DSA primary used as the bind entity has an EmptyAuth, so the
     # -mldsa cases below are the regression for the bound/EmptyAuth sessionKey
     # derivation: pre-fix these failed with a param-enc HMAC mismatch.
-    ./examples/wrap/wrap_test -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "wrap_test -aes -mlkem failed! $RESULT" && exit 1
+    if [ $ENABLE_MLKEM_ENCAP -eq 1 ]; then
+        ./examples/wrap/wrap_test -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "wrap_test -aes -mlkem failed! $RESULT" && exit 1
+    fi
     ./examples/wrap/wrap_test -xor -mldsa=65 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "wrap_test -xor -mldsa failed! $RESULT" && exit 1
-    ./examples/pcr/quote 16 quote.blob -ecc -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "quote -aes -mlkem failed! $RESULT" && exit 1
+    if [ $ENABLE_MLKEM_ENCAP -eq 1 ]; then
+        ./examples/pcr/quote 16 quote.blob -ecc -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "quote -aes -mlkem failed! $RESULT" && exit 1
+    fi
     ./examples/pcr/quote 16 quote.blob -ecc -xor -mldsa=65 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "quote -xor -mldsa failed! $RESULT" && exit 1
-    ./examples/nvram/counter -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "counter -aes -mlkem failed! $RESULT" && exit 1
+    if [ $ENABLE_MLKEM_ENCAP -eq 1 ]; then
+        ./examples/nvram/counter -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "counter -aes -mlkem failed! $RESULT" && exit 1
+    fi
     ./examples/nvram/counter -xor -mldsa=65 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "counter -xor -mldsa failed! $RESULT" && exit 1
@@ -468,15 +489,17 @@ if [ $ENABLE_V185 -eq 1 ]; then
     ./examples/nvram/read -aes >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "read -aes (after store -mldsa) failed! $RESULT" && exit 1
-    ./examples/nvram/store -xor -mlkem=768 >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "store -xor -mlkem failed! $RESULT" && exit 1
-    ./examples/nvram/read -xor >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "read -xor (after store -mlkem) failed! $RESULT" && exit 1
-    ./examples/keygen/keygen pqcpe.bin -ecc -aes -paramkey=mlkem=768 >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keygen -paramkey=mlkem failed! $RESULT" && exit 1
+    if [ $ENABLE_MLKEM_ENCAP -eq 1 ]; then
+        ./examples/nvram/store -xor -mlkem=768 >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "store -xor -mlkem failed! $RESULT" && exit 1
+        ./examples/nvram/read -xor >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "read -xor (after store -mlkem) failed! $RESULT" && exit 1
+        ./examples/keygen/keygen pqcpe.bin -ecc -aes -paramkey=mlkem=768 >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen -paramkey=mlkem failed! $RESULT" && exit 1
+    fi
     ./examples/keygen/keygen pqcpe.bin -ecc -xor -paramkey=mldsa=65 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen -paramkey=mldsa failed! $RESULT" && exit 1

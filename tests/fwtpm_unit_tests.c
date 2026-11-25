@@ -2147,6 +2147,26 @@ static void test_fwtpm_getcap_sequence_handles(void)
 #else
     #define FW_GATED_SEQ_UPDATE 0
 #endif
+#ifdef WOLFTPM_MLKEM_ENCAP
+    #define FW_GATED_MLKEM_ENCAP 1
+#else
+    #define FW_GATED_MLKEM_ENCAP 0
+#endif
+#ifdef WOLFTPM_MLKEM_DECAP
+    #define FW_GATED_MLKEM_DECAP 1
+#else
+    #define FW_GATED_MLKEM_DECAP 0
+#endif
+#ifdef WOLFTPM_MLDSA_SIGN
+    #define FW_GATED_MLDSA_SIGN 1
+#else
+    #define FW_GATED_MLDSA_SIGN 0
+#endif
+#ifdef WOLFTPM_MLDSA_VERIFY
+    #define FW_GATED_MLDSA_VERIFY 1
+#else
+    #define FW_GATED_MLDSA_VERIFY 0
+#endif
 
 typedef struct FwGateCase {
     UINT32      cc;
@@ -2180,6 +2200,20 @@ static const FwGateCase fwGateCases[] = {
     { TPM_CC_MakeCredential,     FW_GATED_CREDENTIAL,    "MakeCredential" },
     { TPM_CC_DictionaryAttackLockReset, FW_GATED_DA,
       "DictionaryAttackLockReset" },
+#ifdef WOLFTPM_PQC
+    { TPM_CC_Encapsulate,        FW_GATED_MLKEM_ENCAP,   "Encapsulate" },
+    { TPM_CC_Decapsulate,        FW_GATED_MLKEM_DECAP,   "Decapsulate" },
+    { TPM_CC_SignSequenceStart,  FW_GATED_MLDSA_SIGN,    "SignSequenceStart" },
+    { TPM_CC_SignSequenceComplete, FW_GATED_MLDSA_SIGN,
+      "SignSequenceComplete" },
+    { TPM_CC_SignDigest,         FW_GATED_MLDSA_SIGN,    "SignDigest" },
+    { TPM_CC_VerifySequenceStart, FW_GATED_MLDSA_VERIFY,
+      "VerifySequenceStart" },
+    { TPM_CC_VerifySequenceComplete, FW_GATED_MLDSA_VERIFY,
+      "VerifySequenceComplete" },
+    { TPM_CC_VerifyDigestSignature, FW_GATED_MLDSA_VERIFY,
+      "VerifyDigestSignature" },
+#endif /* WOLFTPM_PQC */
     /* Never gated - guards against a table/#ifdef slip removing a core
      * command that every build must keep. */
     { TPM_CC_GetRandom,          1,                      "GetRandom" },
@@ -3986,6 +4020,7 @@ static void test_fwtpm_create_loaded_mlkem(void)
 }
 #endif /* WOLFTPM_V185 */
 
+#if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
 /* End-to-end Layer D: CreatePrimary MLKEM → Encapsulate → Decapsulate.
  * Asserts that the two shared secrets match, proving FIPS 203 is wired
  * correctly from keygen through encaps and decaps. */
@@ -4078,6 +4113,7 @@ static void test_fwtpm_mlkem_roundtrip(void)
     FWTPM_FREE_BUF(ct1);
     fwtpm_pass("MLKEM Encap/Decap Roundtrip:", 1);
 }
+#endif /* WOLFTPM_MLKEM_ENCAP && WOLFTPM_MLKEM_DECAP */
 
 #if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
     defined(WOLFTPM_MLKEM_DECAP)
@@ -4367,8 +4403,7 @@ static void test_fwtpm_encseed_decseed_mlkem_roundtrip(void)
 /* FlushHandle is defined later in this file. */
 static void FlushHandle(FWTPM_CTX* ctx, UINT32 handle);
 
-#if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP) && \
-    !defined(FWTPM_NO_CREDENTIAL)
+#if defined(WOLFTPM_MLKEM) && !defined(FWTPM_NO_CREDENTIAL)
 /* Run MakeCredential(ekHandle, credential, ekName) and copy the returned
  * credentialBlob and secret TPM2Bs out for a follow-up ActivateCredential. */
 static void MlkemMakeCredential(FWTPM_CTX* ctx, UINT32 ekHandle,
@@ -4685,8 +4720,7 @@ static void test_fwtpm_mlkem_credential_sha384_aes256_roundtrip(void)
 #endif /* WOLFSSL_SHA384 */
 #endif /* WOLFTPM_MLKEM && !FWTPM_NO_CREDENTIAL */
 
-#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
-    !defined(FWTPM_NO_ATTESTATION)
+#if defined(WOLFTPM_MLDSA_SIGN) && !defined(FWTPM_NO_ATTESTATION)
 /* Create a restricted ML-DSA (or Hash-ML-DSA) attestation key and return its
  * handle; *akOut points at the in-memory object for public-key access during
  * verification. */
@@ -5222,8 +5256,9 @@ static void test_fwtpm_hash_mldsa_quote_namealg_digest(void)
 }
 #endif /* WOLFSSL_SHA384 */
 #endif /* WOLFTPM_HASH_MLDSA */
-#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY && !FWTPM_NO_ATTESTATION */
+#endif /* WOLFTPM_MLDSA_SIGN && !FWTPM_NO_ATTESTATION */
 
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* TPM2_SignDigest + TPM2_VerifyDigestSignature roundtrip with ECC P-256
  * (ECDSA + SHA-256) per Part 3 Sec.20.7 / Sec.20.4. Confirms the v1.85
  * digest-sign/verify commands accept classical signing schemes. */
@@ -5500,7 +5535,9 @@ static void test_fwtpm_signsequence_classical_ecdsa_roundtrip(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSequence/VerifySequence ECDSA Roundtrip:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
+#if defined(WOLFTPM_MLDSA_SIGN) || defined(WOLFTPM_MLDSA_VERIFY)
 /* Build a CreatePrimary command for an ECC P-256 key with the supplied
  * scheme (TPM_ALG_NULL for unspecified). Returns command size. Used by the
  * v1.85 negative-scheme tests below. */
@@ -5544,7 +5581,9 @@ static int BuildEccP256SignPrimary(byte* buf, UINT16 sigScheme,
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
 }
+#endif /* WOLFTPM_MLDSA_SIGN || WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* HIGH-3 negative: TPM2_SignDigest on a NULL-scheme RSA/ECC key MUST fail
  * with TPM_RC_SCHEME (Part 3 Sec.20.7.1) — no scheme synthesis. */
 static void test_fwtpm_signdigest_null_scheme_rejected(void)
@@ -5625,7 +5664,9 @@ static void test_fwtpm_signsequencestart_null_scheme_rejected(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSequenceStart NULL-scheme RSA/ECC rejected:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* HIGH-4 negative: TPM2_VerifyDigestSignature with a wire signature scheme
  * that doesn't match the key's configured scheme MUST fail with
  * TPM_RC_SCHEME (Part 3 Sec.20.4.1). Builds an ECDSA-SHA256 key, then
@@ -5717,7 +5758,9 @@ static void test_fwtpm_verifydigestsig_digest_size_mismatch(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigestSig classical digest-size mismatch rejected:", 1);
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* MEDIUM-2 negative: TPM2_SignDigest with a digest size that doesn't match
  * the key's hashAlg digest size MUST fail TPM_RC_SIZE per Part 3 Sec.20.7.1. */
 static void test_fwtpm_signdigest_digest_size_mismatch(void)
@@ -5762,7 +5805,9 @@ static void test_fwtpm_signdigest_digest_size_mismatch(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest classical digest-size mismatch rejected:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* MEDIUM-34: RSA SignDigest + VerifyDigestSignature roundtrip
  * (RSASSA). Mirror of the ECDSA test for the RSA classical arm. Run with
  * SHA-512 to cover the largest PKCS#1 v1.5 DigestInfo (83 bytes). */
@@ -6137,7 +6182,9 @@ static void test_fwtpm_signsequence_hmac_roundtrip(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSequence/VerifySequence HMAC Roundtrip:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* HIGH-1 negative: SignSequence handle authorization. SignSequenceStart
  * accepts a non-empty TPM2B_AUTH; subsequent SequenceUpdate against that
  * handle MUST validate the per-sequence auth (not silently accept an
@@ -6216,7 +6263,9 @@ static void test_fwtpm_signsequence_handle_auth_required(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSequence handle auth enforced:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* HIGH-3 positive: VerifySequence MUST handle messages > 1024 bytes for
  * hash-then-sign schemes. Streams a 4 KB ECDSA verify successfully. */
 static void test_fwtpm_verifysequence_long_message(void)
@@ -6377,10 +6426,12 @@ static void test_fwtpm_verifysequence_long_message(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Sign/VerifySequence ECDSA 4KB long-message:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
 /* Layer D: Hash-MLDSA-44 SignDigest → VerifyDigestSignature round-trip.
  * Verifies the signature-ticket validation path (Bug M-4 metadata field). */
-#ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_SIGN) && \
+    defined(WOLFTPM_MLDSA_VERIFY)
 static void test_fwtpm_mldsa_digest_roundtrip(void)
 {
     FWTPM_CTX ctx;
@@ -6488,12 +6539,12 @@ static void test_fwtpm_mldsa_digest_roundtrip(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("MLDSA SignDigest/Verify Roundtrip:", 1);
 }
-#endif /* WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
 /* Layer D: Pure MLDSA-65 sign/verify sequence round-trip.
  * SignSequenceComplete is one-shot via buffer; VerifySequenceComplete
  * consumes a message accumulated via SequenceUpdate. */
-#ifdef WOLFTPM_MLDSA
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 static void test_fwtpm_mldsa_sequence_roundtrip(void)
 {
     FWTPM_CTX ctx;
@@ -6639,7 +6690,7 @@ static void test_fwtpm_mldsa_sequence_roundtrip(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("MLDSA Sign/Verify Sequence:", 1);
 }
-#endif /* WOLFTPM_MLDSA */
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
 /* ------------------------------------------------------------------ */
 /* Known-Answer Tests (Layer A/C) against NIST ACVP + wolfSSL vectors */
@@ -6809,8 +6860,7 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
     fwtpm_pass("MLDSA LoadExternal (NIST pub):", 1);
 }
 
-#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
-    !defined(FWTPM_NO_ATTESTATION)
+#if defined(WOLFTPM_MLDSA_SIGN) && !defined(FWTPM_NO_ATTESTATION)
 /* A public-only ML-DSA key (loaded via TPM2_LoadExternal, no private seed)
  * must not be usable for attestation: signing from its all-zero seed would
  * derive a universally reproducible key unrelated to the public key. It has
@@ -6877,8 +6927,9 @@ static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("MLDSA Quote public-only key rejected:", 1);
 }
-#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY && !FWTPM_NO_ATTESTATION */
+#endif /* WOLFTPM_MLDSA_SIGN && !FWTPM_NO_ATTESTATION */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* LoadExternal a public-only ML-DSA-44 (or Hash-ML-DSA-44/SHA-256) signing
  * key and return its handle. */
 static UINT32 LoadPublicOnlyMldsa(FWTPM_CTX* ctx, UINT16 algType)
@@ -6999,6 +7050,7 @@ static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("MLDSA sign public-only key rejected:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
 /* TPM2_LoadExternal must reject ML public areas with an unsupported parameter
  * set, an out-of-range allowExternalMu, an invalid Hash-ML-DSA hash, invalid
@@ -7146,6 +7198,8 @@ static int AppendPwAuth(byte* buf, int pos, const byte* pw, int pwSz);
  * test_mlkem.c) translated to TPM command-level errors. Every assertion
  * cites Part 3 / Part 2 text that mandates the returned code. */
 
+#if defined(WOLFTPM_MLDSA_SIGN) || defined(WOLFTPM_MLDSA_VERIFY) || \
+    defined(WOLFTPM_MLKEM_DECAP)
 /* Helper: create a valid MLKEM primary and return its handle. */
 static UINT32 fwtpm_neg_mk_mlkem_primary(FWTPM_CTX* ctx)
 {
@@ -7157,6 +7211,7 @@ static UINT32 fwtpm_neg_mk_mlkem_primary(FWTPM_CTX* ctx)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
+#endif /* WOLFTPM_MLDSA_SIGN || WOLFTPM_MLDSA_VERIFY || WOLFTPM_MLKEM_DECAP */
 
 /* Helper: create a valid MLDSA-65 primary. */
 static UINT32 fwtpm_neg_mk_mldsa_primary(FWTPM_CTX* ctx)
@@ -7170,6 +7225,7 @@ static UINT32 fwtpm_neg_mk_mldsa_primary(FWTPM_CTX* ctx)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+#ifdef WOLFTPM_MLKEM_ENCAP
 /* Handler 1: TPM2_Encapsulate. Part 3 Sec.14.10. */
 static void test_fwtpm_encapsulate_neg(void)
 {
@@ -7200,7 +7256,9 @@ static void test_fwtpm_encapsulate_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Encapsulate negatives (HANDLE/KEY):", 1);
 }
+#endif /* WOLFTPM_MLKEM_ENCAP */
 
+#ifdef WOLFTPM_MLKEM_DECAP
 /* Handler 2: TPM2_Decapsulate. Part 3 Sec.14.11. */
 static void test_fwtpm_decapsulate_neg(void)
 {
@@ -7255,7 +7313,9 @@ static void test_fwtpm_decapsulate_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Decapsulate negatives (KEY/SIZE):", 1);
 }
+#endif /* WOLFTPM_MLKEM_DECAP */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* Handler 3: TPM2_SignSequenceStart. Part 3 Sec.17.5 Table 89. */
 static void test_fwtpm_signseqstart_neg(void)
 {
@@ -7301,7 +7361,9 @@ static void test_fwtpm_signseqstart_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqStart negatives (KEY/HANDLE):", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Handler 4: TPM2_VerifySequenceStart. Part 3 Sec.17.6 Table 87. */
 static void test_fwtpm_verifyseqstart_neg(void)
 {
@@ -7351,7 +7413,9 @@ static void test_fwtpm_verifyseqstart_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifySeqStart negatives (VALUE/KEY):", 1);
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* Handler 5: TPM2_SignSequenceComplete. Part 3 Sec.20.6. */
 static void test_fwtpm_signseqcomplete_neg(void)
 {
@@ -7476,7 +7540,9 @@ static void test_fwtpm_signseqcomplete_truncated_buffer(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete truncated buffer rejected:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Handler 6: TPM2_VerifySequenceComplete. Part 3 Sec.20.3. */
 static void test_fwtpm_verifyseqcomplete_neg(void)
 {
@@ -7507,7 +7573,9 @@ static void test_fwtpm_verifyseqcomplete_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifySeqComplete negatives (HANDLE):", 1);
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* Handler 7: TPM2_SignDigest. Part 3 Sec.20.7. */
 static void test_fwtpm_signdigest_neg(void)
 {
@@ -7574,12 +7642,13 @@ static void test_fwtpm_signdigest_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest negatives (ATTRIBUTES/KEY):", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
 /* SignDigest must reject malformed TPMT_TK_HASHCHECK
  * (validation.tag != TPM_ST_HASHCHECK) for any key, not just restricted
  * ones. Negative test: build SignDigest with validation.tag = 0 to a
  * Hash-MLDSA (unrestricted) key and assert TPM_RC_TAG. */
-#ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_SIGN)
 static void test_fwtpm_signdigest_malformed_hashcheck_tag(void)
 {
     FWTPM_CTX ctx;
@@ -7628,7 +7697,7 @@ static void test_fwtpm_signdigest_malformed_hashcheck_tag(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest malformed HASHCHECK tag rejected:", 1);
 }
-#endif /* WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_SIGN */
 
 /* NULL Verified Tickets must omit any metadata bytes. Per Part 2 Sec.10.6.5
  * every NULL Verified Ticket is encoded as the 3-tuple
@@ -7679,6 +7748,7 @@ static void test_fwtpm_appendticket_null_digest_verified_no_metadata(void)
     fwtpm_pass("FwAppendTicket NULL DIGEST_VERIFIED no metadata:", 1);
 }
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Handler 8: TPM2_VerifyDigestSignature. Part 3 Sec.20.4. */
 static void test_fwtpm_verifydigestsig_neg(void)
 {
@@ -7715,7 +7785,9 @@ static void test_fwtpm_verifydigestsig_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigestSig negatives (scheme mismatch):", 1);
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* Handler 9: Pure-MLDSA streaming sign. Per FIPS 204 Algorithm 2,
  * ML-DSA is not single-pass — SHAKE256 supports incremental absorption,
  * so SequenceUpdate + SignSequenceComplete with an accumulated message
@@ -7791,6 +7863,7 @@ static void test_fwtpm_sequenceupdate_neg(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete Pure-MLDSA streaming (FIPS 204 Sec.6):", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
 /* ---- TCG compliance: v1.85 spec-RC fixtures -------------------------- */
 
@@ -7838,6 +7911,7 @@ static int BuildCreatePrimaryHashMldsaAttrs(byte* buf, UINT32 attributes)
     return pos;
 }
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* SignDigest with a restricted key requires a valid TPMT_TK_HASHCHECK per
  * Part 3 Sec.20.7.1; a NULL ticket is insufficient and must return
  * TPM_RC_TICKET (not TPM_RC_ATTRIBUTES — that RC is reserved for the
@@ -7929,6 +8003,7 @@ static void test_fwtpm_signdigest_x509sign_returns_attributes(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest x509sign (ATTRIBUTES):", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
 /* Part 3 Sec.20.5.1: TPM2_Sign MUST reject keyHandle with x509sign SET
  * (TPM_RC_ATTRIBUTES). Mirrors the SignDigest / SignSequenceComplete
@@ -7978,7 +8053,7 @@ static void test_fwtpm_sign_x509sign_returns_attributes(void)
 /* End-to-end positive: TPM2_Hash produces a real HASHCHECK ticket that
  * SignDigest must accept on a restricted key. Confirms ticket-validation
  * actually verifies the HMAC (not just rejects everything). */
-#ifndef FWTPM_NO_HASH_CMDS
+#if !defined(FWTPM_NO_HASH_CMDS) && defined(WOLFTPM_MLDSA_SIGN)
 static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
 {
     FWTPM_CTX ctx;
@@ -8068,8 +8143,9 @@ static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest restricted+valid ticket (success):", 1);
 }
-#endif /* !FWTPM_NO_HASH_CMDS */
+#endif /* !FWTPM_NO_HASH_CMDS && WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* F-4: VerifyDigestSignature rejects sigHashAlg != key's hashAlg with
  * TPM_RC_SCHEME per Part 3 Sec.20.4.1. Key is Hash-ML-DSA-44/SHA-256; wire
  * signature carries sigHashAlg=SHA-384. Full signature bytes follow the
@@ -8111,6 +8187,7 @@ static void test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigest hashAlg-mismatch (SCHEME):", 1);
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 #endif /* WOLFTPM_HASH_MLDSA */
 
 /* F-6a: CreatePrimary(MLDSA, allowExternalMu=YES) returns TPM_RC_EXT_MU per
@@ -8193,7 +8270,7 @@ static void test_fwtpm_testparms_mldsa_extmu_returns_ext_mu(void)
 /* F-7: SignDigest on Hash-ML-DSA with digest size != key's hashAlg digest
  * size returns TPM_RC_SIZE per Part 3 Sec.20.7.1. Key is SHA-256 (32-byte
  * digest); send 33 bytes. */
-#ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_SIGN)
 static void test_fwtpm_signdigest_wrong_digest_size_returns_size(void)
 {
     FWTPM_CTX ctx;
@@ -8234,13 +8311,14 @@ static void test_fwtpm_signdigest_wrong_digest_size_returns_size(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest wrong digest size (SIZE):", 1);
 }
-#endif /* WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_SIGN */
 
 /* F-8: SignSequenceComplete with a key whose TPMA_OBJECT_x509sign is SET
  * returns TPM_RC_ATTRIBUTES per Part 3 Sec.20.6.1. x509sign restricts the
  * key to X.509 certificate signing only; SignSequenceComplete is not that
  * channel. */
 #ifdef WOLFTPM_HASH_MLDSA
+#ifdef WOLFTPM_MLDSA_SIGN
 static void test_fwtpm_signseqcomplete_x509sign_returns_attributes(void)
 {
     FWTPM_CTX ctx;
@@ -8364,7 +8442,9 @@ test_fwtpm_signseqcomplete_restricted_generated_value_returns_value(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete restricted+GEN_VAL (VALUE):", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* TPMT_TK_VERIFIED HMAC must bind tag and metadata per Part 2 Sec.10.6.5
  * Eq (5): hmac = HMAC(proof, tag || data || keyName || metadata).
  * For TPM_ST_DIGEST_VERIFIED, metadata = 2-byte sigHashAlg. This test
@@ -8500,6 +8580,7 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("VerifyDigestSig ticket Eq(5) HMAC parity:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
 /* Requires SHA-384 as a working object name algorithm distinct from the
  * (SHA-256) context integrity hash. */
@@ -8693,6 +8774,7 @@ static void test_fwtpm_verifydigest_ticket_uses_context_hash(void)
 }
 #endif /* ECC and digest-signature command support */
 
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* Build a Hash-MLDSA-44/SHA-256 CreatePrimary in a caller-chosen
  * hierarchy. Used to exercise the per-object hierarchy capture path
  * since BuildCreatePrimaryCmd hardcodes TPM_RH_OWNER. */
@@ -8950,8 +9032,10 @@ static void test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("VerifySeqComplete ticket hierarchy=key:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 #endif /* WOLFTPM_HASH_MLDSA */
 
+#ifdef WOLFTPM_MLKEM_DECAP
 /* MEDIUM-5: TPM2_Decapsulate has Auth Role: USER per Part 3 Sec.14.11.2
  * Table 62, so cmdTag MUST be TPM_ST_SESSIONS. A NO_SESSIONS request
  * silently bypassed the auth area entirely; reject with
@@ -8983,7 +9067,9 @@ static void test_fwtpm_decapsulate_no_sessions_returns_auth_missing(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Decapsulate NO_SESSIONS (AUTH_MISSING):", 1);
 }
+#endif /* WOLFTPM_MLKEM_DECAP */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 static void test_fwtpm_signdigest_no_sessions_returns_auth_missing(void)
 {
     FWTPM_CTX ctx;
@@ -9059,7 +9145,9 @@ static void test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete NO_SESSIONS (AUTH_MISSING):", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Per Part 3 Sec.20.3.2 Table 118, TPM2_VerifySequenceComplete has
  * tag = TPM_ST_SESSIONS unconditionally (Auth Role: USER on
  * @sequenceHandle). NO_SESSIONS bypasses the mandatory auth gate. */
@@ -9110,13 +9198,14 @@ static void test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifySeqComplete NO_SESSIONS (AUTH_MISSING):", 1);
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
 /* Per Part 3 Sec.20.4.1, keyHandle for VerifyDigestSignature must be a
  * signing key. The pre-fix handler only validated the wire sigAlg type
  * vs obj type; a key whose TPMA_OBJECT_sign is CLEAR would slip through.
  * To exercise the path without LoadExternal plumbing, mutate the object's
  * attributes via the public objects[] table after CreatePrimary. */
-#ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_VERIFY)
 static void test_fwtpm_verifydigestsig_no_sign_attr_returns_key(void)
 {
     FWTPM_CTX ctx;
@@ -9167,7 +9256,7 @@ static void test_fwtpm_verifydigestsig_no_sign_attr_returns_key(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigestSig non-signing key (KEY):", 1);
 }
-#endif /* WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_VERIFY */
 
 /* Per Part 2 Sec.8.2 Table 35, TPMA_ALGORITHM bits include signing (8)
  * and encrypting (9). The PQC algorithms must report these in TPM_CAP_ALGS
@@ -9246,6 +9335,7 @@ static void test_fwtpm_getcap_pqc_algorithm_attrs(void)
  * the same key produced byte-identical tickets, breaking
  * TPM2_PolicyAuthorize's chain of trust (Part 2 Sec.10.6.5 Eq (5)). */
 #ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes(void)
 {
     FWTPM_CTX ctx;
@@ -9762,7 +9852,9 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds MESSAGE:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* Per Part 3 Sec.20.6.1 a restricted signing key MUST NOT sign a message
  * whose first 4 bytes are TPM_GENERATED_VALUE (0xFF544347). The check
  * inspects the assembled message; for Hash-ML-DSA the bytes flow into
@@ -9846,6 +9938,7 @@ test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete Hash-MLDSA Update+GEN_VAL (VALUE):", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 #endif /* WOLFTPM_HASH_MLDSA */
 
 /* SignSequenceComplete with the wrong keyHandle returns
@@ -9853,7 +9946,7 @@ test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value(void)
  * the slot allocated lets a buggy or hostile client exhaust
  * FWTPM_MAX_SIGN_SEQ slots by repeatedly issuing Start + wrong-key
  * Complete, denying service to legitimate Sign sequences (CWE-772). */
-#if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_HASH_MLDSA)
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_SIGN)
 static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
 {
     FWTPM_CTX ctx;
@@ -9939,9 +10032,11 @@ static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete wrong key frees slot:", 1);
 }
-#endif /* WOLFTPM_MLDSA && WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_SIGN */
 
 #ifdef WOLFTPM_V185
+#if defined(WOLFTPM_MLDSA_SIGN) || defined(WOLFTPM_MLKEM_ENCAP) || \
+    defined(WOLFTPM_HASH_MLDSA)
 /* Extended CreatePrimary builder that overrides the default MLDSA/MLKEM
  * parameter set (BuildCreatePrimaryCmd uses ML-DSA-65 and
  * FWTPM_TEST_MLKEM_PS). Used by max-buffer
@@ -10010,6 +10105,9 @@ static int BuildCreatePrimaryCmdParamHash(byte* buf, TPM_ALG_ID algType,
     return pos;
 }
 
+#endif /* WOLFTPM_MLDSA_SIGN || WOLFTPM_MLKEM_ENCAP || WOLFTPM_HASH_MLDSA */
+
+#if defined(WOLFTPM_MLDSA_SIGN) || defined(WOLFTPM_MLKEM_ENCAP)
 /* Smallest pre-hash with lambda bits of collision strength (FIPS 204 5.4). */
 static TPMI_ALG_HASH MldsaPreHashFor(UINT16 paramSet)
 {
@@ -10026,11 +10124,13 @@ static int BuildCreatePrimaryCmdParam(byte* buf, TPM_ALG_ID algType,
     return BuildCreatePrimaryCmdParamHash(buf, algType, paramSet,
         MldsaPreHashFor(paramSet));
 }
+#endif /* WOLFTPM_MLDSA_SIGN || WOLFTPM_MLKEM_ENCAP */
 
 /* ---- Max-buffer round-trips at MLDSA-87 and MLKEM-1024 ---------------
  * These exercise FWTPM_MAX_DER_SIG_BUF (4736 bytes) and
  * FWTPM_MAX_COMMAND_SIZE (8192 bytes) at their intended ceilings.
  * MLDSA-87 sig = 4627 bytes, MLKEM-1024 ct = 1568 bytes per Table 204/207. */
+#ifdef WOLFTPM_MLDSA_SIGN
 static void test_fwtpm_mldsa87_maxbuf(void)
 {
     FWTPM_CTX ctx;
@@ -10185,6 +10285,7 @@ static void test_fwtpm_response_buffer_capacity(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Response buffer capacity respected:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
 /* ---- Hash-ML-DSA sequence round-trip across 44/65/87 -----------------
  * SignSequenceStart -> SequenceUpdate(chunked) -> SignSequenceComplete
@@ -10192,6 +10293,7 @@ static void test_fwtpm_response_buffer_capacity(void)
  * parameter sets. Mirrors test_wc_dilithium_sign_vfy in wolfCrypt, but
  * through the TPM sequence-handler surface rather than direct crypto. */
 #ifdef WOLFTPM_HASH_MLDSA
+#ifdef WOLFTPM_MLDSA_SIGN
 static void hash_mldsa_seq_roundtrip_hash(UINT16 paramSet, UINT16 preHash,
     UINT16 expectedSigSz)
 {
@@ -10335,12 +10437,14 @@ static void test_fwtpm_hash_mldsa_seq_all_params(void)
     fwtpm_pass("HashMLDSA-87 SHA3-512 seq roundtrip:", 1);
 #endif
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
 #ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
 static TPM2B_MLDSA_SIGNATURE weakSig;
 static TPM2B_PUBLIC_KEY_MLDSA weakPub;
 #endif
 
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* Every allowed parameter-set / pre-hash pairing that is compiled in. */
 static const struct {
     UINT16 ps;
@@ -10493,6 +10597,7 @@ static void test_fwtpm_hash_mldsa_prehash_matrix(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("HashMLDSA pre-hash sign/verify matrix:", 1);
 }
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 
 #ifndef WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH
 static const struct {
@@ -10611,7 +10716,7 @@ static void test_fwtpm_hash_mldsa_weak_prehash(void)
 #endif /* WOLFSSL_MLDSA_ALLOW_WEAK_PREHASH */
 #endif /* WOLFTPM_HASH_MLDSA */
 
-#ifndef FWTPM_NO_MLKEM_1024
+#if !defined(FWTPM_NO_MLKEM_1024) && defined(WOLFTPM_MLKEM_ENCAP)
 static void test_fwtpm_mlkem1024_maxbuf(void)
 {
     FWTPM_CTX ctx;
@@ -10652,14 +10757,14 @@ static void test_fwtpm_mlkem1024_maxbuf(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("MLKEM-1024 max-buffer roundtrip:", 1);
 }
-#endif /* !FWTPM_NO_MLKEM_1024 */
+#endif /* !FWTPM_NO_MLKEM_1024 && WOLFTPM_MLKEM_ENCAP */
 #endif /* WOLFTPM_V185 */
 
 /* ---- Sign-seq slot exhaustion ----------------------------------------
  * FWTPM_CTX holds FWTPM_MAX_SIGN_SEQ (4) slots for sign+verify sequences.
  * Starting more than that must return TPM_RC_OBJECT_MEMORY from
  * FwAllocSignSeq per Part 3 Sec.17.5. */
-#ifdef WOLFTPM_MLDSA
+#ifdef WOLFTPM_MLDSA_SIGN
 static void test_fwtpm_signseq_slot_exhaustion(void)
 {
     FWTPM_CTX ctx;
@@ -10704,8 +10809,9 @@ static void test_fwtpm_signseq_slot_exhaustion(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeq slot exhaustion:", 1);
 }
-#endif /* WOLFTPM_MLDSA */
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Pure ML-DSA sequence hashing remains streaming beyond 1024 bytes. */
 static void test_fwtpm_signseq_longmsg_streaming(void)
 {
@@ -10771,6 +10877,7 @@ static void test_fwtpm_signseq_longmsg_streaming(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeq long-msg streaming:", 1);
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
 /* ---- NV persistence round-trip for PQC primary -----------------------
  * An MLDSA-65 persistent key must survive a full FWTPM_Init / Cleanup
@@ -16193,7 +16300,7 @@ static TPM_RC SendNvCertifyCmd(FWTPM_CTX* ctx, UINT32 keyH, UINT32 nvIndex,
 }
 #endif /* HAVE_ECC */
 
-#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
+#ifdef WOLFTPM_MLDSA_SIGN
 /* TPM2_NV_Certify signed by a Pure ML-DSA key, verified with the wolfCrypt
  * ML-DSA verifier. Exercises the same FwSignAttest path as Quote/Certify. */
 static void test_fwtpm_mldsa_nv_certify_sign_and_verify(void)
@@ -16269,7 +16376,7 @@ static void test_fwtpm_mldsa_nv_certify_sign_and_verify(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("MLDSA NV_Certify sign and verify:", 1);
 }
-#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
+#endif /* WOLFTPM_MLDSA_SIGN */
 #endif /* !FWTPM_NO_ATTESTATION */
 #endif /* !FWTPM_NO_NV */
 
@@ -22685,7 +22792,7 @@ static void test_fwtpm_session_hmac_sweep(void)
         { TPM_CC_GetTime,      TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
         { TPM_CC_NV_Certify,   TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
         { TPM_CC_EventSequenceComplete, TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
-    #ifdef WOLFTPM_PQC
+    #ifdef WOLFTPM_MLDSA_SIGN
         { TPM_CC_SignSequenceComplete, TPM_RC_AUTH_MISSING, TPM_RC_BAD_AUTH },
     #endif
         { TPM_CC_NV_UndefineSpaceSpecial, TPM_RC_AUTH_MISSING,
@@ -22721,8 +22828,13 @@ static void test_fwtpm_session_hmac_sweep(void)
     #ifdef WOLFTPM_SPDM
         TPM_CC_PolicyTransportSPDM,
     #endif
-    #ifdef WOLFTPM_PQC
-        TPM_CC_Encapsulate, TPM_CC_SignSequenceStart,
+    #ifdef WOLFTPM_MLKEM_ENCAP
+        TPM_CC_Encapsulate,
+    #endif
+    #ifdef WOLFTPM_MLDSA_SIGN
+        TPM_CC_SignSequenceStart,
+    #endif
+    #ifdef WOLFTPM_MLDSA_VERIFY
         TPM_CC_VerifySequenceStart, TPM_CC_VerifyDigestSignature,
     #endif
     };
@@ -31600,10 +31712,9 @@ static void test_fwtpm_policysigned_sig_hash(void)
 }
 #endif /* WOLFSSL_SHA384 */
 
-/* TPM2_PolicySecret by ownerAuth with an empty cpHashA and policyRef and no
- * expiration */
-static TPM_RC SendPolicySecret(FWTPM_CTX* ctx, UINT32 sessH,
-    const byte* nonce, UINT16 nonceSz)
+/* TPM2_PolicySecret by ownerAuth with an empty cpHashA and policyRef */
+static TPM_RC SendPolicySecretExp(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* nonce, UINT16 nonceSz, INT32 expiration)
 {
     int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicySecret);
     int rspSize = 0;
@@ -31618,10 +31729,16 @@ static TPM_RC SendPolicySecret(FWTPM_CTX* ctx, UINT32 sessH,
     pos += nonceSz;
     PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA */
     PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef */
-    PutU32BE(gCmd + pos, 0); pos += 4; /* expiration */
+    PutU32BE(gCmd + pos, (UINT32)expiration); pos += 4;
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
+}
+
+static TPM_RC SendPolicySecret(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* nonce, UINT16 nonceSz)
+{
+    return SendPolicySecretExp(ctx, sessH, nonce, nonceSz, 0);
 }
 
 /* PolicySecret takes a nonceTPM only when it is the one of the policy
@@ -31664,6 +31781,218 @@ static void test_fwtpm_policysecret_nonce(void)
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PolicySecret nonceTPM:", 0);
+}
+
+/* TPM2_PolicyTicket with an empty cpHashA and policyRef */
+static TPM_RC SendPolicyTicket(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* timeout, const byte* authName, UINT16 authNameSz,
+    UINT16 ticketTag, UINT32 ticketHier, const byte* digest, UINT16 digestSz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyTicket);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, 8); pos += 2;
+    memcpy(gCmd + pos, timeout, 8); pos += 8;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef */
+    PutU16BE(gCmd + pos, authNameSz); pos += 2;
+    memcpy(gCmd + pos, authName, authNameSz); pos += authNameSz;
+    PutU16BE(gCmd + pos, ticketTag); pos += 2;
+    PutU32BE(gCmd + pos, ticketHier); pos += 4;
+    PutU16BE(gCmd + pos, digestSz); pos += 2;
+    memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A trial session cannot use PolicyTicket: the policy is computed there
+ * with the authorization the ticket stands for (Part 3 Sec.23.5). */
+static void test_fwtpm_policyticket_trial(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    UINT32 sessH;
+    byte zero[WC_SHA256_DIGEST_SIZE];
+    byte timeout[8];
+    byte authName[4];
+    byte digest[TPM_SHA384_DIGEST_SIZE];
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(zero, 0, sizeof(zero));
+    memset(timeout, 0, sizeof(timeout));
+    memset(digest, 0xAB, sizeof(digest));
+    PutU32BE(authName, TPM_RH_OWNER);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+
+    AssertIntEQ(SendPolicyTicket(&ctx, sessH, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest,
+        sizeof(digest)), TPM_RC_ATTRIBUTES | TPM_RC_H | TPM_RC_1);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyTicket trial session:", 0);
+}
+
+static FWTPM_Session* StartPolicySecretSession(FWTPM_CTX* ctx, UINT8 sessType)
+{
+    FWTPM_Session* sess = NULL;
+    UINT32 sessH = StartSessionHelper(ctx, sessType);
+    int i;
+
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx->sessions[i].used && ctx->sessions[i].handle == sessH) {
+            sess = &ctx->sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+    return sess;
+}
+
+/* PolicySecret with a negative expiration returns the timeout and a ticket
+ * that PolicyTicket takes in another session until it expires (Part 3
+ * Sec.23.4 and 23.5). */
+static void test_fwtpm_policysecret_ticket(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess;
+    const byte* rsp = gRsp + TPM2_HEADER_SIZE + 4;
+    byte zero[WC_SHA256_DIGEST_SIZE];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte timeout[8];
+    byte authName[4];
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    UINT16 digestSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(zero, 0, sizeof(zero));
+    PutU32BE(authName, TPM_RH_OWNER);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+
+    /* expiration counts seconds from the start of the session */
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    gMockClockMs = 2000;
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, 1),
+        TPM_RC_EXPIRED | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, 1), TPM_RC_SUCCESS);
+    /* empty timeout and a NULL ticket */
+    AssertIntEQ(GetU16BE(rsp), 0);
+    AssertIntEQ(GetU16BE(rsp + 2), TPM_ST_AUTH_SECRET);
+    AssertIntEQ(GetU32BE(rsp + 4), TPM_RH_NULL);
+    AssertIntEQ(GetU16BE(rsp + 8), 0);
+    AssertTrue(sess->timeout == sess->startTime + 1000);
+    memcpy(expected, sess->policyDigest.buffer, sizeof(expected));
+    AssertIntNE(memcmp(expected, zero, sizeof(zero)), 0);
+    FlushHandle(&ctx, sess->handle);
+
+    /* a trial session gets no ticket */
+    sess = StartPolicySecretSession(&ctx, TPM_SE_TRIAL);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, -10), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(rsp), 0);
+    AssertIntEQ(GetU32BE(rsp + 4), TPM_RH_NULL);
+    AssertIntEQ(GetU16BE(rsp + 8), 0);
+    AssertTrue(sess->timeout == 0);
+    FlushHandle(&ctx, sess->handle);
+
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, -10), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(rsp), sizeof(timeout));
+    memcpy(timeout, rsp + 2, sizeof(timeout));
+    AssertIntEQ(GetU32BE(timeout), 0);
+    AssertIntEQ(GetU32BE(timeout + 4), (UINT32)sess->startTime + 10000);
+    AssertIntEQ(GetU16BE(rsp + 10), TPM_ST_AUTH_SECRET);
+    AssertIntEQ(GetU32BE(rsp + 12), TPM_RH_OWNER);
+    digestSz = GetU16BE(rsp + 16);
+    AssertIntGT(digestSz, 0);
+    AssertIntLE(digestSz, sizeof(digest));
+    memcpy(digest, rsp + 18, digestSz);
+    AssertTrue(sess->timeout == sess->startTime + 10000);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, expected,
+        sizeof(expected)), 0);
+    FlushHandle(&ctx, sess->handle);
+
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    digest[0] ^= 0x01;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    digest[0] ^= 0x01;
+    /* the ticket covers its tag, the timeout and the Name */
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SIGNED, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    timeout[7] ^= 0x01;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    timeout[7] ^= 0x01;
+    authName[3] ^= 0x01;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    authName[3] ^= 0x01;
+    gMockClockMs = 10001;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_EXPIRED);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+    gMockClockMs = 10000;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, expected,
+        sizeof(expected)), 0);
+    AssertTrue(sess->timeout == 10000);
+    FlushHandle(&ctx, sess->handle);
+
+    /* without nonceTPM the expiration is a TPM time and the ticket ends
+     * with the next TPM Reset */
+    gMockClockMs = 2500;
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle, NULL, 0, -1),
+        TPM_RC_EXPIRED | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle, NULL, 0, -10),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(rsp), sizeof(timeout));
+    memcpy(timeout, rsp + 2, sizeof(timeout));
+    AssertIntEQ(GetU32BE(timeout), 0x80000000UL);
+    AssertIntEQ(GetU32BE(timeout + 4), 10500);
+    digestSz = GetU16BE(rsp + 16);
+    AssertIntGT(digestSz, 0);
+    AssertIntLE(digestSz, sizeof(digest));
+    memcpy(digest, rsp + 18, digestSz);
+    FlushHandle(&ctx, sess->handle);
+
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, expected,
+        sizeof(expected)), 0);
+    FlushHandle(&ctx, sess->handle);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicySecret expiration and ticket:", 0);
 }
 #endif /* !FWTPM_NO_POLICY */
 
@@ -33688,7 +34017,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_create_loaded_mldsa();
     test_fwtpm_create_loaded_mlkem();
+#if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
     test_fwtpm_mlkem_roundtrip();
+#endif /* WOLFTPM_MLKEM_ENCAP && WOLFTPM_MLKEM_DECAP */
 #if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
     defined(WOLFTPM_MLKEM_DECAP)
     test_fwtpm_ecc_dhkem_roundtrip();
@@ -33698,8 +34029,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_ecc_dhkem_unsupported();
 #endif
     test_fwtpm_encseed_decseed_mlkem_roundtrip();
-#if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP) && \
-    !defined(FWTPM_NO_CREDENTIAL)
+#if defined(WOLFTPM_MLKEM) && !defined(FWTPM_NO_CREDENTIAL)
     test_fwtpm_mlkem_credential_roundtrip();
     test_fwtpm_mlkem_activatecredential_tampered_rejected();
     test_fwtpm_mlkem_activatecredential_unrestricted_rejected();
@@ -33709,8 +34039,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #endif
 #endif
-#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
-    !defined(FWTPM_NO_ATTESTATION)
+#if defined(WOLFTPM_MLDSA_SIGN) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_mldsa_quote_sign_and_verify();
     test_fwtpm_mldsa_quote_scheme_mismatch_rejected();
     test_fwtpm_mldsa_quote_explicit_empty_scheme();
@@ -33730,18 +34059,32 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mldsa_nv_certify_sign_and_verify();
 #endif
 #endif
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_signdigest_classical_ecdsa_roundtrip();
     test_fwtpm_signsequence_classical_ecdsa_roundtrip();
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signdigest_null_scheme_rejected();
     test_fwtpm_signsequencestart_null_scheme_rejected();
+#endif /* WOLFTPM_MLDSA_SIGN */
+#ifdef WOLFTPM_MLDSA_VERIFY
     test_fwtpm_verifydigestsig_scheme_mismatch_rejected();
     test_fwtpm_verifydigestsig_digest_size_mismatch();
+#endif /* WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signdigest_digest_size_mismatch();
+#endif /* WOLFTPM_MLDSA_SIGN */
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_signdigest_classical_rsa_roundtrip();
     test_fwtpm_signsequence_classical_rsa_roundtrip();
     test_fwtpm_signsequence_hmac_roundtrip();
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signsequence_handle_auth_required();
+#endif /* WOLFTPM_MLDSA_SIGN */
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifysequence_long_message();
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 #if defined(FWTPM_HAVE_DHKEM) && defined(WOLFTPM_MLKEM_ENCAP) && \
     defined(WOLFTPM_MLKEM_DECAP)
     test_fwtpm_ecc_dhkem_p384_roundtrip();
@@ -33749,12 +34092,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_ecc_dhkem_p521_roundtrip();
 #endif
 #endif
-#ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_SIGN) && \
+    defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_mldsa_digest_roundtrip();
-#endif /* WOLFTPM_HASH_MLDSA */
-#ifdef WOLFTPM_MLDSA
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_mldsa_sequence_roundtrip();
-#endif /* WOLFTPM_MLDSA */
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
     /* NIST / wolfSSL KAT validation */
     test_fwtpm_mldsa_nist_kat_verify();
     test_fwtpm_mldsa_wolfssl_keygen_kat();
@@ -33771,81 +34115,128 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef WOLFTPM_MLKEM
     test_fwtpm_testparms_mlkem();
 #endif
+#ifdef WOLFTPM_MLKEM_ENCAP
     test_fwtpm_encapsulate_neg();
+#endif /* WOLFTPM_MLKEM_ENCAP */
+#ifdef WOLFTPM_MLKEM_DECAP
     test_fwtpm_decapsulate_neg();
+#endif /* WOLFTPM_MLKEM_DECAP */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signseqstart_neg();
+#endif /* WOLFTPM_MLDSA_SIGN */
+#ifdef WOLFTPM_MLDSA_VERIFY
     test_fwtpm_verifyseqstart_neg();
+#endif /* WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signseqcomplete_neg();
     test_fwtpm_signseqcomplete_truncated_buffer();
+#endif /* WOLFTPM_MLDSA_SIGN */
+#ifdef WOLFTPM_MLDSA_VERIFY
     test_fwtpm_verifyseqcomplete_neg();
+#endif /* WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signdigest_neg();
     test_fwtpm_mldsa_sign_public_only_returns_key();
+#endif /* WOLFTPM_MLDSA_SIGN */
 #ifdef WOLFTPM_HASH_MLDSA
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signdigest_malformed_hashcheck_tag();
     test_fwtpm_signdigest_restricted_null_ticket_returns_ticket();
     test_fwtpm_signdigest_x509sign_returns_attributes();
-#ifndef FWTPM_NO_HASH_CMDS
+#endif /* WOLFTPM_MLDSA_SIGN */
+#if !defined(FWTPM_NO_HASH_CMDS) && defined(WOLFTPM_MLDSA_SIGN)
     test_fwtpm_signdigest_restricted_valid_ticket_succeeds();
-#endif /* !FWTPM_NO_HASH_CMDS */
+#endif /* !FWTPM_NO_HASH_CMDS && WOLFTPM_MLDSA_SIGN */
+#ifdef WOLFTPM_MLDSA_VERIFY
     test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme();
+#endif /* WOLFTPM_MLDSA_VERIFY */
 #endif /* WOLFTPM_HASH_MLDSA */
     test_fwtpm_appendticket_null_digest_verified_no_metadata();
+#ifdef WOLFTPM_MLDSA_VERIFY
     test_fwtpm_verifydigestsig_neg();
+#endif /* WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_sequenceupdate_neg();
+#endif /* WOLFTPM_MLDSA_SIGN */
     test_fwtpm_create_primary_mldsa_extmu_returns_ext_mu();
     test_fwtpm_testparms_mldsa_extmu_returns_ext_mu();
-#ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_SIGN)
     test_fwtpm_signdigest_wrong_digest_size_returns_size();
-#endif /* WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_SIGN */
 #endif /* WOLFTPM_V185 */
 #ifdef WOLFTPM_MLDSA
     test_fwtpm_testparms_mldsa_supported_returns_success();
 #endif
 #ifdef WOLFTPM_V185
 #ifdef WOLFTPM_HASH_MLDSA
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signseqcomplete_x509sign_returns_attributes();
+#endif /* WOLFTPM_MLDSA_SIGN */
     test_fwtpm_sign_x509sign_returns_attributes();
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signseqcomplete_restricted_generated_value_returns_value();
+#endif /* WOLFTPM_MLDSA_SIGN */
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifydigest_ticket_hmac_eq5_compliance();
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 #endif /* WOLFTPM_HASH_MLDSA */
 #if defined(HAVE_ECC) && defined(WOLFSSL_SHA384) && \
     defined(WOLFTPM_HASH_MLDSA) && \
     defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifydigest_ticket_uses_context_hash();
 #endif
-#ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_SIGN) && \
+    defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifydigest_ticket_hierarchy_tracks_key();
     test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key();
-#endif /* WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLKEM_DECAP
     test_fwtpm_decapsulate_no_sessions_returns_auth_missing();
+#endif /* WOLFTPM_MLKEM_DECAP */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signdigest_no_sessions_returns_auth_missing();
     test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing();
+#endif /* WOLFTPM_MLDSA_SIGN */
+#ifdef WOLFTPM_MLDSA_VERIFY
     test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing();
-#ifdef WOLFTPM_HASH_MLDSA
+#endif /* WOLFTPM_MLDSA_VERIFY */
+#if defined(WOLFTPM_HASH_MLDSA) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifydigestsig_no_sign_attr_returns_key();
-#endif /* WOLFTPM_HASH_MLDSA */
+#endif /* WOLFTPM_HASH_MLDSA && WOLFTPM_MLDSA_VERIFY */
     test_fwtpm_getcap_pqc_algorithm_attrs();
 #ifdef WOLFTPM_HASH_MLDSA
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_tag_digest();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message();
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();
     test_fwtpm_signseqcomplete_wrong_key_frees_slot();
+#endif /* WOLFTPM_MLDSA_SIGN */
 #endif /* WOLFTPM_HASH_MLDSA */
     test_fwtpm_pqc_nv_persistence();
-#ifdef WOLFTPM_MLDSA
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_signseq_slot_exhaustion();
-#endif /* WOLFTPM_MLDSA */
+#endif /* WOLFTPM_MLDSA_SIGN */
+#ifdef WOLFTPM_MLDSA_VERIFY
     test_fwtpm_signseq_longmsg_streaming();
+#endif /* WOLFTPM_MLDSA_VERIFY */
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_mldsa87_maxbuf();
     test_fwtpm_response_buffer_capacity();
-#ifndef FWTPM_NO_MLKEM_1024
+#endif /* WOLFTPM_MLDSA_SIGN */
+#if !defined(FWTPM_NO_MLKEM_1024) && defined(WOLFTPM_MLKEM_ENCAP)
     test_fwtpm_mlkem1024_maxbuf();
-#endif
+#endif /* !FWTPM_NO_MLKEM_1024 && WOLFTPM_MLKEM_ENCAP */
 #ifdef WOLFTPM_HASH_MLDSA
+#ifdef WOLFTPM_MLDSA_SIGN
     test_fwtpm_hash_mldsa_seq_all_params();
+#endif /* WOLFTPM_MLDSA_SIGN */
     test_fwtpm_hash_mldsa_weak_prehash();
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_hash_mldsa_prehash_matrix();
+#endif /* WOLFTPM_MLDSA_SIGN && WOLFTPM_MLDSA_VERIFY */
 #endif /* WOLFTPM_HASH_MLDSA */
 #endif
     test_fwtpm_read_public();
@@ -34131,6 +34522,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policysigned_sig_hash();
 #endif
     test_fwtpm_policysecret_nonce();
+    test_fwtpm_policyticket_trial();
+    test_fwtpm_policysecret_ticket();
 #endif
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)

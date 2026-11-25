@@ -4981,6 +4981,12 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
         TPM2_Packet_AppendBytes(&packet, in->authName.name,
             in->authName.size);
 
+        TPM2_Packet_AppendU16(&packet, in->ticket.tag);
+        TPM2_Packet_AppendU32(&packet, in->ticket.hierarchy);
+        TPM2_Packet_AppendU16(&packet, in->ticket.digest.size);
+        TPM2_Packet_AppendBytes(&packet, in->ticket.digest.buffer,
+            in->ticket.digest.size);
+
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTicket);
 
         /* send command */
@@ -6902,7 +6908,10 @@ TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out)
     }
     return rc;
 }
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT) || \
+    defined(WOLFTPM_MFG_IDENTITY)
 TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
 {
     TPM_RC rc;
@@ -6949,7 +6958,7 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
     }
     return rc;
 }
-#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT || WOLFTPM_MFG_IDENTITY */
 
 /* GPIO Vendor Specific API's */
 #ifdef WOLFTPM_ST33

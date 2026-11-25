@@ -45,6 +45,36 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: false
 
+          # fwTPM TIS transport with the named-semaphore TIS lock, releasing a
+          # stale locality at startup. extra_cflags also reach the wolfSSL
+          # build, which does not use the macro.
+          - name: fwtpm-tis-lock
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --disable-swtpm --enable-tislock --enable-debug
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+            extra_cflags: -DWOLFTPM_TIS_RESET_STALE_LOCALITY
+
+          # Client without the TPM_RC_RETRY resend loop, running the TPM self
+          # test at init.
+          - name: fwtpm-no-retry-selftest
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+            extra_cflags: -DWOLFTPM_NO_RETRY -DWOLFTPM_PERFORM_SELFTEST
+
+          # Manufacturer identity (IAK / IDevID) wrappers without ST33 or
+          # module autodetect, where wolfTPM2_SetIdentityAuth must refuse a
+          # missing master password. The fwTPM holds no pre-provisioned
+          # identity keys, so the TLS examples fall back to generated keys.
+          - name: fwtpm-mfg-identity
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --disable-autodetect
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+            extra_cflags: -DWOLFTPM_MFG_IDENTITY
+
           # v1.85 PQC: full make check + pqc_mssim_e2e.sh + tpm2-tools
           # Highest-leverage entry — exercises wrapper unit tests
           # (tests/unit_tests.c v1.85 cases) + handler unit tests
@@ -89,6 +119,30 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
             build_only: true
             extra_cflags: -DWOLFSSL_NO_ML_DSA_44
+
+          # PQC with one half of each algorithm left out. The examples and
+          # tests must not reference a wrapper that is not built, the fwTPM
+          # must neither advertise nor dispatch the missing commands, and
+          # the tests for the half that is built still run.
+          - name: fwtpm-pqc-verify-enc
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-pqc --enable-mldsa=verify-only --enable-mlkem=enc
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            build_only: false
+
+          - name: fwtpm-pqc-sign-dec
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-pqc --enable-mldsa=sign-only --enable-mlkem=dec
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            build_only: false
+
+          # PQC without pre-hash ML-DSA: TPM_ALG_HASH_MLDSA keys are rejected
+          # and the Hash-ML-DSA key template is not built.
+          - name: fwtpm-pqc-no-hash-mldsa
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-pqc --disable-hash-mldsa
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            build_only: false
 
           # Build-only: fwTPM with RSA disabled
           - name: fwtpm-no-rsa

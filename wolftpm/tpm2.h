@@ -3619,9 +3619,12 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
      * error is returned, but the TPM returns as much data as a TPM2B_DATA
      * buffer can contain. */
     WOLFTPM_API TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out);
-
-    WOLFTPM_API TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size);
 #endif /* ST33 Vendor Specific */
+
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT) || \
+    defined(WOLFTPM_MFG_IDENTITY)
+    WOLFTPM_API TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size);
+#endif
 
 
 #if defined(WOLFTPM_IFX_FW_UPGRADE) || defined(WOLFTPM_AUTODETECT)

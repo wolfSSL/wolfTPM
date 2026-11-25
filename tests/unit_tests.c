@@ -113,8 +113,9 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#if (defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)) || \
-    (defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if (defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+     defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)) || \
+    (defined(WOLFTPM_MLKEM_ENCAP) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
      (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
       defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))) || \
     (defined(WOLFTPM_CRYPTOCB) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
@@ -1953,6 +1954,125 @@ static void test_wolfTPM2_PolicyOR_success(void)
 #endif /* WOLFTPM_SWTPM && !WOLFTPM2_NO_WOLFCRYPT */
 }
 
+/* A ticket from TPM2_PolicySigned with a negative expiration must satisfy
+ * the same policy on a second session through TPM2_PolicyTicket. */
+static void test_TPM2_PolicyTicket(void)
+{
+#ifdef WOLFTPM_SWTPM
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    WOLFTPM2_SESSION sess;
+    WOLFTPM2_SESSION sess2;
+    TPMT_PUBLIC publicTemplate;
+    Hash_In hashCmd;
+    Hash_Out hashOut;
+    Sign_In signCmd;
+    Sign_Out signOut;
+    PolicySigned_In signedCmd;
+    PolicySigned_Out signedOut;
+    PolicyTicket_In ticketCmd;
+    byte digest1[TPM_MAX_DIGEST_SIZE];
+    byte digest2[TPM_MAX_DIGEST_SIZE];
+    word32 digest1Sz, digest2Sz;
+    const INT32 expiration = -60;
+    int i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(&sess2, 0, sizeof(sess2));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &key, TPM_RH_OWNER, &publicTemplate,
+        NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &sess, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+
+    /* aHash = H(nonceTPM || expiration), no cpHashA and no policyRef */
+    XMEMSET(&hashCmd, 0, sizeof(hashCmd));
+    XMEMSET(&hashOut, 0, sizeof(hashOut));
+    XMEMCPY(hashCmd.data.buffer, sess.nonceTPM.buffer, sess.nonceTPM.size);
+    for (i = 0; i < 4; i++) {
+        hashCmd.data.buffer[sess.nonceTPM.size + i] =
+            (byte)((UINT32)expiration >> (24 - (i * 8)));
+    }
+    hashCmd.data.size = (UINT16)(sess.nonceTPM.size + 4);
+    hashCmd.hashAlg = TPM_ALG_SHA256;
+    hashCmd.hierarchy = TPM_RH_NULL;
+    rc = TPM2_Hash(&hashCmd, &hashOut);
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_SetAuthHandle(&dev, 0, &key.handle);
+    XMEMSET(&signCmd, 0, sizeof(signCmd));
+    XMEMSET(&signOut, 0, sizeof(signOut));
+    signCmd.keyHandle = key.handle.hndl;
+    signCmd.digest = hashOut.outHash;
+    signCmd.inScheme.scheme = TPM_ALG_ECDSA;
+    signCmd.inScheme.details.ecdsa.hashAlg = TPM_ALG_SHA256;
+    signCmd.validation.tag = TPM_ST_HASHCHECK;
+    signCmd.validation.hierarchy = TPM_RH_NULL;
+    rc = TPM2_Sign(&signCmd, &signOut);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&signedCmd, 0, sizeof(signedCmd));
+    XMEMSET(&signedOut, 0, sizeof(signedOut));
+    signedCmd.authObject = key.handle.hndl;
+    signedCmd.policySession = sess.handle.hndl;
+    signedCmd.nonceTPM = sess.nonceTPM;
+    signedCmd.expiration = expiration;
+    signedCmd.auth = signOut.signature;
+    rc = TPM2_PolicySigned(&signedCmd, &signedOut);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(signedOut.policyTicket.tag, TPM_ST_AUTH_SIGNED);
+    AssertIntGT(signedOut.policyTicket.digest.size, 0);
+    digest1Sz = (word32)sizeof(digest1);
+    rc = wolfTPM2_GetPolicyDigest(&dev, sess.handle.hndl, digest1, &digest1Sz);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_StartSession(&dev, &sess2, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&ticketCmd, 0, sizeof(ticketCmd));
+    ticketCmd.policySession = sess2.handle.hndl;
+    ticketCmd.timeout = signedOut.timeout;
+    ticketCmd.authName = key.handle.name;
+    ticketCmd.ticket = signedOut.policyTicket;
+    rc = TPM2_PolicyTicket(&ticketCmd);
+    AssertIntEQ(rc, 0);
+    digest2Sz = (word32)sizeof(digest2);
+    rc = wolfTPM2_GetPolicyDigest(&dev, sess2.handle.hndl, digest2,
+        &digest2Sz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digest2Sz, (int)digest1Sz);
+    AssertIntEQ(XMEMCMP(digest2, digest1, digest1Sz), 0);
+
+    /* a ticket that was not issued by the TPM is refused */
+    ticketCmd.ticket.digest.buffer[0] ^= 0x01;
+    rc = TPM2_PolicyTicket(&ticketCmd);
+    AssertIntNE(rc, 0);
+
+    wolfTPM2_UnloadHandle(&dev, &sess2.handle);
+    wolfTPM2_UnloadHandle(&dev, &sess.handle);
+    wolfTPM2_UnloadHandle(&dev, &key.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test PolicyTicket: %-39s Passed\n", "PolicySigned Ticket:");
+#else
+    printf("Test PolicyTicket: %-39s Skipped (requires SWTPM)\n",
+        "PolicySigned Ticket:");
+#endif /* WOLFTPM_SWTPM */
+}
+
 static void test_wolfTPM2_GetRandom(void)
 {
     int rc;
@@ -2210,6 +2330,72 @@ static void test_TPM2_Policy_NULL_Args(void)
     #endif
 
     printf("Test TPM2:        %-40s Passed\n", "Policy NULL Args:");
+}
+
+/* A PCR index the selection cannot hold must be an error, not a policy that
+ * is silently bound to fewer PCRs. */
+static void test_wolfTPM2_PolicyPCR_IndexRange(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION trial;
+    byte pcrLast[1];
+    byte pcrPastLast[1];
+    byte pcrMixed[2];
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    byte pcrDigest[TPM_SHA256_DIGEST_SIZE];
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+#endif
+
+    pcrLast[0] = (byte)PCR_LAST;
+    pcrPastLast[0] = (byte)(PCR_LAST + 1);
+    pcrMixed[0] = 7;
+    pcrMixed[1] = (byte)(PCR_LAST + 1);
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    XMEMSET(pcrDigest, 0, sizeof(pcrDigest));
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrPastLast,
+        (word32)sizeof(pcrPastLast), pcrDigest, (word32)sizeof(pcrDigest),
+        digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrMixed,
+        (word32)sizeof(pcrMixed), pcrDigest, (word32)sizeof(pcrDigest),
+        digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrLast,
+        (word32)sizeof(pcrLast), pcrDigest, (word32)sizeof(pcrDigest),
+        digest, &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&trial, 0, sizeof(trial));
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "PolicyPCR index range:");
+        return;
+    }
+    rc = wolfTPM2_StartSession(&dev, &trial, NULL, NULL, TPM_SE_TRIAL,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrPastLast, (word32)sizeof(pcrPastLast));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrMixed, (word32)sizeof(pcrMixed));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrLast, (word32)sizeof(pcrLast));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_UnloadHandle(&dev, &trial.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "PolicyPCR index range:");
 }
 
 static void test_wolfTPM2_SetLocality(void)
@@ -3461,6 +3647,82 @@ static void test_wolfTPM2_NVWriteChunked(void)
 #endif
 }
 
+/* An offset above the UINT16 wire field must be refused, not truncated to a
+ * low offset inside the index. */
+static void test_wolfTPM2_NVOffsetRange(void)
+{
+#ifndef WOLFTPM_WINAPI
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    const byte nvAuth[] = "offsetrangeauth";
+    word32 nvAttributes;
+    byte buf[32];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(buf, 0x5A, sizeof(buf));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tNV offset range:\tSkipped\n");
+        return;
+    }
+
+    parent.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    if (rc == TPM_RC_NV_DEFINED) {
+        wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+        XMEMSET(&nv, 0, sizeof(nv));
+        rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+            (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    }
+    if (rc != 0) {
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tNV offset range:\tSkipped\n");
+        return;
+    }
+
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* 0x10000 truncates to offset 0, which is inside the index */
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, 1, 0x10000);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, 2, 0xFFFF);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    readSz = 1;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0x10000);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    readSz = 2;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0xFFFF);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* the last byte of the index stays reachable */
+    readSz = 1;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz,
+        (word32)sizeof(buf) - 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, 1);
+    AssertIntEQ(readBuf[0], 0x5A);
+
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tNV offset range:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tNV offset range:\tSkipped\n");
+#endif
+}
+
 /* A command that changes an NV Index attribute changes its Name. The cached
  * Name must follow, or the next command under an HMAC session fails. */
 static void test_wolfTPM2_NVNameRefresh(void)
@@ -3812,6 +4074,8 @@ static void test_wolfTPM2_NoAuthCmd_ParamEnc(void)
     ECDH_ZGen_Out zGenOut;
     Hash_In hashCmd;
     Hash_Out hashOut;
+    WOLFTPM2_HASH hashSeq;
+    word32 digestSz;
     MakeCredential_In makeCredIn;
     MakeCredential_Out makeCredOut;
     byte secret[MAX_ECC_BYTES];
@@ -3895,6 +4159,23 @@ static void test_wolfTPM2_NoAuthCmd_ParamEnc(void)
         sizeof(nonceTPM)), 0);
     AssertIntEQ(wc_Sha256Hash(data, (word32)sizeof(data), digest), 0);
     AssertIntEQ(hashOut.outHash.size, (int)sizeof(digest));
+    AssertIntEQ(XMEMCMP(hashOut.outHash.buffer, digest, sizeof(digest)), 0);
+
+    /* HashSequenceStart: the sequence auth goes out encrypted */
+    XMEMSET(&hashSeq, 0, sizeof(hashSeq));
+    XMEMCPY(&nonceTPM, &dev.session[1].nonceTPM, sizeof(nonceTPM));
+    rc = wolfTPM2_HashStart(&dev, &hashSeq, TPM_ALG_SHA256,
+        (const byte*)"seqauth", 7);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE(XMEMCMP(&nonceTPM, &dev.session[1].nonceTPM,
+        sizeof(nonceTPM)), 0);
+    rc = wolfTPM2_HashUpdate(&dev, &hashSeq, data, (word32)sizeof(data));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    digestSz = (word32)sizeof(hashOut.outHash.buffer);
+    rc = wolfTPM2_HashFinish(&dev, &hashSeq, hashOut.outHash.buffer,
+        &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)digestSz, (int)sizeof(digest));
     AssertIntEQ(XMEMCMP(hashOut.outHash.buffer, digest, sizeof(digest)), 0);
 
     /* LoadExternal: the private part goes out encrypted */
@@ -4351,6 +4632,58 @@ static void test_TPM2_command_process_session_sizes(void)
     TPM2_Cleanup(&ctx);
     printf("Test TPM Wrapper:\tCommand process session sizes:\tPassed\n");
 }
+
+/* A first parameter larger than the parameter area that was marshalled must
+ * be refused before its size is used as a parameter encryption length. */
+static void test_TPM2_command_process_param_size(void)
+{
+#if XFER_MAX_SIZE < 0xFFFF
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION sessions[MAX_SESSION_NUM];
+    NV_Write_In in;
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(&in, 0, sizeof(in));
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
+    AssertIntEQ(TPM2_Init_minimal(&ctx), TPM_RC_SUCCESS);
+#else
+    AssertIntEQ(TPM2_Init_ex(&ctx, TPM2_IoCb, NULL, 0),
+        TPM_RC_SUCCESS);
+#endif
+    ctx.session = sessions;
+    in.authHandle = TPM_RH_OWNER;
+    in.nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    /* does not fit the command buffer, so only the size is marshalled */
+    in.data.size = 0xFFFF;
+
+    /* password authorization */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+#ifndef NO_HMAC
+    /* a decrypt session would encrypt that many bytes in place */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = TPM_RS_PW;
+    sessions[1].sessionHandle = HMAC_SESSION_FIRST;
+    sessions[1].authHash = TPM_ALG_SHA256;
+    sessions[1].symmetric.algorithm = TPM_ALG_AES;
+    sessions[1].symmetric.keyBits.aes = 128;
+    sessions[1].symmetric.mode.aes = TPM_ALG_CFB;
+    sessions[1].sessionAttributes = TPMA_SESSION_decrypt;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, TPM_RC_SIZE);
+#endif
+
+    TPM2_Cleanup(&ctx);
+    printf("Test TPM Wrapper:\tCommand process param size:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tCommand process param size:\tSkipped\n");
+#endif
+}
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
@@ -4648,7 +4981,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     WOLFTPM2_KEY eccKey;
     const TPMT_PUBLIC* eccPub;
 #endif
-#if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_MLKEM_ENCAP) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     WOLFTPM2_KEY mlkemKey;
@@ -4702,7 +5035,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
 #endif
 
-#if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_MLKEM_ENCAP) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     /* MLKEM path (v1.85 Part 1 Sec.24): caller encapsulates under the TPM's
@@ -5455,6 +5788,68 @@ static void test_TPM2_CalcHmac(void)
     AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
 
     printf("Test TPM Wrapper: %-40s Passed\n", "CalcHmac:");
+#endif
+}
+
+/* With a separate decrypt and encrypt session, the first session's HMAC
+ * also covers both of their nonces, the decrypt nonce first. */
+static void test_TPM2_CalcHmac_ExtraNonces(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+    int rc;
+    TPM2B_AUTH auth;
+    TPM2B_DIGEST hash;
+    TPM2B_NONCE nonceA, nonceB, nonceDec, nonceEnc;
+    TPMA_SESSION attr = TPMA_SESSION_continueSession;
+    TPM2B_AUTH hmac1, hmac2;
+    /* KAT: HMAC-SHA256("test", 0xAB*32 || 0x11*32 || 0x22*32 || 0x33*32 ||
+     *   0x44*32 || attr(0x01)) */
+    const byte hmacExp[TPM_SHA256_DIGEST_SIZE] = {
+        0x7a, 0xe1, 0x29, 0x15, 0x2b, 0x4e, 0x5a, 0xc5,
+        0x80, 0x3e, 0x1a, 0xbe, 0xe5, 0xa8, 0xb4, 0xe6,
+        0x0e, 0x9c, 0x54, 0xe5, 0x16, 0xd2, 0xed, 0xf4,
+        0x2f, 0xcf, 0xfe, 0xe9, 0x3a, 0x62, 0x28, 0x41};
+
+    auth.size = 4;
+    auth.buffer[0] = 't'; auth.buffer[1] = 'e';
+    auth.buffer[2] = 's'; auth.buffer[3] = 't';
+
+    hash.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(hash.buffer, 0xAB, hash.size);
+    nonceA.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceA.buffer, 0x11, nonceA.size);
+    nonceB.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceB.buffer, 0x22, nonceB.size);
+    nonceDec.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceDec.buffer, 0x33, nonceDec.size);
+    nonceEnc.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceEnc.buffer, 0x44, nonceEnc.size);
+
+    XMEMSET(&hmac1, 0, sizeof(hmac1));
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        &nonceDec, &nonceEnc, attr, &hmac1);
+    AssertIntEQ(0, rc);
+    AssertIntEQ(hmac1.size, (int)sizeof(hmacExp));
+    AssertIntEQ(0, XMEMCMP(hmac1.buffer, hmacExp, sizeof(hmacExp)));
+
+    /* the two extra nonces are not interchangeable */
+    XMEMSET(&hmac2, 0, sizeof(hmac2));
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        &nonceEnc, &nonceDec, attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    /* each extra nonce contributes on its own */
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        &nonceDec, NULL, attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        NULL, &nonceEnc, attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "CalcHmac extra nonces:");
 #endif
 }
 
@@ -6455,6 +6850,68 @@ static void test_TPM2_ParsePublic_OuterResync(void)
     printf("Test TPM Wrapper:\tParsePublic outer resync:\tPassed\n");
 }
 
+/* An inner TPM2B longer than its destination is truncated to the destination
+ * and the excess skipped, so the fields that follow are parsed in place. */
+static void test_TPM2_ParsePublic_AuthPolicyOversize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPM2B_PUBLIC pub;
+    const byte unique[] = {0xDE, 0xAD, 0xBE, 0xEF};
+    const int policySz = (int)sizeof(pub.publicArea.authPolicy.buffer) + 8;
+    int pos = 0;
+    int policyPos, outerSz, i;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+
+    pos += 2; /* size placeholder */
+    /* type = RSA (0x0001) */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;
+    /* nameAlg = SHA256 (0x000B) */
+    buf[pos++] = 0x00; buf[pos++] = 0x0B;
+    /* objectAttributes = 0 */
+    buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+    /* authPolicy: 8 bytes more than the buffer holds */
+    buf[pos++] = (byte)(policySz >> 8); buf[pos++] = (byte)policySz;
+    policyPos = pos;
+    for (i = 0; i < policySz; i++)
+        buf[pos++] = (byte)(i + 1);
+    /* RSA params: sym.alg=NULL(2), scheme=NULL(2), keyBits=2048(2),
+     *   exponent=0x10001(4) */
+    buf[pos++] = 0x00; buf[pos++] = 0x10;
+    buf[pos++] = 0x00; buf[pos++] = 0x10;
+    buf[pos++] = 0x08; buf[pos++] = 0x00;
+    buf[pos++] = 0x00; buf[pos++] = 0x01; buf[pos++] = 0x00; buf[pos++] = 0x01;
+    /* unique */
+    buf[pos++] = 0; buf[pos++] = (byte)sizeof(unique);
+    XMEMCPY(&buf[pos], unique, sizeof(unique)); pos += (int)sizeof(unique);
+    outerSz = pos - 2;
+    buf[0] = (byte)(outerSz >> 8);
+    buf[1] = (byte)outerSz;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    packet.buf = buf;
+    packet.size = pos;
+    packet.pos = 0;
+
+    TPM2_Packet_ParsePublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.authPolicy.size,
+        (int)sizeof(pub.publicArea.authPolicy.buffer));
+    AssertIntEQ(XMEMCMP(pub.publicArea.authPolicy.buffer, &buf[policyPos],
+        sizeof(pub.publicArea.authPolicy.buffer)), 0);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.symmetric.algorithm,
+        TPM_ALG_NULL);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.keyBits, 2048);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.exponent, 0x10001);
+    AssertIntEQ(pub.publicArea.unique.rsa.size, (int)sizeof(unique));
+    AssertIntEQ(XMEMCMP(pub.publicArea.unique.rsa.buffer, unique,
+        sizeof(unique)), 0);
+    AssertIntEQ(packet.pos, pos);
+
+    printf("Test TPM Wrapper:\tParsePublic oversized authPolicy:\tPassed\n");
+}
+
 /* TPM2_ParseAttest must handle TPM_ST_ATTEST_NV_DIGEST (0x801C) and decode
  * TPMS_NV_DIGEST_CERTIFY_INFO. Pre-fix, the switch fell through to default
  * and left out->attested zeroed. */
@@ -6508,6 +6965,68 @@ static void test_TPM2_ParseAttest_NvDigest(void)
         sizeof(digest)), 0);
 
     printf("Test TPM Wrapper:\tParseAttest NV_DIGEST:\t\tPassed\n");
+}
+
+/* A quote whose PCR selection carries more select bytes than PCR_SELECT_MAX
+ * keeps the bytes that fit and still finds the pcrDigest that follows. */
+static void test_TPM2_ParseAttest_QuoteSelectOversize(void)
+{
+    TPM2B_ATTEST attestBlob;
+    TPMS_ATTEST out;
+    const byte digest[] = {0xAA, 0xBB, 0xCC, 0xDD};
+    byte* buf;
+    int pos = 0;
+    int selectPos;
+    int rc, i;
+
+    XMEMSET(&attestBlob, 0, sizeof(attestBlob));
+    buf = attestBlob.attestationData;
+
+    /* magic */
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 24) & 0xFF);
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 16) & 0xFF);
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 8) & 0xFF);
+    buf[pos++] = (byte)(TPM_GENERATED_VALUE & 0xFF);
+    /* type = TPM_ST_ATTEST_QUOTE (0x8018) */
+    buf[pos++] = 0x80; buf[pos++] = 0x18;
+    /* qualifiedSigner: empty */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* extraData: empty */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* clockInfo: clock(8)+resetCount(4)+restartCount(4)+safe(1) */
+    XMEMSET(buf + pos, 0, 17); pos += 17;
+    /* firmwareVersion */
+    XMEMSET(buf + pos, 0, 8); pos += 8;
+    /* TPMS_QUOTE_INFO: one SHA256 selection, one select byte too many */
+    buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 1;
+    buf[pos++] = 0x00; buf[pos++] = 0x0B;
+    buf[pos++] = (byte)(PCR_SELECT_MAX + 1);
+    selectPos = pos;
+    for (i = 0; i < PCR_SELECT_MAX + 1; i++)
+        buf[pos++] = (byte)(0x11 * (i + 1));
+    buf[pos++] = 0; buf[pos++] = (byte)sizeof(digest);
+    XMEMCPY(buf + pos, digest, sizeof(digest)); pos += sizeof(digest);
+
+    attestBlob.size = (UINT16)pos;
+
+    XMEMSET(&out, 0, sizeof(out));
+    rc = TPM2_ParseAttest(&attestBlob, &out);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    AssertIntEQ(out.type, TPM_ST_ATTEST_QUOTE);
+    AssertIntEQ(out.attested.quote.pcrSelect.count, 1);
+    AssertIntEQ(out.attested.quote.pcrSelect.pcrSelections[0].hash,
+        TPM_ALG_SHA256);
+    AssertIntEQ(out.attested.quote.pcrSelect.pcrSelections[0].sizeofSelect,
+        PCR_SELECT_MAX);
+    AssertIntEQ(XMEMCMP(
+        out.attested.quote.pcrSelect.pcrSelections[0].pcrSelect,
+        buf + selectPos, PCR_SELECT_MAX), 0);
+    AssertIntEQ(out.attested.quote.pcrDigest.size, sizeof(digest));
+    AssertIntEQ(XMEMCMP(out.attested.quote.pcrDigest.buffer, digest,
+        sizeof(digest)), 0);
+
+    printf("Test TPM Wrapper:\tParseAttest quote select cap:\tPassed\n");
 }
 
 #if defined(WOLFTPM_MFG_IDENTITY) && \
@@ -9172,6 +9691,130 @@ static void test_wolfTPM2_CryptoDevCb_HashCacheStream(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb hash cache:");
 #else
     printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb hash cache:");
+#endif
+}
+
+/* An update whose size wraps the cached total must be refused before the
+ * copy into the cache. */
+static void test_wolfTPM2_CryptoDevCb_HashCacheWrap(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM_USE_SYMMETRIC) && \
+    defined(WOLFSSL_HASH_FLAGS) && !defined(NO_SHA256)
+    int rc;
+    WOLFTPM2_DEV dev;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    wc_Sha256 sha;
+    byte data[16];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    XMEMSET(data, 0x11, sizeof(data));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "CryptoDevCb hash cache wrap:");
+        return;
+    }
+
+    tpmCtx.dev = &dev;
+    tpmCtx.useSymmetricOnTPM = 1;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+
+    rc = wc_InitSha256_ex(&sha, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256SetFlags(&sha, WC_HASH_FLAG_WILLCOPY);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Update(&sha, data, (word32)sizeof(data));
+    AssertIntEQ(rc, 0);
+    /* 16 cached bytes plus this size wraps a word32 to 15 */
+    rc = wc_Sha256Update(&sha, data, 0xFFFFFFFFU);
+    AssertIntNE(rc, 0);
+    wc_Sha256Free(&sha);
+
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb hash cache wrap:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb hash cache wrap:");
+#endif
+}
+
+/* The cached Final sends its last chunk in the sequence complete; check the
+ * digest on both sides of each TPM buffer boundary. */
+static void test_wolfTPM2_CryptoDevCb_HashCacheFinal(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM_USE_SYMMETRIC) && \
+    defined(WOLFSSL_HASH_FLAGS) && !defined(NO_SHA256)
+    int rc;
+    WOLFTPM2_DEV dev;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    wc_Sha256 sha;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    byte digestSw[TPM_SHA256_DIGEST_SIZE];
+    byte data[(MAX_DIGEST_BUFFER * 2) + 1];
+    const word32 sizes[] = {
+        0, 1, MAX_DIGEST_BUFFER - 1, MAX_DIGEST_BUFFER, MAX_DIGEST_BUFFER + 1,
+        MAX_DIGEST_BUFFER * 2, (MAX_DIGEST_BUFFER * 2) + 1
+    };
+    word32 i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    for (i = 0; i < (word32)sizeof(data); i++) {
+        data[i] = (byte)(i * 5 + 3);
+    }
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "CryptoDevCb hash cache final:");
+        return;
+    }
+
+    tpmCtx.dev = &dev;
+    tpmCtx.useSymmetricOnTPM = 1;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+
+    for (i = 0; i < (word32)(sizeof(sizes) / sizeof(sizes[0])); i++) {
+        rc = wc_InitSha256_ex(&sha, NULL, tpmDevId);
+        AssertIntEQ(rc, 0);
+        rc = wc_Sha256SetFlags(&sha, WC_HASH_FLAG_WILLCOPY);
+        AssertIntEQ(rc, 0);
+        if (sizes[i] > 0) {
+            rc = wc_Sha256Update(&sha, data, sizes[i]);
+            AssertIntEQ(rc, 0);
+        }
+        rc = wc_Sha256Final(&sha, digest);
+        AssertIntEQ(rc, 0);
+        wc_Sha256Free(&sha);
+
+        rc = wc_InitSha256_ex(&sha, NULL, INVALID_DEVID);
+        AssertIntEQ(rc, 0);
+        rc = wc_Sha256Update(&sha, data, sizes[i]);
+        AssertIntEQ(rc, 0);
+        rc = wc_Sha256Final(&sha, digestSw);
+        AssertIntEQ(rc, 0);
+        wc_Sha256Free(&sha);
+
+        AssertIntEQ(XMEMCMP(digest, digestSw, sizeof(digest)), 0);
+    }
+
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "CryptoDevCb hash cache final:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n",
+        "CryptoDevCb hash cache final:");
 #endif
 }
 
@@ -12689,10 +13332,10 @@ static void test_TPM2_GetHashDigestSize_AllAlgs(void)
     printf("Test TPM2:\t\tGetHashDigestSize all algs:\tPassed\n");
 }
 
-/* These PQC unit tests call both ML-DSA and ML-KEM wrappers, so they compile
- * only when both families are present (a WOLFTPM_NO_MLDSA or WOLFTPM_NO_MLKEM
- * build excludes the matching wrapper definitions). CI always builds full
- * PQC, so coverage is unchanged there. */
+/* These PQC unit tests call the ML-DSA sign and verify and the ML-KEM encap
+ * and decap wrappers, so they compile only when all four are present (a
+ * WOLFTPM_NO_MLDSA, WOLFTPM_NO_MLKEM or per-operation WOLFTPM_NO_* build
+ * excludes the matching wrapper definitions). */
 /* The signature-size gate is static, so reach it through wolfTPM2_VerifyHashTicket:
  * that caller is built in every configuration and passes sigSz straight to the
  * gate, so the gate's own checks are what answer here. */
@@ -12736,7 +13379,8 @@ static void test_wolfTPM2_SigInputBufferGate(void)
 #endif
 }
 
-#if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
 /* Post-Quantum Cryptography (PQC) Unit Tests - TPM 2.0 v185 */
 
 /* TODO: Remove TPM_RC_COMMAND_CODE skip logic once we have a TPM simulator
@@ -13033,6 +13677,7 @@ done:
 }
 #endif
 
+#ifdef WOLFTPM_HASH_MLDSA
 /* Regression for the VerifySequenceComplete data-chain fix.
  *
  * The wrapper used to silently drop the data/dataSz arguments; the fix
@@ -13244,6 +13889,7 @@ static void test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(WOLFTPM2_DEV* dev)
     printf("Test TPM Wrapper: %-40s Passed\n",
         "Hash-ML-DSA SignDigest roundtrip:");
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* Regression for the TPM2_SignSequenceStart no-session path.
  * Per Part 3 Sec.17.6.3 the command has Auth Index: None; the native API
@@ -13425,8 +14071,9 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
         rc == 0 ? "Passed" : "Failed");
 }
 #endif /* ML-KEM support */
+#endif /* ML-DSA sign and verify, ML-KEM encap and decap */
 
-/* Main PQC test function */
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Regression for the VerifySequenceComplete flush-on-error fix: looping
  * failed verifies must not exhaust transient memory (TPM_RC_OBJECT_MEMORY).
  * Uses an ECC key to cover the classical (non-PQC) wrapper path. */
@@ -13482,6 +14129,72 @@ static void test_wolfTPM2_VerifySequence_NoLeak(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "VerifySequence no-leak:");
 }
 
+/* An error return from VerifySequenceComplete that never reaches the TPM
+ * must still flush the sequence, so a second flush finds nothing loaded. */
+static void test_wolfTPM2_VerifySequence_EarlyErrorFlush(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY eccKey;
+    WOLFTPM2_HANDLE seqObj;
+    TPMT_PUBLIC pub;
+    TPM_HANDLE seqHandle;
+    TPMT_TK_VERIFIED validation;
+    byte msg[32];
+    byte badSig[64];
+
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(msg, 0xAB, sizeof(msg));
+    XMEMSET(badSig, 0xAA, sizeof(badSig));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_GetKeyTemplate_ECC(&pub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &eccKey, TPM_RH_OWNER, &pub, NULL, 0);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "VerifySequence early-error flush:");
+        wolfTPM2_Cleanup(&dev);
+        return;
+    }
+
+    /* signature length that does not match the curve */
+    rc = wolfTPM2_VerifySequenceStart(&dev, &eccKey, NULL, 0, &seqHandle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_VerifySequenceComplete(&dev, seqHandle, &eccKey,
+        msg, (int)sizeof(msg), badSig, (int)sizeof(badSig) - 1, &validation);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    XMEMSET(&seqObj, 0, sizeof(seqObj));
+    seqObj.hndl = seqHandle;
+    AssertIntNE(wolfTPM2_UnloadHandle(&dev, &seqObj), TPM_RC_SUCCESS);
+
+    /* missing signature */
+    rc = wolfTPM2_VerifySequenceStart(&dev, &eccKey, NULL, 0, &seqHandle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_VerifySequenceComplete(&dev, seqHandle, &eccKey,
+        msg, (int)sizeof(msg), NULL, (int)sizeof(badSig), &validation);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    XMEMSET(&seqObj, 0, sizeof(seqObj));
+    seqObj.hndl = seqHandle;
+    AssertIntNE(wolfTPM2_UnloadHandle(&dev, &seqObj), TPM_RC_SUCCESS);
+
+    wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "VerifySequence early-error flush:");
+}
+#endif /* WOLFTPM_MLDSA_VERIFY */
+
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
+/* Main PQC test function */
 static void test_wolfTPM2_PQC(void)
 {
     int rc;
@@ -13550,6 +14263,7 @@ static void test_wolfTPM2_PQC(void)
     /* Bug-fix regressions: each test exercises a wrapper / native-API path
      * that no existing test covers, so a re-introduction of the underlying
      * fix would silently pass CI without these. */
+#ifdef WOLFTPM_HASH_MLDSA
     /* These sub-tests each create a HASH_MLDSA key (DataChain included), so
      * only run them when the TPM advertises TPM_ALG_HASH_MLDSA. */
     if (test_alg_supported(TPM_ALG_HASH_MLDSA)) {
@@ -13561,6 +14275,7 @@ static void test_wolfTPM2_PQC(void)
         printf("Test TPM Wrapper: %-40s Skipped (no Hash-ML-DSA)\n",
             "Hash-ML-DSA:");
     }
+#endif /* WOLFTPM_HASH_MLDSA */
     test_TPM2_SignSequenceStart_NoSession(&dev, &mldsaKey);
     test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(&dev, &mldsaPub);
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -13612,7 +14327,10 @@ mlkem_done:
 static void test_wolfTPM2_PQC_KeyTemplates(void)
 {
     int rc;
-    TPMT_PUBLIC mldsaTemplate, hashMldsaTemplate, mlkemTemplate;
+    TPMT_PUBLIC mldsaTemplate, mlkemTemplate;
+#ifdef WOLFTPM_HASH_MLDSA
+    TPMT_PUBLIC hashMldsaTemplate;
+#endif
 
     printf("Testing PQC Key Templates...\n");
 
@@ -13628,6 +14346,7 @@ static void test_wolfTPM2_PQC_KeyTemplates(void)
     AssertTrue(mldsaTemplate.objectAttributes & TPMA_OBJECT_sign);
     AssertFalse(mldsaTemplate.objectAttributes & TPMA_OBJECT_decrypt);
 
+#ifdef WOLFTPM_HASH_MLDSA
     /* Test HASH_MLDSA template */
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&hashMldsaTemplate,
         TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth,
@@ -13636,6 +14355,7 @@ static void test_wolfTPM2_PQC_KeyTemplates(void)
     AssertIntEQ(hashMldsaTemplate.type, TPM_ALG_HASH_MLDSA);
     AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.parameterSet, TPM_MLDSA_87);
     AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.hashAlg, TPM_ALG_SHA512);
+#endif
 
     /* Test MLKEM template */
     rc = wolfTPM2_GetKeyTemplate_MLKEM(&mlkemTemplate,
@@ -13652,8 +14372,10 @@ static void test_wolfTPM2_PQC_KeyTemplates(void)
     rc = wolfTPM2_GetKeyTemplate_MLDSA(NULL, 0, TPM_MLDSA_44, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
+#ifdef WOLFTPM_HASH_MLDSA
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(NULL, 0, TPM_MLDSA_44, TPM_ALG_SHA256);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
 
     rc = wolfTPM2_GetKeyTemplate_MLKEM(NULL, 0, TPM_MLKEM_512);
     AssertIntEQ(rc, BAD_FUNC_ARG);
@@ -13683,7 +14405,7 @@ static void test_wolfTPM2_PQC_Sizes(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "PQC Sizes:");
 }
-#endif /* WOLFTPM_MLDSA && WOLFTPM_MLKEM */
+#endif /* ML-DSA sign and verify, ML-KEM encap and decap */
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
@@ -13772,6 +14494,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_HashFinish_BufferTooSmall();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
+    test_wolfTPM2_PolicyPCR_IndexRange();
     test_wolfTPM2_SetLocality();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_PolicyAuthValue_NoSessionKey();
@@ -13789,6 +14512,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();
     test_wolfTPM2_NVWriteChunked();
+    test_wolfTPM2_NVOffsetRange();
     test_wolfTPM2_NVNameRefresh();
     test_wolfTPM2_PolicyPassword_ModeReset();
     test_wolfTPM2_ParamEncSession_SlotGap();
@@ -13802,6 +14526,7 @@ int unit_tests(int argc, char *argv[])
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     test_TPM2_command_process_buffer_cleanup();
     test_TPM2_command_process_session_sizes();
+    test_TPM2_command_process_param_size();
 #endif
 #if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
     test_TPM2_transport_buffer_cleanup();
@@ -13824,6 +14549,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_GetTpmHashType();
     test_TPM2_ResponseHmacVerification();
     test_TPM2_CalcHmac();
+    test_TPM2_CalcHmac_ExtraNonces();
     test_TPM2_ParamEnc_XOR_Vector();
     test_TPM2_ParamEnc_XOR_MaskBoundary();
     test_TPM2_ParamEnc_AESCFB_Vector();
@@ -13839,7 +14565,9 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_SchemeSerialize();
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
+    test_TPM2_ParseAttest_QuoteSelectOversize();
     test_TPM2_ParsePublic_OuterResync();
+    test_TPM2_ParsePublic_AuthPolicyOversize();
     test_TPM2_ParsePoint_OuterResync();
     test_TPM2_ParseSignature_NullAlg();
 #ifdef WOLFTPM_MLDSA_VERIFY
@@ -13902,6 +14630,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
     test_wolfTPM2_CryptoDevCb_HashCacheStream();
+    test_wolfTPM2_CryptoDevCb_HashCacheWrap();
+    test_wolfTPM2_CryptoDevCb_HashCacheFinal();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_wolfTPM2_CryptoDevCb_MlDsaSign();
     test_wolfTPM2_CryptoDevCb_KeyId();
@@ -13979,13 +14709,18 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_IsPcrBankAllocated();
     test_wolfTPM2_AllocatePCRBanks();
     test_wolfTPM2_PolicyOR_success();
-    #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
+    test_TPM2_PolicyTicket();
+    #if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+        defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
     /* Run non-TPM-dependent tests first */
     test_wolfTPM2_PQC_KeyTemplates();
     test_wolfTPM2_PQC_Sizes();
     /* Then run TPM-dependent PQC tests */
     test_wolfTPM2_PQC();
+    #endif
+    #ifdef WOLFTPM_MLDSA_VERIFY
     test_wolfTPM2_VerifySequence_NoLeak();
+    test_wolfTPM2_VerifySequence_EarlyErrorFlush();
     #endif
     /* The gate guards classical RSA/ECC verifies too, so it must not sit
      * behind the post-quantum guard */

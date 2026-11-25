@@ -183,6 +183,7 @@ jobs:
           # Explicit --enable-swtpm wins over the vendor auto-disable.
           - name: nuvoton-explicit-swtpm
             wolftpm_config: --enable-swtpm --enable-nuvoton --disable-fwtpm
+            test_command: "make check"
 
           # SPDM + vendor without any --disable flags (build-only check of
           # the vendor SPDM configure path).
@@ -203,6 +204,7 @@ jobs:
           # --enable-spi + explicit --enable-swtpm (explicit sw wins).
           - name: spi-explicit-swtpm
             wolftpm_config: --enable-spi --enable-swtpm --disable-fwtpm
+            test_command: "make check"
 
           # MMIO (no existing matrix entry covered this).
           - name: mmio

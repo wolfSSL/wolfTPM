@@ -49,6 +49,7 @@
 static TPMT_SIGNATURE wireSignature;
 static TPM_CC expectedCommand;
 static TPM_RC wireError;
+static int flushCount;
 
 /* Exercise the real command builders, response parser and wrappers without a
  * TPM or socket. The response may have shorter ECC scalars than the curve. */
@@ -74,8 +75,14 @@ int test_signature_send(TPM2_CTX* ctx, TPM2_Packet* packet)
     code = ((UINT32)packet->buf[6] << 24) |
         ((UINT32)packet->buf[7] << 16) |
         ((UINT32)packet->buf[8] << 8) | packet->buf[9];
-    AssertIntEQ(code, expectedCommand);
     TPM2_Packet_Init(ctx, &rsp);
+    if (code == TPM_CC_FlushContext) {
+        flushCount++;
+        TPM2_Packet_Finalize(&rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        packet->size = rsp.pos;
+        return TPM_RC_SUCCESS;
+    }
+    AssertIntEQ(code, expectedCommand);
     if (wireError != TPM_RC_SUCCESS) {
         TPM2_Packet_Finalize(&rsp, TPM_ST_NO_SESSIONS, wireError);
     }
@@ -189,12 +196,50 @@ static void test_signature_case(int method, TPM_ECC_CURVE curve,
         XMEMCPY(expected + 2 * curveSize - sSize,
             wireSignature.signature.ecdsa.signatureS.buffer, sSize);
     }
+    flushCount = 0;
     rc = sign_fixture(&dev, &key, method, sig, &sigSz);
     AssertIntEQ(rc, expectedRc);
+    /* only a sequence the TPM refused to complete is flushed */
+    AssertIntEQ(flushCount, (method == 2 && wireError != TPM_RC_SUCCESS));
     AssertIntEQ(sigSz, expectedRc == TPM_RC_SUCCESS ? 2 * curveSize : capacity);
     AssertIntEQ(XMEMCMP(sig, expected, sizeof(sig)), 0);
     TPM2_Cleanup(&dev.ctx);
 }
+
+#ifdef WOLFTPM_MLDSA_SIGN
+/* An argument error that never reaches the TPM still flushes the sequence. */
+static void test_sign_sequence_arg_flush(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    byte sig[2 * MAX_ECC_KEY_BYTES];
+    int rc, sigSz = (int)sizeof(sig);
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
+    rc = TPM2_Init_minimal(&dev.ctx);
+#else
+    rc = TPM2_Init_ex(&dev.ctx, test_signature_io, NULL, 0);
+#endif
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    key.handle.hndl = TRANSIENT_FIRST;
+
+    flushCount = 0;
+    rc = wolfTPM2_SignSequenceComplete(&dev, TRANSIENT_FIRST + 1, &key,
+        NULL, 0, NULL, &sigSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    AssertIntEQ(flushCount, 1);
+
+    flushCount = 0;
+    rc = wolfTPM2_SignSequenceComplete(&dev, TRANSIENT_FIRST + 1, &key,
+        sig, -1, sig, &sigSz);
+    AssertIntEQ(rc, BUFFER_E);
+    AssertIntEQ(flushCount, 1);
+    TPM2_Cleanup(&dev.ctx);
+}
+#endif
 
 int main(void)
 {
@@ -242,6 +287,9 @@ int main(void)
             1, 1, 64, TPM_RC_FAILURE);
         wireError = TPM_RC_SUCCESS;
     }
+#ifdef WOLFTPM_MLDSA_SIGN
+    test_sign_sequence_arg_flush();
+#endif
     printf("PASS: fixed-width ECC signatures and error bounds across %d wrappers\n",
         methods);
     return 0;
