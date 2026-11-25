@@ -2331,6 +2331,72 @@ static void test_TPM2_Policy_NULL_Args(void)
     printf("Test TPM2:        %-40s Passed\n", "Policy NULL Args:");
 }
 
+/* A PCR index the selection cannot hold must be an error, not a policy that
+ * is silently bound to fewer PCRs. */
+static void test_wolfTPM2_PolicyPCR_IndexRange(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION trial;
+    byte pcrLast[1];
+    byte pcrPastLast[1];
+    byte pcrMixed[2];
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    byte pcrDigest[TPM_SHA256_DIGEST_SIZE];
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+#endif
+
+    pcrLast[0] = (byte)PCR_LAST;
+    pcrPastLast[0] = (byte)(PCR_LAST + 1);
+    pcrMixed[0] = 7;
+    pcrMixed[1] = (byte)(PCR_LAST + 1);
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    XMEMSET(pcrDigest, 0, sizeof(pcrDigest));
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrPastLast,
+        (word32)sizeof(pcrPastLast), pcrDigest, (word32)sizeof(pcrDigest),
+        digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrMixed,
+        (word32)sizeof(pcrMixed), pcrDigest, (word32)sizeof(pcrDigest),
+        digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrLast,
+        (word32)sizeof(pcrLast), pcrDigest, (word32)sizeof(pcrDigest),
+        digest, &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&trial, 0, sizeof(trial));
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "PolicyPCR index range:");
+        return;
+    }
+    rc = wolfTPM2_StartSession(&dev, &trial, NULL, NULL, TPM_SE_TRIAL,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrPastLast, (word32)sizeof(pcrPastLast));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrMixed, (word32)sizeof(pcrMixed));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrLast, (word32)sizeof(pcrLast));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_UnloadHandle(&dev, &trial.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "PolicyPCR index range:");
+}
+
 static void test_wolfTPM2_SetLocality(void)
 {
     int rc = 0;
@@ -14079,6 +14145,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_HashFinish_BufferTooSmall();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
+    test_wolfTPM2_PolicyPCR_IndexRange();
     test_wolfTPM2_SetLocality();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_PolicyAuthValue_NoSessionKey();

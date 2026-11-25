@@ -11914,6 +11914,20 @@ int wolfTPM2_GetPolicyDigest(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     return rc;
 }
 
+/* TPM2_SetupPCRSelArray skips an index it cannot select, which would leave
+ * a policy bound to fewer PCRs than the caller asked for */
+static int wolfTPM2_CheckPcrArray(const byte* pcrArray, word32 pcrArraySz)
+{
+    word32 i;
+
+    for (i = 0; i < pcrArraySz; i++) {
+        if ((int)pcrArray[i] > (int)PCR_LAST) {
+            return BAD_FUNC_ARG;
+        }
+    }
+    return TPM_RC_SUCCESS;
+}
+
 int wolfTPM2_PolicyPCR(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz)
 {
@@ -11922,6 +11936,9 @@ int wolfTPM2_PolicyPCR(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
 
     if (dev == NULL || pcrArray == NULL || pcrArraySz == 0)
         return BAD_FUNC_ARG;
+    rc = wolfTPM2_CheckPcrArray(pcrArray, pcrArraySz);
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
 
     XMEMSET(policyPcr, 0, sizeof(PolicyPCR_In));
 
@@ -12369,6 +12386,10 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     if (digest == NULL || digestSz == NULL || pcrArray == NULL ||
         pcrArraySz == 0 || (pcrDigest == NULL && pcrDigestSz > 0)) {
         return BAD_FUNC_ARG;
+    }
+    rc = wolfTPM2_CheckPcrArray(pcrArray, pcrArraySz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
     hashSz = TPM2_GetHashDigestSize(pcrAlg);
     if (hashSz <= 0) {
