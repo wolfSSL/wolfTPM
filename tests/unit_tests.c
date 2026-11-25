@@ -6716,6 +6716,68 @@ static void test_TPM2_ParsePublic_OuterResync(void)
     printf("Test TPM Wrapper:\tParsePublic outer resync:\tPassed\n");
 }
 
+/* An inner TPM2B longer than its destination is truncated to the destination
+ * and the excess skipped, so the fields that follow are parsed in place. */
+static void test_TPM2_ParsePublic_AuthPolicyOversize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPM2B_PUBLIC pub;
+    const byte unique[] = {0xDE, 0xAD, 0xBE, 0xEF};
+    const int policySz = (int)sizeof(pub.publicArea.authPolicy.buffer) + 8;
+    int pos = 0;
+    int policyPos, outerSz, i;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+
+    pos += 2; /* size placeholder */
+    /* type = RSA (0x0001) */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;
+    /* nameAlg = SHA256 (0x000B) */
+    buf[pos++] = 0x00; buf[pos++] = 0x0B;
+    /* objectAttributes = 0 */
+    buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+    /* authPolicy: 8 bytes more than the buffer holds */
+    buf[pos++] = (byte)(policySz >> 8); buf[pos++] = (byte)policySz;
+    policyPos = pos;
+    for (i = 0; i < policySz; i++)
+        buf[pos++] = (byte)(i + 1);
+    /* RSA params: sym.alg=NULL(2), scheme=NULL(2), keyBits=2048(2),
+     *   exponent=0x10001(4) */
+    buf[pos++] = 0x00; buf[pos++] = 0x10;
+    buf[pos++] = 0x00; buf[pos++] = 0x10;
+    buf[pos++] = 0x08; buf[pos++] = 0x00;
+    buf[pos++] = 0x00; buf[pos++] = 0x01; buf[pos++] = 0x00; buf[pos++] = 0x01;
+    /* unique */
+    buf[pos++] = 0; buf[pos++] = (byte)sizeof(unique);
+    XMEMCPY(&buf[pos], unique, sizeof(unique)); pos += (int)sizeof(unique);
+    outerSz = pos - 2;
+    buf[0] = (byte)(outerSz >> 8);
+    buf[1] = (byte)outerSz;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    packet.buf = buf;
+    packet.size = pos;
+    packet.pos = 0;
+
+    TPM2_Packet_ParsePublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.authPolicy.size,
+        (int)sizeof(pub.publicArea.authPolicy.buffer));
+    AssertIntEQ(XMEMCMP(pub.publicArea.authPolicy.buffer, &buf[policyPos],
+        sizeof(pub.publicArea.authPolicy.buffer)), 0);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.symmetric.algorithm,
+        TPM_ALG_NULL);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.keyBits, 2048);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.exponent, 0x10001);
+    AssertIntEQ(pub.publicArea.unique.rsa.size, (int)sizeof(unique));
+    AssertIntEQ(XMEMCMP(pub.publicArea.unique.rsa.buffer, unique,
+        sizeof(unique)), 0);
+    AssertIntEQ(packet.pos, pos);
+
+    printf("Test TPM Wrapper:\tParsePublic oversized authPolicy:\tPassed\n");
+}
+
 /* TPM2_ParseAttest must handle TPM_ST_ATTEST_NV_DIGEST (0x801C) and decode
  * TPMS_NV_DIGEST_CERTIFY_INFO. Pre-fix, the switch fell through to default
  * and left out->attested zeroed. */
@@ -14289,6 +14351,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
     test_TPM2_ParsePublic_OuterResync();
+    test_TPM2_ParsePublic_AuthPolicyOversize();
     test_TPM2_ParsePoint_OuterResync();
     test_TPM2_ParseSignature_NullAlg();
 #ifdef WOLFTPM_MLDSA_VERIFY
