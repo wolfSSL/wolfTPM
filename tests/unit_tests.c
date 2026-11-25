@@ -5771,6 +5771,68 @@ static void test_TPM2_CalcHmac(void)
 #endif
 }
 
+/* With a separate decrypt and encrypt session, the first session's HMAC
+ * also covers both of their nonces, the decrypt nonce first. */
+static void test_TPM2_CalcHmac_ExtraNonces(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+    int rc;
+    TPM2B_AUTH auth;
+    TPM2B_DIGEST hash;
+    TPM2B_NONCE nonceA, nonceB, nonceDec, nonceEnc;
+    TPMA_SESSION attr = TPMA_SESSION_continueSession;
+    TPM2B_AUTH hmac1, hmac2;
+    /* KAT: HMAC-SHA256("test", 0xAB*32 || 0x11*32 || 0x22*32 || 0x33*32 ||
+     *   0x44*32 || attr(0x01)) */
+    const byte hmacExp[TPM_SHA256_DIGEST_SIZE] = {
+        0x7a, 0xe1, 0x29, 0x15, 0x2b, 0x4e, 0x5a, 0xc5,
+        0x80, 0x3e, 0x1a, 0xbe, 0xe5, 0xa8, 0xb4, 0xe6,
+        0x0e, 0x9c, 0x54, 0xe5, 0x16, 0xd2, 0xed, 0xf4,
+        0x2f, 0xcf, 0xfe, 0xe9, 0x3a, 0x62, 0x28, 0x41};
+
+    auth.size = 4;
+    auth.buffer[0] = 't'; auth.buffer[1] = 'e';
+    auth.buffer[2] = 's'; auth.buffer[3] = 't';
+
+    hash.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(hash.buffer, 0xAB, hash.size);
+    nonceA.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceA.buffer, 0x11, nonceA.size);
+    nonceB.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceB.buffer, 0x22, nonceB.size);
+    nonceDec.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceDec.buffer, 0x33, nonceDec.size);
+    nonceEnc.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceEnc.buffer, 0x44, nonceEnc.size);
+
+    XMEMSET(&hmac1, 0, sizeof(hmac1));
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        &nonceDec, &nonceEnc, attr, &hmac1);
+    AssertIntEQ(0, rc);
+    AssertIntEQ(hmac1.size, (int)sizeof(hmacExp));
+    AssertIntEQ(0, XMEMCMP(hmac1.buffer, hmacExp, sizeof(hmacExp)));
+
+    /* the two extra nonces are not interchangeable */
+    XMEMSET(&hmac2, 0, sizeof(hmac2));
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        &nonceEnc, &nonceDec, attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    /* each extra nonce contributes on its own */
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        &nonceDec, NULL, attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+    rc = TPM2_CalcHmac_ex(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        NULL, &nonceEnc, attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "CalcHmac extra nonces:");
+#endif
+}
+
 static void test_TPM2_ParamEnc_XOR_Vector(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -14450,6 +14512,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_GetTpmHashType();
     test_TPM2_ResponseHmacVerification();
     test_TPM2_CalcHmac();
+    test_TPM2_CalcHmac_ExtraNonces();
     test_TPM2_ParamEnc_XOR_Vector();
     test_TPM2_ParamEnc_XOR_MaskBoundary();
     test_TPM2_ParamEnc_AESCFB_Vector();
