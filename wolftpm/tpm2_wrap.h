@@ -2535,6 +2535,9 @@ WOLFTPM_API int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
     \param dataSz Size of data buffer
     \param sig Output signature buffer
     \param sigSz Input/output signature size
+    \note This call always ends the sequence: the TPM consumes it on success
+        and the wrapper flushes it on any failure (unless dev is NULL), so the
+        caller must not use or flush sequenceHandle afterwards.
 
     _Example_
     \code
@@ -2610,6 +2613,9 @@ WOLFTPM_API int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
     \param sig Signature to verify
     \param sigSz Size of signature buffer
     \param validation Optional output validation ticket
+    \note This call always ends the sequence: the TPM consumes it on success
+        and the wrapper flushes it on any failure (unless dev is NULL), so the
+        caller must not use or flush sequenceHandle afterwards.
 
     _Example_
     \code

@@ -6175,7 +6175,7 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
     byte* sig, int* sigSz)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     SignSequenceComplete_In signSeqCompleteIn;
     SignSequenceComplete_Out signSeqCompleteOut;
     WOLFTPM2_HANDLE seqHandleObj;
@@ -6187,15 +6187,26 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     int moved = 0;
 #endif
 
-    if (dev == NULL || key == NULL || sig == NULL || sigSz == NULL) {
+    if (dev == NULL) {
         return BAD_FUNC_ARG;
     }
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
 
-    if (dataSz < 0 || dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
-        return BUFFER_E;
+    if (key == NULL || sig == NULL || sigSz == NULL) {
+        rc = BAD_FUNC_ARG;
     }
-    if (dataSz > 0 && data == NULL) {
-        return BAD_FUNC_ARG;
+    else if (dataSz < 0 ||
+            dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
+        rc = BUFFER_E;
+    }
+    else if (dataSz > 0 && data == NULL) {
+        rc = BAD_FUNC_ARG;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        /* the sequence is not left loaded on any failure */
+        wolfTPM2_UnloadHandle(dev, &seqHandleObj);
+        return rc;
     }
 
     /* Part 3 Sec.20.6 Table 124: sequenceHandle is the 1st auth handle (slot 0),
@@ -6204,8 +6215,6 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
      * slot 0 carries an empty auth value; slot 1 carries the signing key's
      * auth. Missing the slot-1 assignment silently signs with the wrong auth
      * area when the key has a non-empty auth value. */
-    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
-    seqHandleObj.hndl = sequenceHandle;
     wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
 #if MAX_SESSION_NUM > 1
     /* SetAuthHandle resets slot 1 to password auth; restore the caller's
@@ -6322,6 +6331,10 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
             rc = BUFFER_E;
         }
     }
+    else {
+        /* the TPM keeps the sequence object when the command fails */
+        wolfTPM2_UnloadHandle(dev, &seqHandleObj);
+    }
 
     TPM2_ForceZero(&signSeqCompleteIn, sizeof(signSeqCompleteIn));
 
@@ -6406,7 +6419,7 @@ int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
+static int wolfTPM2_VerifySequenceFinish(WOLFTPM2_DEV* dev,
     TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
     const byte* sig, int sigSz, TPMT_TK_VERIFIED* validation)
 {
@@ -6579,10 +6592,25 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
                 sizeof(TPMT_TK_VERIFIED));
         }
     }
-    else {
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    const byte* sig, int sigSz, TPMT_TK_VERIFIED* validation)
+{
+    int rc;
+    WOLFTPM2_HANDLE seqHandleObj;
+
+    rc = wolfTPM2_VerifySequenceFinish(dev, sequenceHandle, key, data, dataSz,
+        sig, sigSz, validation);
+    if (rc != TPM_RC_SUCCESS && dev != NULL) {
         /* On an error return (e.g. TPM_RC_SIGNATURE) the TPM does not consume
          * the sequence object. Flush it so repeated failed verifies do not
          * exhaust transient memory (TPM_RC_OBJECT_MEMORY). */
+        XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+        seqHandleObj.hndl = sequenceHandle;
         wolfTPM2_UnloadHandle(dev, &seqHandleObj);
     }
 

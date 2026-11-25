@@ -13677,6 +13677,68 @@ static void test_wolfTPM2_VerifySequence_NoLeak(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "VerifySequence no-leak:");
 }
 
+/* An error return from VerifySequenceComplete that never reaches the TPM
+ * must still flush the sequence, so a second flush finds nothing loaded. */
+static void test_wolfTPM2_VerifySequence_EarlyErrorFlush(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY eccKey;
+    WOLFTPM2_HANDLE seqObj;
+    TPMT_PUBLIC pub;
+    TPM_HANDLE seqHandle;
+    TPMT_TK_VERIFIED validation;
+    byte msg[32];
+    byte badSig[64];
+
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(msg, 0xAB, sizeof(msg));
+    XMEMSET(badSig, 0xAA, sizeof(badSig));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_GetKeyTemplate_ECC(&pub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &eccKey, TPM_RH_OWNER, &pub, NULL, 0);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "VerifySequence early-error flush:");
+        wolfTPM2_Cleanup(&dev);
+        return;
+    }
+
+    /* signature length that does not match the curve */
+    rc = wolfTPM2_VerifySequenceStart(&dev, &eccKey, NULL, 0, &seqHandle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_VerifySequenceComplete(&dev, seqHandle, &eccKey,
+        msg, (int)sizeof(msg), badSig, (int)sizeof(badSig) - 1, &validation);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    XMEMSET(&seqObj, 0, sizeof(seqObj));
+    seqObj.hndl = seqHandle;
+    AssertIntNE(wolfTPM2_UnloadHandle(&dev, &seqObj), TPM_RC_SUCCESS);
+
+    /* missing signature */
+    rc = wolfTPM2_VerifySequenceStart(&dev, &eccKey, NULL, 0, &seqHandle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_VerifySequenceComplete(&dev, seqHandle, &eccKey,
+        msg, (int)sizeof(msg), NULL, (int)sizeof(badSig), &validation);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    XMEMSET(&seqObj, 0, sizeof(seqObj));
+    seqObj.hndl = seqHandle;
+    AssertIntNE(wolfTPM2_UnloadHandle(&dev, &seqObj), TPM_RC_SUCCESS);
+
+    wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "VerifySequence early-error flush:");
+}
+
 static void test_wolfTPM2_PQC(void)
 {
     int rc;
@@ -14183,6 +14245,7 @@ int unit_tests(int argc, char *argv[])
     /* Then run TPM-dependent PQC tests */
     test_wolfTPM2_PQC();
     test_wolfTPM2_VerifySequence_NoLeak();
+    test_wolfTPM2_VerifySequence_EarlyErrorFlush();
     #endif
     /* The gate guards classical RSA/ECC verifies too, so it must not sit
      * behind the post-quantum guard */
