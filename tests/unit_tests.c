@@ -6885,6 +6885,68 @@ static void test_TPM2_ParseAttest_NvDigest(void)
     printf("Test TPM Wrapper:\tParseAttest NV_DIGEST:\t\tPassed\n");
 }
 
+/* A quote whose PCR selection carries more select bytes than PCR_SELECT_MAX
+ * keeps the bytes that fit and still finds the pcrDigest that follows. */
+static void test_TPM2_ParseAttest_QuoteSelectOversize(void)
+{
+    TPM2B_ATTEST attestBlob;
+    TPMS_ATTEST out;
+    const byte digest[] = {0xAA, 0xBB, 0xCC, 0xDD};
+    byte* buf;
+    int pos = 0;
+    int selectPos;
+    int rc, i;
+
+    XMEMSET(&attestBlob, 0, sizeof(attestBlob));
+    buf = attestBlob.attestationData;
+
+    /* magic */
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 24) & 0xFF);
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 16) & 0xFF);
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 8) & 0xFF);
+    buf[pos++] = (byte)(TPM_GENERATED_VALUE & 0xFF);
+    /* type = TPM_ST_ATTEST_QUOTE (0x8018) */
+    buf[pos++] = 0x80; buf[pos++] = 0x18;
+    /* qualifiedSigner: empty */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* extraData: empty */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* clockInfo: clock(8)+resetCount(4)+restartCount(4)+safe(1) */
+    XMEMSET(buf + pos, 0, 17); pos += 17;
+    /* firmwareVersion */
+    XMEMSET(buf + pos, 0, 8); pos += 8;
+    /* TPMS_QUOTE_INFO: one SHA256 selection, one select byte too many */
+    buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 1;
+    buf[pos++] = 0x00; buf[pos++] = 0x0B;
+    buf[pos++] = (byte)(PCR_SELECT_MAX + 1);
+    selectPos = pos;
+    for (i = 0; i < PCR_SELECT_MAX + 1; i++)
+        buf[pos++] = (byte)(0x11 * (i + 1));
+    buf[pos++] = 0; buf[pos++] = (byte)sizeof(digest);
+    XMEMCPY(buf + pos, digest, sizeof(digest)); pos += sizeof(digest);
+
+    attestBlob.size = (UINT16)pos;
+
+    XMEMSET(&out, 0, sizeof(out));
+    rc = TPM2_ParseAttest(&attestBlob, &out);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    AssertIntEQ(out.type, TPM_ST_ATTEST_QUOTE);
+    AssertIntEQ(out.attested.quote.pcrSelect.count, 1);
+    AssertIntEQ(out.attested.quote.pcrSelect.pcrSelections[0].hash,
+        TPM_ALG_SHA256);
+    AssertIntEQ(out.attested.quote.pcrSelect.pcrSelections[0].sizeofSelect,
+        PCR_SELECT_MAX);
+    AssertIntEQ(XMEMCMP(
+        out.attested.quote.pcrSelect.pcrSelections[0].pcrSelect,
+        buf + selectPos, PCR_SELECT_MAX), 0);
+    AssertIntEQ(out.attested.quote.pcrDigest.size, sizeof(digest));
+    AssertIntEQ(XMEMCMP(out.attested.quote.pcrDigest.buffer, digest,
+        sizeof(digest)), 0);
+
+    printf("Test TPM Wrapper:\tParseAttest quote select cap:\tPassed\n");
+}
+
 #if defined(WOLFTPM_MFG_IDENTITY) && \
     !defined(WOLFTPM_ST33) && !defined(WOLFTPM_AUTODETECT)
 /* On non-ST33 targets, omitting the master password must fail closed rather
@@ -14403,6 +14465,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_SchemeSerialize();
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
+    test_TPM2_ParseAttest_QuoteSelectOversize();
     test_TPM2_ParsePublic_OuterResync();
     test_TPM2_ParsePublic_AuthPolicyOversize();
     test_TPM2_ParsePoint_OuterResync();
