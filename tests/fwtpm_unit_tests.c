@@ -31665,6 +31665,69 @@ static void test_fwtpm_policysecret_nonce(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PolicySecret nonceTPM:", 0);
 }
+
+/* TPM2_PolicyTicket with an empty cpHashA and policyRef */
+static TPM_RC SendPolicyTicket(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* timeout, const byte* authName, UINT16 authNameSz,
+    UINT16 ticketTag, UINT32 ticketHier, const byte* digest, UINT16 digestSz)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyTicket);
+    int rspSize = 0;
+
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, 8); pos += 2;
+    memcpy(gCmd + pos, timeout, 8); pos += 8;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef */
+    PutU16BE(gCmd + pos, authNameSz); pos += 2;
+    memcpy(gCmd + pos, authName, authNameSz); pos += authNameSz;
+    PutU16BE(gCmd + pos, ticketTag); pos += 2;
+    PutU32BE(gCmd + pos, ticketHier); pos += 4;
+    PutU16BE(gCmd + pos, digestSz); pos += 2;
+    memcpy(gCmd + pos, digest, digestSz); pos += digestSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A trial session cannot use PolicyTicket: the policy is computed there
+ * with the authorization the ticket stands for (Part 3 Sec.23.5). */
+static void test_fwtpm_policyticket_trial(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess = NULL;
+    UINT32 sessH;
+    byte zero[WC_SHA256_DIGEST_SIZE];
+    byte timeout[8];
+    byte authName[4];
+    byte digest[TPM_SHA384_DIGEST_SIZE];
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(zero, 0, sizeof(zero));
+    memset(timeout, 0, sizeof(timeout));
+    memset(digest, 0xAB, sizeof(digest));
+    PutU32BE(authName, TPM_RH_OWNER);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx.sessions[i].used && ctx.sessions[i].handle == sessH) {
+            sess = &ctx.sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+
+    AssertIntEQ(SendPolicyTicket(&ctx, sessH, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest,
+        sizeof(digest)), TPM_RC_ATTRIBUTES | TPM_RC_H | TPM_RC_1);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyTicket trial session:", 0);
+}
 #endif /* !FWTPM_NO_POLICY */
 
 /* Quote FW_TEST_PCR of one bank. On success *pcrDigestSz is the size of the
@@ -34131,6 +34194,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policysigned_sig_hash();
 #endif
     test_fwtpm_policysecret_nonce();
+    test_fwtpm_policyticket_trial();
 #endif
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
