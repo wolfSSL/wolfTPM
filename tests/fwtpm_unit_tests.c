@@ -31600,10 +31600,9 @@ static void test_fwtpm_policysigned_sig_hash(void)
 }
 #endif /* WOLFSSL_SHA384 */
 
-/* TPM2_PolicySecret by ownerAuth with an empty cpHashA and policyRef and no
- * expiration */
-static TPM_RC SendPolicySecret(FWTPM_CTX* ctx, UINT32 sessH,
-    const byte* nonce, UINT16 nonceSz)
+/* TPM2_PolicySecret by ownerAuth with an empty cpHashA and policyRef */
+static TPM_RC SendPolicySecretExp(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* nonce, UINT16 nonceSz, INT32 expiration)
 {
     int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_PolicySecret);
     int rspSize = 0;
@@ -31618,10 +31617,16 @@ static TPM_RC SendPolicySecret(FWTPM_CTX* ctx, UINT32 sessH,
     pos += nonceSz;
     PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA */
     PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef */
-    PutU32BE(gCmd + pos, 0); pos += 4; /* expiration */
+    PutU32BE(gCmd + pos, (UINT32)expiration); pos += 4;
     PutU32BE(gCmd + 2, (UINT32)pos);
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
+}
+
+static TPM_RC SendPolicySecret(FWTPM_CTX* ctx, UINT32 sessH,
+    const byte* nonce, UINT16 nonceSz)
+{
+    return SendPolicySecretExp(ctx, sessH, nonce, nonceSz, 0);
 }
 
 /* PolicySecret takes a nonceTPM only when it is the one of the policy
@@ -31727,6 +31732,155 @@ static void test_fwtpm_policyticket_trial(void)
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PolicyTicket trial session:", 0);
+}
+
+static FWTPM_Session* StartPolicySecretSession(FWTPM_CTX* ctx, UINT8 sessType)
+{
+    FWTPM_Session* sess = NULL;
+    UINT32 sessH = StartSessionHelper(ctx, sessType);
+    int i;
+
+    for (i = 0; i < FWTPM_MAX_SESSIONS; i++) {
+        if (ctx->sessions[i].used && ctx->sessions[i].handle == sessH) {
+            sess = &ctx->sessions[i];
+        }
+    }
+    AssertNotNull(sess);
+    return sess;
+}
+
+/* PolicySecret with a negative expiration returns the timeout and a ticket
+ * that PolicyTicket takes in another session until it expires (Part 3
+ * Sec.23.4 and 23.5). */
+static void test_fwtpm_policysecret_ticket(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_Session* sess;
+    const byte* rsp = gRsp + TPM2_HEADER_SIZE + 4;
+    byte zero[WC_SHA256_DIGEST_SIZE];
+    byte expected[WC_SHA256_DIGEST_SIZE];
+    byte timeout[8];
+    byte authName[4];
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    UINT16 digestSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(zero, 0, sizeof(zero));
+    PutU32BE(authName, TPM_RH_OWNER);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+
+    /* expiration counts seconds from the start of the session */
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    gMockClockMs = 2000;
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, 1),
+        TPM_RC_EXPIRED | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, 1), TPM_RC_SUCCESS);
+    /* empty timeout and a NULL ticket */
+    AssertIntEQ(GetU16BE(rsp), 0);
+    AssertIntEQ(GetU16BE(rsp + 2), TPM_ST_AUTH_SECRET);
+    AssertIntEQ(GetU32BE(rsp + 4), TPM_RH_NULL);
+    AssertIntEQ(GetU16BE(rsp + 8), 0);
+    AssertTrue(sess->timeout == sess->startTime + 1000);
+    memcpy(expected, sess->policyDigest.buffer, sizeof(expected));
+    AssertIntNE(memcmp(expected, zero, sizeof(zero)), 0);
+    FlushHandle(&ctx, sess->handle);
+
+    /* a trial session gets no ticket */
+    sess = StartPolicySecretSession(&ctx, TPM_SE_TRIAL);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, -10), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(rsp), 0);
+    AssertIntEQ(GetU32BE(rsp + 4), TPM_RH_NULL);
+    AssertIntEQ(GetU16BE(rsp + 8), 0);
+    AssertTrue(sess->timeout == 0);
+    FlushHandle(&ctx, sess->handle);
+
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle,
+        sess->nonceTPM.buffer, sess->nonceTPM.size, -10), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(rsp), sizeof(timeout));
+    memcpy(timeout, rsp + 2, sizeof(timeout));
+    AssertIntEQ(GetU32BE(timeout), 0);
+    AssertIntEQ(GetU32BE(timeout + 4), (UINT32)sess->startTime + 10000);
+    AssertIntEQ(GetU16BE(rsp + 10), TPM_ST_AUTH_SECRET);
+    AssertIntEQ(GetU32BE(rsp + 12), TPM_RH_OWNER);
+    digestSz = GetU16BE(rsp + 16);
+    AssertIntGT(digestSz, 0);
+    AssertIntLE(digestSz, sizeof(digest));
+    memcpy(digest, rsp + 18, digestSz);
+    AssertTrue(sess->timeout == sess->startTime + 10000);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, expected,
+        sizeof(expected)), 0);
+    FlushHandle(&ctx, sess->handle);
+
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    digest[0] ^= 0x01;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    digest[0] ^= 0x01;
+    /* the ticket covers its tag, the timeout and the Name */
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SIGNED, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    timeout[7] ^= 0x01;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    timeout[7] ^= 0x01;
+    authName[3] ^= 0x01;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_TICKET);
+    authName[3] ^= 0x01;
+    gMockClockMs = 10001;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_EXPIRED);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, zero, sizeof(zero)), 0);
+    gMockClockMs = 10000;
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, expected,
+        sizeof(expected)), 0);
+    AssertTrue(sess->timeout == 10000);
+    FlushHandle(&ctx, sess->handle);
+
+    /* without nonceTPM the expiration is a TPM time and the ticket ends
+     * with the next TPM Reset */
+    gMockClockMs = 2500;
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle, NULL, 0, -1),
+        TPM_RC_EXPIRED | TPM_RC_P | TPM_RC_4);
+    AssertIntEQ(SendPolicySecretExp(&ctx, sess->handle, NULL, 0, -10),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(rsp), sizeof(timeout));
+    memcpy(timeout, rsp + 2, sizeof(timeout));
+    AssertIntEQ(GetU32BE(timeout), 0x80000000UL);
+    AssertIntEQ(GetU32BE(timeout + 4), 10500);
+    digestSz = GetU16BE(rsp + 16);
+    AssertIntGT(digestSz, 0);
+    AssertIntLE(digestSz, sizeof(digest));
+    memcpy(digest, rsp + 18, digestSz);
+    FlushHandle(&ctx, sess->handle);
+
+    sess = StartPolicySecretSession(&ctx, TPM_SE_POLICY);
+    AssertIntEQ(SendPolicyTicket(&ctx, sess->handle, timeout, authName,
+        sizeof(authName), TPM_ST_AUTH_SECRET, TPM_RH_OWNER, digest, digestSz),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(memcmp(sess->policyDigest.buffer, expected,
+        sizeof(expected)), 0);
+    FlushHandle(&ctx, sess->handle);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicySecret expiration and ticket:", 0);
 }
 #endif /* !FWTPM_NO_POLICY */
 
@@ -34195,6 +34349,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_policysecret_nonce();
     test_fwtpm_policyticket_trial();
+    test_fwtpm_policysecret_ticket();
 #endif
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
