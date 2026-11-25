@@ -1271,7 +1271,7 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
         }
     }
     /* determine if we need to grow buffer */
-    else if ((hashCtx->cacheSz + inSz) > hashCtx->cacheBufSz) {
+    else if (inSz > hashCtx->cacheBufSz - hashCtx->cacheSz) {
         byte* oldIn = hashCtx->cacheBuf;
         word32 oldBufSz = hashCtx->cacheBufSz;
         word32 newSz;

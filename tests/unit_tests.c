@@ -9370,6 +9370,56 @@ static void test_wolfTPM2_CryptoDevCb_HashCacheStream(void)
 #endif
 }
 
+/* An update whose size wraps the cached total must be refused before the
+ * copy into the cache. */
+static void test_wolfTPM2_CryptoDevCb_HashCacheWrap(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM_USE_SYMMETRIC) && \
+    defined(WOLFSSL_HASH_FLAGS) && !defined(NO_SHA256)
+    int rc;
+    WOLFTPM2_DEV dev;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    wc_Sha256 sha;
+    byte data[16];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    XMEMSET(data, 0x11, sizeof(data));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n",
+            "CryptoDevCb hash cache wrap:");
+        return;
+    }
+
+    tpmCtx.dev = &dev;
+    tpmCtx.useSymmetricOnTPM = 1;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+
+    rc = wc_InitSha256_ex(&sha, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256SetFlags(&sha, WC_HASH_FLAG_WILLCOPY);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Update(&sha, data, (word32)sizeof(data));
+    AssertIntEQ(rc, 0);
+    /* 16 cached bytes plus this size wraps a word32 to 15 */
+    rc = wc_Sha256Update(&sha, data, 0xFFFFFFFFU);
+    AssertIntNE(rc, 0);
+    wc_Sha256Free(&sha);
+
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb hash cache wrap:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb hash cache wrap:");
+#endif
+}
+
 static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
@@ -14160,6 +14210,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
     test_wolfTPM2_CryptoDevCb_HashCacheStream();
+    test_wolfTPM2_CryptoDevCb_HashCacheWrap();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_wolfTPM2_CryptoDevCb_MlDsaSign();
     test_wolfTPM2_CryptoDevCb_KeyId();
