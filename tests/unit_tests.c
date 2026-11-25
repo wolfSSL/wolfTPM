@@ -13331,10 +13331,10 @@ static void test_TPM2_GetHashDigestSize_AllAlgs(void)
     printf("Test TPM2:\t\tGetHashDigestSize all algs:\tPassed\n");
 }
 
-/* These PQC unit tests call both ML-DSA and ML-KEM wrappers, so they compile
- * only when both families are present (a WOLFTPM_NO_MLDSA or WOLFTPM_NO_MLKEM
- * build excludes the matching wrapper definitions). CI always builds full
- * PQC, so coverage is unchanged there. */
+/* These PQC unit tests call the ML-DSA sign and verify and the ML-KEM encap
+ * and decap wrappers, so they compile only when all four are present (a
+ * WOLFTPM_NO_MLDSA, WOLFTPM_NO_MLKEM or per-operation WOLFTPM_NO_* build
+ * excludes the matching wrapper definitions). */
 /* The signature-size gate is static, so reach it through wolfTPM2_VerifyHashTicket:
  * that caller is built in every configuration and passes sigSz straight to the
  * gate, so the gate's own checks are what answer here. */
@@ -13378,7 +13378,8 @@ static void test_wolfTPM2_SigInputBufferGate(void)
 #endif
 }
 
-#if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
 /* Post-Quantum Cryptography (PQC) Unit Tests - TPM 2.0 v185 */
 
 /* TODO: Remove TPM_RC_COMMAND_CODE skip logic once we have a TPM simulator
@@ -14387,7 +14388,7 @@ static void test_wolfTPM2_PQC_Sizes(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "PQC Sizes:");
 }
-#endif /* WOLFTPM_MLDSA && WOLFTPM_MLKEM */
+#endif /* ML-DSA sign and verify, ML-KEM encap and decap */
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
@@ -14692,7 +14693,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_AllocatePCRBanks();
     test_wolfTPM2_PolicyOR_success();
     test_TPM2_PolicyTicket();
-    #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
+    #if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+        defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
     /* Run non-TPM-dependent tests first */
     test_wolfTPM2_PQC_KeyTemplates();
     test_wolfTPM2_PQC_Sizes();
