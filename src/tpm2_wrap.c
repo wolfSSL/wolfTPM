@@ -9731,6 +9731,11 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
     if (rc == 0) {
         rc = TPM2_HierarchyChangeAuth(&in);
+        /* hand the rolled nonceTPM back for continued use of the session */
+        if (session != NULL) {
+            XMEMCPY(&session->nonceTPM, &dev->session[1].nonceTPM,
+                sizeof(TPM2B_NONCE));
+        }
     }
 #ifdef DEBUG_WOLFTPM
     desc = TPM2_GetHierarchyDesc(authHandle);
