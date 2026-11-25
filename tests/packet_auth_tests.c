@@ -158,6 +158,62 @@ static int test_hmac_auth_size(void)
     return 0;
 }
 
+/* A response nonce or HMAC longer than its buffer is truncated to the buffer
+ * and the excess is skipped, so the fields after it are read in place. */
+static int test_parse_auth_oversize(void)
+{
+    struct {
+        TPMS_AUTH_RESPONSE rsp;
+        byte guard[32];
+    } auth;
+    TPM2_Packet packet;
+    byte buf[sizeof(auth.rsp.nonce.buffer) + sizeof(auth.rsp.hmac.buffer) + 48];
+    const int nonceSz = (int)sizeof(auth.rsp.nonce.buffer) + 16;
+    const int hmacSz = (int)sizeof(auth.rsp.hmac.buffer) + 16;
+    int pos = 0, noncePos, hmacPos, i;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[pos++] = (byte)(nonceSz >> 8);
+    buf[pos++] = (byte)nonceSz;
+    noncePos = pos;
+    for (i = 0; i < nonceSz; i++)
+        buf[pos++] = (byte)(i + 1);
+    buf[pos++] = 0xA5; /* sessionAttributes */
+    buf[pos++] = (byte)(hmacSz >> 8);
+    buf[pos++] = (byte)hmacSz;
+    hmacPos = pos;
+    for (i = 0; i < hmacSz; i++)
+        buf[pos++] = (byte)(0x80 + i);
+
+    XMEMSET(&auth.rsp, 0, sizeof(auth.rsp));
+    XMEMSET(auth.guard, 0x5A, sizeof(auth.guard));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = pos;
+    TPM2_Packet_ParseAuth(&packet, &auth.rsp);
+
+    if (auth.rsp.nonce.size != sizeof(auth.rsp.nonce.buffer))
+        return 6;
+    if (XMEMCMP(auth.rsp.nonce.buffer, &buf[noncePos],
+            sizeof(auth.rsp.nonce.buffer)) != 0)
+        return 7;
+    if (auth.rsp.sessionAttributes != 0xA5)
+        return 8;
+    if (auth.rsp.hmac.size != sizeof(auth.rsp.hmac.buffer))
+        return 9;
+    if (XMEMCMP(auth.rsp.hmac.buffer, &buf[hmacPos],
+            sizeof(auth.rsp.hmac.buffer)) != 0)
+        return 10;
+    for (i = 0; i < (int)sizeof(auth.guard); i++) {
+        if (auth.guard[i] != 0x5A)
+            return 11;
+    }
+    if (packet.pos != pos || packet.overflow)
+        return 12;
+
+    return 0;
+}
+
 int main(void)
 {
     int rc;
@@ -175,6 +231,13 @@ int main(void)
         return rc;
     }
     puts("PASS: HMAC auth area sized by the session hash");
+
+    rc = test_parse_auth_oversize();
+    if (rc != 0) {
+        printf("FAIL: oversized response auth fields (%d)\n", rc);
+        return rc;
+    }
+    puts("PASS: oversized response nonce and HMAC are truncated");
 
     return 0;
 }
