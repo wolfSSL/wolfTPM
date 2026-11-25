@@ -4367,8 +4367,7 @@ static void test_fwtpm_encseed_decseed_mlkem_roundtrip(void)
 /* FlushHandle is defined later in this file. */
 static void FlushHandle(FWTPM_CTX* ctx, UINT32 handle);
 
-#if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP) && \
-    !defined(FWTPM_NO_CREDENTIAL)
+#if defined(WOLFTPM_MLKEM) && !defined(FWTPM_NO_CREDENTIAL)
 /* Run MakeCredential(ekHandle, credential, ekName) and copy the returned
  * credentialBlob and secret TPM2Bs out for a follow-up ActivateCredential. */
 static void MlkemMakeCredential(FWTPM_CTX* ctx, UINT32 ekHandle,
@@ -33915,8 +33914,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_ecc_dhkem_unsupported();
 #endif
     test_fwtpm_encseed_decseed_mlkem_roundtrip();
-#if defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP) && \
-    !defined(FWTPM_NO_CREDENTIAL)
+#if defined(WOLFTPM_MLKEM) && !defined(FWTPM_NO_CREDENTIAL)
     test_fwtpm_mlkem_credential_roundtrip();
     test_fwtpm_mlkem_activatecredential_tampered_rejected();
     test_fwtpm_mlkem_activatecredential_unrestricted_rejected();

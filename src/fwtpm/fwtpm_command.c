@@ -20459,7 +20459,7 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * can unwrap is valid, including an ML-KEM EK. */
     if (rc == 0) {
         if (keyObj->pub.type != TPM_ALG_RSA &&
-#ifdef WOLFTPM_MLKEM_DECAP
+#ifdef WOLFTPM_MLKEM
             keyObj->pub.type != TPM_ALG_MLKEM &&
 #endif
             keyObj->pub.type != TPM_ALG_ECC) {
