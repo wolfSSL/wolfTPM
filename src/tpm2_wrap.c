@@ -8126,6 +8126,10 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             && pcrArray == NULL && dataSz > MAX_NV_BUFFER_SIZE) {
         return BUFFER_E;
     }
+    /* the NV offset is a UINT16 on the wire */
+    if (!extend && (offset > 0xFFFF || dataSz > 0xFFFF - offset)) {
+        return BAD_FUNC_ARG;
+    }
     hierAuth = wolfTPM2_NVIsHierarchyAuth(nv->handle.hndl);
 
     while (dataSz > 0) {
@@ -8285,6 +8289,10 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     if (tpmSession != NULL && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)
             && pcrArray == NULL && dataSz > MAX_NV_BUFFER_SIZE) {
         return BUFFER_E;
+    }
+    /* the NV offset is a UINT16 on the wire */
+    if (offset > 0xFFFF || dataSz > 0xFFFF - offset) {
+        return BAD_FUNC_ARG;
     }
     hierAuth = wolfTPM2_NVIsHierarchyAuth(nv->handle.hndl);
 

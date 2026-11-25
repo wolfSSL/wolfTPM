@@ -3580,6 +3580,82 @@ static void test_wolfTPM2_NVWriteChunked(void)
 #endif
 }
 
+/* An offset above the UINT16 wire field must be refused, not truncated to a
+ * low offset inside the index. */
+static void test_wolfTPM2_NVOffsetRange(void)
+{
+#ifndef WOLFTPM_WINAPI
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    const byte nvAuth[] = "offsetrangeauth";
+    word32 nvAttributes;
+    byte buf[32];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(buf, 0x5A, sizeof(buf));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tNV offset range:\tSkipped\n");
+        return;
+    }
+
+    parent.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    if (rc == TPM_RC_NV_DEFINED) {
+        wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+        XMEMSET(&nv, 0, sizeof(nv));
+        rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+            (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    }
+    if (rc != 0) {
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tNV offset range:\tSkipped\n");
+        return;
+    }
+
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* 0x10000 truncates to offset 0, which is inside the index */
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, 1, 0x10000);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, 2, 0xFFFF);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    readSz = 1;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0x10000);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    readSz = 2;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0xFFFF);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* the last byte of the index stays reachable */
+    readSz = 1;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz,
+        (word32)sizeof(buf) - 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, 1);
+    AssertIntEQ(readBuf[0], 0x5A);
+
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tNV offset range:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tNV offset range:\tSkipped\n");
+#endif
+}
+
 /* A command that changes an NV Index attribute changes its Name. The cached
  * Name must follow, or the next command under an HMAC session fails. */
 static void test_wolfTPM2_NVNameRefresh(void)
@@ -13908,6 +13984,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_SplitParamEncSession();
     test_wolfTPM2_NVWriteChunked();
+    test_wolfTPM2_NVOffsetRange();
     test_wolfTPM2_NVNameRefresh();
     test_wolfTPM2_PolicyPassword_ModeReset();
     test_wolfTPM2_ParamEncSession_SlotGap();
