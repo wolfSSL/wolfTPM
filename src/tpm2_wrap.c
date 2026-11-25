@@ -11148,7 +11148,7 @@ typedef struct CSRKey {
  *   0 on success
  *   BAD_FUNC_ARG on invalid parameters
  *   NOT_COMPILED_IN if key type not supported
- *   Other negative values on TPM errors
+ *   A positive TPM_RC_* code on TPM errors
  */
 static int wolfTPM2_SignCertCb(const byte* in, word32 inLen,
     byte* out, word32* outLen, int sigAlgo, int keyType, void* ctx)
