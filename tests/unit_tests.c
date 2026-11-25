@@ -113,8 +113,9 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#if (defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)) || \
-    (defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if (defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+     defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)) || \
+    (defined(WOLFTPM_MLKEM_ENCAP) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
      (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
       defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))) || \
     (defined(WOLFTPM_CRYPTOCB) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
@@ -4980,7 +4981,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     WOLFTPM2_KEY eccKey;
     const TPMT_PUBLIC* eccPub;
 #endif
-#if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_MLKEM_ENCAP) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     WOLFTPM2_KEY mlkemKey;
@@ -5034,7 +5035,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
 #endif
 
-#if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_MLKEM_ENCAP) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     /* MLKEM path (v1.85 Part 1 Sec.24): caller encapsulates under the TPM's
@@ -13676,6 +13677,7 @@ done:
 }
 #endif
 
+#ifdef WOLFTPM_HASH_MLDSA
 /* Regression for the VerifySequenceComplete data-chain fix.
  *
  * The wrapper used to silently drop the data/dataSz arguments; the fix
@@ -13887,6 +13889,7 @@ static void test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(WOLFTPM2_DEV* dev)
     printf("Test TPM Wrapper: %-40s Passed\n",
         "Hash-ML-DSA SignDigest roundtrip:");
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
 /* Regression for the TPM2_SignSequenceStart no-session path.
  * Per Part 3 Sec.17.6.3 the command has Auth Index: None; the native API
@@ -14068,8 +14071,9 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
         rc == 0 ? "Passed" : "Failed");
 }
 #endif /* ML-KEM support */
+#endif /* ML-DSA sign and verify, ML-KEM encap and decap */
 
-/* Main PQC test function */
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* Regression for the VerifySequenceComplete flush-on-error fix: looping
  * failed verifies must not exhaust transient memory (TPM_RC_OBJECT_MEMORY).
  * Uses an ECC key to cover the classical (non-PQC) wrapper path. */
@@ -14186,7 +14190,11 @@ static void test_wolfTPM2_VerifySequence_EarlyErrorFlush(void)
     printf("Test TPM Wrapper: %-40s Passed\n",
         "VerifySequence early-error flush:");
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
+/* Main PQC test function */
 static void test_wolfTPM2_PQC(void)
 {
     int rc;
@@ -14255,6 +14263,7 @@ static void test_wolfTPM2_PQC(void)
     /* Bug-fix regressions: each test exercises a wrapper / native-API path
      * that no existing test covers, so a re-introduction of the underlying
      * fix would silently pass CI without these. */
+#ifdef WOLFTPM_HASH_MLDSA
     /* These sub-tests each create a HASH_MLDSA key (DataChain included), so
      * only run them when the TPM advertises TPM_ALG_HASH_MLDSA. */
     if (test_alg_supported(TPM_ALG_HASH_MLDSA)) {
@@ -14266,6 +14275,7 @@ static void test_wolfTPM2_PQC(void)
         printf("Test TPM Wrapper: %-40s Skipped (no Hash-ML-DSA)\n",
             "Hash-ML-DSA:");
     }
+#endif /* WOLFTPM_HASH_MLDSA */
     test_TPM2_SignSequenceStart_NoSession(&dev, &mldsaKey);
     test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(&dev, &mldsaPub);
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -14317,7 +14327,10 @@ mlkem_done:
 static void test_wolfTPM2_PQC_KeyTemplates(void)
 {
     int rc;
-    TPMT_PUBLIC mldsaTemplate, hashMldsaTemplate, mlkemTemplate;
+    TPMT_PUBLIC mldsaTemplate, mlkemTemplate;
+#ifdef WOLFTPM_HASH_MLDSA
+    TPMT_PUBLIC hashMldsaTemplate;
+#endif
 
     printf("Testing PQC Key Templates...\n");
 
@@ -14333,6 +14346,7 @@ static void test_wolfTPM2_PQC_KeyTemplates(void)
     AssertTrue(mldsaTemplate.objectAttributes & TPMA_OBJECT_sign);
     AssertFalse(mldsaTemplate.objectAttributes & TPMA_OBJECT_decrypt);
 
+#ifdef WOLFTPM_HASH_MLDSA
     /* Test HASH_MLDSA template */
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&hashMldsaTemplate,
         TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth,
@@ -14341,6 +14355,7 @@ static void test_wolfTPM2_PQC_KeyTemplates(void)
     AssertIntEQ(hashMldsaTemplate.type, TPM_ALG_HASH_MLDSA);
     AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.parameterSet, TPM_MLDSA_87);
     AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.hashAlg, TPM_ALG_SHA512);
+#endif
 
     /* Test MLKEM template */
     rc = wolfTPM2_GetKeyTemplate_MLKEM(&mlkemTemplate,
@@ -14357,8 +14372,10 @@ static void test_wolfTPM2_PQC_KeyTemplates(void)
     rc = wolfTPM2_GetKeyTemplate_MLDSA(NULL, 0, TPM_MLDSA_44, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
+#ifdef WOLFTPM_HASH_MLDSA
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(NULL, 0, TPM_MLDSA_44, TPM_ALG_SHA256);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
 
     rc = wolfTPM2_GetKeyTemplate_MLKEM(NULL, 0, TPM_MLKEM_512);
     AssertIntEQ(rc, BAD_FUNC_ARG);
@@ -14700,6 +14717,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PQC_Sizes();
     /* Then run TPM-dependent PQC tests */
     test_wolfTPM2_PQC();
+    #endif
+    #ifdef WOLFTPM_MLDSA_VERIFY
     test_wolfTPM2_VerifySequence_NoLeak();
     test_wolfTPM2_VerifySequence_EarlyErrorFlush();
     #endif
