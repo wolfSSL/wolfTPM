@@ -3447,6 +3447,7 @@ static void test_fwtpm_rsassa_sha512_sign_verify(void)
     /* So must changing the last signature byte. */
     gCmd[pos] ^= 0x01;
     pos = (int)GetU32BE(gCmd + 2);
+    AssertTrue(pos > 0 && pos <= (int)sizeof(gCmd));
     gCmd[pos - 1] ^= 0x01;
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
@@ -20796,6 +20797,8 @@ static UINT32 DupLoad(FWTPM_CTX* ctx, UINT32 parentH, const DupBlob* blob)
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
     PutU32BE(gCmd + pos, parentH); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    AssertIntLE(blob->privSz, sizeof(blob->priv));
+    AssertIntLE(blob->pubSz, sizeof(blob->pub));
     PutU16BE(gCmd + pos, blob->privSz); pos += 2;
     memcpy(gCmd + pos, blob->priv, blob->privSz); pos += blob->privSz;
     memcpy(gCmd + pos, blob->pub, blob->pubSz); pos += blob->pubSz;
@@ -21775,7 +21778,9 @@ static void DupSetSeedSize(DupBlob* blob, UINT16 seedSz)
 {
     int pos = 4, oldSz, tailSz;
 
+    AssertIntLE(blob->dupSz, sizeof(blob->dup));
     pos += 2 + GetU16BE(blob->dup + pos); /* authValue */
+    AssertIntLE(pos + 2, (int)blob->dupSz);
     oldSz = GetU16BE(blob->dup + pos);
     tailSz = blob->dupSz - (pos + 2 + oldSz);
     AssertIntGT(tailSz, 1);
@@ -32343,6 +32348,7 @@ static void CalcQualifiedName(const byte* parentQn, int parentQnSz,
     byte data[2 * sizeof(name->name)];
 
     AssertIntLE(parentQnSz, (int)sizeof(name->name));
+    AssertIntLE(name->size, sizeof(name->name));
     memcpy(data, parentQn, parentQnSz);
     memcpy(data + parentQnSz, name->name, name->size);
     PutU16BE(qn->name, TPM_ALG_SHA256);
@@ -32358,6 +32364,7 @@ static void CheckQualifiedName(FWTPM_CTX* ctx, UINT32 handle,
     TPM2B_NAME name, expect;
 
     ReadNames(ctx, handle, &name, qn);
+    AssertIntLE(name.size, sizeof(name.name));
     CalcQualifiedName(parentQn, parentQnSz, &name, &expect);
     AssertIntEQ(qn->size, expect.size);
     AssertIntEQ(memcmp(qn->name, expect.name, expect.size), 0);
@@ -32781,6 +32788,7 @@ static TPM_RC SendAttestNullSigner(FWTPM_CTX* ctx, UINT32 cc, UINT32 objH,
     gCmd[pos++] = 'd';
     if (cc == TPM_CC_CertifyCreation) {
         hashSz = 2 + GetU16BE(creation);
+        AssertIntLE(hashSz, 2 + TPM_MAX_DIGEST_SIZE);
         memcpy(gCmd + pos, creation, hashSz); pos += hashSz;
     }
     PutU16BE(gCmd + pos, sigScheme); pos += 2;
@@ -32795,6 +32803,7 @@ static TPM_RC SendAttestNullSigner(FWTPM_CTX* ctx, UINT32 cc, UINT32 objH,
     }
     else if (cc == TPM_CC_CertifyCreation) {
         ticketSz = 2 + 4 + 2 + GetU16BE(creation + hashSz + 6);
+        AssertIntLE(ticketSz, 8 + TPM_MAX_DIGEST_SIZE);
         memcpy(gCmd + pos, creation + hashSz, ticketSz); pos += ticketSz;
     }
     else if (cc == TPM_CC_NV_Certify) {
