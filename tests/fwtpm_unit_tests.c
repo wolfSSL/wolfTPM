@@ -32520,7 +32520,6 @@ static void test_fwtpm_qualified_name_chain(void)
     memcpy(saved, gRsp + TPM2_HEADER_SIZE, savedSz);
     FlushHandle(&ctx, grandH);
     FlushHandle(&ctx, childH);
-    childH = 0;
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
     memcpy(gCmd + pos, saved, savedSz); pos += savedSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -32531,12 +32530,11 @@ static void test_fwtpm_qualified_name_chain(void)
     ReadNames(&ctx, grandH, &name, &qn);
     AssertIntEQ(qn.size, grandQn.size);
     AssertIntEQ(memcmp(qn.name, grandQn.name, grandQn.size), 0);
+#else
+    FlushHandle(&ctx, childH);
 #endif
 
     FlushHandle(&ctx, grandH);
-    if (childH != 0) {
-        FlushHandle(&ctx, childH);
-    }
     FlushHandle(&ctx, primaryH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Qualified Name chain:", 0);
