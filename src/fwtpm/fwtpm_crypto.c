@@ -4824,9 +4824,11 @@ int FwComputeNvName(FWTPM_NvIndex* nv, byte* buf, UINT16* sz)
     int rc = 0;
 
     FWTPM_ALLOC_VAR(hash, wc_HashAlg);
-    if (rc != 0) {
-        return rc;
+#ifdef WOLFTPM_SMALL_STACK
+    if (hash == NULL) {
+        return TPM_RC_MEMORY;
     }
+#endif
 
     if (hSz <= 0) {
         FWTPM_FREE_VAR(hash);
@@ -5165,11 +5167,13 @@ TPM_RC FwCredentialWrap(
 
     FWTPM_ALLOC_VAR(aes, Aes);
     FWTPM_ALLOC_VAR(hmac, Hmac);
-    if (rc != 0) {
+#ifdef WOLFTPM_SMALL_STACK
+    if (aes == NULL || hmac == NULL) {
         FWTPM_FREE_VAR(aes);
         FWTPM_FREE_VAR(hmac);
-        return rc;
+        return TPM_RC_MEMORY;
     }
+#endif
 
     /* Prepend size(2) to credential, then AES-CFB encrypt */
     FwStoreU16BE(encCred, credSz);

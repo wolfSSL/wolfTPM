@@ -164,6 +164,14 @@ static UINT32 GetU32BE(const byte* buf)
            ((UINT32)buf[2] << 8) | buf[3];
 }
 
+/* Object slot of a transient handle returned by a command */
+static FWTPM_Object* TransientObj(FWTPM_CTX* ctx, UINT32 handle)
+{
+    AssertTrue(handle >= TRANSIENT_FIRST &&
+        handle - TRANSIENT_FIRST < FWTPM_MAX_OBJECTS);
+    return &ctx->objects[handle - TRANSIENT_FIRST];
+}
+
 /* Command code (commandIndex + vendor V bit) from a TPMA_CC; used to page
  * TPM_CAP_COMMANDS by command code rather than the raw attribute word. */
 static UINT32 TpmaCcToCmdCode(UINT32 tpma)
@@ -3439,6 +3447,7 @@ static void test_fwtpm_rsassa_sha512_sign_verify(void)
     /* So must changing the last signature byte. */
     gCmd[pos] ^= 0x01;
     pos = (int)GetU32BE(gCmd + 2);
+    AssertTrue(pos > 0 && pos <= (int)sizeof(gCmd));
     gCmd[pos - 1] ^= 0x01;
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
@@ -11647,7 +11656,7 @@ static void test_fwtpm_create_creation_data(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
     parentH = CreatePrimaryHelper(&ctx, FW_TEST_CREATE_ALG);
     AssertIntNE(parentH, 0);
-    parent = &ctx.objects[parentH - TRANSIENT_FIRST];
+    parent = TransientObj(&ctx, parentH);
     AssertIntEQ(parent->name.size, 2 + WC_SHA256_DIGEST_SIZE);
     AssertIntEQ(parent->qualifiedName.size, 2 + WC_SHA256_DIGEST_SIZE);
     AssertIntNE(memcmp(parent->qualifiedName.name, parent->name.name,
@@ -11909,7 +11918,7 @@ static void test_fwtpm_create_symcipher_caller_key(void)
         if (cc[i] != TPM_CC_Create) {
             /* the object holds the key, and unique covers it */
             h = GetU32BE(gRsp + TPM2_HEADER_SIZE);
-            obj = &ctx.objects[h - TRANSIENT_FIRST];
+            obj = TransientObj(&ctx, h);
             AssertIntEQ(obj->privKeySize, 16);
             AssertIntEQ(memcmp(obj->privKey, key, 16), 0);
             AssertIntLE(obj->seedValue.size, WC_SHA256_DIGEST_SIZE);
@@ -19643,7 +19652,7 @@ static void test_fwtpm_loadexternal_symcipher_unique(void)
 
     AssertIntEQ(SendLoadExternalAesKey(&ctx, seed, WC_SHA256_DIGEST_SIZE,
         key, unique, &keyH), TPM_RC_SUCCESS);
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     AssertIntEQ(obj->seedValue.size, WC_SHA256_DIGEST_SIZE);
     AssertIntEQ(memcmp(obj->seedValue.buffer, seed, WC_SHA256_DIGEST_SIZE),
         0);
@@ -19776,9 +19785,9 @@ static void test_fwtpm_loadexternal_keyedhash(void)
         unique, &keyH), TPM_RC_BINDING);
     AssertIntEQ(SendLoadExternalHmacKey(&ctx, seed, sizeof(seed), key, 20,
         unique, &keyH), TPM_RC_SUCCESS);
-    AssertIntEQ(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.size,
+    AssertIntEQ(TransientObj(&ctx, keyH)->seedValue.size,
         sizeof(seed));
-    AssertIntEQ(memcmp(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.buffer,
+    AssertIntEQ(memcmp(TransientObj(&ctx, keyH)->seedValue.buffer,
         seed, sizeof(seed)), 0);
 
 #ifndef FWTPM_NO_HASH_CMDS
@@ -20050,7 +20059,7 @@ static void test_fwtpm_ecc_unpadded_values(void)
     /* userWithAuth | decrypt, private scalar without its leading zero */
     AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00020040, x, 32, y, 32,
         d + 1, 31, &keyH), TPM_RC_SUCCESS);
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     AssertIntEQ(FwImportEccKeyFromDer(obj, &loaded), 0);
     AssertIntEQ(wc_ecc_export_private_only(&loaded, gotD, &gotSz), 0);
     AssertIntEQ(gotSz, 32);
@@ -20228,7 +20237,7 @@ static UINT32 LoadCraftedHmacKey(FWTPM_CTX* ctx, UINT32 parentH,
     const byte* key, UINT16 keySz, const byte* unique, const byte* seed,
     UINT16 seedSz)
 {
-    FWTPM_Object* parent = &ctx->objects[parentH - TRANSIENT_FIRST];
+    FWTPM_Object* parent = TransientObj(ctx, parentH);
     byte pub[64];
     byte sens[160];
     byte priv[2 + WC_SHA256_DIGEST_SIZE + AES_BLOCK_SIZE + 2 + sizeof(sens)];
@@ -20322,7 +20331,7 @@ static void test_fwtpm_load_private_seed_value(void)
     AssertIntEQ(wc_Sha256Hash(key, (word32)sizeof(key), unique), 0);
     keyH = LoadCraftedHmacKey(&ctx, parentH, key, sizeof(key), unique, NULL,
         0);
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     AssertIntEQ(obj->seedValue.size, 0);
     AssertIntEQ(obj->privKeySize, (int)sizeof(key));
     AssertIntEQ(memcmp(obj->privKey, key, sizeof(key)), 0);
@@ -20336,7 +20345,7 @@ static void test_fwtpm_load_private_seed_value(void)
     AssertIntEQ(wc_Sha256Hash(hashSrc, (word32)sizeof(hashSrc), unique), 0);
     keyH = LoadCraftedHmacKey(&ctx, parentH, key, sizeof(key), unique, seed,
         sizeof(seed));
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     AssertIntEQ(obj->seedValue.size, sizeof(seed));
     AssertIntEQ(memcmp(obj->seedValue.buffer, seed, sizeof(seed)), 0);
     AssertIntEQ(obj->privKeySize, (int)sizeof(key));
@@ -20372,7 +20381,7 @@ static void test_fwtpm_wrap_private_max_sensitive(void)
     parentH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
 #endif
     AssertIntNE(parentH, 0);
-    parent = &ctx.objects[parentH - TRANSIENT_FIRST];
+    parent = TransientObj(&ctx, parentH);
 
     memset(&name, 0, sizeof(name));
     name.size = 2 + WC_SHA256_DIGEST_SIZE;
@@ -20788,6 +20797,8 @@ static UINT32 DupLoad(FWTPM_CTX* ctx, UINT32 parentH, const DupBlob* blob)
     pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Load);
     PutU32BE(gCmd + pos, parentH); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    AssertIntLE(blob->privSz, sizeof(blob->priv));
+    AssertIntLE(blob->pubSz, sizeof(blob->pub));
     PutU16BE(gCmd + pos, blob->privSz); pos += 2;
     memcpy(gCmd + pos, blob->priv, blob->privSz); pos += blob->privSz;
     memcpy(gCmd + pos, blob->pub, blob->pubSz); pos += blob->pubSz;
@@ -20983,7 +20994,7 @@ static void test_fwtpm_duplicate_import_roundtrip(void)
 static void DupCheckSeedValue(FWTPM_CTX* ctx, TPM_ALG_ID type, UINT32 objH,
     UINT16 seedSz, int hmacUnique, DupBlob* blob)
 {
-    FWTPM_Object* obj = &ctx->objects[objH - TRANSIENT_FIRST];
+    FWTPM_Object* obj = TransientObj(ctx, objH);
     const byte* seed;
     const byte* sens;
     const byte* unique = blob->pub + blob->pubSz - WC_SHA256_DIGEST_SIZE;
@@ -21066,7 +21077,7 @@ static void test_fwtpm_create_seed_value(void)
         }
         DupCheckSeedValue(&ctx, TPM_ALG_KEYEDHASH, objH,
             WC_SHA256_DIGEST_SIZE, 0, &gDup);
-        memcpy(seed[i], ctx.objects[objH - TRANSIENT_FIRST].seedValue.buffer,
+        memcpy(seed[i], TransientObj(&ctx, objH)->seedValue.buffer,
             sizeof(seed[i]));
         AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0,
             &gDup), TPM_RC_SUCCESS);
@@ -21075,7 +21086,7 @@ static void test_fwtpm_create_seed_value(void)
         DupCheckSeedValue(&ctx, TPM_ALG_KEYEDHASH, newH,
             WC_SHA256_DIGEST_SIZE, 0, &gDup);
         AssertIntEQ(memcmp(seed[i],
-            ctx.objects[newH - TRANSIENT_FIRST].seedValue.buffer,
+            TransientObj(&ctx, newH)->seedValue.buffer,
             sizeof(seed[i])), 0);
         FlushHandle(&ctx, newH);
         FlushHandle(&ctx, objH);
@@ -21176,7 +21187,7 @@ static void test_fwtpm_create_primary_seed_value(void)
             pubSz = gDup.pubSz;
             DupCheckSeedValue(&ctx, types[i], objH, WC_SHA256_DIGEST_SIZE, 0,
                 &gDup);
-            obj = &ctx.objects[objH - TRANSIENT_FIRST];
+            obj = TransientObj(&ctx, objH);
             if (pass == 0) {
                 memcpy(seed, obj->seedValue.buffer, sizeof(seed));
                 memcpy(unique, gDup.pub + pubSz - sizeof(unique),
@@ -21216,7 +21227,7 @@ static void test_fwtpm_create_primary_seed_value(void)
     memcpy(ctx.primaryCache[k].pub.unique.keyedHash.buffer, legacy,
         sizeof(legacy));
     objH = DupCreateObject(&ctx, TPM_ALG_KEYEDHASH, DUP_ATTR_HMAC, &gDup);
-    obj = &ctx.objects[objH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, objH);
     AssertIntEQ(obj->seedValue.size, 0);
     AssertIntEQ(memcmp(gDup.pub + gDup.pubSz - sizeof(legacy), legacy,
         sizeof(legacy)), 0);
@@ -21552,9 +21563,9 @@ static void test_fwtpm_import_known_duplicate(void)
         &gDup), TPM_RC_SUCCESS);
     keyH = DupLoad(&ctx, parentH, &gDup);
     DupCheckUse(&ctx, TPM_ALG_KEYEDHASH, keyH, 0);
-    AssertIntEQ(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.size,
+    AssertIntEQ(TransientObj(&ctx, keyH)->seedValue.size,
         sizeof(seedValue));
-    AssertIntEQ(memcmp(ctx.objects[keyH - TRANSIENT_FIRST].seedValue.buffer,
+    AssertIntEQ(memcmp(TransientObj(&ctx, keyH)->seedValue.buffer,
         seedValue, sizeof(seedValue)), 0);
     FlushHandle(&ctx, keyH);
 
@@ -21674,7 +21685,7 @@ static void test_fwtpm_import_empty_keyedhash_auth(void)
     AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
         TPM_RC_SUCCESS);
     objH = DupLoad(&ctx, parentH, &gDup);
-    AssertIntEQ(ctx.objects[objH - TRANSIENT_FIRST].privKeySize, 0);
+    AssertIntEQ(TransientObj(&ctx, objH)->privKeySize, 0);
     sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
     AssertIntNE(sessH, 0);
     AssertIntEQ(SendUnseal(&ctx, objH, sessH, NULL, 0, &dataSz),
@@ -21698,7 +21709,7 @@ static void test_fwtpm_import_empty_keyedhash_auth(void)
     AssertIntEQ(DupImport(&ctx, parentH, NULL, 0, TPM_ALG_NULL, 0, &gDup),
         TPM_RC_SUCCESS);
     objH = DupLoad(&ctx, parentH, &gDup);
-    AssertIntEQ(ctx.objects[objH - TRANSIENT_FIRST].privKeySize, 0);
+    AssertIntEQ(TransientObj(&ctx, objH)->privKeySize, 0);
     dataSz = -1;
     AssertIntEQ(SendUnseal(&ctx, objH, 0, gDupAuth, sizeof(gDupAuth) - 1,
         &dataSz), TPM_RC_SUCCESS);
@@ -21767,7 +21778,9 @@ static void DupSetSeedSize(DupBlob* blob, UINT16 seedSz)
 {
     int pos = 4, oldSz, tailSz;
 
+    AssertIntLE(blob->dupSz, sizeof(blob->dup));
     pos += 2 + GetU16BE(blob->dup + pos); /* authValue */
+    AssertIntLE(pos + 2, (int)blob->dupSz);
     oldSz = GetU16BE(blob->dup + pos);
     tailSz = blob->dupSz - (pos + 2 + oldSz);
     AssertIntGT(tailSz, 1);
@@ -24209,7 +24222,7 @@ static void test_fwtpm_context_object_roundtrip(void)
     AssertIntGT(ctxSz, 0);
     memcpy(savedObj, gRsp + TPM2_HEADER_SIZE, ctxSz);
 
-    original = ctx.objects[keyH - TRANSIENT_FIRST];
+    original = *TransientObj(&ctx, keyH);
     FlushHandle(&ctx, keyH);
     /* Occupy the original slot: loading must restore the saved object into
      * another slot, rather than alias this replacement object. */
@@ -24225,7 +24238,7 @@ static void test_fwtpm_context_object_roundtrip(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
     AssertIntNE(loadedH, keyH);
-    slot = (int)(loadedH - TRANSIENT_FIRST);
+    slot = (int)(TransientObj(&ctx, loadedH) - ctx.objects);
     AssertIntLE(slot, FWTPM_MAX_OBJECTS - 1);
     AssertIntEQ(ctx.objects[slot].privKeySize, original.privKeySize);
     AssertIntEQ(XMEMCMP(ctx.objects[slot].privKey, original.privKey,
@@ -24294,7 +24307,7 @@ static void test_fwtpm_context_legacy_hierarchy(void)
     keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
 #endif
     AssertIntNE(keyH, 0);
-    ctx.objects[keyH - TRANSIENT_FIRST].hierarchy = 0;
+    TransientObj(&ctx, keyH)->hierarchy = 0;
 
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
     PutU32BE(gCmd + 10, keyH);
@@ -24323,7 +24336,7 @@ static void test_fwtpm_context_legacy_hierarchy(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
-    AssertIntEQ(ctx.objects[loadedH - TRANSIENT_FIRST].hierarchy, 0);
+    AssertIntEQ(TransientObj(&ctx, loadedH)->hierarchy, 0);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ContextLoad legacy hierarchy object:", 0);
@@ -24352,7 +24365,7 @@ static void test_fwtpm_context_object_seed_value(void)
 #endif
     AssertIntNE(keyH, 0);
     memset(seed, 0x6D, sizeof(seed));
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     obj->seedValue.size = sizeof(seed);
     memcpy(obj->seedValue.buffer, seed, sizeof(seed));
 
@@ -24389,7 +24402,7 @@ static void test_fwtpm_context_object_seed_value(void)
         FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
         AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
         loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
-        obj = &ctx.objects[loadedH - TRANSIENT_FIRST];
+        obj = TransientObj(&ctx, loadedH);
         if (i == 0) {
             AssertIntEQ(obj->seedValue.size, sizeof(seed));
             AssertIntEQ(memcmp(obj->seedValue.buffer, seed, sizeof(seed)), 0);
@@ -26971,7 +26984,7 @@ static void test_fwtpm_rsa_seed_hashes(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), TPM_RC_SUCCESS);
     keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
     AssertIntNE(keyH, 0);
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     for (i = 0; i < sizeof(hashes) / sizeof(hashes[0]); i++) {
         if (wc_HashGetDigestSize(FwGetWcHashType(hashes[i])) <= 0 ||
                 FwGetMgfType(hashes[i]) == WC_MGF1NONE) {
@@ -27042,7 +27055,7 @@ static void test_fwtpm_start_auth_session_salt_rules(void)
 
     keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
     AssertIntNE(keyH, 0);
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     AssertIntEQ(obj->pub.nameAlg, TPM_ALG_SHA256);
     AssertIntEQ(FwImportRsaKey(obj, &key), TPM_RC_SUCCESS);
     AssertIntEQ(wc_RsaSetRNG(&key, &ctx.rng), 0);
@@ -31458,7 +31471,7 @@ static void test_fwtpm_policysigned(void)
     /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|noDA|sign */
     keyH = CreateEccSignPrimaryScheme(&ctx, 0x00040472, TPM_ALG_ECDSA,
         TPM_ALG_SHA256);
-    obj = &ctx.objects[keyH - TRANSIENT_FIRST];
+    obj = TransientObj(&ctx, keyH);
     AssertIntEQ(obj->handle, keyH);
     AssertIntEQ(obj->name.size, 2 + WC_SHA256_DIGEST_SIZE);
 
@@ -32335,6 +32348,7 @@ static void CalcQualifiedName(const byte* parentQn, int parentQnSz,
     byte data[2 * sizeof(name->name)];
 
     AssertIntLE(parentQnSz, (int)sizeof(name->name));
+    AssertIntLE(name->size, sizeof(name->name));
     memcpy(data, parentQn, parentQnSz);
     memcpy(data + parentQnSz, name->name, name->size);
     PutU16BE(qn->name, TPM_ALG_SHA256);
@@ -32350,6 +32364,7 @@ static void CheckQualifiedName(FWTPM_CTX* ctx, UINT32 handle,
     TPM2B_NAME name, expect;
 
     ReadNames(ctx, handle, &name, qn);
+    AssertIntLE(name.size, sizeof(name.name));
     CalcQualifiedName(parentQn, parentQnSz, &name, &expect);
     AssertIntEQ(qn->size, expect.size);
     AssertIntEQ(memcmp(qn->name, expect.name, expect.size), 0);
@@ -32512,7 +32527,6 @@ static void test_fwtpm_qualified_name_chain(void)
     memcpy(saved, gRsp + TPM2_HEADER_SIZE, savedSz);
     FlushHandle(&ctx, grandH);
     FlushHandle(&ctx, childH);
-    childH = 0;
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
     memcpy(gCmd + pos, saved, savedSz); pos += savedSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -32523,12 +32537,11 @@ static void test_fwtpm_qualified_name_chain(void)
     ReadNames(&ctx, grandH, &name, &qn);
     AssertIntEQ(qn.size, grandQn.size);
     AssertIntEQ(memcmp(qn.name, grandQn.name, grandQn.size), 0);
+#else
+    FlushHandle(&ctx, childH);
 #endif
 
     FlushHandle(&ctx, grandH);
-    if (childH != 0) {
-        FlushHandle(&ctx, childH);
-    }
     FlushHandle(&ctx, primaryH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Qualified Name chain:", 0);
@@ -32775,6 +32788,7 @@ static TPM_RC SendAttestNullSigner(FWTPM_CTX* ctx, UINT32 cc, UINT32 objH,
     gCmd[pos++] = 'd';
     if (cc == TPM_CC_CertifyCreation) {
         hashSz = 2 + GetU16BE(creation);
+        AssertIntLE(hashSz, 2 + TPM_MAX_DIGEST_SIZE);
         memcpy(gCmd + pos, creation, hashSz); pos += hashSz;
     }
     PutU16BE(gCmd + pos, sigScheme); pos += 2;
@@ -32789,6 +32803,7 @@ static TPM_RC SendAttestNullSigner(FWTPM_CTX* ctx, UINT32 cc, UINT32 objH,
     }
     else if (cc == TPM_CC_CertifyCreation) {
         ticketSz = 2 + 4 + 2 + GetU16BE(creation + hashSz + 6);
+        AssertIntLE(ticketSz, 8 + TPM_MAX_DIGEST_SIZE);
         memcpy(gCmd + pos, creation + hashSz, ticketSz); pos += ticketSz;
     }
     else if (cc == TPM_CC_NV_Certify) {
