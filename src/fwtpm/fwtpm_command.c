@@ -5319,9 +5319,11 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
                 if (rc == 0 && sensDataSize > 0) {
                     /* Use caller-supplied key material */
+                #if MAX_SYM_DATA > FWTPM_MAX_PRIVKEY_DER
                     if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
                     }
+                #endif
                     if (rc == 0) {
                         rc = FwCheckCreateKeyedHashSize(
                             &inPublic->publicArea, sensDataSize);
@@ -8614,9 +8616,11 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
                 if (rc == 0 && sensDataSize > 0) {
                     /* Use caller-supplied key material */
+                #if MAX_SYM_DATA > FWTPM_MAX_PRIVKEY_DER
                     if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
                     }
+                #endif
                     if (rc == 0) {
                         rc = FwCheckCreateKeyedHashSize(
                             &inPublic->publicArea, sensDataSize);
@@ -10882,9 +10886,11 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
+                #if MAX_SYM_DATA > FWTPM_MAX_PRIVKEY_DER
                     if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
                         rc = TPM_RC_SIZE;
                     }
+                #endif
                     if (rc == 0) {
                         rc = FwCheckCreateKeyedHashSize(
                             &inPublic->publicArea, sensDataSize);
