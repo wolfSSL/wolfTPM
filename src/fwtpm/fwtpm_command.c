@@ -4758,18 +4758,19 @@ void FWTPM_FlushCommandClient(FWTPM_CTX* ctx, UINT32 clientId)
 }
 
 /* Append TPMS_CREATION_DATA (Part 2 Sec.15.1). creationPcr points at the
- * TPML_PCR_SELECTION of the command, already checked against its size, and
- * parent is NULL when parentHandle is a permanent handle. */
+ * TPML_PCR_SELECTION of the command, creationPcrSz is the rest of the command
+ * from there, and parent is NULL when parentHandle is a permanent handle. */
 static TPM_RC FwAppendCreationData(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     TPM_HANDLE parentHandle, FWTPM_Object* parent, TPMI_ALG_HASH nameAlg,
-    const byte* creationPcr, const byte* outsideInfo, UINT16 outsideInfoSz)
+    const byte* creationPcr, UINT32 creationPcrSz, const byte* outsideInfo,
+    UINT16 outsideInfoSz)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
     enum wc_HashType wcHash = FwGetWcHashType(nameAlg);
     int dSz = TPM2_GetHashDigestSize(nameAlg);
     byte pcrDigest[TPM_MAX_DIGEST_SIZE];
-    UINT32 count = FwLoadU32BE(creationPcr);
+    UINT32 count = 0;
     UINT32 s;
     int hashInit = 0;
 
@@ -4789,21 +4790,40 @@ static TPM_RC FwAppendCreationData(FWTPM_CTX* ctx, TPM2_Packet* rsp,
 
     /* pcrSelect, less the PCR that are not implemented or allocated, and
      * pcrDigest over the PCR that are left */
+    if (rc == 0 && creationPcrSz < 4) {
+        rc = TPM_RC_SIZE;
+    }
+    if (rc == 0) {
+        count = FwLoadU32BE(creationPcr);
+        if (count > HASH_COUNT) {
+            rc = TPM_RC_SIZE;
+        }
+    }
     if (rc == 0) {
         creationPcr += 4;
+        creationPcrSz -= 4;
         TPM2_Packet_AppendU32(rsp, count);
     }
     for (s = 0; s < count && rc == 0; s++) {
-        UINT16 hashAlg = FwLoadU16BE(creationPcr);
-        UINT8 sizeofSelect = creationPcr[2];
-        int bank = FwGetPcrBankIndex(hashAlg);
-        int bankDSz = TPM2_GetHashDigestSize(hashAlg);
+        UINT16 hashAlg;
+        UINT8 sizeofSelect;
+        int bank, bankDSz;
         int j, bit;
 
+        if (creationPcrSz < 3 || creationPcr[2] > PCR_SELECT_MAX ||
+                (UINT32)creationPcr[2] > creationPcrSz - 3) {
+            rc = TPM_RC_SIZE;
+            break;
+        }
+        hashAlg = FwLoadU16BE(creationPcr);
+        sizeofSelect = creationPcr[2];
+        bank = FwGetPcrBankIndex(hashAlg);
+        bankDSz = TPM2_GetHashDigestSize(hashAlg);
         if (bank >= 0 && (ctx->pcrAllocatedBanks & (1u << bank)) == 0) {
             bank = -1;
         }
         creationPcr += 3;
+        creationPcrSz -= 3 + (UINT32)sizeofSelect;
         TPM2_Packet_AppendU16(rsp, hashAlg);
         TPM2_Packet_AppendU8(rsp, sizeofSelect);
         for (j = 0; j < (int)sizeofSelect && rc == 0; j++) {
@@ -5438,6 +5458,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         cdStart = rsp->pos; /* start of TPMS_CREATION_DATA */
         rc = FwAppendCreationData(ctx, rsp, primaryHandle, NULL,
             obj->pub.nameAlg, cmd->buf + creationPcrPos,
+            (UINT32)(cmdSize - creationPcrPos),
             cmd->buf + outsideInfoPos, outsideInfoSize);
         TPM2_Packet_PlaceU16(rsp, cdMarkPos);
 
@@ -8720,6 +8741,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         cdStart2 = rsp->pos;
         rc = FwAppendCreationData(ctx, rsp, parentHandle, parent,
             inPublic->publicArea.nameAlg, cmd->buf + creationPcrPos,
+            (UINT32)(cmdSize - creationPcrPos),
             cmd->buf + outsideInfoPos, outsideInfoSize);
         TPM2_Packet_PlaceU16(rsp, cdMarkPos);
 
