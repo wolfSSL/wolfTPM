@@ -4337,6 +4337,18 @@ static void test_TPM2_command_process_session_sizes(void)
     rc = TPM2_NV_Write(&in);
     AssertIntEQ(rc, BUFFER_E);
 
+    /* PolicyPassword: the authValue follows the session key in auth */
+    XMEMSET(sessions, 0, sizeof(sessions));
+    sessions[0].sessionHandle = POLICY_SESSION_FIRST;
+    sessions[0].policyPass = 1;
+    sessions[0].authHash = TPM_ALG_SHA256;
+    sessions[0].auth.size = TPM_SHA256_DIGEST_SIZE - 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
+    sessions[0].auth.size = (UINT16)sizeof(sessions[0].auth.buffer) + 1;
+    rc = TPM2_NV_Write(&in);
+    AssertIntEQ(rc, BUFFER_E);
+
 #ifndef NO_HMAC
     /* name of the second handle (the NV index) */
     XMEMSET(sessions, 0, sizeof(sessions));

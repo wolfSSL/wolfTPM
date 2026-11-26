@@ -334,13 +334,16 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                  session->policyPass) {
             keySz = session->noSessionKey ? 0 :
                 (UINT16)TPM2_GetHashDigestSize(session->authHash);
-            if (keySz > session->auth.size) {
+            if (session->auth.size > sizeof(session->auth.buffer) ||
+                    keySz > session->auth.size) {
                 TPM2_ForceZero(&authCmd, sizeof(authCmd));
                 return BUFFER_E;
             }
             authCmd.hmac.size = session->auth.size - keySz;
-            XMEMCPY(authCmd.hmac.buffer, &session->auth.buffer[keySz],
-                authCmd.hmac.size);
+            if (authCmd.hmac.size > 0) {
+                XMEMCPY(authCmd.hmac.buffer, &session->auth.buffer[keySz],
+                    authCmd.hmac.size);
+            }
             if ((info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4)) == 0) {
                 authCmd.sessionAttributes &= ~TPMA_SESSION_decrypt;
             }
